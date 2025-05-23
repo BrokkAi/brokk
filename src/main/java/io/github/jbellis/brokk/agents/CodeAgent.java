@@ -674,7 +674,7 @@ public class CodeAgent {
         }
 
         io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        io.llmOutput("```bash\n", ChatMessageType.CUSTOM);
+        io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
         try {
             var output = Environment.instance.runShellCommand(verificationCommand,
                                                               cm.getProject().getRoot(),
