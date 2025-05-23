@@ -112,14 +112,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // For now, type inference will be based on syntax, not file extension.
         // If super.getProject().findFile(sourcePath) could be used, it would require sourcePath.
 
-        // Infer JSX.Element return type only for exported functions starting with an uppercase letter
-        // (common React component convention) if no explicit return type is present.
+        // Infer JSX.Element return type if no explicit return type is present AND:
+        // 1. It's an exported function/component starting with an uppercase letter (common React convention).
+        // OR
+        // 2. It's a method named "render" (classic React class component method).
         boolean isExported = exportPrefix != null && !exportPrefix.trim().isEmpty();
         boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
+        boolean isRenderMethod = "render".equals(functionName);
 
-        if (isExported && isComponentName && (returnTypeText == null || returnTypeText.isEmpty())) {
+        if ((isRenderMethod || (isExported && isComponentName)) && (returnTypeText == null || returnTypeText.isEmpty())) {
             if (returnsJsxElement(funcNode, src)) {
-                inferredReturnType = "JSX.Element"; 
+                inferredReturnType = "JSX.Element";
             }
         }
 

@@ -101,7 +101,7 @@ public class TreeSitterAnalyzerMiscTest {
         // Test case 2: Arrow function component in JSX
         Optional<String> jsxArrowFnHeader = jsAnalyzer.getSkeletonHeader("JsxArrowFnComponent");
         assertTrue(jsxArrowFnHeader.isPresent(), "Skeleton header for JsxArrowFnComponent should be defined.");
-        assertEquals("export JsxArrowFnComponent({ name }) => ...", jsxArrowFnHeader.get().trim());
+        assertEquals("export JsxArrowFnComponent({ name }): JSX.Element => ...", jsxArrowFnHeader.get().trim());
         
         // Test case 3: Regular function in JS
         Optional<String> utilFuncHeader = jsAnalyzer.getSkeletonHeader("util"); // From Hello.js
