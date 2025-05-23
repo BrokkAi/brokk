@@ -91,7 +91,7 @@ public class GitLogTab extends JPanel {
         constraints.fill = GridBagConstraints.BOTH;
         constraints.weighty = 1.0;  // always fill vertically
 
-        // ============ Branches Panel (left ~15%) ============    
+        // ============ Branches Panel (left ~15%) ============
 
         JPanel branchesPanel = new JPanel(new BorderLayout());
         branchesPanel.setBorder(BorderFactory.createTitledBorder("Branches"));
@@ -176,7 +176,7 @@ public class GitLogTab extends JPanel {
         branchButtonPanel.add(refreshBranchesButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
 
-        // ============ Commits Panel (center ~50%) ============    
+        // ============ Commits Panel (center ~50%) ============
 
         JPanel commitsPanel = new JPanel(new BorderLayout());
         commitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
@@ -228,20 +228,20 @@ public class GitLogTab extends JPanel {
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column)
             {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
+                boolean unpushed = (boolean) table.getModel().getValueAt(row, 4);
+
                 if (!isSelected) {
-                    Boolean unpushed = (Boolean) table.getModel().getValueAt(row, 4);
-                    if (Boolean.TRUE.equals(unpushed)) {
-                        boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
+                    if (unpushed) {
                         c.setBackground(Colors.getChanged(isDark));
                     } else {
                         c.setBackground(table.getBackground()); // Reset background if not unpushed
                     }
+                    c.setForeground(table.getForeground());
                 } else {
                     // Ensure selected rows also get the correct background if they are unpushed
-                    Boolean unpushed = (Boolean) table.getModel().getValueAt(row, 4);
-                    if (Boolean.TRUE.equals(unpushed)) {
-                         boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
-                         c.setBackground(Colors.getChanged(isDark).darker()); // Slightly darker for selection maybe? Or use selection colors
+                    if (unpushed) {
+                        c.setBackground(Colors.getChanged(isDark).darker()); // Slightly darker for selection maybe? Or use selection colors
                     } else {
                         c.setBackground(table.getSelectionBackground()); // Use default selection background
                     }
@@ -760,7 +760,7 @@ public class GitLogTab extends JPanel {
             }
         });
 
-        // ============ Search Panel (rightmost ~10%) ============ 
+        // ============ Search Panel (rightmost ~10%) ============
 
         JPanel searchPanel = new JPanel(new BorderLayout());
         searchPanel.setBorder(BorderFactory.createTitledBorder("Search"));
@@ -803,7 +803,7 @@ public class GitLogTab extends JPanel {
         searchButtonPanel.add(Box.createVerticalStrut(5));
         searchPanel.add(searchButtonPanel, BorderLayout.SOUTH);
 
-        // ============ Add sub-panels to logPanel with GridBag ============ 
+        // ============ Add sub-panels to logPanel with GridBag ============
 
         // Set a nominal preferred size for direct children of logPanel
         // to make GridBagLayout distribute space primarily based on weightx.
