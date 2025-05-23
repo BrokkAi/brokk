@@ -80,6 +80,7 @@ public class WorkspacePanel extends JPanel {
 
     private JTable contextTable;
     private JPanel locSummaryLabel;
+    private boolean workspaceCurrentlyEditable = true;
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -104,13 +105,14 @@ public class WorkspacePanel extends JPanel {
         buildContextPanel();
 
         ((JLabel) locSummaryLabel.getComponent(0)).setText(EMPTY_CONTEXT);
+        setWorkspaceEditable(true); // Set initial state
     }
 
     /**
      * Build the context panel (unified table + action buttons).
      */
     private void buildContextPanel() {
-        contextTable = new JTable(new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -126,7 +128,18 @@ public class WorkspacePanel extends JPanel {
                     default -> Object.class;
                 };
             }
-        });
+        };
+
+        contextTable = new JTable(tableModel) {
+            @Override
+            public Component prepareRenderer(javax.swing.table.TableCellRenderer renderer, int row, int column) {
+                Component c = super.prepareRenderer(renderer, row, column);
+                if (c != null) {
+                    c.setEnabled(workspaceCurrentlyEditable);
+                }
+                return c;
+            }
+        };
 
         // Add custom cell renderer for the "Description" column
         contextTable.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
@@ -1430,5 +1443,19 @@ public class WorkspacePanel extends JPanel {
             logger.error("IOException during HEAD request to {}: {}", uri, e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * Sets the editable state of the workspace panel.
+     *
+     * @param editable true to make the workspace editable, false otherwise.
+     */
+    public void setWorkspaceEditable(boolean editable) {
+        SwingUtilities.invokeLater(() -> {
+            this.workspaceCurrentlyEditable = editable;
+            if (contextTable != null) {
+                contextTable.repaint();
+            }
+        });
     }
 }
