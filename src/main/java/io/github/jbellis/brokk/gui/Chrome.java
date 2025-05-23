@@ -343,6 +343,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
+            // Determine if the current context (ctx) is the latest one in the history
+            boolean isEditable = false;
+            Context latestContext = contextManager.getContextHistory().topContext();
+            if (latestContext != null) {
+                isEditable = ctx.equals(latestContext);
+            } else if (ctx.getId() == 1) { 
+                // If context history is somehow uninitialized but we are setting the initial welcome context (ID 1),
+                // consider it editable. This is a fallback.
+                isEditable = true; 
+            }
+            // workspacePanel is a final field initialized in the constructor, so it won't be null here.
+            workspacePanel.setWorkspaceEditable(isEditable);
             if (resetOutput) {
                 if (ctx.getParsedOutput() != null) {
                     historyOutputPanel.resetLlmOutput(ctx.getParsedOutput(), forceScrollToTop);
