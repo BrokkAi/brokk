@@ -124,8 +124,8 @@ public class ContextAgent {
     public boolean execute() throws InterruptedException {
         io.llmOutput("\nExamining initial workspace", ChatMessageType.CUSTOM);
 
-        // Execute without a specific limit on recommendations
-        var recommendationResult = getRecommendations();
+        // Execute without a specific limit on recommendations, allowing skip-pruning
+        var recommendationResult = getRecommendations(true);
         if (!recommendationResult.success || recommendationResult.fragments.isEmpty()) {
             io.llmOutput("\nNo additional recommended context found", ChatMessageType.CUSTOM);
             // Display reasoning even if no fragments were found, if available
@@ -227,10 +227,10 @@ public class ContextAgent {
      * potentially using LLM inference, and returns recommended context fragments.
      * <p>
      * potentially using LLM inference, and returns recommended context fragments.
-     *
+     * @param allowSkipPruning If true, allows the agent to skip LLM-based pruning if the initial context fits `skipPruningBudget`.
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
-    public RecommendationResult getRecommendations() throws InterruptedException {
+    public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
         Collection<ChatMessage> workspaceRepresentation = deepScan
                                                           ? contextManager.getWorkspaceContentsMessages()
                                                           : contextManager.getWorkspaceSummaryMessages();
@@ -239,13 +239,13 @@ public class ContextAgent {
         // try single-pass mode first
         if (analyzer.isEmpty()) {
             // If no analyzer, try full file contents directly
-            var contentResult = executeWithFileContents(allFiles, workspaceRepresentation);
+            var contentResult = executeWithFileContents(allFiles, workspaceRepresentation, allowSkipPruning);
             if (contentResult.success) {
                 return contentResult;
             }
             // If contents failed, fall through to filename-based pruning
         } else {
-            var summaryResult = executeWithSummaries(allFiles, workspaceRepresentation);
+            var summaryResult = executeWithSummaries(allFiles, workspaceRepresentation, allowSkipPruning);
             if (summaryResult.success) {
                 return summaryResult;
             }
@@ -281,7 +281,8 @@ public class ContextAgent {
         // Fallback 2: After pruning filenames, try again with summaries or contents using the pruned list
         if (!analyzer.isEmpty()) {
             debug("Attempting context recommendation with summaries of pruned files.");
-            var summaryResult = executeWithSummaries(prunedFiles, workspaceRepresentation);
+            // When using pruned files, skipPruning is not relevant as we've already decided to prune.
+            var summaryResult = executeWithSummaries(prunedFiles, workspaceRepresentation, false);
             // Return the result directly (success or failure, with fragments and reasoning)
             if (!summaryResult.success) {
                 logGiveUp("summaries of pruned files");
@@ -289,7 +290,8 @@ public class ContextAgent {
             return summaryResult;
         } else {
             debug("Attempting context recommendation with contents of pruned files.");
-            var contentResult = executeWithFileContents(prunedFiles, workspaceRepresentation);
+            // When using pruned files, skipPruning is not relevant as we've already decided to prune.
+            var contentResult = executeWithFileContents(prunedFiles, workspaceRepresentation, false);
             // Return the result directly (success or failure, with fragments and reasoning)
             if (!contentResult.success) {
                 logGiveUp("contents of pruned files");
@@ -300,7 +302,9 @@ public class ContextAgent {
 
     // --- Logic branch for using class summaries ---
 
-    private RecommendationResult executeWithSummaries(List<ProjectFile> filesToConsider, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
+    private RecommendationResult executeWithSummaries(List<ProjectFile> filesToConsider,
+                                                      Collection<ChatMessage> workspaceRepresentation,
+                                                      boolean allowSkipPruning) throws InterruptedException {
         Map<CodeUnit, String> rawSummaries;
         var ctx = contextManager.topContext();
         var codeInWorkspace = ctx.allFragments().flatMap(f -> f.sources(analyzer).stream()).findAny().isPresent();
@@ -320,9 +324,9 @@ public class ContextAgent {
         debug("Total tokens for {} summaries (from {} files): {}", rawSummaries.size(), filesToConsider.size(), summaryTokens);
 
         boolean withinLimit = deepScan || rawSummaries.size() <= QUICK_TOPK;
-        if (summaryTokens <= skipPruningBudget && withinLimit) {
+        if (allowSkipPruning && summaryTokens <= skipPruningBudget && withinLimit) {
             var fragments = skeletonPerSummary(rawSummaries);
-            return new RecommendationResult(true, fragments, "Using all summaries within budget and limits.");
+            return new RecommendationResult(true, fragments, "Using all summaries within budget and limits (skip pruning).");
         }
 
         // Rule 2: Ask LLM to pick relevant summaries/files if all summaries fit the Pruning budget
@@ -724,7 +728,9 @@ public class ContextAgent {
 
     // --- Logic branch for using full file contents (when analyzer is not available or summaries failed) ---
 
-    private RecommendationResult executeWithFileContents(List<ProjectFile> filesToConsider, Collection<ChatMessage> workspaceRepresentation) throws InterruptedException {
+    private RecommendationResult executeWithFileContents(List<ProjectFile> filesToConsider,
+                                                         Collection<ChatMessage> workspaceRepresentation,
+                                                         boolean allowSkipPruning) throws InterruptedException {
         // If the workspace isn't empty and we have no analyzer, don't suggest adding whole files.
         // Allow proceeding if analyzer *is* present but summary step failed (e.g., too large).
         if (analyzer.isEmpty() && (!contextManager.getEditableFiles().isEmpty() || !contextManager.getReadonlyFiles().isEmpty())) {
@@ -738,7 +744,7 @@ public class ContextAgent {
 
         // Rule 1: Use all available files if content fits the smallest budget and meet the limit (if not deepScan)
         boolean withinLimit = deepScan || filesToConsider.size() <= QUICK_TOPK; // Use QUICK_TOPK here
-        if (contentTokens <= skipPruningBudget && withinLimit) {
+        if (allowSkipPruning && contentTokens <= skipPruningBudget && withinLimit) {
             var fragments = filesToConsider.stream()
                     .map(f -> (ContextFragment) new ContextFragment.ProjectPathFragment(f))
                     .toList();
@@ -752,7 +758,7 @@ public class ContextAgent {
                          .filter(frag -> !existingFiles.contains(((ContextFragment.ProjectPathFragment)frag).file()))
                          .toList();
             }
-            return new RecommendationResult(true, fragments, "Using all file contents within budget and limits.");
+            return new RecommendationResult(true, fragments, "Using all file contents within budget and limits (skip pruning).");
         }
 
         // Rule 2: Ask LLM to pick relevant files if all content fits the Pruning budget

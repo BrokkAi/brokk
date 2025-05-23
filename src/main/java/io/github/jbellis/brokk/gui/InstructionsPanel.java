@@ -917,7 +917,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         ContextAgent.RecommendationResult recommendations;
         try {
             ContextAgent agent = new ContextAgent(contextManager, model, snapshot, false);
-            recommendations = agent.getRecommendations();
+            recommendations = agent.getRecommendations(false);
 
             // 10. Process results
             if (!recommendations.success()) {

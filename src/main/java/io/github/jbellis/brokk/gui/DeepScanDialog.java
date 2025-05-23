@@ -54,7 +54,7 @@ class DeepScanDialog {
             var model = contextManager.getEditModel();
             // Use full workspace context for deep scan
             var agent = new ContextAgent(contextManager, model, goal, true);
-            var recommendations = agent.getRecommendations();
+            var recommendations = agent.getRecommendations(false);
             logger.debug("Deep Scan: ContextAgent proposed {} fragments with reasoning: {}",
                          recommendations.fragments().size(), recommendations.reasoning());
             return recommendations;
