@@ -162,5 +162,9 @@ Brokk uses sbt (Scala Build Tool) since it has a Scala component. To build Brokk
 2. Run the sbt repl: `sbt`
 3. In the sbt repl, run individual commands: `run`, `clean`, `test`, `assembly`, etc.
 
-(You can run a single command without the repl with e.g. `sbt run` but sbt has a very high
-startup overhead so using the repl is recommended.)
+If you have `sbtn` installed it can be used to run commands such as `sbtn run` with a faster startup time.
+(You can also run a single command without the repl with e.g. `sbt run` but sbt has a very high
+startup overhead so using the repl or `sbtn` is recommended.)
+
+If you change the build definition, run `reload` to start using the changes.
+

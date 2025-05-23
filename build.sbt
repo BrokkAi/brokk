@@ -10,7 +10,7 @@ name := "brokk"
 
 val javaVersion = "21"
 javacOptions ++= Seq(
-  "-source", javaVersion, 
+  "-source", javaVersion,
   "-target", javaVersion,
   // Reflection-specific flags
   "-parameters",           // Preserve method parameter names
@@ -19,8 +19,7 @@ javacOptions ++= Seq(
 scalacOptions ++= Seq(
   "-Xfatal-warnings",
   "-print-lines",
-  "-encoding",
-  "UTF-8",
+  "-encoding", "UTF-8", // two args, need to go together
   // Reflection-related compiler options
   "-language:reflectiveCalls",
   "-feature",
@@ -108,10 +107,13 @@ assembly / assemblyMergeStrategy := {
 assembly / mainClass := Some("io.github.jbellis.brokk.Brokk")
 Compile / mainClass := Some("io.github.jbellis.brokk.Brokk")
 
+Compile / run / fork := true
+javaOptions ++= Seq(
+  "-ea",
+  "--add-modules=jdk.incubator.vector",
+  "-Dbrokk.devmode=true",
+  "-Dbrokk.prtab=true"
+)
+
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
 
-Compile / run / fork := true
-javaOptions += "-ea"
-javaOptions += "--add-modules=jdk.incubator.vector"
-javaOptions += "-Dbrokk.devmode=true"
-javaOptions += "-Dbrokk.prtab=true"
