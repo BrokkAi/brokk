@@ -44,7 +44,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     private final ThreadLocal<TSQuery> packageQuery;
 
     public GoAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.GO, excludedFiles);
         // Initialize the ThreadLocal for the package query.
         // getTSLanguage() is safe to call here and will provide a thread-specific TSLanguage.
         this.packageQuery = ThreadLocal.withInitial(() -> {

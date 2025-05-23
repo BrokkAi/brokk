@@ -23,6 +23,16 @@ public interface Language {
     String name();
     IAnalyzer createAnalyzer(Project project);
     IAnalyzer loadAnalyzer(Project project);
+
+    /**
+     * Get the path where the CPG for this language in the given project should be stored.
+     * @param project The project.
+     * @return The path to the CPG file.
+     */
+    default Path getCpgPath(Project project) {
+        return project.getRoot().resolve(".brokk").resolve(name().toLowerCase() + ".cpg");
+    }
+
     default List<Path> getDependencyCandidates(Project project) {
         return List.of();
     }
@@ -65,16 +75,12 @@ public interface Language {
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
             var analyzer = new JavaAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getAnalyzerPath(project));
+            analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        private static @NotNull Path getAnalyzerPath(Project project) {
-            return project.getRoot().resolve(".brokk").resolve("joern.cpg");
-        }
-
         @Override public JavaAnalyzer loadAnalyzer(Project project) {
-            return new JavaAnalyzer(project.getRoot(), getAnalyzerPath(project));
+            return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
         }
 
         @Override
@@ -377,16 +383,12 @@ public interface Language {
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
             var analyzer = new CppAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getAnalyzerPath(project));
+            analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        private static @NotNull Path getAnalyzerPath(Project project) {
-            return project.getRoot().resolve(".brokk").resolve("joern.cpg");
-        }
-
         @Override public CppAnalyzer loadAnalyzer(Project project) {
-            return new CppAnalyzer(project.getRoot(), getAnalyzerPath(project));
+            return new CppAnalyzer(project.getRoot(), getCpgPath(project));
         }
         @Override
         public boolean isCpg() { return true; }

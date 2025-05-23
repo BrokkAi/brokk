@@ -1,65 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.IGitRepo;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class TreeSitterAnalyzerMiscTest {
-
-    // Copied from TreeSitterAnalyzerTest.java for test project setup
-    final static class TestProject implements IProject {
-        private final Path root;
-        private final Language language;
-
-        TestProject(Path root, Language language) {
-            this.root = root;
-            this.language = language;
-        }
-
-        @Override
-        public Language getAnalyzerLanguage() {
-            return language;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            try (Stream<Path> stream = Files.walk(root)) {
-                return stream
-                        .filter(Files::isRegularFile)
-                        .map(p -> new ProjectFile(root, root.relativize(p)))
-                        .collect(Collectors.toSet());
-            } catch (IOException e) {
-                System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n",
-                                  root, e.getMessage());
-                e.printStackTrace(System.err);
-                return Collections.emptySet();
-            }
-        }
-    }
-
     private static TestProject createTestProject(String subDir, Language lang) {
         Path testDir = Path.of("src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);

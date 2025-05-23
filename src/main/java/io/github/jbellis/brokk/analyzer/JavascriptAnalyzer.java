@@ -36,7 +36,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
     );
 
-    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) { super(project, excludedFiles); }
+    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) { super(project, Language.JAVASCRIPT, excludedFiles); }
     public JavascriptAnalyzer(IProject project) { this(project, Collections.emptySet()); }
 
     @Override

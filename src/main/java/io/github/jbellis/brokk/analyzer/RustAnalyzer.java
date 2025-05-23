@@ -35,7 +35,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     );
 
     public RustAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.RUST, excludedFiles);
     }
 
     public RustAnalyzer(IProject project) {

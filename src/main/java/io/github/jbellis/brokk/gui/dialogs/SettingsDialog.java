@@ -21,6 +21,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class SettingsDialog extends JDialog {
     public static final String MODELS_TAB = "Models";
@@ -58,10 +60,10 @@ public class SettingsDialog extends JDialog {
     // Project -> General tab specific fields
     private JTextArea styleGuideArea;
     private JTextArea commitFormatArea;
-    private JComboBox<io.github.jbellis.brokk.analyzer.Language> languageComboBox; // Project language selector
-    // Project -> Build tab specific fields
-    private JList<String> excludedDirectoriesList;
-    private DefaultListModel<String> excludedDirectoriesListModel;
+    // Project -> Code Intelligence tab specific fields
+    private Map<io.github.jbellis.brokk.analyzer.Language, JCheckBox> languageCheckBoxMap;
+    private JList<String> excludedDirectoriesList; // Moved to Code Intelligence Panel
+    private DefaultListModel<String> excludedDirectoriesListModel; // Moved to Code Intelligence Panel
     private JRadioButton runAllTestsRadio;
     private JRadioButton runTestsInWorkspaceRadio;
     // Quick Models Tab components
@@ -539,133 +541,22 @@ public class SettingsDialog extends JDialog {
         buildPanel.add(new JLabel("Build Instructions:"), gbc);
         buildInstructionsArea.setText(details.instructions());
         gbc.gridx = 1;
-        gbc.gridy = row;
+        gbc.gridy = row; // Current row for instructions
         gbc.weightx = 1.0;
-        gbc.weighty = 0.5; // Share vertical space equally
+        gbc.weighty = 1.0; // Allow build instructions to take up remaining vertical space
         gbc.fill = GridBagConstraints.BOTH;
         buildPanel.add(instructionsScrollPane, gbc);
-        row++; // Move to the next conceptual row
+        row++; // Increment row after instructions
 
-        // Excluded Directories
-        // Create a panel for the labels
-        var labelsPanel = new JPanel(new GridLayout(2, 1, 0, 4));
-        labelsPanel.setOpaque(false);
-        labelsPanel.add(new JLabel("Code Intelligence"));
-        labelsPanel.add(new JLabel("Exclusions:"));
 
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.fill = GridBagConstraints.NONE;
-        buildPanel.add(labelsPanel, gbc);
-
-        excludedDirectoriesListModel = new DefaultListModel<>();
-        var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
-        for (String dir : sortedExcludedDirs) {
-            excludedDirectoriesListModel.addElement(dir);
-        }
-        excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-        excludedDirectoriesList.setVisibleRowCount(5);
-        var excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-
-        gbc.gridx = 1;
-        gbc.gridy = row;
-        gbc.weightx = 1.0;
-        gbc.weighty = 0.5; // Share vertical space equally
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.anchor = GridBagConstraints.NORTH;
-        buildPanel.add(excludedScrollPane, gbc);
-
-        // Buttons for Excluded Directories
-        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        var addButton = new JButton("Add");
-        var removeButton = new JButton("Remove");
-        excludedButtonsPanel.add(addButton);
-        excludedButtonsPanel.add(removeButton);
-
-        gbc.gridx = 1;
-        gbc.gridy = row + 1; // Position buttons below the list
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.NORTHWEST; // Align to the top-left of the cell
-        gbc.insets = new Insets(2, 0, 2, 2); // Small top margin, align with list's left edge
-        buildPanel.add(excludedButtonsPanel, gbc);
-        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
-
-        // Add button action
-        // row is already incremented from excludedScrollPane
-        addButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(SettingsDialog.this,
-                                                        "Enter directory to exclude (e.g., target/, build/):",
-                                                        "Add Excluded Directory",
-                                                        JOptionPane.PLAIN_MESSAGE);
-            if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                // Add and then re-sort the model
-                excludedDirectoriesListModel.addElement(trimmedNewDir);
-                var elements = new java.util.ArrayList<String>();
-                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
-                    elements.add(excludedDirectoriesListModel.getElementAt(i));
-                }
-                elements.sort(String::compareToIgnoreCase); // Or String::compareTo for case-sensitive
-                excludedDirectoriesListModel.clear();
-                for (String element : elements) {
-                    excludedDirectoriesListModel.addElement(element);
-                }
-            }
-        });
-
-        // Remove button action
-        removeButton.addActionListener(e -> {
-            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
-            // Iterate backwards to avoid issues with index shifting after removal
-            for (int i = selectedIndices.length - 1; i >= 0; i--) {
-                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
-            }
-        });
-
-        row++; // Increment row counter for the buttons panel
-
-        // ----- Other Tab -----
+        // ----- Other Tab (now General Tab) -----
         var otherPanel = new JPanel(new GridBagLayout());
         otherPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        // Re-initialize gbc for otherPanel to avoid conflicts
         gbc = new GridBagConstraints();
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        row = 0;
-
-        // Code Intelligence Refresh
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        otherPanel.add(new JLabel("Code Intelligence Refresh:"), gbc);
-        cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART});
-        var currentRefresh = project.getAnalyzerRefresh();
-        cpgRefreshComboBox.setSelectedItem(currentRefresh == Project.CpgRefresh.UNSET ? Project.CpgRefresh.AUTO : currentRefresh);
-        gbc.gridx = 1;
-        gbc.gridy = row++; // Increment row after adding combo box
-        gbc.weightx = 1.0;
-        otherPanel.add(cpgRefreshComboBox, gbc);
-
-        // --- Project Language ---
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        otherPanel.add(new JLabel("Code Intelligence:"), gbc);
-        // Populate with all languages except NONE
-        var availableLanguages = Arrays.stream(io.github.jbellis.brokk.analyzer.Language.values())
-                .filter(lang -> lang != io.github.jbellis.brokk.analyzer.Language.NONE)
-                .toArray(io.github.jbellis.brokk.analyzer.Language[]::new);
-        languageComboBox = new JComboBox<>(availableLanguages);
-        languageComboBox.setSelectedItem(project.getAnalyzerLanguage());
-        gbc.gridx = 1;
-        gbc.gridy = row++; // Increment row after adding combo box
-        gbc.weightx = 1.0;
-        otherPanel.add(languageComboBox, gbc);
-
+        row = 0; // Reset row for otherPanel
 
         // --- Style Guide Editor ---
         gbc.gridx = 0;
@@ -749,13 +640,13 @@ public class SettingsDialog extends JDialog {
         gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
 
-        // Add General tab first, then Build tab
+        // Add General tab, then Build tab, then Code Intelligence tab
         subTabbedPane.addTab("General", otherPanel); // Renamed from "Other"
         subTabbedPane.addTab("Build", buildPanel);
 
-        // Add General tab first, then Build tab
-        subTabbedPane.addTab("General", otherPanel); // Renamed from "Other"
-        subTabbedPane.addTab("Build", buildPanel);
+        // ----- Code Intelligence Tab -----
+        var codeIntelPanel = createCodeIntelligencePanel(project);
+        subTabbedPane.addTab("Code Intelligence", codeIntelPanel);
 
         // ----- Data Retention Tab -----
         dataRetentionPanel = new DataRetentionPanel(project); // Create the panel instance
@@ -763,6 +654,166 @@ public class SettingsDialog extends JDialog {
 
         projectTabRootPanel.add(subTabbedPane, BorderLayout.CENTER);
         return projectTabRootPanel;
+    }
+
+
+    private JPanel createCodeIntelligencePanel(Project project) {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 2, 2, 2);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        int row = 0;
+
+        // Code Intelligence Refresh
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        panel.add(new JLabel("Refresh:"), gbc); // Simplified label
+        cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART});
+        var currentRefresh = project.getAnalyzerRefresh();
+        cpgRefreshComboBox.setSelectedItem(currentRefresh == Project.CpgRefresh.UNSET ? Project.CpgRefresh.AUTO : currentRefresh);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        panel.add(cpgRefreshComboBox, gbc);
+
+        // Code Intelligence Languages
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        panel.add(new JLabel("Analyze Languages:"), gbc);
+
+        languageCheckBoxMap = new java.util.LinkedHashMap<>(); // Preserve order
+        var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
+        if (project.getRoot() != null) {
+            Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan;
+            if (project.hasGit()) {
+                filesToScan = project.getRepo().getTrackedFiles();
+            } else {
+                filesToScan = project.getAllFiles();
+            }
+
+            for (var pf : filesToScan) {
+                String extension = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+                if (!extension.isEmpty()) {
+                    var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
+                    if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) {
+                        languagesInProject.add(lang);
+                    }
+                }
+            }
+        }
+
+        var languagesPanel = new JPanel();
+        languagesPanel.setLayout(new BoxLayout(languagesPanel, BoxLayout.PAGE_AXIS));
+        var currentAnalyzerLanguages = project.getAnalyzerLanguages();
+
+        var sortedLanguagesToShow = languagesInProject.stream()
+                .sorted(java.util.Comparator.comparing(io.github.jbellis.brokk.analyzer.Language::name))
+                .toList();
+
+        for (var lang : sortedLanguagesToShow) {
+            var checkBox = new JCheckBox(lang.name());
+            checkBox.setSelected(currentAnalyzerLanguages.contains(lang));
+            languageCheckBoxMap.put(lang, checkBox);
+            languagesPanel.add(checkBox);
+        }
+
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL; // Checkboxes panel should fill horizontally
+        gbc.anchor = GridBagConstraints.WEST;
+        panel.add(new JScrollPane(languagesPanel), gbc); // Add scroll pane in case of many languages
+
+        // Excluded Directories
+        var excludedLabelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT,0,0)); // To align label nicely
+        excludedLabelPanel.add(new JLabel("Exclusions:"));
+
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.weighty = 0.0; // Reset weighty
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        gbc.fill = GridBagConstraints.NONE;
+        panel.add(excludedLabelPanel, gbc);
+
+
+        excludedDirectoriesListModel = new DefaultListModel<>();
+        // Details might be null if project just created, or if build details haven't been populated
+        var details = project.getBuildDetails();
+        var sortedExcludedDirs = (details != null ? details.excludedDirectories() : Set.<String>of())
+                                 .stream().sorted().toList();
+        for (String dir : sortedExcludedDirs) {
+            excludedDirectoriesListModel.addElement(dir);
+        }
+        excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
+        excludedDirectoriesList.setVisibleRowCount(5);
+        var excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+
+        gbc.gridx = 1;
+        gbc.gridy = row;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0; // Allow list to grow vertically
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Changed from NORTH
+        panel.add(excludedScrollPane, gbc);
+
+        // Buttons for Excluded Directories
+        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        var addButton = new JButton("Add");
+        var removeButton = new JButton("Remove");
+        excludedButtonsPanel.add(addButton);
+        excludedButtonsPanel.add(removeButton);
+
+        gbc.gridx = 1;
+        gbc.gridy = row + 1; // Position buttons below the list
+        gbc.weightx = 0.0;
+        gbc.weighty = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        gbc.insets = new Insets(2, 0, 2, 2);
+        panel.add(excludedButtonsPanel, gbc);
+        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+
+        addButton.addActionListener(e -> {
+            String newDir = JOptionPane.showInputDialog(SettingsDialog.this,
+                    "Enter directory to exclude (e.g., target/, build/):",
+                    "Add Excluded Directory",
+                    JOptionPane.PLAIN_MESSAGE);
+            if (newDir != null && !newDir.trim().isEmpty()) {
+                String trimmedNewDir = newDir.trim();
+                excludedDirectoriesListModel.addElement(trimmedNewDir);
+                var elements = new java.util.ArrayList<String>();
+                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
+                    elements.add(excludedDirectoriesListModel.getElementAt(i));
+                }
+                elements.sort(String::compareToIgnoreCase);
+                excludedDirectoriesListModel.clear();
+                for (String element : elements) {
+                    excludedDirectoriesListModel.addElement(element);
+                }
+            }
+        });
+
+        removeButton.addActionListener(e -> {
+            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
+            }
+        });
+        row++; // For the list itself
+        row++; // For the buttons panel
+
+        // Add vertical glue to push content up, if needed, or ensure last component stretches
+        gbc.gridy = row;
+        gbc.weighty = 0.1; // Give a little weight to push up if panel is taller
+        gbc.fill = GridBagConstraints.VERTICAL;
+        panel.add(Box.createVerticalGlue(), gbc);
+
+        return panel;
     }
 
     /**
@@ -1345,16 +1396,29 @@ public class SettingsDialog extends JDialog {
                 logger.debug("Applied Build Details changes.");
             }
 
-            // Apply CPG Refresh Setting
-            var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
-            if (selectedRefresh != project.getAnalyzerRefresh()) {
-                project.setAnalyzerRefresh(selectedRefresh);
+            // Apply CPG Refresh Setting (from Code Intelligence Tab)
+            if (cpgRefreshComboBox != null) { // Check if initialized (project open and tab created)
+                var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
+                if (selectedRefresh != project.getAnalyzerRefresh()) {
+                    project.setAnalyzerRefresh(selectedRefresh);
+                    logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
+                }
             }
 
-            // Apply Project Language
-            var selectedLanguage = (io.github.jbellis.brokk.analyzer.Language) languageComboBox.getSelectedItem();
-            if (selectedLanguage != null && selectedLanguage != project.getAnalyzerLanguage()) {
-                project.setAnalyzerLanguage(selectedLanguage); // This might trigger analyzer rebuild
+            // Apply Code Intelligence Languages (from Code Intelligence Tab)
+            if (languageCheckBoxMap != null && !languageCheckBoxMap.isEmpty()) {
+                var selectedLanguages = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
+                for (var entry : languageCheckBoxMap.entrySet()) {
+                    if (entry.getValue().isSelected()) {
+                        selectedLanguages.add(entry.getKey());
+                    }
+                }
+                // Only update if the set of languages has changed
+                if (!selectedLanguages.equals(project.getAnalyzerLanguages())) {
+                    project.setAnalyzerLanguages(selectedLanguages);
+                    logger.debug("Applied Code Intelligence Languages: {}", selectedLanguages);
+                    // Consider notifying user about potential analyzer rebuild if behavior changes
+                }
             }
 
             // Apply Code Agent Test Scope (from Build Tab)
@@ -1588,12 +1652,12 @@ public class SettingsDialog extends JDialog {
                     MODELS_TAB.equals(targetTabName);
 
             // Determine if target is a Project sub-tab
-            boolean isProjectSubTab = "General".equals(targetTabName) ||
-                    "Build".equals(targetTabName) ||
-                    "Data Retention".equals(targetTabName);
+        boolean isProjectSubTab = "General".equals(targetTabName) ||
+                                  "Build".equals(targetTabName) ||
+                                  "Code Intelligence".equals(targetTabName) ||
+                                  "Data Retention".equals(targetTabName);
 
-
-            if (isGlobalSubTab) {
+        if (isGlobalSubTab) {
                 // Select "Global" top-level tab first
                 for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
                     if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) {

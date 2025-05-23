@@ -37,6 +37,7 @@ public class Project implements IProject, AutoCloseable {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final Logger logger = LogManager.getLogger(Project.class);
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
+    private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String ARCHITECT_MODEL_KEY = "architectModel";
     private static final String CODE_MODEL_KEY = "codeModel";
     private static final String ASK_MODEL_KEY = "askModel"; // Added for Ask
@@ -479,48 +480,73 @@ public class Project implements IProject, AutoCloseable {
     }
 
     @Override
-    public Language getAnalyzerLanguage() {
-        String lang = projectProps.getProperty("code_intelligence_language");
-        if (lang == null || lang.isBlank()) {
-            // Scan project files to determine the most common language if not specified
-            var languageCounts = repo.getTrackedFiles().stream()
-                                     .map(ProjectFile::extension)
-                                     .map(Language::fromExtension)            // Map extension to Language
-                                     .filter(l -> l != Language.NONE)         // Ignore files with unknown/no extensions
-                                     .collect(Collectors.groupingBy(l -> l, Collectors.counting())); // Count occurrences
-
-            // Find the language with the highest count
-            var dominantLanguage = languageCounts.entrySet().stream()
-                                                 .max(Map.Entry.comparingByValue())
-                                                 .map(Map.Entry::getKey);
-
-            // Save and return the dominant language
-            var detectedLanguage = dominantLanguage.orElse(Language.NONE);
-            logger.debug("Detected dominant language for {} based on file extensions: {}", root, detectedLanguage);
-            projectProps.setProperty("code_intelligence_language", detectedLanguage.name());
-            saveProjectProperties();
-
-            return detectedLanguage;
+    public Set<Language> getAnalyzerLanguages() {
+        String langsProp = projectProps.getProperty(CODE_INTELLIGENCE_LANGUAGES_KEY);
+        if (langsProp != null && !langsProp.isBlank()) {
+            // User has explicitly set languages, use those.
+            return Arrays.stream(langsProp.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(langName -> {
+                    try {
+                        return Language.valueOf(langName.toUpperCase());
+                    } catch (IllegalArgumentException e) {
+                        logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
         }
 
-        try {
-            // Convert the stored name (e.g., "Java", "Python") to the Brokk Language enum object
-            return Language.valueOf(lang.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            // Fallback to NONE if the stored language name is invalid
-            return Language.NONE;
+        // Auto-detect languages: all languages with >= 10% of recognized files.
+        // This is the runtime default if no specific languages are set in projectProps.
+        // This detected default is NOT written back to projectProps automatically.
+        Map<Language, Long> languageCounts = repo.getTrackedFiles().stream()
+            .map(ProjectFile::extension)
+            .map(Language::fromExtension)
+            .filter(l -> l != Language.NONE) // Ignore files with no specific language or unclassifiable extensions
+            .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
+
+        if (languageCounts.isEmpty()) {
+            logger.debug("No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
+            return Set.of(Language.NONE);
         }
+
+        long totalRecognizedFiles = languageCounts.values().stream().mapToLong(Long::longValue).sum();
+
+        if (totalRecognizedFiles == 0) { // Should be covered by languageCounts.isEmpty(), but as a safeguard.
+             logger.debug("Total count of recognized files is 0 for {}. Defaulting to Language.NONE.", root);
+             return Set.of(Language.NONE);
+        }
+
+        Set<Language> detectedLanguages = languageCounts.entrySet().stream()
+            .filter(entry -> (double) entry.getValue() / totalRecognizedFiles >= 0.10)
+            .map(Map.Entry::getKey)
+            .collect(Collectors.toSet());
+
+        if (detectedLanguages.isEmpty()) {
+            logger.debug("No language met the 10% threshold for {}. Defaulting to Language.NONE.", root);
+            return Set.of(Language.NONE);
+        }
+
+        logger.debug("Auto-detected languages for {} (>=10% file representation): {}", root,
+                     detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
+        return detectedLanguages;
     }
 
     /**
-     * Sets the primary language for code intelligence.
-     * @param language The language to set.
+     * Sets the primary languages for code intelligence.
+     * @param languages The set of languages to set.
      */
-    public void setAnalyzerLanguage(Language language) {
-        if (language == null || language == Language.NONE) {
-            projectProps.remove("code_intelligence_language");
+    public void setAnalyzerLanguages(Set<Language> languages) {
+        if (languages == null || languages.isEmpty() || (languages.size() == 1 && languages.contains(Language.NONE))) {
+            projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            projectProps.setProperty("code_intelligence_language", language.name()); // Store the enum name
+            String langsString = languages.stream()
+                .map(Language::name)
+                .collect(Collectors.joining(","));
+            projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         saveProjectProperties();
         // Request for analyzer rebuild is now handled by ContextManager after this call

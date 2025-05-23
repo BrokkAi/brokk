@@ -72,7 +72,7 @@ public class ImportDependencyDialog {
             gbc.insets = new Insets(5, 5, 5, 5);
             gbc.anchor = GridBagConstraints.WEST;
 
-            boolean allowJarImport = chrome.getProject().getAnalyzerLanguage() == Language.JAVA;
+            boolean allowJarImport = chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA);
             if (!allowJarImport) {
                 currentSourceType = SourceType.DIRECTORY; // Default to directory if JAR not allowed
             } else {
@@ -184,12 +184,11 @@ public class ImportDependencyDialog {
 
             Predicate<File> filter;
             Future<List<Path>> candidates;
-            var projectLanguage = chrome.getProject().getAnalyzerLanguage();
 
             if (currentSourceType == SourceType.JAR) {
-                // This branch is only reachable if projectLanguage is JAVA,
+                // This branch is only reachable if one of the project languages is Java,
                 // because the JAR radio button is only shown for Java projects.
-                assert projectLanguage == Language.JAVA : "JAR source type should only be possible for Java projects";
+                assert chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA) : "JAR source type should only be possible for Java projects";
                 filter = file -> file.isDirectory() || file.getName().toLowerCase().endsWith(".jar");
                 // For JARs, use Java language's candidates. Passing null to getDependencyCandidates might be
                 // for fetching general, non-project-specific JARs (e.g. from a global cache).
@@ -197,14 +196,20 @@ public class ImportDependencyDialog {
                                                                            () -> Language.JAVA.getDependencyCandidates(null));
             } else { // DIRECTORY
                 filter = File::isDirectory;
-                if (projectLanguage == Language.JAVA) {
-                    // For Java projects, directory import does not use getDependencyCandidates for autocompletion.
+                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
+                    // For Java projects (even if mixed with other languages),
+                    // directory import does not use getDependencyCandidates for autocompletion.
                     // Users are expected to browse to specific source directories.
                     candidates = CompletableFuture.completedFuture(List.of());
                 } else {
-                    // For other languages, get dependency candidates for directories.
+                    // For non-Java projects, get dependency candidates from all configured languages.
                     candidates = chrome.getContextManager().submitBackgroundTask("Scanning for dependency directories",
-                                                                               () -> projectLanguage.getDependencyCandidates(chrome.getProject()));
+                        () -> {
+                            return chrome.getProject().getAnalyzerLanguages().stream()
+                                         .flatMap(lang -> lang.getDependencyCandidates(chrome.getProject()).stream())
+                                         .distinct()
+                                         .collect(Collectors.toList());
+                        });
                 }
             }
 
@@ -222,18 +227,18 @@ public class ImportDependencyDialog {
                 );
             } else { // DIRECTORY
                 String directoryHelpText;
-                if (projectLanguage == Language.JAVA) {
-                    // Java language, directory mode: No autocomplete candidates are provided.
+                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
+                    // Java language (even if mixed), directory mode: No autocomplete candidates are provided.
                     directoryHelpText = "Select a directory containing sources.\nSelected directory will be copied into the project.";
                 } else {
-                    // Non-Java language, directory mode: Autocomplete candidates ARE provided.
+                    // Non-Java language(s), directory mode: Autocomplete candidates ARE provided from all languages.
                     directoryHelpText = "Ctrl+Space to autocomplete common dependency directories.\nSelected directory will be copied into the project.";
                 }
                 fspConfig = new FileSelectionPanel.Config(
                         chrome.getProject(),
                         true, // allowExternalFiles
                         filter,
-                        candidates, // Candidates are empty for Java/Directory, or from projectLanguage.getDependencyCandidates for non-Java/Directory
+                        candidates, // Candidates are empty for Java/Directory, or from combined projectLanguages for non-Java/Directory
                         false, // multiSelect = false
                         this::handleFspSingleFileConfirmed,
                         false, // includeProjectFilesInAutocomplete
@@ -353,7 +358,7 @@ public class ImportDependencyDialog {
         }
 
         private String generateJarPreviewText(Path jarPath) {
-            Map<String, Integer> classCountsByPackage = new HashMap<>();
+            Map<String, Integer> classCountsByPackage = new HashMap<>(); // Using concrete type for modification
             try (JarFile jarFile = new JarFile(jarPath.toFile())) {
                 Enumeration<JarEntry> entries = jarFile.entries();
                 while (entries.hasMoreElements()) {
@@ -378,7 +383,10 @@ public class ImportDependencyDialog {
         }
 
         private String generateDirectoryPreviewText(Path dirPath) {
-            List<String> extensions = chrome.getProject().getAnalyzerLanguage().getExtensions();
+            List<String> extensions = chrome.getProject().getAnalyzerLanguages().stream()
+                                            .flatMap(lang -> lang.getExtensions().stream())
+                                            .distinct()
+                                            .collect(Collectors.toList());
             Map<String, Long> counts = new TreeMap<>();
 
             long rootFileCount = 0;
@@ -427,11 +435,23 @@ public class ImportDependencyDialog {
                 if (counts.isEmpty() && rootFileCount == 0) return "Error reading directory: " + e.getMessage();
             }
 
-            if (counts.isEmpty()) return "No relevant files found for project language (" + String.join(", ", extensions) + ").";
+            if (counts.isEmpty()) return "No relevant files found for project language(s) (" + String.join(", ", extensions) + ").";
 
-            String languageName = chrome.getProject().getAnalyzerLanguage().name().toLowerCase();
+            String languagesDisplay;
+            var projectLangs = chrome.getProject().getAnalyzerLanguages();
+            if (projectLangs.isEmpty()) {
+                languagesDisplay = "configured"; // Fallback, should ideally not happen for a valid project
+            } else if (projectLangs.size() == 1) {
+                languagesDisplay = projectLangs.iterator().next().name().toLowerCase();
+            } else {
+                languagesDisplay = projectLangs.stream()
+                                               .map(l -> l.name().toLowerCase())
+                                               .sorted()
+                                               .collect(Collectors.joining("/"));
+            }
+            final String finalLanguagesDisplay = languagesDisplay;
             return counts.entrySet().stream()
-                         .map(e -> e.getKey() + ": " + e.getValue() + " " + languageName + " file(s)")
+                         .map(e -> e.getKey() + ": " + e.getValue() + " " + finalLanguagesDisplay + " file(s)")
                          .collect(Collectors.joining("\n"));
         }
 
@@ -459,9 +479,10 @@ public class ImportDependencyDialog {
 
             } else { // DIRECTORY
                 var project = chrome.getProject();
-                var projectLanguage = project.getAnalyzerLanguage();
 
-                if (projectLanguage.isAnalyzed(project, sourcePath)) {
+                boolean isAlreadyAnalyzed = project.getAnalyzerLanguages().stream()
+                                                 .anyMatch(lang -> lang.isAnalyzed(project, sourcePath));
+                if (isAlreadyAnalyzed) {
                     int proceedResponse = JOptionPane.showConfirmDialog(dialog,
                         "The selected directory might already be part of the project's analyzed sources.\n" +
                         "Importing it as a dependency could lead to duplicate analysis or conflicts.\n\n" +
@@ -492,10 +513,23 @@ public class ImportDependencyDialog {
                             if (Files.exists(targetPath)) {
                                 ImportDependencyDialog.deleteRecursively(targetPath); // Use static method
                             }
-                            ImportDependencyDialog.copyDirectoryRecursively(sourcePath, targetPath, projectLanguage.getExtensions()); // Use static method
+                            List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
+                                .flatMap(lang -> lang.getExtensions().stream())
+                                .distinct()
+                                .collect(Collectors.toList());
+                            ImportDependencyDialog.copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions); // Use static method
                             SwingUtilities.invokeLater(() -> {
+                                String langNamesForOutput;
+                                var langs = project.getAnalyzerLanguages();
+                                if (langs.isEmpty()) { // Should not happen for a valid project
+                                    langNamesForOutput = "configured";
+                                } else if (langs.size() == 1) {
+                                    langNamesForOutput = langs.iterator().next().name();
+                                } else {
+                                    langNamesForOutput = langs.stream().map(Language::name).sorted().collect(Collectors.joining(", "));
+                                }
                                 chrome.systemOutput("Directory copied successfully to " + targetPath +
-                                                    " (filtered by project language: " + projectLanguage.name() +
+                                                    " (filtered by project language(s): " + langNamesForOutput +
                                                     "). Reopen project to incorporate the new files.");
                                 if (currentFileSelectionPanel != null) currentFileSelectionPanel.setInputText("");
                                 previewArea.setText("Directory copied successfully.");

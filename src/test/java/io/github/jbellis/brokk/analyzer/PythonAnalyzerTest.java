@@ -19,49 +19,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public final class PythonAnalyzerTest {
 
-    /**
-     * Lightweight IProject implementation for unit-testing Tree-sitter analyzers.
-     */
-    final static class TestProject implements IProject {
-        private final Path root;
-        private final io.github.jbellis.brokk.analyzer.Language language; // Use Brokk's Language enum
-
-        TestProject(Path root, io.github.jbellis.brokk.analyzer.Language language) {
-            this.root     = root;
-            this.language = language;
-        }
-
-        @Override
-        public io.github.jbellis.brokk.analyzer.Language getAnalyzerLanguage() { // Use Brokk's Language enum
-            return language;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            try (Stream<Path> stream = Files.walk(root)) {
-                return stream
-                        .filter(Files::isRegularFile)
-                        .map(p -> new ProjectFile(root, root.relativize(p)))
-                        .collect(Collectors.toSet());
-            } catch (IOException e) {
-                System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n",
-                                  root, e.getMessage());
-                e.printStackTrace(System.err);
-                return Collections.emptySet();
-            }
-        }
-    }
-
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     static TestProject createTestProject(String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
         Path testDir = Path.of("src/test/resources", subDir);
@@ -75,18 +32,18 @@ public final class PythonAnalyzerTest {
     @Test
     void testPythonInitializationAndSkeletons() {
         TestProject project = createTestProject("testcode-py", io.github.jbellis.brokk.analyzer.Language.PYTHON); // Use Brokk's Language enum
-        IAnalyzer ana = new PythonAnalyzer(project);
+        PythonAnalyzer ana = new PythonAnalyzer(project);
         assertInstanceOf(PythonAnalyzer.class, ana);
-        PythonAnalyzer analyzer = (PythonAnalyzer) ana; // Cast to PythonAnalyzer
-        assertFalse(analyzer.isEmpty(), "Analyzer should have processed Python files");
+        // Cast to PythonAnalyzer
+        assertFalse(ana.isEmpty(), "Analyzer should have processed Python files");
 
         ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
         // Skeletons are now reconstructed. We check CodeUnits first.
-        var classesInFileA = analyzer.getDeclarationsInFile(fileA);
+        var classesInFileA = ana.getDeclarationsInFile(fileA);
         var classA_CU = CodeUnit.cls(fileA, "a", "A");
         assertTrue(classesInFileA.contains(classA_CU), "File A should contain class A.");
 
-        var topLevelDeclsInA = ((TreeSitterAnalyzer)analyzer).topLevelDeclarations.get(fileA); // Accessing internal for test validation
+        var topLevelDeclsInA = ana.topLevelDeclarations.get(fileA); // Accessing internal for test validation
         assertNotNull(topLevelDeclsInA, "Top level declarations for file A should exist.");
 
         var funcA_CU = CodeUnit.fn(fileA, "a", "A.funcA");
@@ -94,7 +51,7 @@ public final class PythonAnalyzerTest {
         assertTrue(topLevelDeclsInA.contains(classA_CU), "File A should contain class A as top-level.");
 
         // Test reconstructed skeletons
-        var skelA = analyzer.getSkeletons(fileA);
+        var skelA = ana.getSkeletons(fileA);
         assertFalse(skelA.isEmpty(), "Reconstructed skeletons map for file A should not be empty.");
 
         assertTrue(skelA.containsKey(classA_CU), "Skeleton map should contain class A.");
@@ -121,12 +78,12 @@ public final class PythonAnalyzerTest {
         // Note: PythonAnalyzer.getLanguageSpecificIndent() might affect exact string match if not "  "
         assertEquals(classASummary.trim(), classASkeleton.trim(), "Class A skeleton mismatch.");
 
-        Set<CodeUnit> declarationsInA = analyzer.getDeclarationsInFile(fileA);
+        Set<CodeUnit> declarationsInA = ana.getDeclarationsInFile(fileA);
         assertTrue(declarationsInA.contains(classA_CU), "getDeclarationsInFile mismatch for file A: missing classA_CU. Found: " + declarationsInA);
         assertTrue(declarationsInA.contains(funcA_CU), "getDeclarationsInFile mismatch for file A: missing funcA_CU. Found: " + declarationsInA);
         // Add other expected CUs if necessary for a more complete check, e.g., methods of classA_CU
-        assertTrue(analyzer.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
-        assertEquals(funcASummary.trim(), analyzer.getSkeleton(funcA_CU.fqName()).get().trim(), "getSkeleton mismatch for funcA");
+        assertTrue(ana.getSkeleton(funcA_CU.fqName()).isPresent(), "Skeleton for funcA_CU should be present");
+        assertEquals(funcASummary.trim(), ana.getSkeleton(funcA_CU.fqName()).get().trim(), "getSkeleton mismatch for funcA");
     }
 
     @Test

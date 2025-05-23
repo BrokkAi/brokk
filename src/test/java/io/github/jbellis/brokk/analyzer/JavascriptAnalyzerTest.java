@@ -1,67 +1,17 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.IGitRepo;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 
 public final class JavascriptAnalyzerTest {
-
-    /**
-     * Lightweight IProject implementation for unit-testing Tree-sitter analyzers.
-     */
-    final static class TestProject implements IProject {
-        private final Path root;
-        private final io.github.jbellis.brokk.analyzer.Language language; // Use Brokk's Language enum
-
-        TestProject(Path root, io.github.jbellis.brokk.analyzer.Language language) {
-            this.root     = root;
-            this.language = language;
-        }
-
-        @Override
-        public io.github.jbellis.brokk.analyzer.Language getAnalyzerLanguage() { // Use Brokk's Language enum
-            return language;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            try (Stream<Path> stream = Files.walk(root)) {
-                return stream
-                        .filter(Files::isRegularFile)
-                        .map(p -> new ProjectFile(root, root.relativize(p)))
-                        .collect(Collectors.toSet());
-            } catch (IOException e) {
-                System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n",
-                                  root, e.getMessage());
-                e.printStackTrace(System.err);
-                return Collections.emptySet();
-            }
-        }
-    }
-
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
     static TestProject createTestProject(String subDir, io.github.jbellis.brokk.analyzer.Language lang) { // Use Brokk's Language enum
         Path testDir = Path.of("src/test/resources", subDir);
@@ -75,14 +25,13 @@ public final class JavascriptAnalyzerTest {
     @Test
     void testJavascriptJsxSkeletons() {
         TestProject project = createTestProject("testcode-js", io.github.jbellis.brokk.analyzer.Language.JAVASCRIPT);
-        IAnalyzer ana = new JavascriptAnalyzer(project);
+        JavascriptAnalyzer ana = new JavascriptAnalyzer(project);
         assertInstanceOf(JavascriptAnalyzer.class, ana);
 
-        JavascriptAnalyzer analyzer = (JavascriptAnalyzer) ana;
-        assertFalse(analyzer.isEmpty(), "Analyzer should have processed JS/JSX files");
+        assertFalse(ana.isEmpty(), "Analyzer should have processed JS/JSX files");
 
         ProjectFile jsxFile = new ProjectFile(project.getRoot(), "Hello.jsx");
-        var skelJsx = analyzer.getSkeletons(jsxFile);
+        var skelJsx = ana.getSkeletons(jsxFile);
         assertFalse(skelJsx.isEmpty(), "Skeletons map for Hello.jsx should not be empty. Found: " + skelJsx.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
 
         var jsxClass = CodeUnit.cls(jsxFile, "", "JsxClass");
@@ -118,7 +67,7 @@ public final class JavascriptAnalyzerTest {
         """.stripIndent();
         assertEquals(expectedPlainJsxFuncSkeleton.trim(), skelJsx.get(plainJsxFunc).trim(), "PlainJsxFunc skeleton mismatch");
 
-        Set<CodeUnit> declarationsInJsx = analyzer.getDeclarationsInFile(jsxFile);
+        Set<CodeUnit> declarationsInJsx = ana.getDeclarationsInFile(jsxFile);
         assertTrue(declarationsInJsx.contains(jsxClass), "getDeclarationsInFile mismatch for Hello.jsx: missing jsxClass. Found: " + declarationsInJsx);
         assertTrue(declarationsInJsx.contains(jsxArrowFn), "getDeclarationsInFile mismatch for Hello.jsx: missing jsxArrowFn. Found: " + declarationsInJsx);
         // Add other expected CUs like localJsxArrowFn, plainJsxFunc, and JsxClass.render
@@ -126,10 +75,10 @@ public final class JavascriptAnalyzerTest {
         assertTrue(declarationsInJsx.contains(plainJsxFunc), "getDeclarationsInFile mismatch for Hello.jsx: missing plainJsxFunc. Found: " + declarationsInJsx);
         assertTrue(declarationsInJsx.contains(CodeUnit.fn(jsxFile, "", "JsxClass.render")), "getDeclarationsInFile mismatch for Hello.jsx: missing JsxClass.render. Found: " + declarationsInJsx);
 
-        assertEquals(expectedExportedArrowFnSkeleton.trim(), analyzer.getSkeleton(jsxArrowFn.fqName()).get().trim(), "getSkeleton mismatch for JsxArrowFnComponent FQ name");
+        assertEquals(expectedExportedArrowFnSkeleton.trim(), ana.getSkeleton(jsxArrowFn.fqName()).get().trim(), "getSkeleton mismatch for JsxArrowFnComponent FQ name");
 
         ProjectFile jsFile = new ProjectFile(project.getRoot(), "Hello.js");
-        var skelJs = analyzer.getSkeletons(jsFile);
+        var skelJs = ana.getSkeletons(jsFile);
         assertFalse(skelJs.isEmpty(), "Skeletons map for Hello.js should not be empty.");
 
         var helloClass = CodeUnit.cls(jsFile, "", "Hello");

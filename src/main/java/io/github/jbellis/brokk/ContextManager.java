@@ -1081,7 +1081,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                            project.getRoot().getFileName(), // Show just the folder name
                                            project.getRepo().getTrackedFiles().size(),
                                            project.getAllFiles().size(),
-                                           project.getAnalyzerLanguage());
+                                           project.getAnalyzerLanguages());
     }
 
     /**

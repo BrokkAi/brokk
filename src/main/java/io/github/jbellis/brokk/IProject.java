@@ -18,10 +18,10 @@ public interface IProject {
     }
 
     /**
-     * Gets the Brokk Language enum configured for the project.
-     * @return The Language enum.
+     * Gets the set of Brokk Language enums configured for the project.
+     * @return A set of Language enums.
      */
-    default io.github.jbellis.brokk.analyzer.Language getAnalyzerLanguage() {
+    default Set<io.github.jbellis.brokk.analyzer.Language> getAnalyzerLanguages() {
         throw new UnsupportedOperationException();
     }
 

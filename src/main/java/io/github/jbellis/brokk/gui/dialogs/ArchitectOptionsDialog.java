@@ -74,7 +74,7 @@ public class ArchitectOptionsDialog {
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools());
             analyzerCb.setEnabled(isCpg); // Disable if not a CPG
             if (!isCpg) {
-                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(chrome.getProject().getAnalyzerLanguage()));
+                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(chrome.getProject().getAnalyzerLanguages()));
             }
 
             var workspaceCb = createCheckbox.apply("Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the workspace");

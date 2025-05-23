@@ -34,8 +34,8 @@ final class TestProject implements IProject {
     }
 
     @Override
-    public Language getAnalyzerLanguage() { // Use Brokk's Language enum
-        return language;
+    public Set<Language> getAnalyzerLanguages() {
+        return Set.of(language);
     }
 
     @Override

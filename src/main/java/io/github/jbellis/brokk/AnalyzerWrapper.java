@@ -7,7 +7,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
-import java.awt.*;
+import java.awt.KeyboardFocusManager; // Keep specific AWT imports if used elsewhere for UI
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashSet;
@@ -29,7 +29,6 @@ public class AnalyzerWrapper implements AutoCloseable {
     private final Path root;
     private final ContextManager.TaskRunner runner;
     private final Project project;
-    private final Language language;
 
     private volatile boolean running = true;
     private volatile boolean paused = false;
@@ -47,10 +46,15 @@ public class AnalyzerWrapper implements AutoCloseable {
         this.listener = listener;
 
         // build the initial Analyzer
-        language = project.getAnalyzerLanguage();
         future = runner.submit("Initializing code intelligence", () -> {
             var an = loadOrCreateAnalyzer();
-            var codeUnits = an.getAllDeclarations();
+            // Safe check for getAllDeclarations as it might not be supported by all (e.g. DisabledAnalyzer)
+            java.util.List<CodeUnit> codeUnits;
+            try {
+                codeUnits = an.getAllDeclarations();
+            } catch (UnsupportedOperationException e) {
+                codeUnits = java.util.List.of();
+            }
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
             return an;
@@ -150,144 +154,246 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.onTrackedFileChange();
 
             // update the analyzer if we're configured to do so
-            if (project.getAnalyzerRefresh() == CpgRefresh.AUTO) {
-                logger.debug("Rebuilding analyzer due to changes in tracked files: {}",
-                             batch.stream()
-                                     .filter(e -> trackedPaths.contains(e.path))
-                                     .distinct()
-                                     .map(e -> e.path.toString())
-                                     .collect(Collectors.joining(", "))
-                );
-                rebuild();
+            // Only rebuild if the changed files are of a type relevant to the project's configured languages
+            Set<Language> projectLanguages = project.getAnalyzerLanguages();
+            boolean relevantFileChanged = batch.stream().anyMatch(event -> {
+                if (!trackedPaths.contains(event.path)) return false;
+                String extension = com.google.common.io.Files.getFileExtension(event.path.toString());
+                Language langOfFile = Language.fromExtension(extension);
+                return langOfFile != Language.NONE && projectLanguages.contains(langOfFile);
+            });
+
+            if (relevantFileChanged) {
+                if (project.getAnalyzerRefresh() == CpgRefresh.AUTO) {
+                    logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
+                                 batch.stream()
+                                         .filter(e -> trackedPaths.contains(e.path))
+                                         .filter(e -> {
+                                             String ext = com.google.common.io.Files.getFileExtension(e.path.toString());
+                                             Language lang = Language.fromExtension(ext);
+                                             return projectLanguages.contains(lang);
+                                         })
+                                         .distinct()
+                                         .map(e -> e.path.toString())
+                                         .collect(Collectors.joining(", "))
+                    );
+                    rebuild();
+                }
+            } else {
+                logger.trace("No tracked files relevant to configured languages changed; skipping analyzer rebuild");
             }
         } else {
-            logger.trace("No tracked files changed; skipping analyzer rebuild");
+            logger.trace("No tracked files changed (overall); skipping analyzer rebuild");
         }
     }
 
     /**
      * Synchronously load or create an Analyzer:
-     *   1) If the .brokk/joern.cpg file is up to date, reuse it;
+     *   1) If the cpg file is up to date, reuse it;
      *   2) Otherwise, rebuild a fresh Analyzer.
+     * This method is called for the initial load and for full rebuilds.
      */
     private IAnalyzer loadOrCreateAnalyzer() {
-        logger.debug("Loading/creating analyzer for {}", project.getAnalyzerLanguage());
-        if (project.getAnalyzerLanguage() == Language.NONE) {
-            return new DisabledAnalyzer();
+        return loadOrCreateAnalyzerInternal(true);
+    }
+
+    /**
+     * Internal version of loadOrCreateAnalyzer.
+     * @param isInitialLoad true if this is the very first load (triggers UNSET logic and watcher start).
+     */
+    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad) {
+        Set<Language> projectLangs = project.getAnalyzerLanguages();
+        logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
+
+        if (projectLangs.isEmpty() || (projectLangs.size() == 1 && projectLangs.contains(Language.NONE))) {
+            currentAnalyzer = new DisabledAnalyzer();
+            if (isInitialLoad) startWatcher(); // Watcher for git, etc.
+            return currentAnalyzer;
         }
 
         BuildAgent.BuildDetails fetchedBuildDetails = project.awaitBuildDetails();
         if (fetchedBuildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-            // only log this once
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
         }
 
-        // FIXME
-        Path analyzerPath = root.resolve(".brokk").resolve("joern.cpg");
-        if (project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
-            logger.debug("First startup: timing Analyzer creation");
-            long start = System.currentTimeMillis();
-            logger.debug("Creating {} analyzer for {}", language.name(), project.getRoot());
-            var analyzer = language.createAnalyzer(project);
-            currentAnalyzer = analyzer;
-            logger.debug("Analyzer (re)build completed after creating {} analyzer for {}", language.name(), project.getRoot());
-            long duration = System.currentTimeMillis() - start;
-            if (analyzer.isEmpty()) {
-                logger.info("Empty analyzer");
-                listener.afterFirstBuild("");
-            } else if (duration > 3 * 6000) {
-                project.setAnalyzerRefresh(CpgRefresh.MANUAL);
-                var msg = """
-                Code Intelligence found %d classes in %,d ms.
-                Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
-                You can change this in the Settings -> Project dialog.
-                """.stripIndent().formatted(analyzer.getAllDeclarations().size(), duration);
-                listener.afterFirstBuild(msg);
-                logger.info(msg);
-            } else if (duration > 5000) {
-                project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
-                var msg = """
-                Code Intelligence found %d classes in %,d ms.
-                Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
-                You can change this in the Settings -> Project dialog.
-                """.stripIndent().formatted(analyzer.getAllDeclarations().size(), duration);
-                listener.afterFirstBuild(msg);
-                logger.info(msg);
+        IAnalyzer resultAnalyzer;
+        long totalCreationTimeMs = 0;
+        int totalDeclarations = 0;
+        boolean allEmpty = true;
+
+        if (projectLangs.size() == 1) {
+            Language lang = projectLangs.iterator().next();
+            assert lang != Language.NONE;
+
+            Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
+            long startTime = System.currentTimeMillis();
+
+            if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+                logger.debug("First startup for language {}: timing Analyzer creation", lang.name());
+                resultAnalyzer = lang.createAnalyzer(project);
             } else {
-                project.setAnalyzerRefresh(CpgRefresh.AUTO);
-                var msg = """
-                Code Intelligence found %d classes in %,d ms.
-                If this is fewer than expected, it's probably because Brokk only looks for %s files.
-                If this is not a useful subset of your project, you can change it in the Settings -> Project
-                dialog, or disable Code Intelligence by setting the language to NONE.
-                """.stripIndent().formatted(analyzer.getAllDeclarations().size(), duration, language.getExtensions(), Language.NONE);
-                listener.afterFirstBuild(msg);
-                logger.info(msg);
+                resultAnalyzer = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                if (resultAnalyzer == null) {
+                    logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                    resultAnalyzer = lang.createAnalyzer(project);
+                }
             }
+            totalCreationTimeMs = System.currentTimeMillis() - startTime;
+            if (!resultAnalyzer.isEmpty()) {
+                allEmpty = false;
+                try { totalDeclarations = resultAnalyzer.getAllDeclarations().size(); }
+                catch (UnsupportedOperationException e) { /* some analyzers might not support it */ }
+            }
+        } else { // Multi-language
+            java.util.Map<Language, IAnalyzer> delegateAnalyzers = new java.util.HashMap<>();
+            long longestLangCreationTimeMs = 0;
 
-            startWatcher(); // includes git repo watching, so start it even if we're on MANUAL analyzer refresh
-            return analyzer;
+            for (Language lang : projectLangs) {
+                if (lang == Language.NONE) continue;
+                Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
+                IAnalyzer delegate = null;
+                long langStartTime = System.currentTimeMillis();
+
+                if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+                     delegate = lang.createAnalyzer(project);
+                } else {
+                    delegate = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                    if (delegate == null) {
+                        logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                        delegate = lang.createAnalyzer(project);
+                    }
+                }
+                long langCreationTime = System.currentTimeMillis() - langStartTime;
+                longestLangCreationTimeMs = Math.max(longestLangCreationTimeMs, langCreationTime);
+                delegateAnalyzers.put(lang, delegate);
+
+                if (!delegate.isEmpty()) {
+                    allEmpty = false;
+                    try { totalDeclarations += delegate.getAllDeclarations().size(); }
+                    catch (UnsupportedOperationException e) { /* ignore */ }
+                }
+            }
+            resultAnalyzer = new MultiAnalyzer(delegateAnalyzers);
+            totalCreationTimeMs = longestLangCreationTimeMs; // Use longest for multi-analyzer setup time heuristic
         }
+        currentAnalyzer = resultAnalyzer;
+        logger.debug("Analyzer (re)build completed for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
-        var analyzer = loadCachedAnalyzer(analyzerPath);
-        if (analyzer == null) {
-            logger.debug("Creating {} analyzer for {}", language.name(), project.getRoot());
-            analyzer = language.createAnalyzer(project);
-            currentAnalyzer = analyzer;
-            logger.debug("Analyzer (re)build completed after creating {} analyzer for {}", language.name(), project.getRoot());
+        if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+            handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, allEmpty, projectLangs);
+            startWatcher();
+        } else if (isInitialLoad) { // Not UNSET, but still initial load
+            startWatcher();
         }
-
-        startWatcher();
-
-        return analyzer;
+        return resultAnalyzer;
     }
+
+    private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, boolean isEmpty, Set<Language> languages) {
+        String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
+        String langExtensions = languages.stream()
+            .flatMap(l -> l.getExtensions().stream())
+            .distinct()
+            .collect(Collectors.joining(", "));
+
+        if (isEmpty) {
+            logger.info("Empty {} analyzer", langNames);
+            listener.afterFirstBuild("");
+        } else if (durationMs > 3 * 6000) {
+            project.setAnalyzerRefresh(CpgRefresh.MANUAL);
+            var msg = """
+            Code Intelligence for %s found %d declarations in %,d ms.
+            Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
+            You can change this in the Settings -> Project dialog.
+            """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+            listener.afterFirstBuild(msg);
+            logger.info(msg);
+        } else if (durationMs > 5000) {
+            project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
+            var msg = """
+            Code Intelligence for %s found %d declarations in %,d ms.
+            Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
+            You can change this in the Settings -> Project dialog.
+            """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+            listener.afterFirstBuild(msg);
+            logger.info(msg);
+        } else {
+            project.setAnalyzerRefresh(CpgRefresh.AUTO);
+            var msg = """
+            Code Intelligence for %s found %d declarations in %,d ms.
+            If this is fewer than expected, it's probably because Brokk only looks for %s files.
+            If this is not a useful subset of your project, you can change it in the Settings -> Project
+            dialog, or disable Code Intelligence by setting the language(s) to NONE.
+            """.stripIndent().formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
+            listener.afterFirstBuild(msg);
+            logger.info(msg);
+        }
+    }
+
 
     public boolean isCpg() {
-        return project.getAnalyzerLanguage().isCpg();
+        if (currentAnalyzer == null) return false;
+        return currentAnalyzer.isCpg();
     }
 
-    /** Load a cached analyzer if it is up to date; otherwise, or on any loading error, return null. */
-    private IAnalyzer loadCachedAnalyzer(Path analyzerPath) {
-        if (!Files.exists(analyzerPath)) {
+    /** Load a cached analyzer for a single language if it is up to date; otherwise, or on any loading error, return null. */
+    private IAnalyzer loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
+        if (analyzerPath == null || !Files.exists(analyzerPath)) {
             return null;
         }
 
         // In MANUAL mode, always use cached data if it exists
         if (project.getAnalyzerRefresh() == CpgRefresh.MANUAL) {
-            logger.debug("MANUAL refresh mode - using cached analyzer");
+            logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
-                return project.getAnalyzerLanguage().loadAnalyzer(project);
+                return lang.loadAnalyzer(project);
             } catch (Throwable th) {
-                logger.info("Error loading analyzer", th);
+                logger.info("Error loading {} analyzer from {}: {}", lang.name(), analyzerPath, th.getMessage());
                 return null;
             }
         }
 
-        var trackedFiles = project.getAllFiles();
+        var trackedFiles = project.getAllFiles().stream() // Filter for files relevant to this language
+            .filter(pf -> {
+                String ext = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+                return lang.getExtensions().contains(ext);
+            })
+            .toList();
+
+        if (trackedFiles.isEmpty() && lang.isCpg()) { // No files for this CPG language, cache might be irrelevant or stale
+             logger.debug("No tracked files for language {}, considering cache {} stale.", lang.name(), analyzerPath);
+             return null;
+        }
+
         long cpgMTime;
         try {
             cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
-            throw new RuntimeException("Error reading analyzer file timestamp", e);
+            logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
+            return null; // Cannot determine if cache is fresh
         }
+
         for (ProjectFile rf : trackedFiles) {
             try {
+                if (!Files.exists(rf.absPath())) continue; // File might have been deleted
                 long fileMTime = Files.getLastModifiedTime(rf.absPath()).toMillis();
                 if (fileMTime > cpgMTime) {
-                    logger.debug("Tracked file {} is newer than cpg ({} > {})", rf.absPath(), fileMTime, cpgMTime);
-                    return null;
+                    logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
+                                 rf.absPath(), lang.name(), analyzerPath, fileMTime, cpgMTime);
+                    return null; // Cache is stale
                 }
             } catch (IOException e) {
-                // probable cause: file exists in git but is removed
-                logger.debug("Error reading analyzer file timestamp", e);
+                logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
+                // If we can't check a file, assume cache might be stale to be safe
+                return null;
             }
         }
 
-        // saved analyzer is up to date
+        // Saved analyzer is up to date for this language
         try {
-            return project.getAnalyzerLanguage().loadAnalyzer(project);
+            logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
+            return lang.loadAnalyzer(project);
         } catch (Throwable th) {
-            logger.warn("Error loading cached analyzer; falling back to full rebuild", th);
+            logger.warn("Error loading cached {} analyzer from {}; falling back to full rebuild for this language: {}", lang.name(), analyzerPath, th.getMessage());
             return null;
         }
     }
@@ -296,30 +402,29 @@ public class AnalyzerWrapper implements AutoCloseable {
      * Force a fresh rebuild of the analyzer by scheduling a job on the analyzerExecutor.
      * Avoids concurrent rebuilds by setting a flag, but if a change is detected during
      * the rebuild, a new rebuild will be scheduled immediately afterwards.
+     * This rebuilds the entire analyzer setup (single or multi) based on current project languages.
      */
     private synchronized void rebuild() {
-        // If a rebuild is already running, just mark that another rebuild is pending.
         if (rebuildInProgress) {
             rebuildPending = true;
             return;
         }
 
         rebuildInProgress = true;
-        logger.trace("Rebuilding analyzer");
+        logger.trace("Rebuilding analyzer (full)");
         future = runner.submit("Rebuilding code intelligence", () -> {
             try {
-                logger.debug("Creating {} analyzer for {}", language.name(), project.getRoot());
-                IAnalyzer newAnalyzer = language.createAnalyzer(project);
+                // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
+                IAnalyzer newAnalyzer = loadOrCreateAnalyzerInternal(false);
                 currentAnalyzer = newAnalyzer;
-                logger.debug("Analyzer (re)build completed after creating {} analyzer for {}", language.name(), project.getRoot());
+                logger.debug("Analyzer (full rebuild) completed.");
                 return newAnalyzer;
             } finally {
                 synchronized (AnalyzerWrapper.this) {
                     rebuildInProgress = false;
-                    // If another rebuild got requested while we were busy, immediately start a new one.
                     if (rebuildPending) {
                         rebuildPending = false;
-                        logger.trace("rebuilding immediately");
+                        logger.trace("Rebuilding immediately after pending request");
                         rebuild();
                     } else {
                         externalRebuildRequested = false;

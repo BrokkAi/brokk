@@ -35,6 +35,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     final Map<CodeUnit, List<String>> signatures = new ConcurrentHashMap<>(); // package-private for testing
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     private final IProject project;
+    private final Language language;
     protected final Set<String> normalizedExcludedFiles;
 
     protected record LanguageSyntaxProfile(
@@ -65,7 +66,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
-    private static record Range(int startByte, int endByte, int startLine, int endLine) {}
+    private record Range(int startByte, int endByte, int startLine, int endLine) {}
 
     private record FileAnalysisResult(List<CodeUnit> topLevelCUs,
                                       Map<CodeUnit, List<CodeUnit>> children,
@@ -75,8 +76,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                       ) {}
 
     /* ---------- constructor ---------- */
-    protected TreeSitterAnalyzer(IProject project, Set<String> excludedFiles) {
+    protected TreeSitterAnalyzer(IProject project, Language language, Set<String> excludedFiles) {
         this.project = project;
+        this.language = language;
         // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
         this.normalizedExcludedFiles = (excludedFiles != null ? excludedFiles : Collections.<String>emptySet())
@@ -104,10 +106,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // Debug log using SLF4J
         log.debug("Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
-                 project.getAnalyzerLanguage(), getQueryResource());
+                 this.language, getQueryResource());
 
 
-        var validExtensions = project.getAnalyzerLanguage().getExtensions();
+        var validExtensions = this.language.getExtensions();
         log.trace("Filtering project files for extensions: {}", validExtensions);
 
         project.getAllFiles().stream()
@@ -187,8 +189,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 });
     }
 
-    protected TreeSitterAnalyzer(IProject project) {
-        this(project, Collections.emptySet());
+    protected TreeSitterAnalyzer(IProject project, Language language) {
+        this(project, language, Collections.emptySet());
     }
 
     /* ---------- Helper methods for accessing CodeUnits ---------- */
@@ -714,7 +716,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             log.trace("Computed classChain for simpleName='{}': '{}'", simpleName, classChain);
 
             // Adjust simpleName and classChain for Go methods to correctly include the receiver type
-            if (project.getAnalyzerLanguage() == Language.GO && "method.definition".equals(primaryCaptureName)) {
+            if (language == Language.GO && "method.definition".equals(primaryCaptureName)) {
                 // The SCM query for Go methods captures `@method.receiver.type` and `@method.identifier`
                 // `simpleName` at this point is from `@method.identifier` (e.g., "MyMethod")
                 // We need to find the receiver type from the original captures for this match
@@ -949,12 +951,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
         // For JAVASCRIPT:
-        if (project.getAnalyzerLanguage() == Language.JAVASCRIPT && "export_statement".equals(definitionNode.getType())) {
+        if (language == Language.JAVASCRIPT && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
                 nodeForContent = declarationInExport;
             }
-        } else if (project.getAnalyzerLanguage() == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
+        } else if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
             // Python's decorated_definition: decorators and actual def are children.
             // Process decorators directly here and identify the actual content node.
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
@@ -969,7 +971,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // 2. Handle decorators for languages where they precede the definition
         //    (Skip if Python already handled its specific decorator structure)
-        if (!(project.getAnalyzerLanguage() == Language.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
+        if (!(language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType()))) {
             List<TSNode> decorators = getPrecedingDecorators(nodeForContent); // Decorators precede the actual content node
             for (TSNode decoratorNode : decorators) {
                 signatureLines.add(textSlice(decoratorNode, src).stripLeading());

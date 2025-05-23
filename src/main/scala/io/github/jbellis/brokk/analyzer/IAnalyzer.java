@@ -129,6 +129,8 @@ public interface IAnalyzer {
      * The {@code paramNames} list contains the *parameter variable names* (not types).
      * If there is only a single match, or exactly one match with matching param names, return it.
      * Otherwise throw {@code SymbolNotFoundException} or {@code SymbolAmbiguousException}.
+     *
+     * TODO this should return an Optional
      */
     default FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         throw new UnsupportedOperationException();

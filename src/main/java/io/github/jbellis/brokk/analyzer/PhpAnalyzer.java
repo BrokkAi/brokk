@@ -45,7 +45,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
 
     public PhpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.PHP, excludedFiles);
         // Initialize the ThreadLocal for the PHP namespace query.
         // getTSLanguage() is safe to call here.
         this.phpNamespaceQuery = ThreadLocal.withInitial(() -> {
