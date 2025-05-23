@@ -15,6 +15,7 @@ import io.shiftleft.semanticcpg.layers.LayerCreatorContext
 import java.io.{Closeable, IOException}
 import java.nio.file.Path
 import java.util.Optional
+import java.util.concurrent.ConcurrentHashMap
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
@@ -1167,32 +1168,50 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   override def getSymbols(sources: java.util.Set[CodeUnit]): java.util.Set[String] = {
     import scala.jdk.CollectionConverters.*
+    import scala.collection.parallel.CollectionConverters.*
 
     val sourceUnits = sources.asScala
     val sourceFiles = sourceUnits.map(_.source).toSet
-    val symbols = mutable.Set[String]()
+    val symbols = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
     // Add short names of the source units themselves
-    sourceUnits.foreach(cu => symbols += cu.shortName())
+    sourceUnits.par.foreach { cu =>
+      val shortName = cu.shortName()
+      if (shortName != null && shortName.nonEmpty) {
+        symbols.add(shortName)
+      }
+    }
 
     // Find TypeDecls within the specified source files
-    cpg.typeDecl
+    cpg.typeDecl.l.par
       .filter(td => toFile(td).exists(sourceFiles.contains))
       .foreach { td =>
-        symbols += td.fullName.split('.').last // Add class short name
+        val className = td.fullName.split('.').last
+        if (className.nonEmpty) {
+          symbols.add(className) // Add class short name
+        }
 
         // Add method short names (resolved)
         td.method
           .nameNot("<init>", "<clinit>", "<lambda>.*") // Exclude constructors, static initializers, lambdas
+          .l.par
           .foreach { m =>
             val resolvedName = resolveMethodName(chopColon(m.fullName))
-            symbols += resolvedName.split('.').last // Add method short name
+            val methodShortName = resolvedName.split('.').last
+            if (methodShortName.nonEmpty) {
+              symbols.add(methodShortName) // Add method short name
+            }
           }
 
         // Add field short names
-        td.member.foreach(f => symbols += f.name) // Add just the field name
+        td.member.l.par.foreach { f =>
+          val fieldName = f.name
+          if (fieldName != null && fieldName.nonEmpty) {
+            symbols.add(fieldName) // Add just the field name
+          }
+        }
       }
 
-    symbols.asJava
+    symbols
   }
 }

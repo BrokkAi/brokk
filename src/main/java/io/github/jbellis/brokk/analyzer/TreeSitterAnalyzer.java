@@ -1384,19 +1384,34 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     @Override
     public Set<String> getSymbols(Set<CodeUnit> sources) {
-        Set<String> symbols = new HashSet<>();
-        Queue<CodeUnit> toProcess = new LinkedList<>(sources);
-        Set<CodeUnit> visited = new HashSet<>();
+        // Step 1: Collect all relevant CodeUnits using existing BFS logic to handle hierarchy
+        Set<CodeUnit> allRelevantCodeUnits = new HashSet<>();
+        Queue<CodeUnit> traversalQueue = new LinkedList<>(sources);
+        Set<CodeUnit> visitedForTraversal = new HashSet<>();
 
-        while (!toProcess.isEmpty()) {
-            CodeUnit current = toProcess.poll();
-            if (!visited.add(current)) { // If already visited, skip
+        while (!traversalQueue.isEmpty()) {
+            CodeUnit current = traversalQueue.poll();
+            if (!visitedForTraversal.add(current)) { // If already visited during this traversal, skip
                 continue;
             }
 
-            String shortName = current.shortName();
+            allRelevantCodeUnits.add(current); // Add to the set for later parallel processing
+
+            List<CodeUnit> children = childrenByParent.getOrDefault(current, Collections.emptyList());
+            for (CodeUnit child : children) {
+                if (!visitedForTraversal.contains(child)) { // Add to queue only if not already processed or in queue for this traversal
+                    traversalQueue.add(child);
+                }
+            }
+        }
+
+        // Step 2: Process the collected CodeUnits in parallel
+        Set<String> symbols = ConcurrentHashMap.newKeySet();
+
+        allRelevantCodeUnits.parallelStream().forEach(currentUnit -> {
+            String shortName = currentUnit.shortName();
             if (shortName == null || shortName.isEmpty()) {
-                continue;
+                return; // Skip if shortName is invalid
             }
 
             int lastDot = shortName.lastIndexOf('.');
@@ -1411,8 +1426,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 if (lastSeparator < shortName.length() - 1) {
                     unqualifiedName = shortName.substring(lastSeparator + 1);
                 } else {
-                    // This case (e.g., shortName ends with '.') should ideally not happen
-                    // with valid CodeUnit shortNames, but handle defensively.
                     unqualifiedName = ""; // Or log a warning
                 }
             }
@@ -1420,14 +1433,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             if (!unqualifiedName.isEmpty()) {
                 symbols.add(unqualifiedName);
             }
+        });
 
-            List<CodeUnit> children = childrenByParent.getOrDefault(current, Collections.emptyList());
-            for (CodeUnit child : children) {
-                if (!visited.contains(child)) { // Add to queue only if not already processed or in queue
-                    toProcess.add(child);
-                }
-            }
-        }
         return symbols;
     }
 }
