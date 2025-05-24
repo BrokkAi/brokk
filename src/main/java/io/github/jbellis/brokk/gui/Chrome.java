@@ -357,7 +357,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             workspacePanel.setWorkspaceEditable(isEditable);
             if (resetOutput) {
                 if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.resetLlmOutput(ctx.getParsedOutput(), forceScrollToTop);
+                    historyOutputPanel.setLlmOutputAndCompact(ctx.getParsedOutput(), forceScrollToTop);
                 } else {
                     historyOutputPanel.clearLlmOutput();
                 }
@@ -708,20 +708,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                 UIManager.getColor("Panel.background") : Color.WHITE);
 
                 // Get all messages and create a MarkdownOutputPanel for each
+                var scrollPane = new JScrollPane(messagesContainer);
                 List<TaskEntry> taskEntries = outputFragment.entries();
                 for (TaskEntry entry : taskEntries) {
                     var markdownPanel = new MarkdownOutputPanel();
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
+                    markdownPanel.scheduleCompaction();
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
                     messagesContainer.add(markdownPanel);
                 }
 
                 // Wrap in a scroll pane
-                var scrollPane = new JScrollPane(messagesContainer);
                 scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
                 scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-
                 showPreviewFrame(contextManager, title, scrollPane); // Use helper
                 return;
             }

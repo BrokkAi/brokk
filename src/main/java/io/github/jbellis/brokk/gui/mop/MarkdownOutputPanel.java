@@ -16,6 +16,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -54,10 +57,16 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     // Theme-related fields
     private boolean isDarkTheme = false;
     private boolean blockClearAndReset = false;
+    private final ExecutorService compactExec;
 
     public MarkdownOutputPanel() {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setOpaque(true);
+        this.compactExec = Executors.newSingleThreadExecutor(r -> {
+            var t = new Thread(r, "MOP-Compact-Thread-" + this.hashCode());
+            t.setDaemon(true);
+            return t;
+        });
     }
 
     /**
@@ -142,6 +151,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     private void internalClear() {
         // stop all background threads first
         bubbles.forEach(b -> b.worker().shutdown());
+
+        // compactExec is no longer shut down here; it's managed by dispose()
+
         bubbles.clear();
         removeAll();
         spinnerPanel = null;
@@ -167,7 +179,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         } else {
             // Create a new message
             ChatMessage newMessage = Messages.create(text, type);
-            addNewMessage(newMessage);
+            addNewMessageBubble(newMessage);
         }
 
         textChangeListeners.forEach(Runnable::run);
@@ -204,7 +216,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     /**
      * Adds a new message to the display
      */
-    private void addNewMessage(ChatMessage message) {
+    private void addNewMessageBubble(ChatMessage message) {
         // If spinner is showing, remove it temporarily
         boolean spinnerWasVisible = false;
         if (spinnerPanel != null) {
@@ -300,7 +312,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         internalClear(); // Clear existing bubbles and workers
 
         for (var message : newMessages) {
-            addNewMessage(message);
+            addNewMessageBubble(message);
         }
         revalidate();
         repaint();
@@ -353,7 +365,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         if (!SwingUtilities.isEventDispatchThread()) {
             flushPendingChangesSync();
         }
-        return Collections.unmodifiableList(bubbles.stream().map(Bubble::message).toList());
+        return bubbles.stream().map(Bubble::message).toList();
     }
 
     /**
@@ -449,19 +461,68 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         assert !SwingUtilities.isEventDispatchThread() : "flushPendingChangesSync must not be called on EDT";
         workers().forEach(StreamingWorker::flush); // blocks for each worker
     }
+
+    public CompletableFuture<Void> scheduleCompaction() {
+        // be sure any pending changes are flushed before compacting
+        return flushPendingChangesAsync()
+                .thenRun(() -> SwingUtilities.invokeLater(this::compactAllMessages));
+    }
     
     /**
      * Compacts all messages by merging consecutive Markdown blocks in each message renderer.
      * This improves the user experience for selecting text across multiple Markdown blocks.
      * This operation is performed asynchronously and completes on the EDT.
      */
-    public void compactAllMessages() {
-        flushPendingChangesAsync().thenRun(() -> {
-            assert SwingUtilities.isEventDispatchThread(); // Future from flushAsync completes on EDT
-            renderers().forEach(IncrementalBlockRenderer::compactMarkdown);
-            revalidate();
-            repaint();
-            logger.debug("Compacted all messages for better text selection");
+    private void compactAllMessages() {
+        flushPendingChangesAsync().thenRun(() -> { // This outer part runs on EDT
+            assert SwingUtilities.isEventDispatchThread();
+            final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
+
+            if (renderersToCompact.isEmpty()) {
+                logger.debug("No renderers to compact.");
+                // If flushPendingChangesAsync caused UI changes, revalidate/repaint might be good here.
+                // However, if there's nothing to compact, usually no major UI change is expected beyond flush.
+                return;
+            }
+
+            CompletableFuture.runAsync(() -> { // Heavy lifting on compactExec
+                var compactedSnapshots = renderersToCompact.stream()
+                    .map(renderer -> {
+                        try {
+                            return renderer.buildCompactedSnapshot();
+                        } catch (Exception e) {
+                            // Log specific renderer error but continue with others
+                            logger.warn("Error building compacted snapshot for a renderer", e);
+                            return null; // Signal error or skip for this renderer
+                        }
+                    })
+                    .toList();
+
+                SwingUtilities.invokeLater(() -> { // UI updates back on EDT
+                    assert SwingUtilities.isEventDispatchThread();
+                    if (renderersToCompact.size() != compactedSnapshots.size()) {
+                        // Should not happen if stream().map().toList() works as expected
+                        logger.error("Mismatch between renderers and snapshots count during compaction. Aborting UI update.");
+                        return;
+                    }
+
+                    for (int i = 0; i < renderersToCompact.size(); i++) {
+                        var renderer = renderersToCompact.get(i);
+                        var snapshot = compactedSnapshots.get(i);
+                        // applyCompactedSnapshot handles null snapshot (e.g., if build decided to skip)
+                        renderer.applyCompactedSnapshot(snapshot);
+                    }
+                    revalidate();
+                    repaint();
+                    logger.debug("Compacted all messages (async)");
+                });
+            }, this.compactExec).exceptionally(ex -> {
+                logger.error("Error during async compaction computation task", ex);
+                return null; // Handle future's exceptional completion
+            });
+        }).exceptionally(ex -> {
+            logger.error("Error in compaction pre-computation phase (flush or initial EDT setup)", ex);
+            return null; // Handle future's exceptional completion
         });
     }
 
@@ -614,5 +675,31 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     @Override
     public boolean getScrollableTracksViewportHeight() {
         return false;
+    }
+
+    /**
+     * Cleans up resources used by this panel, particularly shutting down background thread pools.
+     * This method should be called when the panel is no longer needed (e.g., when its containing window is closed)
+     * to prevent resource leaks.
+     */
+    public void dispose() {
+        logger.debug("Disposing MarkdownOutputPanel and shutting down executors.");
+        // Shut down worker threads for each bubble
+        bubbles.forEach(b -> b.worker().shutdown());
+
+        // Shut down the compaction executor
+        if (compactExec != null && !compactExec.isShutdown()) {
+            compactExec.shutdownNow();
+            try {
+                if (!compactExec.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+                    logger.warn("Compaction executor did not terminate in time.");
+                }
+            } catch (InterruptedException e) {
+                logger.warn("Interrupted while waiting for compaction executor to terminate.", e);
+                Thread.currentThread().interrupt();
+            }
+        }
+        // Clear bubbles to release references, though workers are already shut down.
+        bubbles.clear();
     }
 }

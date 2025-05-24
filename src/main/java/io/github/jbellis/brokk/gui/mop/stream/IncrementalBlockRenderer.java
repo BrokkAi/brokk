@@ -147,7 +147,13 @@ public final class IncrementalBlockRenderer {
         List<ComponentData> components = buildComponentData(html);
         
         // Update the UI with the reconciled components
-        updateUI(components);
+        // This method is typically called for initial non-streaming updates or full replacements.
+        // Ensure UI updates happen on EDT.
+        if (SwingUtilities.isEventDispatchThread()) {
+            updateUI(components);
+        } else {
+            SwingUtilities.invokeLater(() -> updateUI(components));
+        }
     }
     
     /**
@@ -174,7 +180,9 @@ public final class IncrementalBlockRenderer {
     public String createHtml(CharSequence md) {
         // Parse with Flexmark
         // Parser.parse expects a String or BasedSequence. Convert CharSequence to String.
-        var document = parser.parse(md.toString());
+        String markdownString = md.toString(); // Convert once
+        this.lastMarkdown = markdownString;    // Store it for compaction
+        var document = parser.parse(markdownString); // Parse the stored string
         return renderer.render(document);  // Don't sanitize yet - let MarkdownComponentData handle it
     }
     
@@ -256,39 +264,70 @@ public final class IncrementalBlockRenderer {
     }
     
     /**
-     * Merges consecutive MarkdownComponentData blocks that have no intervening special blocks
-     * (code-fence, edit-block, etc.). Safe to call multiple times; subsequent invocations are no-ops.
-     * This method should be called only after streaming is complete to ensure a consistent user
-     * experience for text selection.
+     * Builds a snapshot of what the component data would look like if compacted.
+     * This method performs CPU-intensive work and should be called off the EDT.
+     * It does not modify the renderer's state.
+     *
+     * @return A list of {@link ComponentData} representing the compacted state,
+     *         or {@code null} if compaction is not needed (e.g., already compacted or no content).
      */
-    public void compactMarkdown() {
+    public List<ComponentData> buildCompactedSnapshot() {
+        // This check is a hint; the authoritative 'compacted' flag is checked on EDT in applyCompactedSnapshot.
         if (compacted) {
-            logger.debug("Renderer already compacted - skipping");
+            // logger.debug("Build snapshot: Renderer reported as already compacted. Returning null.");
+            return null;
+        }
+        if (lastMarkdown.isEmpty()) {
+            // logger.debug("Build snapshot: No markdown content. Returning null.");
+            return null;
+        }
+
+        var html = createHtml(lastMarkdown);
+        var originalComponents = buildComponentData(html);
+        return mergeMarkdownBlocks(originalComponents);
+    }
+
+    /**
+     * Applies a previously built compacted snapshot to the UI.
+     * This method must be called on the EDT. It updates the renderer's state.
+     *
+     * @param mergedComponents The list of {@link ComponentData} from {@link #buildCompactedSnapshot()}.
+     *                         If {@code null}, it typically means compaction was skipped or not needed.
+     */
+    public void applyCompactedSnapshot(List<ComponentData> mergedComponents) {
+        assert SwingUtilities.isEventDispatchThread() : "applyCompactedSnapshot must be called on EDT";
+
+        if (compacted) { // Authoritative check on EDT
+            logger.debug("Apply snapshot: Renderer already compacted - skipping");
             return;
         }
 
-        // Rebuild components from the last known markdown content
-        List<ComponentData> originalComponents;
-        if (!lastMarkdown.isEmpty()) {
-            var html = createHtml(lastMarkdown);
-            originalComponents = buildComponentData(html);
-        } else {
-            logger.debug("No markdown content to compact - skipping");
+        // Case 1: No initial markdown content. Mark as compacted and do nothing else.
+        if (lastMarkdown.isEmpty()) {
+            logger.debug("Apply snapshot: No markdown content to compact - skipping UI update, marking as compacted.");
             compacted = true;
             return;
         }
 
-        var merged = mergeMarkdownBlocks(originalComponents);
-        logger.debug("Compacting markdown blocks: {} -> {}", originalComponents.size(), merged.size());
-        updateUI(merged);
+        // Case 2: buildCompactedSnapshot decided not to produce components (e.g., it thought it was already compacted).
+        // Mark as compacted.
+        if (mergedComponents == null) {
+            logger.debug("Apply snapshot: Received null components, build was likely skipped. Marking as compacted.");
+            compacted = true;
+            return;
+        }
+        
+        // Case 3: Actual compaction and UI update.
+        logger.debug("Apply snapshot: Compacting markdown blocks. Current component count (approx), new count: {}", mergedComponents.size());
+        updateUI(mergedComponents);
         compacted = true;
-        // Update the last markdown to reflect the merged state for future builds
-        // Reconstruct markdown content from merged components to ensure consistency
-        lastMarkdown = merged.stream()
-                             .filter(cd -> cd instanceof MarkdownComponentData)
-                             .map(cd -> ((MarkdownComponentData) cd).html())
-                             .collect(Collectors.joining("\n"));
-        lastHtmlFingerprint = merged.stream().map(ComponentData::fp).collect(Collectors.joining("-"));
+
+        // Update lastMarkdown and lastHtmlFingerprint to reflect the merged state.
+        this.lastMarkdown = mergedComponents.stream()
+                                         .filter(cd -> cd instanceof MarkdownComponentData)
+                                         .map(cd -> ((MarkdownComponentData) cd).html())
+                                         .collect(Collectors.joining("\n"));
+        this.lastHtmlFingerprint = mergedComponents.stream().map(ComponentData::fp).collect(Collectors.joining("-"));
     }
 
     /**
