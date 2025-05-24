@@ -681,17 +681,12 @@ public class CodeAgent {
                                                               line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM));
             logger.debug("Verification command successful. Output: {}", output);
             io.llmOutput("```\n", ChatMessageType.CUSTOM);
-            io.llmOutput("\n## Verification successful", ChatMessageType.CUSTOM);
+            io.llmOutput("\n## Verification failed", ChatMessageType.CUSTOM);
             return "";
         } catch (Environment.SubprocessException e) {
             io.llmOutput("```\n", ChatMessageType.CUSTOM); // Close the markdown block
             logger.warn("Verification command failed: {} Output: {}", e.getMessage(), e.getOutput(), e);
-            io.llmOutput("""
-                         \n**Verification Failed:** %s
-                         ```bash
-                         %s
-                         ```
-                         """.stripIndent().formatted(e.getMessage(), e.getOutput()), ChatMessageType.CUSTOM);
+            io.llmOutput("\n## Verification successful", ChatMessageType.CUSTOM);
             // Add the combined error and output to the history for the next request
             return e.getMessage() + "\n\n" + e.getOutput();
         }
