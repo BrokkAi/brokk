@@ -333,7 +333,7 @@ public class GitLogTab extends JPanel {
         JMenuItem addToContextItem = new JMenuItem("Capture Diff");
         JMenuItem softResetItem = new JMenuItem("Soft Reset to Here");
         JMenuItem revertCommitItem = new JMenuItem("Revert Commit");
-        JMenuItem popStashCommitItem = new JMenuItem("Pop Stash");
+        JMenuItem popStashCommitItem = new JMenuItem("Apply and Remove");
         JMenuItem applyStashCommitItem = new JMenuItem("Apply Stash");
         JMenuItem dropStashCommitItem = new JMenuItem("Drop Stash");
 
@@ -416,9 +416,8 @@ public class GitLogTab extends JPanel {
 
                 // Stash actions only visible if *all* selected commits are stashes
                 boolean allSelectedAreStashes = true;
-                Optional<Integer> firstStashIndex = Optional.empty();
                 if (selectedRows.length > 0) {
-                     firstStashIndex = ((ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5)).stashIndex();
+                     var firstStashIndex = ((ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5)).stashIndex();
                      if (!firstStashIndex.isPresent()) {
                          allSelectedAreStashes = false;
                      } else {
@@ -435,8 +434,8 @@ public class GitLogTab extends JPanel {
 
 
                 popStashCommitItem.setVisible(allSelectedAreStashes);
-                 // Pop only makes sense for the latest stash (index 0) and only one selected
-                popStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1 && firstStashIndex.orElse(-1) == 0);
+                // "Apply and Remove" can be done for any single selected stash.
+                popStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
                 applyStashCommitItem.setVisible(allSelectedAreStashes);
                 applyStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1); // Only apply single stash
                 dropStashCommitItem.setVisible(allSelectedAreStashes);
