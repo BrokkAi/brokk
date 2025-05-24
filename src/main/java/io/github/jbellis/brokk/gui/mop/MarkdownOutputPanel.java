@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * A Swing JPanel designed to display structured conversations as formatted text content which may include
@@ -38,17 +39,14 @@ import java.util.stream.Collectors;
 public class MarkdownOutputPanel extends JPanel implements Scrollable {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
-    // Holds the structured messages that have been added to the panel
-    private final List<ChatMessage> messages = new ArrayList<>();
+    /** Keeps together everything required for one rendered message bubble. */
+    private record Bubble(ChatMessage message,
+                          IncrementalBlockRenderer renderer,
+                          StreamingWorker worker,
+                          Component uiComponent) {}
 
-    // Parallel list of UI components for each message (1:1 mapping with messages)
-    private final List<Component> messageComponents = new ArrayList<>();
-    
-    // Track renderers for each message (parallel to messageComponents)
-    private final List<IncrementalBlockRenderer> messageRenderers = new ArrayList<>();
-    
-    // For streaming work off the EDT
-    private StreamingWorker worker;
+    // Holds all data and components for each message bubble
+    private final List<Bubble> bubbles = new ArrayList<>();
 
     // Listeners to notify whenever text changes
     private final List<Runnable> textChangeListeners = new ArrayList<>();
@@ -90,7 +88,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         }
 
         // Re-render all components with new theme
-        setText(messages);
+        // Extract existing messages to re-add them, which will apply the new theme
+        var currentMessages = bubbles.stream().map(Bubble::message).toList();
+        setText(currentMessages); // This will clear and re-add, applying the new theme
 
         revalidate();
         repaint();
@@ -140,13 +140,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * Internal helper to clear all state
      */
     private void internalClear() {
-        if (worker != null) {
-            worker.shutdown();
-            worker = null;
-        }
-        messages.clear();
-        messageComponents.clear();
-        messageRenderers.clear();
+        // stop all background threads first
+        bubbles.forEach(b -> b.worker().shutdown());
+        bubbles.clear();
         removeAll();
         spinnerPanel = null;
     }
@@ -165,7 +161,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         }
 
         // Check if we're appending to an existing message of the same type
-        if (!messages.isEmpty() && messages.getLast().type() == type) {
+        if (!bubbles.isEmpty() && bubbles.getLast().message().type() == type) {
             // Append to existing message
             updateLastMessage(text);
         } else {
@@ -183,18 +179,24 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     private void updateLastMessage(String additionalText) {
         assert SwingUtilities.isEventDispatchThread();
         
-        if (messages.isEmpty()) return;
+        if (bubbles.isEmpty()) return;
 
-        var lastMessage = messages.getLast();
+        var lastBubble = bubbles.getLast();
+        var lastMessage = lastBubble.message();
         var type = lastMessage.type();
-        
+
         // Queue the chunk for background processing
-        worker.appendChunk(additionalText);
+        lastBubble.worker().appendChunk(additionalText);
         
         // Update our model with the combined text
         var updatedText = Messages.getRepr(lastMessage) + additionalText;
         ChatMessage updatedMessage = Messages.create(updatedText, type);
-        messages.set(messages.size() - 1, updatedMessage);
+        
+        // Replace the last bubble with an updated one
+        bubbles.set(bubbles.size() - 1, new Bubble(updatedMessage,
+                                                   lastBubble.renderer(),
+                                                   lastBubble.worker(),
+                                                   lastBubble.uiComponent()));
 
         // No need to call revalidate/repaint - worker will do this when parsing is done
     }
@@ -203,14 +205,6 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * Adds a new message to the display
      */
     private void addNewMessage(ChatMessage message) {
-        // Shutdown previous worker if exists
-        if (worker != null) {
-            worker.shutdown();
-        }
-        
-        // Add to our message list
-        messages.add(message);
-
         // If spinner is showing, remove it temporarily
         boolean spinnerWasVisible = false;
         if (spinnerPanel != null) {
@@ -249,25 +243,26 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         // Create a new renderer for this message - disable edit blocks for user messages
         boolean enableEditBlocks = message.type() != ChatMessageType.USER;
         var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks);
-        messageRenderers.add(renderer);
         
-        // Start a worker for this message
-        worker = new StreamingWorker(renderer);
+        // Create a new worker for this message
+        var worker = new StreamingWorker(renderer);
         
-        // Create the base panel with the renderer's root component
-        var basePanel = new MessageBubble(
-            title, 
-            iconText, 
-            renderer.getRoot(), 
-            isDarkTheme, 
+        // Create the UI component (MessageBubble)
+        var bubbleUI = new MessageBubble(
+            title,
+            iconText,
+            renderer.getRoot(),
+            isDarkTheme,
             highlightColor
         );
+
+        // Add to our bubbles list
+        bubbles.add(new Bubble(message, renderer, worker, bubbleUI));
         
-        // Add the component to our UI
-        messageComponents.add(basePanel);
-        add(basePanel);
+        // Add the component to the panel's UI
+        add(bubbleUI);
         
-        // Process the message content through the worker instead of directly
+        // Process the message content through the new worker
         worker.appendChunk(Messages.getText(message));
 
         // Re-add spinner if it was visible
@@ -297,13 +292,14 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     }
 
     // private for changing theme -- parser doesn't need to change
-    private void setText(List<ChatMessage> messages) {
-        if (blockClearAndReset && !this.messages.isEmpty()) {
+    private void setText(List<ChatMessage> newMessages) {
+        if (blockClearAndReset && !this.bubbles.isEmpty()) {
             logger.debug("Ignoring private setText() request while blocking is enabled");
             return;
         }
-        
-        for (var message : messages) {
+        internalClear(); // Clear existing bubbles and workers
+
+        for (var message : newMessages) {
             addNewMessage(message);
         }
         revalidate();
@@ -342,8 +338,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         if (!SwingUtilities.isEventDispatchThread()) {
             flushPendingChangesSync();
         }
-        return messages.stream()
-                .map(Messages::getRepr)
+        return bubbles.stream()
+                .map(b -> Messages.getRepr(b.message()))
                 .collect(Collectors.joining("\n\n"));
     }
 
@@ -357,7 +353,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         if (!SwingUtilities.isEventDispatchThread()) {
             flushPendingChangesSync();
         }
-        return Collections.unmodifiableList(messages);
+        return Collections.unmodifiableList(bubbles.stream().map(Bubble::message).toList());
     }
 
     /**
@@ -422,7 +418,15 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         if (!SwingUtilities.isEventDispatchThread()) {
             flushPendingChangesSync();
         }
-        return Collections.unmodifiableList(messages);
+        return Collections.unmodifiableList(bubbles.stream().map(Bubble::message).toList());
+    }
+
+    private Stream<StreamingWorker> workers() {
+        return bubbles.stream().map(Bubble::worker);
+    }
+
+    private Stream<IncrementalBlockRenderer> renderers() {
+        return bubbles.stream().map(Bubble::renderer);
     }
 
     /**
@@ -430,8 +434,12 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * The future completes on the EDT.
      */
     private CompletableFuture<Void> flushPendingChangesAsync() {
-        return (worker == null) ? CompletableFuture.completedFuture(null)
-                                : worker.flushAsync();
+        if (bubbles.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+        var futures = workers().map(StreamingWorker::flushAsync)
+                               .toArray(CompletableFuture[]::new);
+        return CompletableFuture.allOf(futures);
     }
 
     /**
@@ -439,9 +447,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      */
     private void flushPendingChangesSync() {
         assert !SwingUtilities.isEventDispatchThread() : "flushPendingChangesSync must not be called on EDT";
-        if (worker != null) {
-            worker.flush();    // blocks
-        }
+        workers().forEach(StreamingWorker::flush); // blocks for each worker
     }
     
     /**
@@ -452,9 +458,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     public void compactAllMessages() {
         flushPendingChangesAsync().thenRun(() -> {
             assert SwingUtilities.isEventDispatchThread(); // Future from flushAsync completes on EDT
-            for (var renderer : messageRenderers) {
-                renderer.compactMarkdown();
-            }
+            renderers().forEach(IncrementalBlockRenderer::compactMarkdown);
             revalidate();
             repaint();
             logger.debug("Compacted all messages for better text selection");
@@ -473,8 +477,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         if (!SwingUtilities.isEventDispatchThread()) {
             flushPendingChangesSync();
         }
-        return messages.stream()
-                .map(Messages::getText) // Gets the actual content of the message
+        return bubbles.stream()
+                .map(b -> Messages.getText(b.message())) // Gets the actual content of the message
                 .collect(Collectors.joining("\n\n"));
     }
 
@@ -488,10 +492,11 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     public String getSelectedText() {
         return SwingUtil.runOnEdt(() -> {
             var sb = new StringBuilder();
-            for (var renderer : messageRenderers) {
-                // renderer.getRoot() is the JComponent (likely a JPanel) holding the rendered blocks for a single message.
-                // We need to look inside this root for text components.
-                collectSelectedText(renderer.getRoot(), sb);
+            // Iterate over uiComponents within bubbles
+            for (var bubble : bubbles) {
+                // bubble.uiComponent() is the MessageBubble, which contains the renderer's root.
+                // renderer.getRoot() is the JComponent (likely a JPanel) holding the rendered blocks.
+                collectSelectedText(bubble.renderer().getRoot(), sb);
             }
             return sb.toString();
         }, "");
@@ -543,8 +548,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     private void performCopyAction() {
         assert SwingUtilities.isEventDispatchThread();
         // Attempt to delegate to a focused text component first
-        for (var renderer : messageRenderers) {
-            var focusedTextComponent = findFocusedTextComponentIn(renderer.getRoot());
+        for (var bubble : bubbles) {
+            var focusedTextComponent = findFocusedTextComponentIn(bubble.renderer().getRoot());
             if (focusedTextComponent != null) {
                 focusedTextComponent.copy(); // Trigger the component's native copy action
                 return;
