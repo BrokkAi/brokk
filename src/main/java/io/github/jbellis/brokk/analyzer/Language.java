@@ -495,6 +495,25 @@ public interface Language {
     };
 
     // --- Infrastructure for fromExtension and enum-like static methods ---
+    // The ALL_LANGUAGES list is defined after all Language instances (including SQL) are defined.
+
+    Language SQL = new Language() {
+        private final List<String> extensions = List.of("sql");
+        @Override public List<String> getExtensions() { return extensions; }
+        @Override public String name() { return "SQL"; }
+        @Override public String internalName() { return "SQL"; }
+        @Override public String toString() { return name(); }
+        @Override public IAnalyzer createAnalyzer(Project project) {
+            var excludedDirStrings = project.getBuildDetails().excludedDirectories();
+            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
+            return new SqlAnalyzer(project, excludedPaths);
+        }
+        @Override public IAnalyzer loadAnalyzer(Project project) {
+            // SQLAnalyzer does not save/load state from disk beyond re-parsing
+            return createAnalyzer(project);
+        }
+        @Override public boolean isCpg() { return false; }
+    };
 
     List<Language> ALL_LANGUAGES = List.of(C_SHARP,
                                            JAVA,
@@ -503,7 +522,8 @@ public interface Language {
                                            C_CPP,
                                            GO,
                                            RUST,
-                                           PHP, // Added PHP here
+                                           PHP,
+                                           SQL, // SQL is now defined and can be included
                                            NONE);
 
     /**

@@ -66,7 +66,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
-    private record Range(int startByte, int endByte, int startLine, int endLine) {}
+    public record Range(int startByte, int endByte, int startLine, int endLine) {}
 
     private record FileAnalysisResult(List<CodeUnit> topLevelCUs,
                                       Map<CodeUnit, List<CodeUnit>> children,

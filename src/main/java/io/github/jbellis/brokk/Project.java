@@ -499,7 +499,10 @@ public class Project implements IProject, AutoCloseable {
                 .collect(Collectors.toSet());
         }
 
-        // Auto-detect languages: all languages with >= 10% of recognized files.
+        // Auto-detect languages:
+        // 1. Include all languages with >= 10% of recognized (non-NONE) files.
+        // 2. If #1 results in an empty set, include the most common recognized language.
+        // 3. Always include SQL if any SQL files are present.
         // This is the runtime default if no specific languages are set in projectProps.
         // This detected default is NOT written back to projectProps automatically.
         Map<Language, Long> languageCounts = repo.getTrackedFiles().stream()
@@ -514,23 +517,36 @@ public class Project implements IProject, AutoCloseable {
         }
 
         long totalRecognizedFiles = languageCounts.values().stream().mapToLong(Long::longValue).sum();
+        // totalRecognizedFiles is > 0 here because languageCounts is not empty.
 
-        if (totalRecognizedFiles == 0) { // Should be covered by languageCounts.isEmpty(), but as a safeguard.
-             logger.debug("Total count of recognized files is 0 for {}. Defaulting to Language.NONE.", root);
-             return Set.of(Language.NONE);
-        }
+        Set<Language> detectedLanguages = new HashSet<>();
 
-        Set<Language> detectedLanguages = languageCounts.entrySet().stream()
+        // 1. Include all languages with >= 10% of recognized (non-NONE) files.
+        languageCounts.entrySet().stream()
             .filter(entry -> (double) entry.getValue() / totalRecognizedFiles >= 0.10)
-            .map(Map.Entry::getKey)
-            .collect(Collectors.toSet());
+            .forEach(entry -> detectedLanguages.add(entry.getKey()));
 
+        // 2. If #1 results in an empty set (and languageCounts is not empty),
+        //    include the most common recognized language.
         if (detectedLanguages.isEmpty()) {
-            logger.debug("No language met the 10% threshold for {}. Defaulting to Language.NONE.", root);
-            return Set.of(Language.NONE);
+            // languageCounts is guaranteed non-empty here.
+            var mostCommonEntry = languageCounts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .orElseThrow(); // Should not happen as languageCounts is not empty
+            detectedLanguages.add(mostCommonEntry.getKey());
+            logger.debug("No language met 10% threshold for {}. Adding most common: {}", root, mostCommonEntry.getKey().name());
         }
 
-        logger.debug("Auto-detected languages for {} (>=10% file representation): {}", root,
+        // 3. Always include SQL if any SQL files are present.
+        if (languageCounts.containsKey(Language.SQL)) {
+            boolean addedByThisRule = detectedLanguages.add(Language.SQL);
+            if (addedByThisRule) {
+                logger.debug("SQL files present for {}, ensuring SQL is included in detected languages.", root);
+            }
+        }
+
+        // If languageCounts was not empty, detectedLanguages should not be empty at this point.
+        logger.debug("Auto-detected languages for {}: {}", root,
                      detectedLanguages.stream().map(Language::name).collect(Collectors.joining(", ")));
         return detectedLanguages;
     }
