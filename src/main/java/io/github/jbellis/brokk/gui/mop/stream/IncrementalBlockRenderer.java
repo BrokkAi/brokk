@@ -151,6 +151,18 @@ public final class IncrementalBlockRenderer {
     }
     
     /**
+     * Thread-safe version of update that separates parsing from UI updates.
+     * This method can be called from any thread, with only the UI update
+     * happening on the EDT.
+     * 
+     * @param components The component data to apply to the UI
+     */
+    public void applyUI(List<ComponentData> components) {
+        assert SwingUtilities.isEventDispatchThread() : "applyUI must be called on EDT";
+        updateUI(components);
+    }
+    
+    /**
      * Updates the UI with the given component data, reusing existing components when possible.
      * 
      * @param components The list of component data to render
@@ -159,9 +171,10 @@ public final class IncrementalBlockRenderer {
         Reconciler.reconcile(root, components, registry, isDarkTheme);
     }
 
-    /* package */ String createHtml(String md) {
+    public String createHtml(CharSequence md) {
         // Parse with Flexmark
-        var document = parser.parse(md);
+        // Parser.parse expects a String or BasedSequence. Convert CharSequence to String.
+        var document = parser.parse(md.toString());
         return renderer.render(document);  // Don't sanitize yet - let MarkdownComponentData handle it
     }
     
@@ -183,7 +196,7 @@ public final class IncrementalBlockRenderer {
      * @param html The HTML string to parse
      * @return A list of ComponentData objects in document order
      */
-    /* package */ List<ComponentData> buildComponentData(String html) {
+    public List<ComponentData> buildComponentData(String html) {
         List<ComponentData> result = new ArrayList<>();
         
         Document doc = Jsoup.parse(html);

@@ -15,6 +15,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +46,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     
     // Track renderers for each message (parallel to messageComponents)
     private final List<IncrementalBlockRenderer> messageRenderers = new ArrayList<>();
+    
+    // For streaming work off the EDT
+    private StreamingWorker worker;
 
     // Listeners to notify whenever text changes
     private final List<Runnable> textChangeListeners = new ArrayList<>();
@@ -136,6 +140,10 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * Internal helper to clear all state
      */
     private void internalClear() {
+        if (worker != null) {
+            worker.shutdown();
+            worker = null;
+        }
         messages.clear();
         messageComponents.clear();
         messageRenderers.clear();
@@ -173,28 +181,33 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * Updates the last message by appending text to it
      */
     private void updateLastMessage(String additionalText) {
+        assert SwingUtilities.isEventDispatchThread();
+        
         if (messages.isEmpty()) return;
 
         var lastMessage = messages.getLast();
-        var newText = Messages.getRepr(lastMessage) + additionalText;
         var type = lastMessage.type();
         
-        // Get the renderer for the last message
-        var lastRenderer = messageRenderers.getLast();
-        lastRenderer.update(newText);
+        // Queue the chunk for background processing
+        worker.appendChunk(additionalText);
         
-        // Create a new message with the combined text and update our model
-        ChatMessage updatedMessage = Messages.create(newText, type);
+        // Update our model with the combined text
+        var updatedText = Messages.getRepr(lastMessage) + additionalText;
+        ChatMessage updatedMessage = Messages.create(updatedText, type);
         messages.set(messages.size() - 1, updatedMessage);
 
-        revalidate();
-        repaint();
+        // No need to call revalidate/repaint - worker will do this when parsing is done
     }
 
     /**
      * Adds a new message to the display
      */
     private void addNewMessage(ChatMessage message) {
+        // Shutdown previous worker if exists
+        if (worker != null) {
+            worker.shutdown();
+        }
+        
         // Add to our message list
         messages.add(message);
 
@@ -238,6 +251,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks);
         messageRenderers.add(renderer);
         
+        // Start a worker for this message
+        worker = new StreamingWorker(renderer);
+        
         // Create the base panel with the renderer's root component
         var basePanel = new MessageBubble(
             title, 
@@ -251,8 +267,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         messageComponents.add(basePanel);
         add(basePanel);
         
-        // Update the renderer with the message content
-        renderer.update(Messages.getText(message));
+        // Process the message content through the worker instead of directly
+        worker.appendChunk(Messages.getText(message));
 
         // Re-add spinner if it was visible
         if (spinnerWasVisible) {
@@ -323,6 +339,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * For backward compatibility with code that expects a String.
      */
     public String getText() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            flushPendingChangesSync();
+        }
         return messages.stream()
                 .map(Messages::getRepr)
                 .collect(Collectors.joining("\n\n"));
@@ -335,6 +354,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * @return An unmodifiable list of the current messages
      */
     public List<ChatMessage> getRawMessages() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            flushPendingChangesSync();
+        }
         return Collections.unmodifiableList(messages);
     }
 
@@ -391,27 +413,52 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     }
 
     /**
-         * Get the current messages in the panel.
-         * This is useful for code that needs to access the structured message data.
-         *
-         * @return An unmodifiable list of the current messages
-         */
-        public List<ChatMessage> getMessages() {
-                    return Collections.unmodifiableList(messages);
-                }
+     * Get the current messages in the panel.
+     * This is useful for code that needs to access the structured message data.
+     *
+     * @return An unmodifiable list of the current messages
+     */
+    public List<ChatMessage> getMessages() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            flushPendingChangesSync();
+        }
+        return Collections.unmodifiableList(messages);
+    }
 
-            /**
+    /**
+     * Returns a future that completes when the worker is idle and all pending changes are flushed.
+     * The future completes on the EDT.
+     */
+    private CompletableFuture<Void> flushPendingChangesAsync() {
+        return (worker == null) ? CompletableFuture.completedFuture(null)
+                                : worker.flushAsync();
+    }
+
+    /**
+     * Synchronously flushes pending changes. MUST NOT be called on EDT.
+     */
+    private void flushPendingChangesSync() {
+        assert !SwingUtilities.isEventDispatchThread() : "flushPendingChangesSync must not be called on EDT";
+        if (worker != null) {
+            worker.flush();    // blocks
+        }
+    }
+    
+    /**
      * Compacts all messages by merging consecutive Markdown blocks in each message renderer.
      * This improves the user experience for selecting text across multiple Markdown blocks.
-     * Should be called only after streaming is complete for all messages to avoid inconsistencies.
+     * This operation is performed asynchronously and completes on the EDT.
      */
     public void compactAllMessages() {
-        for (var renderer : messageRenderers) {
-            renderer.compactMarkdown();
-        }
-        revalidate();
-        repaint();
-        logger.debug("Compacted all messages for better text selection");
+        flushPendingChangesAsync().thenRun(() -> {
+            assert SwingUtilities.isEventDispatchThread(); // Future from flushAsync completes on EDT
+            for (var renderer : messageRenderers) {
+                renderer.compactMarkdown();
+            }
+            revalidate();
+            repaint();
+            logger.debug("Compacted all messages for better text selection");
+        });
     }
 
     // --- Text Access and Manipulation Methods for Copy/Paste ---
@@ -423,6 +470,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * @return A string containing all displayed text.
      */
     public String getDisplayedText() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            flushPendingChangesSync();
+        }
         return messages.stream()
                 .map(Messages::getText) // Gets the actual content of the message
                 .collect(Collectors.joining("\n\n"));
@@ -481,27 +531,34 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * Copies text to the system clipboard.
      * If a text component within this panel has focus, its own copy action is triggered.
      * Otherwise, if there is any selected text (aggregated from `getSelectedText()`), that is copied.
+     * This operation is performed asynchronously after ensuring all content is rendered.
      */
     public void copy() {
-        SwingUtilities.invokeLater(() -> {
-            // Attempt to delegate to a focused text component first
-            for (var renderer : messageRenderers) {
-                var focusedTextComponent = findFocusedTextComponentIn(renderer.getRoot());
-                if (focusedTextComponent != null) {
-                    focusedTextComponent.copy(); // Trigger the component's native copy action
-                    return;
-                }
-            }
+        flushPendingChangesAsync().thenRun(() -> SwingUtilities.invokeLater(this::performCopyAction));
+    }
 
-            // If no specific text component is focused, copy aggregated selected text
-            var selectedText = getSelectedText(); // getSelectedText is already wrapped
-            if (selectedText != null && !selectedText.isEmpty()) {
-                var sel = new java.awt.datatransfer.StringSelection(selectedText);
-                java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+    /**
+     * Performs the actual copy action. This method should be called on the EDT.
+     */
+    private void performCopyAction() {
+        assert SwingUtilities.isEventDispatchThread();
+        // Attempt to delegate to a focused text component first
+        for (var renderer : messageRenderers) {
+            var focusedTextComponent = findFocusedTextComponentIn(renderer.getRoot());
+            if (focusedTextComponent != null) {
+                focusedTextComponent.copy(); // Trigger the component's native copy action
+                return;
             }
-            // If no text is focused and no text is selected, this method does nothing,
-            // mirroring standard text component behavior.
-        });
+        }
+
+        // If no specific text component is focused, copy aggregated selected text
+        String selectedText = getSelectedText(); // getSelectedText is already EDT-safe
+        if (selectedText != null && !selectedText.isEmpty()) {
+            var sel = new java.awt.datatransfer.StringSelection(selectedText);
+            java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
+        }
+        // If no text is focused and no text is selected, this method does nothing,
+        // mirroring standard text component behavior.
     }
 
     /**
