@@ -109,8 +109,8 @@ public class TreeSitterAnalyzerMiscTest {
         assertEquals(helloJsxFile, renderMethodFile.get());
         
         // Test case 4: Top-level variable in Vars.js
-        Optional<ProjectFile> topConstJsFile = jsAnalyzer.getFileFor("_module_.TOP_CONST_JS");
-        assertTrue(topConstJsFile.isPresent(), "File for '_module_.TOP_CONST_JS' should be found.");
+        Optional<ProjectFile> topConstJsFile = jsAnalyzer.getFileFor("Vars.js.TOP_CONST_JS");
+        assertTrue(topConstJsFile.isPresent(), "File for 'Vars.js.TOP_CONST_JS' should be found.");
         assertEquals(varsJsFile, topConstJsFile.get());
 
         // Test case 5: Non-existent FQ name
@@ -133,9 +133,9 @@ public class TreeSitterAnalyzerMiscTest {
         assertEquals(helloJsFile, greetMethodDef.get().source());
         
         // Test case 3: Top-level variable in Vars.js
-        Optional<CodeUnit> topConstJsDef = jsAnalyzer.getDefinition("_module_.TOP_CONST_JS");
-        assertTrue(topConstJsDef.isPresent(), "Definition for '_module_.TOP_CONST_JS' should be found.");
-        assertEquals("_module_.TOP_CONST_JS", topConstJsDef.get().fqName());
+        Optional<CodeUnit> topConstJsDef = jsAnalyzer.getDefinition("Vars.js.TOP_CONST_JS");
+        assertTrue(topConstJsDef.isPresent(), "Definition for 'Vars.js.TOP_CONST_JS' should be found.");
+        assertEquals("Vars.js.TOP_CONST_JS", topConstJsDef.get().fqName());
         assertEquals(varsJsFile, topConstJsDef.get().source());
 
         // Test case 4: Non-existent FQ name
@@ -174,7 +174,7 @@ public class TreeSitterAnalyzerMiscTest {
         // Test case 4: Search for "TOP_CONST" (matches variable name part)
         List<CodeUnit> constSymbols = jsAnalyzer.searchDefinitions("TOP_CONST");
         assertFalse(constSymbols.isEmpty(), "Should find symbols containing 'TOP_CONST'.");
-        assertTrue(constSymbols.stream().anyMatch(cu -> "_module_.TOP_CONST_JS".equals(cu.fqName())), "Should find '_module_.TOP_CONST_JS'.");
+        assertTrue(constSymbols.stream().anyMatch(cu -> "Vars.js.TOP_CONST_JS".equals(cu.fqName())), "Should find 'Vars.js.TOP_CONST_JS'.");
         assertEquals(1, constSymbols.size(), "Expected 1 symbol matching 'TOP_CONST'.");
 
         // Test case 5: Non-existent pattern
@@ -219,7 +219,7 @@ public class TreeSitterAnalyzerMiscTest {
                      "Requesting class source for a function symbol should throw SymbolNotFoundException.");
 
         // Test case 5: Existing symbol that is a field, not a class
-        assertThrows(SymbolNotFoundException.class, () -> jsAnalyzer.getClassSource("_module_.TOP_CONST_JS"),
+        assertThrows(SymbolNotFoundException.class, () -> jsAnalyzer.getClassSource("Vars.js.TOP_CONST_JS"),
                      "Requesting class source for a field symbol should throw SymbolNotFoundException.");
     }
 
@@ -287,7 +287,7 @@ public class TreeSitterAnalyzerMiscTest {
         assertTrue(classAsMethodSourceOpt.isEmpty(), "Requesting method source for a class symbol should return Option.empty().");
         
         // Test case 9: Existing symbol that is a field, not a function
-        Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("_module_.TOP_CONST_JS");
+        Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS");
         assertTrue(fieldAsMethodSourceOpt.isEmpty(), "Requesting method source for a field symbol should return Option.empty().");
     }
 }

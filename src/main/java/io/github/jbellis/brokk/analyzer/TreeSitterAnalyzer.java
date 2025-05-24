@@ -859,13 +859,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         // After processing all captures, if there were import statements, create a MODULE CodeUnit
         if (!localImportStatements.isEmpty()) {
             String modulePackageName = determinePackageName(file, rootNode, rootNode, src); // Use rootNode for general package name
-            // Use a consistent, unique short name for the module CU, e.g., based on filename.
-            // Using "_module_" might lead to collisions in maps if not combined with unique package name.
-            // For fqName uniqueness, source+packageName+"_module_" should be fine.
-            String moduleShortName = "_module_";
+            // Use a consistent, unique short name for the module CU, based on filename.
+            // This ensures module CUs from different files have distinct fqNames.
+            String moduleShortName = file.getFileName();
             CodeUnit moduleCU = CodeUnit.module(file, modulePackageName, moduleShortName);
 
-            // Check if a module CU with this FQ name already exists (e.g. from a different file, though unlikely here)
+            // Check if a module CU with this FQ name already exists
             // or if this logic somehow runs twice for the same file.
             if (!localCuByFqName.containsKey(moduleCU.fqName())) {
                  localTopLevelCUs.add(0, moduleCU); // Add to the beginning for preferred order

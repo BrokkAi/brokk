@@ -115,7 +115,7 @@ public final class JavascriptAnalyzerTest {
         // These must match the CUs created by the analyzer internally for the maps to be hit correctly.
         CodeUnit helloClass = CodeUnit.cls(helloJsFile, "", "Hello"); // From Hello.js
         CodeUnit jsxArrowFn = CodeUnit.fn(helloJsxFile, "", "JsxArrowFnComponent"); // From Hello.jsx
-        CodeUnit topConstJs = CodeUnit.field(varsJsFile, "", "_module_.TOP_CONST_JS"); // From Vars.js
+        CodeUnit topConstJs = CodeUnit.field(varsJsFile, "", "Vars.js.TOP_CONST_JS"); // From Vars.js
 
         Set<CodeUnit> sources = Set.of(helloClass, jsxArrowFn, topConstJs);
         Set<String> actualSymbols = analyzer.getSymbols(sources);
@@ -149,7 +149,7 @@ public final class JavascriptAnalyzerTest {
         assertEquals(Set.of("JsxClass", "render"), jsxClassSymbols, "Symbols mismatch for JsxClass.");
 
         // Test with a non-exported top-level variable
-        CodeUnit localVarJs = CodeUnit.field(varsJsFile, "", "_module_.localVarJs");
+        CodeUnit localVarJs = CodeUnit.field(varsJsFile, "", "Vars.js.localVarJs");
         Set<String> localVarSymbols = analyzer.getSymbols(Set.of(localVarJs));
         assertEquals(Set.of("localVarJs"), localVarSymbols, "Symbols mismatch for localVarJs.");
 
@@ -172,8 +172,8 @@ public final class JavascriptAnalyzerTest {
         assertFalse(skeletons.isEmpty(), "Skeletons map for FeaturesTest.jsx should not be empty.");
 
         // Module CU for imports
-        CodeUnit moduleCU = CodeUnit.module(featuresFile, "", "_module_");
-        assertTrue(skeletons.containsKey(moduleCU), "Skeletons map should contain module CU for imports.");
+        CodeUnit moduleCU = CodeUnit.module(featuresFile, "", "FeaturesTest.jsx");
+        assertTrue(skeletons.containsKey(moduleCU), "Skeletons map should contain module CU for imports. Found: " + skeletons.keySet());
         String expectedImports = """
         import React, { useState } from 'react';
         import { Something, AnotherThing as AT } from './another-module';
@@ -253,20 +253,45 @@ public final class JavascriptAnalyzerTest {
 
         assertFalse(skelVars.isEmpty(), "Skeletons map for Vars.js should not be empty. Found: " + skelVars.keySet());
 
-        CodeUnit topConstJsCU = CodeUnit.field(varsJsFile, "", "_module_.TOP_CONST_JS");
-        CodeUnit localVarJsCU = CodeUnit.field(varsJsFile, "", "_module_.localVarJs");
+        CodeUnit topConstJsCU = CodeUnit.field(varsJsFile, "", "Vars.js.TOP_CONST_JS");
+        CodeUnit localVarJsCU = CodeUnit.field(varsJsFile, "", "Vars.js.localVarJs");
 
-        assertTrue(skelVars.containsKey(topConstJsCU), "Skeletons map should contain _module_.TOP_CONST_JS. Found: " + skelVars.keySet());
+        assertTrue(skelVars.containsKey(topConstJsCU), "Skeletons map should contain Vars.js.TOP_CONST_JS. Found: " + skelVars.keySet());
         assertEquals("export const TOP_CONST_JS = 123", skelVars.get(topConstJsCU).strip());
 
-        assertTrue(skelVars.containsKey(localVarJsCU), "Skeletons map should contain _module_.localVarJs. Found: " + skelVars.keySet());
+        assertTrue(skelVars.containsKey(localVarJsCU), "Skeletons map should contain Vars.js.localVarJs. Found: " + skelVars.keySet());
         assertEquals("let localVarJs = \"abc\"", skelVars.get(localVarJsCU).strip());
 
         // Ensure these are not mistaken for classes
         Set<CodeUnit> declarationsInVarsJs = analyzer.getDeclarationsInFile(varsJsFile);
-        assertTrue(declarationsInVarsJs.contains(topConstJsCU), "_module_.TOP_CONST_JS should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
-        assertFalse(topConstJsCU.isClass(), "_module_.TOP_CONST_JS CU should not be a class.");
-        assertTrue(declarationsInVarsJs.contains(localVarJsCU), "_module_.localVarJs should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
-        assertFalse(localVarJsCU.isClass(), "_module_.localVarJs CU should not be a class.");
+        assertTrue(declarationsInVarsJs.contains(topConstJsCU), "Vars.js.TOP_CONST_JS should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
+        assertFalse(topConstJsCU.isClass(), "Vars.js.TOP_CONST_JS CU should not be a class.");
+        assertTrue(declarationsInVarsJs.contains(localVarJsCU), "Vars.js.localVarJs should be in declarations list for Vars.js. Found: " + declarationsInVarsJs);
+        assertFalse(localVarJsCU.isClass(), "Vars.js.localVarJs CU should not be a class.");
+    }
+
+    @Test
+    void testUsagePageImports() {
+        TestProject project = createTestProject("testcode-js", Language.JAVASCRIPT);
+        JavascriptAnalyzer ana = new JavascriptAnalyzer(project);
+        assertInstanceOf(JavascriptAnalyzer.class, ana, "Analyzer should be JavascriptAnalyzer");
+
+        ProjectFile usagePageFile = new ProjectFile(project.getRoot(), "UsagePage.jsx");
+        var skeletons = ana.getSkeletons(usagePageFile);
+        assertFalse(skeletons.isEmpty(), "Skeletons map for UsagePage.jsx should not be empty.");
+
+        // Determine the package name. Since UsagePage.jsx is in the root of "testcode-js",
+        // the package name should be empty according to JavascriptAnalyzer.determinePackageName.
+        String expectedPackageName = ""; // Root files have an empty package name.
+        CodeUnit moduleCU = CodeUnit.module(usagePageFile, expectedPackageName, "UsagePage.jsx");
+
+        assertTrue(skeletons.containsKey(moduleCU), "Skeletons map should contain module CU for imports in UsagePage.jsx. Found: " + skeletons.keySet());
+
+        String importSkeleton = skeletons.get(moduleCU);
+        assertNotNull(importSkeleton, "Import skeleton for UsagePage.jsx should not be null.");
+
+        long importCount = importSkeleton.lines().filter(line -> !line.isBlank()).count();
+        // UsagePage.jsx has 10 import statements, which span 44 actual lines of text.
+        assertEquals(44, importCount, "UsagePage.jsx import skeleton should have 44 non-blank lines.");
     }
 }

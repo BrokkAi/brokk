@@ -71,9 +71,9 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             case "field.definition" -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use a convention like "_module_.variableName"
-                    // to satisfy CodeUnit.field's expectation of a "."
-                    finalShortName = "_module_." + simpleName;
+                    // For top-level variables, use filename as a prefix to ensure uniqueness
+                    // and satisfy CodeUnit.field's expectation of a ".".
+                    finalShortName = file.getFileName() + "." + simpleName;
                 } else {
                     finalShortName = classChain + "." + simpleName;
                 }
