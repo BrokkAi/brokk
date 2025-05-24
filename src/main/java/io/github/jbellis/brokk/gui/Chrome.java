@@ -336,9 +336,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.trace("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
         // If internalContextChange is true, it means it's a programmatic selection (new history item),
         // so don't force scroll. Otherwise (user click), do force scroll. Do not scroll the welcome message (id=1)
-        boolean forceScrollToTop = !this.internalContextChange || ctx.getId() == 1;
 
-        boolean resetOutput = (activeContext == null || activeContext.getId() != ctx.getId());
+        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !internalContextChange);
         activeContext = ctx;
 
         SwingUtilities.invokeLater(() -> {
@@ -355,9 +354,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
-            if (resetOutput) {
+            if (updateOutput) {
                 if (ctx.getParsedOutput() != null) {
-                    historyOutputPanel.setLlmOutputAndCompact(ctx.getParsedOutput(), forceScrollToTop);
+                    historyOutputPanel.setLlmOutputAndCompact(ctx.getParsedOutput(), true);
                 } else {
                     historyOutputPanel.clearLlmOutput();
                 }
@@ -561,8 +560,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (historyOutputPanel != null) historyOutputPanel.updateUndoRedoButtonStates();
 
             // Update the main context table and history table display
-            setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
-            updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
+            internalContextChange = true;
+            try {
+                setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
+                updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
+            } finally {
+                internalContextChange = false;
+            }
         });
     }
 
@@ -886,12 +890,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void updateContextHistoryTable(Context contextToSelect) {
-        this.internalContextChange = true;
-        try {
             historyOutputPanel.updateHistoryTable(contextToSelect);
-        } finally {
-            SwingUtilities.invokeLater(() -> this.internalContextChange = false);
-        }
     }
 
     public boolean isPositionOnScreen(int x, int y) {
