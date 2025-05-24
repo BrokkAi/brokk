@@ -379,7 +379,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // For classes, expect one primary definition range.
         var range = ranges.getFirst();
-        String src = null;
+        String src;
         try {
             src = cu.source().read();
         } catch (IOException e) {
@@ -682,7 +682,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         List<Map.Entry<TSNode, Map.Entry<String, String>>> sortedDeclarationEntries =
             declarationNodes.entrySet().stream()
                 .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
-                .collect(Collectors.toList());
+                .toList();
 
         TSNode currentRootNode = tree.getRootNode(); // Used for namespace and class chain extraction
 
@@ -707,7 +707,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             while (tempParent != null && !tempParent.isNull() && !tempParent.equals(currentRootNode)) {
                 if (isClassLike(tempParent)) {
                     extractSimpleName(tempParent, src).ifPresent(parentName -> { // extractSimpleName is now non-static
-                        if (!parentName.isBlank()) enclosingClassNames.add(0, parentName);
+                        if (!parentName.isBlank()) enclosingClassNames.addFirst(parentName);
                     });
                 }
                 tempParent = tempParent.getParent();
@@ -726,7 +726,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 // For now, let's assume `node` is the `method_declaration` node, and we can query its children.
                 // A more robust way would be to pass `capturedNodes` from the outer loop or re-query for this specific `node`.
 
-                TSNode receiverNode = null;
+                TSNode receiverNode;
                 // TSNode methodIdentifierNode = null; // This would be `node.getChildByFieldName("name")` for method_declaration
                                                     // or more reliably, the node associated with captureName.replace(".definition", ".name")
                                                     // simpleName is already derived from method.identifier.
@@ -776,15 +776,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
 
             String signature = buildSignatureString(node, simpleName, src, primaryCaptureName);
-            log.trace("Built signature for '{}': [{}]", simpleName, signature == null ? "NULL" : signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
+            log.trace("Built signature for '{}': [{}]", simpleName, signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
 
             if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
                 log.trace("[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
                          node.getType(), simpleName, primaryCaptureName, packageName, classChain);
-                log.trace("[vars.py DEBUG] CU created: {}, Signature: [{}]", cu, signature == null ? "NULL_SIG" : signature.isBlank() ? "BLANK_SIG" : signature.lines().findFirst().orElse("EMPTY_SIG"));
+                log.trace("[vars.py DEBUG] CU created: {}, Signature: [{}]", cu, signature.isBlank() ? "BLANK_SIG" : signature.lines().findFirst().orElse("EMPTY_SIG"));
             }
 
-            if (signature == null || signature.isBlank()) {
+            if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual skeleton but create a CU.
                 // However, if it's blank, it shouldn't be added to signatures map.
                 log.debug("buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.", node.getType(), primaryCaptureName, simpleName);
@@ -824,7 +824,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 }
             }
 
-            if (signature != null && !signature.isBlank()) { // Only add non-blank signatures
+            if (!signature.isBlank()) { // Only add non-blank signatures
                 List<String> sigsForCu = localSignatures.computeIfAbsent(cu, k -> new ArrayList<>());
                 if (!sigsForCu.contains(signature)) { // Avoid duplicate signature strings for the same CU
                     sigsForCu.add(signature);
@@ -867,7 +867,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             // Check if a module CU with this FQ name already exists
             // or if this logic somehow runs twice for the same file.
             if (!localCuByFqName.containsKey(moduleCU.fqName())) {
-                 localTopLevelCUs.add(0, moduleCU); // Add to the beginning for preferred order
+                 localTopLevelCUs.addFirst(moduleCU); // Add to the beginning for preferred order
                  localCuByFqName.put(moduleCU.fqName(), moduleCU);
                  // Join imports into a single multi-line signature string for the module CU
                  String importBlockSignature = String.join("\n", localImportStatements);
@@ -904,37 +904,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
 
     /* ---------- Signature Building Logic ---------- */
-
-    /** Calculates the leading whitespace indentation for the line the node starts on. */
-    private String computeIndentation(TSNode node, String src) {
-        int startByte = node.getStartByte();
-        int lineStartByte = src.lastIndexOf('\n', startByte - 1);
-        if (lineStartByte == -1) {
-            lineStartByte = 0; // Start of file
-        } else {
-            lineStartByte++; // Move past the newline character
-        }
-
-        // Find the first non-whitespace character on the line
-        int firstCharByte = lineStartByte;
-        while (firstCharByte < startByte && Character.isWhitespace(src.charAt(firstCharByte))) {
-            firstCharByte++;
-        }
-        // Ensure we don't include indentation from within the node itself if it starts mid-line after whitespace
-        int effectiveStart = Math.min(startByte, firstCharByte);
-
-        // The indentation is the substring from the line start up to the first non-whitespace character.
-        // Safety check: ensure lineStartByte <= firstCharByte and firstCharByte is within src bounds
-        if (lineStartByte > firstCharByte || firstCharByte > src.length()) {
-             log.warn("Indentation calculation resulted in invalid range [{}, {}] for node starting at byte {}",
-                      lineStartByte, firstCharByte, startByte);
-             return ""; // Return empty string on error
-        }
-        String indentResult = src.substring(lineStartByte, firstCharByte);
-        log.trace("computeIndentation: Node={}, Indent='{}'", node.getType(), indentResult.replace("\t", "\\t").replace("\n", "\\n"));
-        return indentResult;
-    }
-
 
     /**
      * Builds a signature string for a given definition node.
@@ -998,9 +967,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
                 // If exportPrefix is present and classSignatureText also starts with it,
                 // remove it from classSignatureText to avoid duplication by renderClassHeader.
-                if (!exportPrefix.isEmpty() && !exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix.strip())) {
+                if (!exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix.strip())) {
                     classSignatureText = classSignatureText.substring(exportPrefix.strip().length()).stripLeading();
-                } else if (!exportPrefix.isEmpty() && !exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix)) { // Check with trailing space too
+                } else if (!exportPrefix.isBlank() && classSignatureText.startsWith(exportPrefix)) { // Check with trailing space too
                      classSignatureText = classSignatureText.substring(exportPrefix.length()).stripLeading();
                 }
 
@@ -1028,9 +997,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 String fieldDeclText = textSlice(nodeForContent, src).stripLeading().strip();
                 // If exportPrefix is present and fieldDeclText also starts with it,
                 // remove it from fieldDeclText to avoid duplication.
-                if (!exportPrefix.isEmpty() && !exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix.strip())) {
+                if (!exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix.strip())) {
                     fieldDeclText = fieldDeclText.substring(exportPrefix.strip().length()).stripLeading();
-                } else if (!exportPrefix.isEmpty() && !exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix)) {
+                } else if (!exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix)) {
                     fieldDeclText = fieldDeclText.substring(exportPrefix.length()).stripLeading();
                 }
                 signatureLines.add(exportPrefix + fieldDeclText);
@@ -1055,7 +1024,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     // buildClassMemberSkeletons is removed from this direct path; children are handled by recursive reconstruction.
 
     /* ---------- Granular Signature Rendering Callbacks (Formatting) ---------- */
-    protected String getFunctionDeclarationKeyword(TSNode funcNode, String src) { return ""; }
 
     /**
      * Formats the parameter list for a function. Subclasses may override to provide
@@ -1098,7 +1066,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     @Deprecated
     protected String formatReturnType(String returnTypeText) { return returnTypeText == null ? "" : returnTypeText; }
 
-    protected String getClassDeclarationKeyword(TSNode classNode, String src) { return ""; }
     protected String formatHeritage(String signatureText) { return signatureText; }
 
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
@@ -1192,39 +1159,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         String functionLine = assembleFunctionSignature(funcNode, src, exportPrefix, asyncPrefix, functionName, paramsText, returnTypeText, indent);
 
-        // Add extra comments (e.g., // mutates: ...) before the function line if they exist
-        // These comments should not have the 'indent' applied here, as assembleFunctionSignature might return a multi-line string already.
-        // The expectation is that buildSignatureString handles the overall structure.
-        // Let's refine: getExtraFunctionComments are added to `lines` before the main signature.
-        // The main `functionLine` from `assembleFunctionSignature` could itself be multi-line if it includes the body placeholder.
-
-        CodeUnit currentCu = null; // Need to retrieve or construct the CU for getExtraFunctionComments
-        // This requires resolving fqName or having CU available here. For now, pass null or skip.
-        // A better approach: pass the CU into buildFunctionSkeleton if available.
-        // Or, getExtraFunctionComments is called from buildSignatureString where CU is known.
-        // For now, cannot call getExtraFunctionComments here without CU.
-        // Let's assume getExtraFunctionComments is called from a place with CU context.
-        //
-        // Re-thinking: buildFunctionSkeleton is called by buildSignatureString.
-        // buildSignatureString has the CU. It can call getExtraFunctionComments and pass to buildFunctionSkeleton.
-        //
-        // Simpler: assembleFunctionSignature itself should integrate these.
-        // So, the List<String> lines passed to buildFunctionSkeleton should be used.
-        //
-        // Current path: buildSignatureString -> buildFunctionSkeleton(lines.add(...))
-        // -> assembleFunctionSignature (returns String) -> lines.add(result of assembleFunctionSignature)
-        //
-        // New path: buildSignatureString -> calls getExtraFunctionComments -> adds to 'signatureLines'
-        //             buildSignatureString -> calls buildFunctionSkeleton(signatureLines.add(...))
-        // This means `buildFunctionSkeleton` adds its line (from `assembleFunctionSignature`) to the list.
-
         if (functionLine != null && !functionLine.isBlank()) {
-            // Extra comments are now added by buildSignatureString directly to the lines list.
-            // This method just adds the main functionLine.
-            // The `indent` parameter for this method is the base indent for the CU, and
-            // `functionLine` is expected to be a single conceptual signature line (possibly multi-line text from placeholder).
-            // `reconstructSkeletonRecursive` handles the overall indent for the CU.
-            // `assembleFunctionSignature` is responsible for the internal structure of `functionLine`.
+            // Extra comments (from getExtraFunctionComments) are added by buildSignatureString directly to the `lines` list before this method is called.
+            // This method just adds the main functionLine (produced by assembleFunctionSignature) to that list.
+            // The `indent` parameter for this method is the base indent for the CU; `reconstructSkeletonRecursive` handles the overall indent for the CU.
+            // `assembleFunctionSignature` is responsible for the internal structure of `functionLine`, which might be multi-line if it includes a body placeholder.
             lines.add(functionLine);
         }
     }
