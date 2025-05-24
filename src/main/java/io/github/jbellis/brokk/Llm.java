@@ -152,7 +152,6 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         io.llmOutput(token, ChatMessageType.AI);
-                        io.hideOutputSpinner();
                     }
                 });
             }
@@ -160,7 +159,6 @@ public class Llm {
             @Override
             public void onCompleteResponse(ChatResponse response) {
                 ifNotCancelled.accept(() -> {
-                    io.hideOutputSpinner();
                     if (response == null) {
                         if (completedChatResponse.get() != null) {
                             logger.debug("Got a null response from LC4J after a successful one!?");
@@ -182,7 +180,6 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.hideOutputSpinner();
                     io.toolErrorRaw("LLM error: " + th.getMessage()); // Immediate feedback for user
                     errorRef.set(th);
                     latch.countDown();
@@ -307,10 +304,6 @@ public class Llm {
             String description = Messages.getText(messages.getLast());
             logger.debug("Sending request to {} attempt {}: {}",
                          contextManager.getModels().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
-
-            if (echo) {
-                io.showOutputSpinner("Thinking...");
-            }
 
             response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
             var cr = response.chatResponse;

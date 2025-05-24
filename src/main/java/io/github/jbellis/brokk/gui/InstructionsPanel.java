@@ -1482,8 +1482,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.setLlmOutput(new ContextFragment.TaskFragment(cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
+                chrome.showOutputSpinner("Executing " + action + " command...");
                 task.run();
             } finally {
+                chrome.hideOutputSpinner();
                 checkBalanceAndNotify();
                 checkFocusAndNotify(action);
             }
