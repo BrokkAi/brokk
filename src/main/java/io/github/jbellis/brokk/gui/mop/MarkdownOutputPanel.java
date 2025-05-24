@@ -113,11 +113,26 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * @param blocked true to prevent clear/reset operations, false to allow them
      */
     public void setBlocking(boolean blocked) {
-        this.blockClearAndReset = blocked; 
+        this.blockClearAndReset = blocked;
         // use the unblocking state as trigger for compacting markdown
         if (!blocked) {
             final long roundId = ++compactionRoundIdCounter;
-            compactAllMessages(roundId);
+            var internalCompletionFuture = new CompletableFuture<Void>();
+            internalCompletionFuture.exceptionally(ex -> {
+                logger.error("[COMPACTION][{}] Error during compaction triggered by setBlocking(false). This error is logged but not propagated further from setBlocking.", roundId, ex);
+                return null;
+            });
+
+            // Ensure flush and EDT execution for compaction triggered by setBlocking
+            flushPendingChangesAsync()
+                .thenRun(() -> SwingUtilities.invokeLater(
+                    () -> compactAllMessages(roundId, internalCompletionFuture)))
+                .exceptionally(ex -> {
+                    // Log and complete the internal future exceptionally if pre-compaction steps fail
+                    logger.error("[COMPACTION][{}] Error in pre-compaction (flush/schedule) for setBlocking(false).", roundId, ex);
+                    internalCompletionFuture.completeExceptionally(ex);
+                    return null;
+                });
         }
     }
 
@@ -465,67 +480,77 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     }
 
     public CompletableFuture<Void> scheduleCompaction() {
+        var done = new CompletableFuture<Void>();
         final long roundId = ++compactionRoundIdCounter;
+
         // be sure any pending changes are flushed before compacting
-        return flushPendingChangesAsync()
-                .thenRun(() -> SwingUtilities.invokeLater(() -> compactAllMessages(roundId)));
+        flushPendingChangesAsync()
+            .thenRun(() -> SwingUtilities.invokeLater( // Ensures compactAllMessages is called on EDT
+                () -> compactAllMessages(roundId, done))) // Pass the 'done' future
+            .exceptionally(ex -> {
+                done.completeExceptionally(ex); // Propagate exception from flush or scheduling
+                return null;
+            });
+
+        return done;
     }
-    
+
     /**
      * Compacts all messages by merging consecutive Markdown blocks in each message renderer.
      * This improves the user experience for selecting text across multiple Markdown blocks.
-     * This operation is performed asynchronously and completes on the EDT.
+     * This operation is performed asynchronously. The provided CompletableFuture is completed
+     * on the EDT after UI updates are done.
+     * Assumes this method is called on the EDT and pending changes have been flushed.
+     *
+     * @param roundId The compaction round ID.
+     * @param completionFuture The future to complete when compaction and UI updates are finished.
      */
-    private void compactAllMessages(long roundId) {
-        flushPendingChangesAsync().thenRun(() -> { // This outer part runs on EDT
-            assert SwingUtilities.isEventDispatchThread();
-            final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
+    private void compactAllMessages(long roundId, CompletableFuture<Void> completionFuture) {
+        assert SwingUtilities.isEventDispatchThread() : "compactAllMessages must be called on the EDT";
 
-            if (renderersToCompact.isEmpty()) {
-                // If flushPendingChangesAsync caused UI changes, revalidate/repaint might be good here.
-                // However, if there's nothing to compact, usually no major UI change is expected beyond flush.
-                return;
-            }
+        final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
 
-            CompletableFuture.runAsync(() -> { // Heavy lifting on compactExec
-                var compactedSnapshots = renderersToCompact.stream()
-                    .map(renderer -> {
-                        try {
-                            return renderer.buildCompactedSnapshot(roundId);
-                        } catch (Exception e) {
-                            // Log specific renderer error but continue with others
-                            logger.warn("[COMPACTION][{}] Error building compacted snapshot for a renderer", roundId, e);
-                            return null; // Signal error or skip for this renderer
-                        }
-                    })
-                    .toList();
+        if (renderersToCompact.isEmpty()) {
+            logger.debug("[COMPACTION][{}] No renderers to compact.", roundId);
+            completionFuture.complete(null);
+            return;
+        }
 
-                SwingUtilities.invokeLater(() -> { // UI updates back on EDT
-                    assert SwingUtilities.isEventDispatchThread();
-                    if (renderersToCompact.size() != compactedSnapshots.size()) {
-                        // Should not happen if stream().map().toList() works as expected
-                        logger.error("[COMPACTION][{}] Mismatch between renderers ({}) and snapshots ({}) count during compaction. Aborting UI update.",
-                                     roundId, renderersToCompact.size(), compactedSnapshots.size());
-                        return;
+        CompletableFuture.runAsync(() -> { // Heavy lifting on compactExec
+            var compactedSnapshots = renderersToCompact.stream()
+                .map(renderer -> {
+                    try {
+                        return renderer.buildCompactedSnapshot(roundId);
+                    } catch (Exception e) {
+                        logger.warn("[COMPACTION][{}] Error building compacted snapshot for a renderer", roundId, e);
+                        return null; 
                     }
+                })
+                .toList();
 
-                    for (int i = 0; i < renderersToCompact.size(); i++) {
-                        var renderer = renderersToCompact.get(i);
-                        var snapshot = compactedSnapshots.get(i);
-                        // applyCompactedSnapshot handles null snapshot (e.g., if build decided to skip)
-                        renderer.applyCompactedSnapshot(snapshot, roundId);
-                    }
-                    revalidate();
-                    repaint();
-                    logger.debug("[COMPACTION][{}] Compacted all messages (async).", roundId);
-                });
-            }, this.compactExec).exceptionally(ex -> {
-                logger.error("[COMPACTION][{}] Error during async compaction computation task", roundId, ex);
-                return null; // Handle future's exceptional completion
+            SwingUtilities.invokeLater(() -> { // UI updates back on EDT
+                assert SwingUtilities.isEventDispatchThread();
+                if (renderersToCompact.size() != compactedSnapshots.size()) {
+                    logger.error("[COMPACTION][{}] Mismatch between renderers ({}) and snapshots ({}) count during compaction. Aborting UI update.",
+                                 roundId, renderersToCompact.size(), compactedSnapshots.size());
+                    completionFuture.completeExceptionally(new IllegalStateException("Compaction snapshot mismatch"));
+                    return;
+                }
+
+                for (int i = 0; i < renderersToCompact.size(); i++) {
+                    var renderer = renderersToCompact.get(i);
+                    var snapshot = compactedSnapshots.get(i);
+                    renderer.applyCompactedSnapshot(snapshot, roundId);
+                }
+                revalidate();
+                repaint();
+                logger.debug("[COMPACTION][{}] Compacted all messages and applied to UI.", roundId);
+                completionFuture.complete(null);
             });
-        }).exceptionally(ex -> {
-            logger.error("[COMPACTION][{}] Error in compaction pre-computation phase (flush or initial EDT setup)", roundId, ex);
-            return null; // Handle future's exceptional completion
+        }, this.compactExec).exceptionally(ex -> {
+            logger.error("[COMPACTION][{}] Error during async compaction computation task", roundId, ex);
+            completionFuture.completeExceptionally(ex); // Propagate exception
+            return null;
         });
     }
 

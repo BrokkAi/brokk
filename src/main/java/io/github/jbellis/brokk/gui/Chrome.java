@@ -709,19 +709,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Get all messages and create a MarkdownOutputPanel for each
                 var scrollPane = new JScrollPane(messagesContainer);
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
                 List<TaskEntry> taskEntries = outputFragment.entries();
+                var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 for (TaskEntry entry : taskEntries) {
                     var markdownPanel = new MarkdownOutputPanel();
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
-                    markdownPanel.scheduleCompaction();
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
                     messagesContainer.add(markdownPanel);
+                    compactionFutures.add(markdownPanel.scheduleCompaction());
                 }
 
-                // Wrap in a scroll pane
-                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+                // When all panels are compacted, scroll to the top
+                CompletableFuture
+                        .allOf(compactionFutures.toArray(CompletableFuture[]::new))
+                        .thenRun(() -> SwingUtilities.invokeLater(() ->
+                                scrollPane.getViewport().setViewPosition(new Point(0, 0))));
+
                 showPreviewFrame(contextManager, title, scrollPane); // Use helper
                 return;
             }

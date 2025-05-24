@@ -626,12 +626,12 @@ public class HistoryOutputPanel extends JPanel {
 
             // Create markdown panel with the text
             var outputPanel = new MarkdownOutputPanel();
+            var scrollPane = new JScrollPane(outputPanel);
             outputPanel.updateTheme(isDark);
             outputPanel.setText(output);
-            outputPanel.scheduleCompaction();
+            outputPanel.scheduleCompaction().thenRun(() -> SwingUtilities.invokeLater(() -> scrollPane.getViewport().setViewPosition(new Point(0, 0))));;
 
             // Add to a scroll pane
-            var scrollPane = new JScrollPane(outputPanel);
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
             // Add the scroll pane to the frame
