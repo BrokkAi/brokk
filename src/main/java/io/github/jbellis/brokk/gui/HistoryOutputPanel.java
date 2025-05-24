@@ -628,6 +628,7 @@ public class HistoryOutputPanel extends JPanel {
             var outputPanel = new MarkdownOutputPanel();
             outputPanel.updateTheme(isDark);
             outputPanel.setText(output);
+            outputPanel.scheduleCompaction();
 
             // Add to a scroll pane
             var scrollPane = new JScrollPane(outputPanel);

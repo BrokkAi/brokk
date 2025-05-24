@@ -41,6 +41,7 @@ import java.util.stream.Stream;
  */
 public class MarkdownOutputPanel extends JPanel implements Scrollable {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
+    private static long compactionRoundIdCounter = 0;
 
     /** Keeps together everything required for one rendered message bubble. */
     private record Bubble(ChatMessage message,
@@ -115,7 +116,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         this.blockClearAndReset = blocked; 
         // use the unblocking state as trigger for compacting markdown
         if (!blocked) {
-            compactAllMessages();
+            final long roundId = ++compactionRoundIdCounter;
+            compactAllMessages(roundId);
         }
     }
 
@@ -463,9 +465,10 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
     }
 
     public CompletableFuture<Void> scheduleCompaction() {
+        final long roundId = ++compactionRoundIdCounter;
         // be sure any pending changes are flushed before compacting
         return flushPendingChangesAsync()
-                .thenRun(() -> SwingUtilities.invokeLater(this::compactAllMessages));
+                .thenRun(() -> SwingUtilities.invokeLater(() -> compactAllMessages(roundId)));
     }
     
     /**
@@ -473,13 +476,12 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
      * This improves the user experience for selecting text across multiple Markdown blocks.
      * This operation is performed asynchronously and completes on the EDT.
      */
-    private void compactAllMessages() {
+    private void compactAllMessages(long roundId) {
         flushPendingChangesAsync().thenRun(() -> { // This outer part runs on EDT
             assert SwingUtilities.isEventDispatchThread();
             final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
 
             if (renderersToCompact.isEmpty()) {
-                logger.debug("No renderers to compact.");
                 // If flushPendingChangesAsync caused UI changes, revalidate/repaint might be good here.
                 // However, if there's nothing to compact, usually no major UI change is expected beyond flush.
                 return;
@@ -489,10 +491,10 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
                 var compactedSnapshots = renderersToCompact.stream()
                     .map(renderer -> {
                         try {
-                            return renderer.buildCompactedSnapshot();
+                            return renderer.buildCompactedSnapshot(roundId);
                         } catch (Exception e) {
                             // Log specific renderer error but continue with others
-                            logger.warn("Error building compacted snapshot for a renderer", e);
+                            logger.warn("[COMPACTION][{}] Error building compacted snapshot for a renderer", roundId, e);
                             return null; // Signal error or skip for this renderer
                         }
                     })
@@ -502,7 +504,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
                     assert SwingUtilities.isEventDispatchThread();
                     if (renderersToCompact.size() != compactedSnapshots.size()) {
                         // Should not happen if stream().map().toList() works as expected
-                        logger.error("Mismatch between renderers and snapshots count during compaction. Aborting UI update.");
+                        logger.error("[COMPACTION][{}] Mismatch between renderers ({}) and snapshots ({}) count during compaction. Aborting UI update.",
+                                     roundId, renderersToCompact.size(), compactedSnapshots.size());
                         return;
                     }
 
@@ -510,18 +513,18 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
                         var renderer = renderersToCompact.get(i);
                         var snapshot = compactedSnapshots.get(i);
                         // applyCompactedSnapshot handles null snapshot (e.g., if build decided to skip)
-                        renderer.applyCompactedSnapshot(snapshot);
+                        renderer.applyCompactedSnapshot(snapshot, roundId);
                     }
                     revalidate();
                     repaint();
-                    logger.debug("Compacted all messages (async)");
+                    logger.debug("[COMPACTION][{}] Compacted all messages (async).", roundId);
                 });
             }, this.compactExec).exceptionally(ex -> {
-                logger.error("Error during async compaction computation task", ex);
+                logger.error("[COMPACTION][{}] Error during async compaction computation task", roundId, ex);
                 return null; // Handle future's exceptional completion
             });
         }).exceptionally(ex -> {
-            logger.error("Error in compaction pre-computation phase (flush or initial EDT setup)", ex);
+            logger.error("[COMPACTION][{}] Error in compaction pre-computation phase (flush or initial EDT setup)", roundId, ex);
             return null; // Handle future's exceptional completion
         });
     }
