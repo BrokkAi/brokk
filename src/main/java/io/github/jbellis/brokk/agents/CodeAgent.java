@@ -417,7 +417,8 @@ public class CodeAgent {
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
                  var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, sessionMessages);
-                 var coder = contextManager.getLlm(contextManager.getService().quickModel(), "Full File Replacement: " + file.getFileName());
+                 var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
                  // Send request
                  StreamingResult result = coder.sendRequest(messages, false);
