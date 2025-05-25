@@ -105,7 +105,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                    Executors.defaultThreadFactory()),
             Set.of(InterruptedException.class));
 
-    private final ModelsWrapper models;
+    private final ModelsWrapper service;
     private final Project project;
     private final ToolRegistry toolRegistry;
 
@@ -134,8 +134,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     {
         this.project = project;
         this.contextHistory = new ContextHistory();
-        this.models = new ModelsWrapper();
-        this.models.reinit(project);
+        this.service = new ModelsWrapper();
+        this.service.reinit(project);
 
         // set up global tools
         this.toolRegistry = new ToolRegistry(this);
@@ -387,8 +387,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the Models instance associated with this context manager.
      */
     @Override
-    public Service getModels() {
-        return models.get();
+    public Service getService() {
+        return service.get();
     }
 
     /**
@@ -396,7 +396,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getArchitectModel() {
         var config = project.getArchitectModelConfig();
-        return models.get(config.name(), config.reasoning());
+        return service.get(config.name(), config.reasoning());
     }
 
     /**
@@ -404,7 +404,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getCodeModel() {
         var config = project.getCodeModelConfig();
-        return models.get(config.name(), config.reasoning());
+        return service.get(config.name(), config.reasoning());
     }
 
     /**
@@ -412,7 +412,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getAskModel() {
         var config = project.getAskModelConfig();
-        return models.get(config.name(), config.reasoning());
+        return service.get(config.name(), config.reasoning());
     }
 
 
@@ -421,7 +421,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getEditModel() {
         var config = project.getEditModelConfig();
-        return models.get(config.name(), config.reasoning());
+        return service.get(config.name(), config.reasoning());
     }
 
     /**
@@ -429,7 +429,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getSearchModel() {
         var config = project.getSearchModelConfig();
-        return models.get(config.name(), config.reasoning());
+        return service.get(config.name(), config.reasoning());
     }
 
     public Future<?> submitUserTask(String description, Runnable task) {
@@ -1412,7 +1412,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     List<ChatMessage> messages = List.of(userMessage);
                     Llm.StreamingResult result;
                     try {
-                        result = getLlm(models.quickModel(), "Summarize pasted image").sendRequest(messages);
+                        result = getLlm(service.quickModel(), "Summarize pasted image").sendRequest(messages);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
@@ -1534,8 +1534,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public Service reloadModels() {
-        models.reinit(project);
-        return models.get();
+        service.reinit(project);
+        return service.get();
     }
 
     @FunctionalInterface
@@ -1661,7 +1661,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
         Llm.StreamingResult result;
         try {
-            result = getLlm(models.quickModel(), "Compress history entry").sendRequest(msgs);
+            result = getLlm(service.quickModel(), "Compress history entry").sendRequest(msgs);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -1789,7 +1789,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use quickModel for summarization
             Llm.StreamingResult result;
             try {
-                result = getLlm(models.quickestModel(), "Summarize: " + content).sendRequest(msgs);
+                result = getLlm(service.quickestModel(), "Summarize: " + content).sendRequest(msgs);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }

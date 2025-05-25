@@ -70,7 +70,7 @@ public class LlmTest {
             }
 
             @Override
-            public Service getModels() {
+            public Service getService() {
                 return models;
             }
         };
@@ -88,7 +88,7 @@ public class LlmTest {
 //    @Test
     void testModels() {
         // Get Models instance from ContextManager
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
         Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testModels test.");
 
@@ -142,7 +142,7 @@ public class LlmTest {
     // uncomment when you need it, this makes live API calls
 //    @Test
     void testToolCalling() {
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
         Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testToolCalling test.");
 

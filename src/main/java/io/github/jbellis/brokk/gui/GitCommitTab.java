@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -628,7 +627,7 @@ public class GitCommitTab extends JPanel {
         // Use quickest model for commit messages via ContextManager
         Llm.StreamingResult result;
         try {
-            result = contextManager.getLlm(contextManager.getModels().quickestModel(), "Infer commit message").sendRequest(messages);
+            result = contextManager.getLlm(contextManager.getService().quickestModel(), "Infer commit message").sendRequest(messages);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }

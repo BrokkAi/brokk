@@ -303,7 +303,7 @@ public class Llm {
         while (attempt++ < maxAttempts) {
             String description = Messages.getText(messages.getLast());
             logger.debug("Sending request to {} attempt {}: {}",
-                         contextManager.getModels().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
+                         contextManager.getService().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
 
             response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
             var cr = response.chatResponse;
@@ -376,7 +376,7 @@ public class Llm {
             messagesToSend = Llm.emulateToolExecutionResults(messages);
         }
 
-        if (!tools.isEmpty() && contextManager.getModels().requiresEmulatedTools(model)) {
+        if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing
             return emulateTools(model, messagesToSend, tools, toolChoice, echo);
         }
@@ -387,7 +387,7 @@ public class Llm {
             logger.debug("Performing native tool calls");
             var paramsBuilder = getParamsBuilder()
                     .toolSpecifications(tools);
-            if (contextManager.getModels().supportsParallelCalls(model)) {
+            if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder
                         .parallelToolCalls(true);
@@ -433,7 +433,7 @@ public class Llm {
                                          boolean echo) throws InterruptedException
     {
         var enhancedTools = ensureThinkToolPresent(tools);
-        if (contextManager.getModels().supportsJsonSchema(model)) {
+        if (contextManager.getService().supportsJsonSchema(model)) {
             return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo);
         } else {
             return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, echo);
@@ -958,13 +958,13 @@ public class Llm {
         }
 
         // Add the think tool only if the model is not a reasoning model
-        if (!contextManager.getModels().isReasoning(this.model)) {
-            logger.debug("Adding 'think' tool for non-reasoning model {}", contextManager.getModels().nameOf(this.model));
+        if (!contextManager.getService().isReasoning(this.model)) {
+            logger.debug("Adding 'think' tool for non-reasoning model {}", contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
             enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
             return enhancedTools;
         }
-        logger.debug("Skipping 'think' tool for reasoning model {}", contextManager.getModels().nameOf(this.model));
+        logger.debug("Skipping 'think' tool for reasoning model {}", contextManager.getService().nameOf(this.model));
         return originalTools;
     }
 
@@ -979,7 +979,7 @@ public class Llm {
         try {
             var timestamp = LocalDateTime.now(); // timestamp finished, not started
 
-            var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getModels().nameOf(model),
+            var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getService().nameOf(model),
                                                                         TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null ? "" : "# Tools:\n\n" + request.toolSpecifications().stream().map(ToolSpecification::name).collect(Collectors.joining("\n"));
             var formattedResponse = result == null

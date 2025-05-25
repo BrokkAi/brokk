@@ -58,7 +58,7 @@ public class ContextAgent {
         this.analyzer = contextManager.getAnalyzer();
         this.deepScan = deepScan;
 
-        int maxInputTokens = contextManager.getModels().getMaxInputTokens(model);
+        int maxInputTokens = contextManager.getService().getMaxInputTokens(model);
         this.skipPruningBudget = min(32_000, maxInputTokens / 4);
         this.finalBudget = maxInputTokens / 2;
         this.budgetPruning = (int) (maxInputTokens * 0.9);

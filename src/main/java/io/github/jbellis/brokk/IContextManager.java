@@ -120,7 +120,7 @@ public interface IContextManager {
         return getProject().getRepo();
     }
 
-    default Service getModels() {
+    default Service getService() {
         throw new UnsupportedOperationException();
     }
 

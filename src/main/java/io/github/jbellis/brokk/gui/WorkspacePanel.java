@@ -656,7 +656,7 @@ public class WorkspacePanel extends JPanel {
         var innerLabel = (JLabel) locSummaryLabel.getComponent(0);
 
         // Check for context size warnings against configured models
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var project = contextManager.getProject();
 
         Map<String, Integer> redWarningModels = new HashMap<>();

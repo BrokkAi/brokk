@@ -12,7 +12,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -49,7 +48,7 @@ public class ValidationAgent {
         }
 
         // Step 1: Initial filtering to get potentially relevant files
-        var llm = contextManager.getLlm(contextManager.getModels().quickModel(), "TestAgent: " + instructions);
+        var llm = contextManager.getLlm(contextManager.getService().quickModel(), "TestAgent: " + instructions);
         var potentiallyRelevantFiles = getPotentiallyRelevantFiles(allTestFiles, instructions, llm);
         if (potentiallyRelevantFiles.isEmpty()) {
             logger.debug("Initial filtering found no potentially relevant test files.");

@@ -151,7 +151,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeButton.addActionListener(e -> runCodeCommand()); // Main button action
         codeButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
-                    var models = chrome.getContextManager().getModels();
+                    var models = chrome.getContextManager().getService();
                     StreamingChatLanguageModel selectedModel = models.get(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runCodeCommand(selectedModel);
@@ -167,7 +167,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         askButton.addActionListener(e -> runAskCommand()); // Main button action
         askButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
-                    var models = chrome.getContextManager().getModels();
+                    var models = chrome.getContextManager().getService();
                     StreamingChatLanguageModel selectedModel = models.get(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runAskCommand(selectedModel);
@@ -913,7 +913,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // 8. Run ContextAgent
         logger.debug("Task {} fetching QUICK context recommendations for: '{}'", myGen, snapshot);
-        var model = contextManager.getModels().quickestModel();
+        var model = contextManager.getService().quickestModel();
         ContextAgent.RecommendationResult recommendations;
         try {
             ContextAgent agent = new ContextAgent(contextManager, model, snapshot, false);
@@ -1073,7 +1073,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var contextManager = chrome.getContextManager();
         contextManager.submitBackgroundTask("", () -> {
             try {
-                float balance = contextManager.getModels().getUserBalance();
+                float balance = contextManager.getService().getUserBalance();
                 logger.debug("Checked balance: ${}", String.format("%.2f", balance));
 
                 // If balance drops below the minimum paid threshold, reinitialize models to enforce free tier
@@ -1318,7 +1318,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var architectModel = contextManager.getArchitectModel();
         var editModel = contextManager.getEditModel();
         var searchModel = contextManager.getSearchModel();
@@ -1379,7 +1379,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
 
         if (contextHasImages() && !models.supportsVision(modelToUse)) {
             showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Code)");
@@ -1412,7 +1412,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
 
         if (contextHasImages() && !models.supportsVision(modelToUse)) {
             showVisionSupportErrorDialog(models.nameOf(modelToUse) + " (Ask)");
@@ -1433,7 +1433,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var searchModel = contextManager.getSearchModel();
 
         if (contextHasImages() && !models.supportsVision(searchModel)) {
@@ -1641,7 +1641,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return popupMenu;
         }
 
-        var modelsInstance = this.contextManager.getModels();
+        var modelsInstance = this.contextManager.getService();
         Map<String, String> availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly

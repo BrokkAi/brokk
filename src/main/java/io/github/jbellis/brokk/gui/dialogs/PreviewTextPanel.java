@@ -716,7 +716,7 @@ public class PreviewTextPanel extends JPanel {
 
         // Submit the quick-edit session to a background future
         var future = contextManager.submitUserTask("Quick Edit", () -> {
-            var agent = new CodeAgent(contextManager, contextManager.getModels().quickModel());
+            var agent = new CodeAgent(contextManager, contextManager.getService().quickModel());
             return agent.runQuickSession(file,
                                          selectedText,
                                          instructions);

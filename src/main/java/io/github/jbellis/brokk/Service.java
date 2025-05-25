@@ -132,7 +132,6 @@ public final class Service {
     private volatile SpeechToTextModel sttModel = null;
     private volatile boolean isFreeTierOnly = false; // Store balance status
 
-    // Constructor - could potentially take project-specific config later
     public Service(IProject project) {
         // Get and handle data retention policy
         var policy = project.getDataRetentionPolicy();
@@ -144,7 +143,6 @@ public final class Service {
 
         String proxyUrl = Project.getProxyUrl(); // Get full URL (including scheme) from project setting
         logger.info("Initializing models using policy: {} and proxy: {}", policy, proxyUrl);
-        // isLowBalance is now an instance field, set within fetchAvailableModels
         try {
             fetchAvailableModels(policy);
         } catch (IOException e) {

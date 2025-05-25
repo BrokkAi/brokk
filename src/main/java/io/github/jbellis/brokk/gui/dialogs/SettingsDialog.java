@@ -190,15 +190,15 @@ public class SettingsDialog extends JDialog {
         }
         // Special handling for JComboBox renderers if they show "Off" when disabled
         if (architectReasoningComboBox != null)
-            updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, chrome.getContextManager().getModels());
+            updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, chrome.getContextManager().getService());
         if (codeReasoningComboBox != null)
-            updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, chrome.getContextManager().getModels());
+            updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, chrome.getContextManager().getService());
         if (askReasoningComboBox != null)
-            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, chrome.getContextManager().getModels());
+            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, chrome.getContextManager().getService());
         if (editReasoningComboBox != null)
-            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, chrome.getContextManager().getModels());
+            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, chrome.getContextManager().getService());
         if (searchReasoningComboBox != null)
-            updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, chrome.getContextManager().getModels());
+            updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, chrome.getContextManager().getService());
 
 
         return globalSubTabbedPane;
@@ -381,7 +381,7 @@ public class SettingsDialog extends JDialog {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        var models = chrome.getContextManager().getModels(); // Needed for available models & reasoning support check
+        var models = chrome.getContextManager().getService(); // Needed for available models & reasoning support check
         var availableModelNames = models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
         var reasoningLevels = Service.ReasoningLevel.values();
 
@@ -1097,7 +1097,7 @@ public class SettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.NONE;      // combos keep preferred width
         gbc.weightx = 0.0;                          // “don’t weightx anything”
 
-        var models = chrome.getContextManager().getModels();
+        var models = chrome.getContextManager().getService();
         var availableModels = models.getAvailableModels()
                 .keySet()
                 .stream()
@@ -1213,7 +1213,7 @@ public class SettingsDialog extends JDialog {
         this.balanceField.setText("Loading...");
 
         var contextManager = chrome.getContextManager();
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         contextManager.submitBackgroundTask("Refreshing user balance", () -> {
             try {
                 float balance = models.getUserBalance(); // This uses the current key context
@@ -1515,7 +1515,7 @@ public class SettingsDialog extends JDialog {
         Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
 
         // Determine the effective reasoning level based on model support
-        boolean supportsReasoning = selectedModelName != null && chrome.getContextManager().getModels().supportsReasoningEffort(selectedModelName);
+        boolean supportsReasoning = selectedModelName != null && chrome.getContextManager().getService().supportsReasoningEffort(selectedModelName);
         Service.ReasoningLevel effectiveSelectedReasoning = supportsReasoning ? selectedReasoning : Service.ReasoningLevel.DEFAULT;
 
         Service.ModelConfig currentConfig = currentConfigGetter.get();

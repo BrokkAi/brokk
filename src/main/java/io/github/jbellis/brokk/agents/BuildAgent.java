@@ -422,7 +422,7 @@ public class BuildAgent {
                                        details.instructions(),
                                        workspaceTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"))).stripIndent();
             // Need a coder instance specifically for this task
-            var inferTestCoder = cm.getLlm(cm.getModels().quickModel(), "Infer tests");
+            var inferTestCoder = cm.getLlm(cm.getService().quickModel(), "Infer tests");
             // Ask the LLM
             Llm.StreamingResult llmResult;
             try {

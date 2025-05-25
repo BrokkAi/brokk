@@ -84,7 +84,7 @@ public class CodeAgent {
         // We'll collect the conversation as ChatMessages to store in context history.
         var sessionMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(userInput.trim(),
-                                                                   CodePrompts.reminderForModel(contextManager.getModels(), model),
+                                                                   CodePrompts.reminderForModel(contextManager.getService(), model),
                                                                    parser);
 
         while (true) {
@@ -417,7 +417,7 @@ public class CodeAgent {
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
                  var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, sessionMessages);
-                 var coder = contextManager.getLlm(contextManager.getModels().quickModel(), "Full File Replacement: " + file.getFileName());
+                 var coder = contextManager.getLlm(contextManager.getService().quickModel(), "Full File Replacement: " + file.getFileName());
 
                  // Send request
                  StreamingResult result = coder.sendRequest(messages, false);

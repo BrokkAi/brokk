@@ -16,7 +16,6 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -280,7 +279,7 @@ public class VoiceInputButton extends JButton {
 
                     // Perform transcription
                     String result;
-                    var sttModel = contextManager.getModels().sttModel();
+                    var sttModel = contextManager.getService().sttModel();
                     try {
                         result = sttModel.transcribe(tempFile, symbolsForTranscription);
                     } catch (Exception e) {

@@ -60,7 +60,7 @@ public abstract class CodePrompts {
         // as of early 2025 o4-mini in particular gets very confused when it sees (its own) edits in the history
         // after the initial workspace contents
         var messages = new ArrayList<ChatMessage>();
-        var reminder = reminderForModel(cm.getModels(), model);
+        var reminder = reminderForModel(cm.getService(), model);
 
         messages.add(systemMessage(cm, reminder));
         messages.addAll(parser.exampleMessages());
