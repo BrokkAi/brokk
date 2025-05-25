@@ -152,7 +152,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
                     var models = chrome.getContextManager().getService();
-                    StreamingChatLanguageModel selectedModel = models.get(modelName, reasoningLevel);
+                    StreamingChatLanguageModel selectedModel = models.getModel(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runCodeCommand(selectedModel);
                     } else {
@@ -168,7 +168,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         askButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
                     var models = chrome.getContextManager().getService();
-                    StreamingChatLanguageModel selectedModel = models.get(modelName, reasoningLevel);
+                    StreamingChatLanguageModel selectedModel = models.getModel(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runAskCommand(selectedModel);
                     } else {

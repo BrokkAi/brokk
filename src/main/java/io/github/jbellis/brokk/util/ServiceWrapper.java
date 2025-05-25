@@ -23,7 +23,7 @@ public class ServiceWrapper {
     }
 
     public StreamingChatLanguageModel getModel(String modelName, Service.ReasoningLevel reasoning) {
-        return get().get(modelName, reasoning);
+        return get().getModel(modelName, reasoning);
     }
 
     public StreamingChatLanguageModel quickModel() {

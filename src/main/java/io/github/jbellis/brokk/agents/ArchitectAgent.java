@@ -250,7 +250,7 @@ public class ArchitectAgent {
         var modelsService = contextManager.getService();
 
         while (true) {
-            io.llmOutput("\nPlanning", ChatMessageType.AI);
+            io.llmOutput("\n# Planning", ChatMessageType.AI);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatLanguageModel>();

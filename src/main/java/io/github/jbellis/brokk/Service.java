@@ -166,10 +166,10 @@ public final class Service {
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
 
         // these should always be available
-        var qm = get("gemini-2.0-flash", ReasoningLevel.DEFAULT);
+        var qm = getModel("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        var qqm = get("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
+        var qqm = getModel("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
         quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
@@ -529,7 +529,7 @@ public final class Service {
      *
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
-    public StreamingChatLanguageModel get(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
+    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
         String location = modelLocations.get(modelName);
         logger.debug("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -589,8 +589,8 @@ public final class Service {
         return builder.build();
     }
 
-    public StreamingChatLanguageModel get(String modelName, ReasoningLevel reasoningLevel) {
-        return get(modelName, reasoningLevel, null);
+    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel) {
+        return getModel(modelName, reasoningLevel, null);
     }
 
     public boolean supportsJsonSchema(StreamingChatLanguageModel model) {
