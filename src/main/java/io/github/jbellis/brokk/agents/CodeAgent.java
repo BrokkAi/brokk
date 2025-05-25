@@ -680,13 +680,13 @@ public class CodeAgent {
                                                               cm.getProject().getRoot(),
                                                               line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM));
             logger.debug("Verification command successful. Output: {}", output);
-            io.llmOutput("```\n", ChatMessageType.CUSTOM);
-            io.llmOutput("\n## Verification failed", ChatMessageType.CUSTOM);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+            io.llmOutput("\n**Verification successful**", ChatMessageType.CUSTOM);
             return "";
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("```\n", ChatMessageType.CUSTOM); // Close the markdown block
+            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+            io.llmOutput("\n**Verification failed**", ChatMessageType.CUSTOM);
             logger.warn("Verification command failed: {} Output: {}", e.getMessage(), e.getOutput(), e);
-            io.llmOutput("\n## Verification successful", ChatMessageType.CUSTOM);
             // Add the combined error and output to the history for the next request
             return e.getMessage() + "\n\n" + e.getOutput();
         }

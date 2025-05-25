@@ -1277,25 +1277,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         try {
             chrome.showOutputSpinner("Executing command...");
-            chrome.llmOutput("```bash\n", ChatMessageType.CUSTOM);
+            chrome.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
             Environment.instance.runShellCommand(input,
                                                  contextManager.getRoot(),
                                                  line -> chrome.llmOutput(line + "\n", ChatMessageType.CUSTOM));
-            chrome.llmOutput("```\n", ChatMessageType.CUSTOM); // Close markdown block on success
+            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Close markdown block on success
             chrome.systemOutput("Run command complete!");
         } catch (Environment.SubprocessException e) {
-            chrome.llmOutput("```\n", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
+            chrome.llmOutput("\n```", ChatMessageType.CUSTOM); // Ensure markdown block is closed on error
             actionMessage = "Run: " + input + " (failed: " + e.getMessage() + ")";
             chrome.systemOutput("Run command completed with errors -- see Output");
             logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
-            // Display specific error message and output
-            String errorDisplay = """
-                                  **Command Failed:** %s
-                                  ```bash
-                                  %s
-                                  ```
-                                  """.stripIndent().formatted(e.getMessage(), e.getOutput());
-            chrome.llmOutput(errorDisplay, ChatMessageType.CUSTOM);
+            chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
         } catch (InterruptedException e) {
             // If interrupted, the ```bash block might be open.
             // It's tricky to know if llmOutput for closing ``` is safe or needed here.
