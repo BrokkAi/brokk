@@ -447,7 +447,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         chosenFallbackName = Service.GROK_3_MINI;
-        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.HIGH);
         if (model != null) {
             io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
                                           config.name(), modelTypeName, chosenFallbackName));
