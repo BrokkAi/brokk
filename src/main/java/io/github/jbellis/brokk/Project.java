@@ -68,7 +68,6 @@ public class Project implements IProject, AutoCloseable {
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
-    private static final String LLM_PROXY_KEY = "llmProxyUrl";
 
     // New enum to represent just which proxy to use
     public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
@@ -1178,26 +1177,6 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Sets the global LLM proxy URL (including scheme, e.g., "https://...").
-     * If the provided URL is null, blank, or matches the default, the setting is
-     * removed from the properties file, effectively reverting to the default.
-     *
-     * @param proxyUrl The proxy URL (including scheme) to save, or null/blank/default to revert to default.
-     */
-    public static void setLlmProxy(String proxyUrl) {
-        var props = loadGlobalProperties();
-        if (proxyUrl == null || proxyUrl.isBlank() || proxyUrl.trim().equals(BROKK_PROXY_URL)) {
-            props.remove(LLM_PROXY_KEY);
-            logger.debug("Removing LLM proxy setting, reverting to default: {}", BROKK_PROXY_URL);
-        } else {
-            props.setProperty(LLM_PROXY_KEY, proxyUrl.trim());
-            logger.debug("Setting LLM proxy to: {}", proxyUrl.trim());
-        }
-        saveGlobalProperties(props);
-    }
-
-
-    /**
      * Sets the global UI theme
      *
      * @param theme "dark" or "light"
@@ -1241,27 +1220,21 @@ public class Project implements IProject, AutoCloseable {
             ModelConfig currentEffectiveUserConfig = (configFromProps != null) ? configFromProps : typeInfo.preferredConfig();
 
             ModelConfig finalEffectiveConfigToUse;
-            String reasonSuffix;
 
             // Check if the user's chosen model (from currentEffectiveUserConfig) is available
             if (availableModels.contains(currentEffectiveUserConfig.name())) {
                 finalEffectiveConfigToUse = currentEffectiveUserConfig; // User's choice is available
-                reasonSuffix = "Using configured model and reasoning.";
             } else {
                 // User's chosen model is not available. Try preferred default.
                 if (availableModels.contains(typeInfo.preferredConfig().name())) {
                     finalEffectiveConfigToUse = typeInfo.preferredConfig();
                     warnings.add(String.format("Configured %s model '%s' is not available. Temporarily using preferred default (Model: '%s', Reasoning: '%s').",
                                                modelTypeName, currentEffectiveUserConfig.name(), finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning()));
-                    reasonSuffix = String.format("Set to available preferred default config (Model: %s, Reasoning: %s).",
-                                               finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning());
                 } else {
                     // Preferred default is also not available. Use generic default with preferred reasoning.
                     finalEffectiveConfigToUse = new ModelConfig(genericDefaultModelName, typeInfo.preferredConfig().reasoning());
                     warnings.add(String.format("Configured %s model '%s' and preferred default model '%s' are not available. Temporarily using generic default (Model: '%s', Reasoning: '%s').",
                                                modelTypeName, currentEffectiveUserConfig.name(), typeInfo.preferredConfig().name(), finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning()));
-                    reasonSuffix = String.format("Set to generic default model '%s' with preferred reasoning '%s'.",
-                                               finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning());
                 }
             }
 
@@ -1271,7 +1244,6 @@ public class Project implements IProject, AutoCloseable {
                 try {
                     String newJson = objectMapper.writeValueAsString(finalEffectiveConfigToUse);
                     globalProps.setProperty(typeInfo.configKey(), newJson);
-                    logger.debug("{} model config. {}", modelTypeName, reasonSuffix);
                 } catch (JsonProcessingException e) {
                     logger.error("Error serializing ModelConfig for {} during override: {}. Config was: {}", modelTypeName, e.getMessage(), finalEffectiveConfigToUse);
                 }

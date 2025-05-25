@@ -28,6 +28,9 @@ import static java.lang.Math.min;
 
 /**
  * Manages dynamically loaded models via LiteLLM.
+ *
+ * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
+ * knows how to reload the Service.
  */
 public final class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
@@ -122,59 +125,59 @@ public final class Service {
     private static final Set<String> SYSTEM_ONLY_MODELS = Set.of("gemini-2.0-flash-lite", "gpt-4.1-nano");
 
     // display name -> location
-    private final ConcurrentHashMap<String, String> modelLocations = new ConcurrentHashMap<>();
-    // location -> model info
-    private final ConcurrentHashMap<String, Map<String, Object>> modelInfoMap = new ConcurrentHashMap<>();
+    private final Map<String, String> modelLocations;
+    // location -> model info (inner map is also immutable)
+    private final Map<String, Map<String, Object>> modelInfoMap;
 
     // Default models - now instance fields
-    private StreamingChatLanguageModel quickModel;
-    private volatile StreamingChatLanguageModel quickestModel = null;
-    private volatile SpeechToTextModel sttModel = null;
-    private volatile boolean isFreeTierOnly = false; // Store balance status
+    private final StreamingChatLanguageModel quickModel;
+    private final StreamingChatLanguageModel quickestModel;
+    private final SpeechToTextModel sttModel;
 
     public Service(IProject project) {
         // Get and handle data retention policy
         var policy = project.getDataRetentionPolicy();
         if (policy == Project.DataRetentionPolicy.UNSET) {
-            // Handle unset policy: default to MINIMAL for now. Consider prompting later.
             logger.warn("Data Retention Policy is UNSET for project {}. Defaulting to MINIMAL.", project.getRoot().getFileName());
             policy = Project.DataRetentionPolicy.MINIMAL;
         }
 
-        String proxyUrl = Project.getProxyUrl(); // Get full URL (including scheme) from project setting
+        String proxyUrl = Project.getProxyUrl();
         logger.info("Initializing models using policy: {} and proxy: {}", policy, proxyUrl);
+
+        var tempModelLocations = new ConcurrentHashMap<String, String>();
+        var tempModelInfoMap = new ConcurrentHashMap<String, Map<String, Object>>();
+
         try {
-            fetchAvailableModels(policy);
+            fetchAvailableModels(policy, tempModelLocations, tempModelInfoMap);
         } catch (IOException e) {
             logger.error("Failed to connect to LiteLLM at {} or parse response: {}",
-                         proxyUrl, e.getMessage(), e); // Log the exception details
-            modelLocations.clear();
-            modelInfoMap.clear();
+                         proxyUrl, e.getMessage(), e);
+            // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
         }
 
-        if (modelLocations.isEmpty()) {
-            // No models? LiteLLM must be down. Add a placeholder.
+        if (tempModelLocations.isEmpty()) {
             logger.warn("No chat models available, cannot set defaults or override.");
-            modelLocations.put(UNAVAILABLE, "not_a_model");
+            tempModelLocations.put(UNAVAILABLE, "not_a_model");
         } else {
-            // Check configured models against available ones and temporarily override if needed
-            // Choose the first available chat model as the default fallback
-            var availableNames = getAvailableModels().keySet();
-            var defaultModelName = availableNames.stream().findFirst().orElse(UNAVAILABLE);
-            var warnings = project.overrideMissingModels(availableNames, defaultModelName);
+            var availableNamesForOverride = tempModelLocations.keySet().stream()
+                                              .filter(s -> !SYSTEM_ONLY_MODELS.contains(s))
+                                              .collect(Collectors.toSet());
+            var defaultModelName = availableNamesForOverride.stream().findFirst()
+                                   .orElseGet(() -> tempModelLocations.keySet().stream().findFirst().orElse(UNAVAILABLE));
+            var warnings = project.overrideMissingModels(availableNamesForOverride, defaultModelName);
             warnings.forEach(logger::debug);
         }
 
+        this.modelLocations = Map.copyOf(tempModelLocations);
+        this.modelInfoMap = Map.copyOf(tempModelInfoMap);
+
         // these should always be available
-        quickModel = get("gemini-2.0-flash", ReasoningLevel.DEFAULT);
-        if (quickModel == null) {
-            quickModel = new UnavailableStreamingModel();
-        }
+        var qm = get("gemini-2.0-flash", ReasoningLevel.DEFAULT);
+        quickModel = qm == null ? new UnavailableStreamingModel() : qm;
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        quickestModel = get("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
-        if (quickestModel == null) {
-            quickestModel = new UnavailableStreamingModel();
-        }
+        var qqm = get("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
+        quickestModel = qqm == null ? new UnavailableStreamingModel() : qqm;
 
         // STT model initialization
         var sttLocation = modelInfoMap.entrySet().stream()
@@ -309,20 +312,26 @@ public final class Service {
     }
 
     /**
-     * Fetches available models from the LLM proxy, applies filters, and sets the low balance status.
+     * Fetches available models from the LLM proxy, populates the provided maps, and applies filters.
      * @param policy The data retention policy.
+     * @param locationsTarget The map to populate with model display names to locations.
+     * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    private void fetchAvailableModels(Project.DataRetentionPolicy policy) throws IOException {
+    private void fetchAvailableModels(Project.DataRetentionPolicy policy,
+                                      Map<String, String> locationsTarget,
+                                      Map<String, Map<String, Object>> infoTarget) throws IOException
+    {
+        locationsTarget.clear(); // Clear at the beginning of an attempt
+        infoTarget.clear();
+
         String baseUrl = Project.getProxyUrl(); // Get full URL (including scheme) from project settings
         boolean isBrokk = Project.getProxySetting() == Project.LlmProxySetting.BROKK;
-        this.isFreeTierOnly = false; // Reset/default to false before checking
+        boolean isFreeTierOnly = false;
 
-        // Pick correct Authorization header for model/info
         var authHeader = "Bearer dummy-key";
         if (isBrokk) {
             var kp = parseKey(Project.getBrokkKey());
-            // Use token to check available models and balance
             authHeader = "Bearer " + kp.token();
         }
         Request request = new Request.Builder()
@@ -350,13 +359,11 @@ public final class Service {
 
             if (!dataNode.isArray()) {
                 logger.error("/model/info did not return a data array. No models discovered.");
+                // Maps are already cleared, so just return
                 return;
             }
 
-            modelLocations.clear();
-            modelInfoMap.clear();
             float balance = 0f;
-            // Only check balance if using Brokk proxy
             if (isBrokk) {
                 try {
                     balance = getUserBalance();
@@ -367,7 +374,7 @@ public final class Service {
                     // For now, log and continue, assuming not low balance.
                     // For now, log and continue, assuming not low balance.
                 }
-                this.isFreeTierOnly = balance < MINIMUM_PAID_BALANCE; // Set instance field
+                isFreeTierOnly = balance < MINIMUM_PAID_BALANCE; // Set instance field
             }
 
             for (JsonNode modelInfoNode : dataNode) {
@@ -392,8 +399,9 @@ public final class Service {
                             JsonNode value = field.getValue();
 
                             // Convert JsonNode to appropriate Java type
+                            // Do not add key if value is null, for Map.copyOf compatibility
                             if (value.isNull()) {
-                                modelInfo.put(key, null);
+                                // modelInfo.put(key, null); // Skip null values
                             } else if (value.isBoolean()) {
                                 modelInfo.put(key, value.asBoolean());
                             } else if (value.isInt()) {
@@ -423,39 +431,36 @@ public final class Service {
                     modelInfo.put("model_location", modelLocation);
 
                     // Apply data retention policy filter
-                    if (policy == Project.DataRetentionPolicy.MINIMAL) {
-                        boolean isPrivate = (Boolean) modelInfo.getOrDefault("is_private", false);
-                        if (!isPrivate) {
-                            logger.debug("Skipping non-private model {} due to MINIMAL data retention policy", modelName);
-                            continue; // Skip adding this model
-                        }
+                    boolean isPrivate = (Boolean) modelInfo.getOrDefault("is_private", false);
+                    if (policy == Project.DataRetentionPolicy.MINIMAL && !isPrivate) {
+                        logger.debug("Skipping non-private model {} due to MINIMAL data retention policy", modelName);
+                        continue;
                     }
 
-                    // Store the complete model info, filtering if low balance
-                    if (isFreeTierOnly) {
-                        var freeEligible = (Boolean) modelInfo.getOrDefault("free_tier_eligible", false);
-                        if (!freeEligible) {
-                            logger.debug("Skipping model {} - not eligible for free tier (low balance)", modelName);
-                            continue;
-                        }
+                    // Filter if low balance
+                    var freeEligible = (Boolean) modelInfo.getOrDefault("free_tier_eligible", false);
+                    if (isFreeTierOnly && !freeEligible) {
+                        logger.debug("Skipping model {} - not eligible for free tier (low balance)", modelName);
+                        continue;
                     }
 
-                    // Always store the full model info
-                    modelInfoMap.put(modelLocation, modelInfo);
+                    // Store the immutable copy of model info
+                    var immutableModelInfo = Map.copyOf(modelInfo);
+                    infoTarget.put(modelLocation, immutableModelInfo);
                     logger.debug("Discovered model: {} -> {} with info {})",
-                                 modelName, modelLocation, modelInfo);
+                                 modelName, modelLocation, immutableModelInfo);
 
                     // Only add chat models to the available locations for selection
-                    if ("chat".equals(modelInfo.get("mode"))) {
-                         modelLocations.put(modelName, modelLocation);
+                    if ("chat".equals(immutableModelInfo.get("mode"))) {
+                         locationsTarget.put(modelName, modelLocation);
                          logger.debug("Added chat model {} to available locations.", modelName);
                     } else {
-                        logger.debug("Skipping model {} (mode: {}) from available locations.", modelName, modelInfo.get("mode"));
+                        logger.debug("Skipping model {} (mode: {}) from available locations.", modelName, immutableModelInfo.get("mode"));
                     }
                 }
             }
 
-            logger.info("Discovered {} models", modelLocations.size());
+            logger.info("Discovered {} models eligible for use.", locationsTarget.size());
         }
     }
 

@@ -1645,8 +1645,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         Map<String, String> availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
-        @SuppressWarnings("unchecked") // Suppress warning for the cast from Object/ANY
-        List<Service.FavoriteModel> favoriteModels = (List<Service.FavoriteModel>) Project.loadFavoriteModels();
+        List<Service.FavoriteModel> favoriteModels = Project.loadFavoriteModels();
 
         // Filter favorite models to show only those that are currently available, and sort by alias
         List<Service.FavoriteModel> favoriteModelsToShow = favoriteModels.stream()
