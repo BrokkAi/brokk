@@ -1533,9 +1533,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return EditBlockParser.getParserFor(allText);
     }
 
-    public Service reloadModels() {
+    public void reloadModelsAsync() {
         service.reinit(project);
-        return service.get();
     }
 
     @FunctionalInterface

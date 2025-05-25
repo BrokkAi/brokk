@@ -1080,7 +1080,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (balance < Service.MINIMUM_PAID_BALANCE) {
                     logger.debug("Balance below minimum paid threshold (${}), reinitializing models to free tier.", Service.MINIMUM_PAID_BALANCE);
                     // This will refetch models and apply the lowBalance filter based on MINIMUM_PAID_BALANCE
-                    contextManager.reloadModels();
+                    contextManager.reloadModelsAsync();
 
                     SwingUtilities.invokeLater(() -> {
                         if (freeTierNotified) {

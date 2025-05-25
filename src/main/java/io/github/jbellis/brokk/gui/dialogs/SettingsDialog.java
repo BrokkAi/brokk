@@ -1473,7 +1473,7 @@ public class SettingsDialog extends JDialog {
                 if (oldPolicy != newPolicy && newPolicy != Project.DataRetentionPolicy.UNSET) {
                     // Submit as background task so it doesn't block the settings dialog closing
                     chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
-                        chrome.getContextManager().reloadModels();
+                        chrome.getContextManager().reloadModelsAsync();
                     });
                 }
             }
