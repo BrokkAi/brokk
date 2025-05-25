@@ -505,6 +505,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type));
     }
 
+    @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
     }

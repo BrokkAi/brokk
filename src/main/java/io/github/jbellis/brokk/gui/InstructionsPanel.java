@@ -1233,8 +1233,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             // Pass options to the constructor
             var agent = new ArchitectAgent(contextManager, model, contextManager.getToolRegistry(), goal, options);
-            agent.execute();
+            var result = agent.execute();
             chrome.systemOutput("Architect complete!");
+            contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
             chrome.systemOutput("Architect Agent cancelled!");
             maybeAddInterruptedResult("Architect", goal);

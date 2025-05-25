@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
+import io.github.jbellis.brokk.util.Messages;
 
 import java.util.List;
 
@@ -45,7 +46,12 @@ public interface IConsoleIO {
     }
 
     void llmOutput(String token, ChatMessageType type);
-    
+
+    default void setLlmOutput(ContextFragment.TaskFragment newOutput) {
+        var firstMessage = newOutput.messages().getFirst();
+        llmOutput(Messages.getText(firstMessage), firstMessage.type());
+    }
+
     default void systemOutput(String message) {
         llmOutput("\n" + message, ChatMessageType.USER);
     }

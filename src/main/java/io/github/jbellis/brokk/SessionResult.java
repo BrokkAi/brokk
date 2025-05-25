@@ -78,9 +78,9 @@ public record SessionResult(String actionDescription,
          */
         SEARCH_INVALID_ANSWER,
         /**
-         * the LLM determined that it was not possible to answer the query
+         * the LLM determined that it was not possible to fulfil the request
          */
-        SEARCH_IMPOSSIBLE,
+        LLM_ABORTED,
     }
 
     public record StopDetails(StopReason reason, String explanation) {

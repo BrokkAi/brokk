@@ -338,7 +338,7 @@ public class SearchAgent {
                     logger.warn("LLM provided blank explanation for 'abort' tool. Using default.");
                 }
                 // Return the abort explanation as a simple fragment
-                return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.SEARCH_IMPOSSIBLE, explanation));
+                return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.LLM_ABORTED, explanation));
             }
 
             // Wait for initial context summary if it's pending (before the second LLM call)
@@ -375,7 +375,7 @@ public class SearchAgent {
                                  case LLM_ERROR -> "An error occurred interacting with the language model.";
                                  case SEARCH_INVALID_ANSWER ->
                                          "The final answer provided by the language model was invalid.";
-                                 case SEARCH_IMPOSSIBLE -> "The agent determined the query could not be answered.";
+                                 case LLM_ABORTED -> "The agent determined the query could not be answered.";
                                  default -> "Search stopped for reason: " + details.reason();
                              };
         return errorResult(details, explanation);

@@ -4,10 +4,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
@@ -21,12 +18,14 @@ import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -142,7 +141,7 @@ public class ArchitectAgent {
         }
 
         // TODO label this Architect
-        io.llmOutput("\n" + instructions, ChatMessageType.CUSTOM);
+        io.setLlmOutput(new ContextFragment.TaskFragment(List.of(Messages.customSystem(instructions)), "Code (Architect)"));
         var result = new CodeAgent(contextManager, contextManager.getEditModel()).runSession(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
@@ -208,6 +207,7 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}", query);
 
         // Instantiate and run SearchAgent
+        io.setLlmOutput(new ContextFragment.TaskFragment(List.of(Messages.customSystem(query)), "Search (Architect)"));
         var searchAgent = new SearchAgent(query, contextManager, model, toolRegistry, searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
         if (result.stopDetails().reason() == SessionResult.StopReason.LLM_ERROR) {
@@ -237,7 +237,7 @@ public class ArchitectAgent {
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks.
      * This uses an iterative approach, letting the LLM decide which tool to call each time.
      */
-    public void execute() throws ExecutionException, InterruptedException {
+    public SessionResult execute() throws ExecutionException, InterruptedException {
         io.systemOutput("Architect Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
 
         // Check if ContextAgent is enabled in options before using it
@@ -336,12 +336,12 @@ public class ArchitectAgent {
             if (result.error() != null) {
                 logger.debug("Error from LLM while deciding next action: {}", result.error().getMessage());
                 io.systemOutput("Error from LLM while deciding next action (see debug log for details)");
-                return;
+                return llmErrorResult();
             }
             if (result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
                 var msg = "Empty LLM response. Stopping project now";
                 io.systemOutput(msg);
-                return;
+                return llmErrorResult();
             }
             // show thinking
             if (result.chatResponse().aiMessage().text() != null && !result.chatResponse().aiMessage().text().isBlank()) {
@@ -387,13 +387,19 @@ public class ArchitectAgent {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
                 logger.debug("Project final answer: {}", toolResult.resultText());
-                return;
+                return new SessionResult("Architect: " + goal,
+                                         List.of(new AiMessage(toolResult.resultText())),
+                                         Map.of(),
+                                         new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS, toolResult.resultText()));
             }
             if (abortReq != null) {
                 logger.debug("LLM decided to abortProject. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, abortReq);
                 logger.debug("Project aborted: {}", toolResult.resultText());
-                return;
+                return new SessionResult("Architect: " + goal,
+                                         List.of(new AiMessage(toolResult.resultText())),
+                                         Map.of(),
+                                         new SessionResult.StopDetails(SessionResult.StopReason.LLM_ABORTED, toolResult.resultText()));
             }
 
             // 7) Execute remaining tool calls in the desired order:
@@ -462,13 +468,20 @@ public class ArchitectAgent {
                 } catch (FatalLlmException e) {
                     var errorMessage = "Fatal LLM error executing Code Agent: %s".formatted(e.getMessage());
                     io.systemOutput(errorMessage);
-                    return;
+                    return llmErrorResult();
                 }
 
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
         }
+    }
+
+    private @NotNull SessionResult llmErrorResult() {
+        return new SessionResult("Architect: " + goal,
+                                 List.of(),
+                                 Map.of(),
+                                 new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR));
     }
 
     /**
