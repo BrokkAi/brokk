@@ -1220,7 +1220,6 @@ public class Project implements IProject, AutoCloseable {
     public List<String> overrideMissingModels(Set<String> availableModels, String genericDefaultModelName) {
         var warnings = new ArrayList<String>();
         var globalProps = loadGlobalProperties(); // Load raw props once
-        boolean changed = false;
 
         for (var entry : MODEL_TYPE_INFOS.entrySet()) {
             String modelTypeName = entry.getKey();
@@ -1272,20 +1271,15 @@ public class Project implements IProject, AutoCloseable {
                 try {
                     String newJson = objectMapper.writeValueAsString(finalEffectiveConfigToUse);
                     globalProps.setProperty(typeInfo.configKey(), newJson);
-                    changed = true;
                     logger.debug("{} model config. {}", modelTypeName, reasonSuffix);
                 } catch (JsonProcessingException e) {
                     logger.error("Error serializing ModelConfig for {} during override: {}. Config was: {}", modelTypeName, e.getMessage(), finalEffectiveConfigToUse);
-                    // Don't save this specific change if serialization fails
                 }
             } else {
                 logger.trace("{} model config remains (Name: '{}', Reasoning: '{}').", modelTypeName, currentEffectiveUserConfig.name(), currentEffectiveUserConfig.reasoning());
             }
         }
 
-        if (changed) {
-            saveGlobalProperties(globalProps);
-        }
         return warnings;
     }
 
