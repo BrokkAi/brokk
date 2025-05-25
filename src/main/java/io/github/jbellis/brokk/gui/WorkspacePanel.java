@@ -662,15 +662,12 @@ public class WorkspacePanel extends JPanel {
         Map<String, Integer> redWarningModels = new HashMap<>();
         Map<String, Integer> yellowWarningModels = new HashMap<>();
 
-        // Helper record to store model name and reasoning level for checking
-        record ModelConfig(String name, Service.ReasoningLevel level) {}
-
-        List<ModelConfig> configuredModelChecks = List.of(
-                new ModelConfig(project.getArchitectModelName(), project.getArchitectReasoningLevel()),
-                new ModelConfig(project.getCodeModelName(), project.getCodeReasoningLevel()),
-                new ModelConfig(project.getAskModelName(), project.getAskReasoningLevel()),
-                new ModelConfig(project.getEditModelName(), project.getEditReasoningLevel()),
-                new ModelConfig(project.getSearchModelName(), project.getSearchReasoningLevel())
+        List<Service.ModelConfig> configuredModelChecks = List.of(
+                project.getArchitectModelConfig(),
+                project.getCodeModelConfig(),
+                project.getAskModelConfig(),
+                project.getEditModelConfig(),
+                project.getSearchModelConfig()
         );
 
         for (var config : configuredModelChecks) {
@@ -678,7 +675,7 @@ public class WorkspacePanel extends JPanel {
                 continue;
             }
             try {
-                var model = models.get(config.name(), config.level());
+                var model = models.get(config.name(), config.reasoning());
                 // Skip if model is unavailable or a placeholder
                 if (model instanceof Service.UnavailableStreamingModel) {
                     logger.debug("Skipping unavailable model for context warning: {}", config.name());
@@ -705,7 +702,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         String warningTooltip = """
-        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with. 
+        Consider replacing full files with summaries or tackling a smaller piece of your problem to start with.
         Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
         """;
 

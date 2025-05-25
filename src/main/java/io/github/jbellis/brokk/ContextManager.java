@@ -395,27 +395,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the configured Architect model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getArchitectModel() {
-        var modelName = project.getArchitectModelName();
-        var reasoning = project.getArchitectReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getArchitectModelConfig();
+        return models.get(config.name(), config.reasoning());
     }
 
     /**
      * Returns the configured Code model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getCodeModel() {
-        var modelName = project.getCodeModelName();
-        var reasoning = project.getCodeReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getCodeModelConfig();
+        return models.get(config.name(), config.reasoning());
     }
 
     /**
      * Returns the configured Ask model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getAskModel() {
-        var modelName = project.getAskModelName();
-        var reasoning = project.getAskReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getAskModelConfig();
+        return models.get(config.name(), config.reasoning());
     }
 
 
@@ -423,18 +420,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the configured Edit model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getEditModel() {
-        var modelName = project.getEditModelName();
-        var reasoning = project.getEditReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getEditModelConfig();
+        return models.get(config.name(), config.reasoning());
     }
 
     /**
      * Returns the configured Search model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getSearchModel() {
-        var modelName = project.getSearchModelName();
-        var reasoning = project.getSearchReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getSearchModelConfig();
+        return models.get(config.name(), config.reasoning());
     }
 
     public Future<?> submitUserTask(String description, Runnable task) {

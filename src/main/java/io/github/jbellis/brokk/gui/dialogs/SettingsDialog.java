@@ -46,7 +46,7 @@ public class SettingsDialog extends JDialog {
     private JComboBox<String> architectModelComboBox;
     private JComboBox<String> codeModelComboBox;
     private JComboBox<Service.ReasoningLevel> codeReasoningComboBox;
-    private JComboBox<String> askModelComboBox; // Added Ask model combo box
+    private JComboBox<String> askModelComboBox;
     private JComboBox<Service.ReasoningLevel> askReasoningComboBox;
     private JComboBox<String> editModelComboBox;
     private JComboBox<Service.ReasoningLevel> editReasoningComboBox;
@@ -109,7 +109,7 @@ public class SettingsDialog extends JDialog {
                             if (tabContent != null) {
                                 tabContent.setEnabled(projectIsOpen);
                                 if (tabContent instanceof Container) {
-                                    for (Component innerComp : ((Container)tabContent).getComponents()) {
+                                    for (Component innerComp : ((Container) tabContent).getComponents()) {
                                         innerComp.setEnabled(projectIsOpen);
                                     }
                                 }
@@ -189,11 +189,16 @@ public class SettingsDialog extends JDialog {
             }
         }
         // Special handling for JComboBox renderers if they show "Off" when disabled
-        if (architectReasoningComboBox != null) updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, chrome.getContextManager().getModels());
-        if (codeReasoningComboBox != null) updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, chrome.getContextManager().getModels());
-        if (askReasoningComboBox != null) updateReasoningComboBox(askModelComboBox, askReasoningComboBox, chrome.getContextManager().getModels());
-        if (editReasoningComboBox != null) updateReasoningComboBox(editModelComboBox, editReasoningComboBox, chrome.getContextManager().getModels());
-        if (searchReasoningComboBox != null) updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, chrome.getContextManager().getModels());
+        if (architectReasoningComboBox != null)
+            updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, chrome.getContextManager().getModels());
+        if (codeReasoningComboBox != null)
+            updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, chrome.getContextManager().getModels());
+        if (askReasoningComboBox != null)
+            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, chrome.getContextManager().getModels());
+        if (editReasoningComboBox != null)
+            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, chrome.getContextManager().getModels());
+        if (searchReasoningComboBox != null)
+            updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, chrome.getContextManager().getModels());
 
 
         return globalSubTabbedPane;
@@ -728,7 +733,7 @@ public class SettingsDialog extends JDialog {
         panel.add(new JScrollPane(languagesPanel), gbc); // Add scroll pane in case of many languages
 
         // Excluded Directories
-        var excludedLabelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT,0,0)); // To align label nicely
+        var excludedLabelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // To align label nicely
         excludedLabelPanel.add(new JLabel("Exclusions:"));
 
         gbc.gridx = 0;
@@ -744,7 +749,7 @@ public class SettingsDialog extends JDialog {
         // Details might be null if project just created, or if build details haven't been populated
         var details = project.getBuildDetails();
         var sortedExcludedDirs = (details != null ? details.excludedDirectories() : Set.<String>of())
-                                 .stream().sorted().toList();
+                .stream().sorted().toList();
         for (String dir : sortedExcludedDirs) {
             excludedDirectoriesListModel.addElement(dir);
         }
@@ -779,9 +784,9 @@ public class SettingsDialog extends JDialog {
 
         addButton.addActionListener(e -> {
             String newDir = JOptionPane.showInputDialog(SettingsDialog.this,
-                    "Enter directory to exclude (e.g., target/, build/):",
-                    "Add Excluded Directory",
-                    JOptionPane.PLAIN_MESSAGE);
+                                                        "Enter directory to exclude (e.g., target/, build/):",
+                                                        "Add Excluded Directory",
+                                                        JOptionPane.PLAIN_MESSAGE);
             if (newDir != null && !newDir.trim().isEmpty()) {
                 String trimmedNewDir = newDir.trim();
                 excludedDirectoriesListModel.addElement(trimmedNewDir);
@@ -1063,11 +1068,11 @@ public class SettingsDialog extends JDialog {
      */
     /**
      * Builds the “Models” tab in a compact two-column grid:
-     *
-     *   Architect  [model-combo]
-     *   Reasoning  [reasoning-combo]
-     *               <explanation>
-     *
+     * <p>
+     * Architect  [model-combo]
+     * Reasoning  [reasoning-combo]
+     * <explanation>
+     * <p>
      * Each model type gets its own block separated by extra vertical padding.
      * Labels are right-aligned; we omit the words “Model:” / “Reasoning:” and all
      * colons, per user request.  Combo-boxes keep their preferred size (no weightx).
@@ -1087,12 +1092,12 @@ public class SettingsDialog extends JDialog {
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         var gbc = new GridBagConstraints();
-        gbc.insets  = new Insets(4, 4, 4, 4);
-        gbc.anchor  = GridBagConstraints.EAST;      // right-align labels
-        gbc.fill    = GridBagConstraints.NONE;      // combos keep preferred width
+        gbc.insets = new Insets(4, 4, 4, 4);
+        gbc.anchor = GridBagConstraints.EAST;      // right-align labels
+        gbc.fill = GridBagConstraints.NONE;      // combos keep preferred width
         gbc.weightx = 0.0;                          // “don’t weightx anything”
 
-        var models          = chrome.getContextManager().getModels();
+        var models = chrome.getContextManager().getModels();
         var availableModels = models.getAvailableModels()
                 .keySet()
                 .stream()
@@ -1103,21 +1108,22 @@ public class SettingsDialog extends JDialog {
         // will (de)activate reasoning dropdowns when model changes
         Runnable updateReasoningState = () -> {
             updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, models);
-            updateReasoningComboBox(codeModelComboBox,       codeReasoningComboBox,       models);
-            updateReasoningComboBox(askModelComboBox,        askReasoningComboBox,        models);
-            updateReasoningComboBox(editModelComboBox,       editReasoningComboBox,       models);
-            updateReasoningComboBox(searchModelComboBox,     searchReasoningComboBox,     models);
+            updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, models);
+            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, models);
+            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, models);
+            updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, models);
         };
 
         int row = 0;   // running row counter
 
         /* ---------------- Architect -------------------------------------- */
+        var architectConfig = project.getArchitectModelConfig();
         architectModelComboBox = new JComboBox<>(availableModels);
-        architectModelComboBox.setSelectedItem(project.getArchitectModelName());
+        architectModelComboBox.setSelectedItem(architectConfig.name());
         architectModelComboBox.addActionListener(e -> updateReasoningState.run());
 
         architectReasoningComboBox = new JComboBox<>(reasoningLevels);
-        architectReasoningComboBox.setSelectedItem(project.getArchitectReasoningLevel());
+        architectReasoningComboBox.setSelectedItem(architectConfig.reasoning());
 
         row = addModelSection(panel, gbc, row,
                               "Architect",
@@ -1126,12 +1132,13 @@ public class SettingsDialog extends JDialog {
                               "The Architect plans and executes multi-step projects, calling other agents and tools as needed");
 
         /* ---------------- Code ------------------------------------------- */
+        var codeConfig = project.getCodeModelConfig();
         codeModelComboBox = new JComboBox<>(availableModels);
-        codeModelComboBox.setSelectedItem(project.getCodeModelName());
+        codeModelComboBox.setSelectedItem(codeConfig.name());
         codeModelComboBox.addActionListener(e -> updateReasoningState.run());
 
         codeReasoningComboBox = new JComboBox<>(reasoningLevels);
-        codeReasoningComboBox.setSelectedItem(project.getCodeReasoningLevel());
+        codeReasoningComboBox.setSelectedItem(codeConfig.reasoning());
 
         row = addModelSection(panel, gbc, row,
                               "Code",
@@ -1140,12 +1147,13 @@ public class SettingsDialog extends JDialog {
                               "Used when invoking the Code Agent manually");
 
         /* ---------------- Ask -------------------------------------------- */
+        var askConfig = project.getAskModelConfig();
         askModelComboBox = new JComboBox<>(availableModels);
-        askModelComboBox.setSelectedItem(project.getAskModelName());
+        askModelComboBox.setSelectedItem(askConfig.name());
         askModelComboBox.addActionListener(e -> updateReasoningState.run());
 
         askReasoningComboBox = new JComboBox<>(reasoningLevels);
-        askReasoningComboBox.setSelectedItem(project.getAskReasoningLevel());
+        askReasoningComboBox.setSelectedItem(askConfig.reasoning());
 
         row = addModelSection(panel, gbc, row,
                               "Ask",
@@ -1154,12 +1162,13 @@ public class SettingsDialog extends JDialog {
                               "Answers questions about the current Workspace contents");
 
         /* ---------------- Edit ------------------------------------------- */
+        var editConfig = project.getEditModelConfig();
         editModelComboBox = new JComboBox<>(availableModels);
-        editModelComboBox.setSelectedItem(project.getEditModelName());
+        editModelComboBox.setSelectedItem(editConfig.name());
         editModelComboBox.addActionListener(e -> updateReasoningState.run());
 
         editReasoningComboBox = new JComboBox<>(reasoningLevels);
-        editReasoningComboBox.setSelectedItem(project.getEditReasoningLevel());
+        editReasoningComboBox.setSelectedItem(editConfig.reasoning());
 
         row = addModelSection(panel, gbc, row,
                               "Edit",
@@ -1168,12 +1177,13 @@ public class SettingsDialog extends JDialog {
                               "Used when invoking the Code Agent from the Architect; also used for Deep Scan");
 
         /* ---------------- Search ----------------------------------------- */
+        var searchConfig = project.getSearchModelConfig();
         searchModelComboBox = new JComboBox<>(availableModels);
-        searchModelComboBox.setSelectedItem(project.getSearchModelName());
+        searchModelComboBox.setSelectedItem(searchConfig.name());
         searchModelComboBox.addActionListener(e -> updateReasoningState.run());
 
         searchReasoningComboBox = new JComboBox<>(reasoningLevels);
-        searchReasoningComboBox.setSelectedItem(project.getSearchReasoningLevel());
+        searchReasoningComboBox.setSelectedItem(searchConfig.reasoning());
 
         row = addModelSection(panel, gbc, row,
                               "Search",
@@ -1182,11 +1192,11 @@ public class SettingsDialog extends JDialog {
                               "Searches the project for information described in natural language");
 
         /* push everything up */
-        gbc.gridx     = 0;
-        gbc.gridy     = row;
+        gbc.gridx = 0;
+        gbc.gridy = row;
         gbc.gridwidth = 3; // Span all three columns
-        gbc.weighty   = 1.0;
-        gbc.fill      = GridBagConstraints.VERTICAL;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.VERTICAL;
         panel.add(Box.createVerticalGlue(), gbc);
 
         SwingUtilities.invokeLater(updateReasoningState);   // initial enable/disable
@@ -1218,10 +1228,10 @@ public class SettingsDialog extends JDialog {
     /**
      * Adds one “model / reasoning / explanation” block to the grid-bag panel and
      * returns the next free row index.
-     *
+     * <p>
      * Layout (three columns):
-     *   <label>        [model-combo]        <italic explanation (spans 2 rows)>
-     *   Reasoning      [reasoning-combo]
+     * <label>        [model-combo]        <italic explanation (spans 2 rows)>
+     * Reasoning      [reasoning-combo]
      * (A 10-pixel top-margin separates blocks.)
      */
     private int addModelSection(JPanel panel,
@@ -1234,25 +1244,25 @@ public class SettingsDialog extends JDialog {
     {
         /* ---------- model row ------------------------------------------------ */
         var savedInsets = gbc.insets;
-        gbc.insets  = new Insets(startRow == 0 ? 4 : 14, 4, 4, 4);   // extra top-pad
-        gbc.anchor  = GridBagConstraints.EAST;
-        gbc.gridx   = 0;
-        gbc.gridy   = startRow;
+        gbc.insets = new Insets(startRow == 0 ? 4 : 14, 4, 4, 4);   // extra top-pad
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.gridx = 0;
+        gbc.gridy = startRow;
         panel.add(new JLabel(typeLabel), gbc);
 
         gbc.anchor = GridBagConstraints.WEST;
-        gbc.gridx  = 1;
+        gbc.gridx = 1;
         panel.add(modelCombo, gbc);
 
         /* ---------- reasoning row ------------------------------------------- */
-        gbc.insets  = new Insets(4, 4, 2, 4);
-        gbc.anchor  = GridBagConstraints.EAST;
-        gbc.gridx   = 0;
-        gbc.gridy   = startRow + 1;
+        gbc.insets = new Insets(4, 4, 2, 4);
+        gbc.anchor = GridBagConstraints.EAST;
+        gbc.gridx = 0;
+        gbc.gridy = startRow + 1;
         panel.add(new JLabel("Reasoning"), gbc);
 
         gbc.anchor = GridBagConstraints.WEST;
-        gbc.gridx  = 1;
+        gbc.gridx = 1;
         panel.add(reasoningCombo, gbc);
         gbc.insets = savedInsets;        // restore
 
@@ -1268,20 +1278,20 @@ public class SettingsDialog extends JDialog {
                             .deriveFont(Font.ITALIC,
                                         tip.getFont().getSize() * 0.9f));
 
-        gbc.insets     = new Insets(startRow == 0 ? 4 : 14, 10, 2, 4);
-        gbc.gridx      = 2;                     // third column
-        gbc.gridy      = startRow;              // top row of the block
+        gbc.insets = new Insets(startRow == 0 ? 4 : 14, 10, 2, 4);
+        gbc.gridx = 2;                     // third column
+        gbc.gridy = startRow;              // top row of the block
         gbc.gridheight = 2;                     // span two rows
-        gbc.fill       = GridBagConstraints.HORIZONTAL;
-        gbc.weightx    = 1.0;
-        gbc.anchor     = GridBagConstraints.NORTHWEST;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
         panel.add(tip, gbc);
 
         /* ---------- restore defaults for caller ----------------------------- */
-        gbc.insets     = savedInsets;
+        gbc.insets = savedInsets;
         gbc.gridheight = 1;
-        gbc.weightx    = 0.0;
-        gbc.fill       = GridBagConstraints.NONE;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
 
         return startRow + 2;   // next free row
     }
@@ -1423,8 +1433,8 @@ public class SettingsDialog extends JDialog {
             // Apply Code Agent Test Scope (from Build Tab)
             if (runAllTestsRadio != null && runTestsInWorkspaceRadio != null) { // Check initialized
                 Project.CodeAgentTestScope selectedScope = runAllTestsRadio.isSelected()
-                                                             ? Project.CodeAgentTestScope.ALL
-                                                             : Project.CodeAgentTestScope.WORKSPACE;
+                                                           ? Project.CodeAgentTestScope.ALL
+                                                           : Project.CodeAgentTestScope.WORKSPACE;
                 if (selectedScope != project.getCodeAgentTestScope()) {
                     project.setCodeAgentTestScope(selectedScope);
                     logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
@@ -1446,12 +1456,10 @@ public class SettingsDialog extends JDialog {
             project.setCommitMessageFormat(newCommitFormat);
             if (!newCommitFormat.trim().equals(currentCommitFormat)
                     && !newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT)
-                    && !newCommitFormat.isBlank())
-            {
+                    && !newCommitFormat.isBlank()) {
                 logger.debug("Applied Commit Message Format changes.");
             } else if (!newCommitFormat.trim().equals(currentCommitFormat)
-                    && (newCommitFormat.isBlank() || newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT)))
-            {
+                    && (newCommitFormat.isBlank() || newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT))) {
                 logger.debug("Reset Commit Message Format to default.");
             }
 
@@ -1471,55 +1479,50 @@ public class SettingsDialog extends JDialog {
             }
 
             // Apply Model Selections and Reasoning Levels
-            applyModelAndReasoning(project, architectModelComboBox, architectReasoningComboBox,
-                                   project::getArchitectModelName, project::setArchitectModelName,
-                                   project::getArchitectReasoningLevel, project::setArchitectReasoningLevel);
+            applyModelConfig(project, architectModelComboBox, architectReasoningComboBox,
+                             project::getArchitectModelConfig, project::setArchitectModelConfig);
 
-            applyModelAndReasoning(project, codeModelComboBox, codeReasoningComboBox,
-                                   project::getCodeModelName, project::setCodeModelName,
-                                   project::getCodeReasoningLevel, project::setCodeReasoningLevel);
+            applyModelConfig(project, codeModelComboBox, codeReasoningComboBox,
+                             project::getCodeModelConfig, project::setCodeModelConfig);
 
-            applyModelAndReasoning(project, askModelComboBox, askReasoningComboBox,
-                                   project::getAskModelName, project::setAskModelName,
-                                   project::getAskReasoningLevel, project::setAskReasoningLevel);
+            applyModelConfig(project, askModelComboBox, askReasoningComboBox,
+                             project::getAskModelConfig, project::setAskModelConfig);
 
-            applyModelAndReasoning(project, editModelComboBox, editReasoningComboBox,
-                                   project::getEditModelName, project::setEditModelName,
-                                   project::getEditReasoningLevel, project::setEditReasoningLevel);
+            applyModelConfig(project, editModelComboBox, editReasoningComboBox,
+                             project::getEditModelConfig, project::setEditModelConfig);
 
-            applyModelAndReasoning(project, searchModelComboBox, searchReasoningComboBox,
-                                   project::getSearchModelName, project::setSearchModelName,
-                                   project::getSearchReasoningLevel, project::setSearchReasoningLevel);
+            applyModelConfig(project, searchModelComboBox, searchReasoningComboBox,
+                             project::getSearchModelConfig, project::setSearchModelConfig);
         }
         return true; // All settings applied successfully or with non-blocking errors
     }
 
 
     /**
-     * Helper method to apply model name and reasoning level settings
+     * Helper method to apply model configuration (name and reasoning level).
      */
-    private void applyModelAndReasoning(Project project,
-                                        JComboBox<String> modelCombo,
-                                        JComboBox<Service.ReasoningLevel> reasoningCombo,
-                                        java.util.function.Supplier<String> currentModelGetter,
-                                        java.util.function.Consumer<String> modelSetter,
-                                        java.util.function.Supplier<Service.ReasoningLevel> currentReasoningGetter,
-                                        java.util.function.Consumer<Service.ReasoningLevel> reasoningSetter)
+    private void applyModelConfig(Project project,
+                                  JComboBox<String> modelCombo,
+                                  JComboBox<Service.ReasoningLevel> reasoningCombo,
+                                  java.util.function.Supplier<Service.ModelConfig> currentConfigGetter,
+                                  java.util.function.Consumer<Service.ModelConfig> configSetter)
     {
-        if (modelCombo != null) { // Check if combo box was initialized
-            String selectedModel = (String) modelCombo.getSelectedItem();
-            if (selectedModel != null && !selectedModel.equals(currentModelGetter.get())) {
-                modelSetter.accept(selectedModel);
-            }
+        if (modelCombo == null || reasoningCombo == null) { // Check if combo boxes were initialized
+            return;
         }
-        if (reasoningCombo != null) { // Check if combo box was initialized
-            Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
-            // Only save if the combo box is enabled (i.e., model supports reasoning)
-            // and the selected value is different from the current setting.
-            if (selectedReasoning != null && reasoningCombo.isEnabled() && selectedReasoning != currentReasoningGetter.get()) {
-                reasoningSetter.accept(selectedReasoning);
-            }
-            // If the combo is disabled, we don't save anything, implicitly leaving it as DEFAULT.
+
+        String selectedModelName = (String) modelCombo.getSelectedItem();
+        Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
+
+        // Determine the effective reasoning level based on model support
+        boolean supportsReasoning = selectedModelName != null && chrome.getContextManager().getModels().supportsReasoningEffort(selectedModelName);
+        Service.ReasoningLevel effectiveSelectedReasoning = supportsReasoning ? selectedReasoning : Service.ReasoningLevel.DEFAULT;
+
+        Service.ModelConfig currentConfig = currentConfigGetter.get();
+
+        if (selectedModelName != null &&
+                (!selectedModelName.equals(currentConfig.name()) || effectiveSelectedReasoning != currentConfig.reasoning())) {
+            configSetter.accept(new Service.ModelConfig(selectedModelName, effectiveSelectedReasoning));
         }
     }
 
@@ -1651,12 +1654,12 @@ public class SettingsDialog extends JDialog {
                     MODELS_TAB.equals(targetTabName);
 
             // Determine if target is a Project sub-tab
-        boolean isProjectSubTab = "General".equals(targetTabName) ||
-                                  "Build".equals(targetTabName) ||
-                                  "Code Intelligence".equals(targetTabName) ||
-                                  "Data Retention".equals(targetTabName);
+            boolean isProjectSubTab = "General".equals(targetTabName) ||
+                    "Build".equals(targetTabName) ||
+                    "Code Intelligence".equals(targetTabName) ||
+                    "Data Retention".equals(targetTabName);
 
-        if (isGlobalSubTab) {
+            if (isGlobalSubTab) {
                 // Select "Global" top-level tab first
                 for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
                     if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) {
@@ -1869,7 +1872,8 @@ public class SettingsDialog extends JDialog {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value,
                                                        boolean isSelected, boolean hasFocus,
-                                                       int row, int column) {
+                                                       int row, int column)
+        {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
             // Get the model name from the 'Model Name' column (index 1) in the current row

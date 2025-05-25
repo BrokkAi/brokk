@@ -3,6 +3,7 @@ package io.github.jbellis.brokk;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -38,16 +39,19 @@ public class Project implements IProject, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(Project.class);
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
-    private static final String ARCHITECT_MODEL_KEY = "architectModel";
-    private static final String CODE_MODEL_KEY = "codeModel";
-    private static final String ASK_MODEL_KEY = "askModel"; // Added for Ask
-    private static final String EDIT_MODEL_KEY = "editModel";
-    private static final String SEARCH_MODEL_KEY = "searchModel";
-    private static final String ARCHITECT_REASONING_KEY = "architectReasoning";
-    private static final String CODE_REASONING_KEY = "codeReasoning";
-    private static final String ASK_REASONING_KEY = "askReasoning";
-    private static final String EDIT_REASONING_KEY = "editReasoning";
-    private static final String SEARCH_REASONING_KEY = "searchReasoning";
+
+    // Helper structure for managing model type configurations
+    // Includes old keys for migration purposes.
+    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig, String oldModelNameKey, String oldReasoningKey) {}
+
+    private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
+        "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH), "architectModel", "architectReasoning"),
+        "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "codeModel", "codeReasoning"),
+        "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "askModel", "askReasoning"),
+        "Edit", new ModelTypeInfo("editConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.LOW), "editModel", "editReasoning"),
+        "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "searchModel", "searchReasoning")
+    );
+
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
 
@@ -151,9 +155,69 @@ public class Project implements IProject, AutoCloseable {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
+                // Return empty props if read fails, to avoid processing potentially corrupted data
+                return props;
             }
         }
+
+        // Attempt to migrate old model configuration keys
+        boolean migrated = migrateOldModelConfigsIfNecessary(props);
+        if (migrated) {
+            // Save properties immediately if migration occurred
+            // This avoids re-migration attempts and ensures consistency
+            saveGlobalProperties(props);
+        }
         return props;
+    }
+
+    /**
+     * Checks for old-style model name/reasoning properties and converts them to the new JSON-based single property.
+     * Modifies the passed-in Properties object directly.
+     *
+     * @param props The Properties object to check and modify.
+     * @return true if any migration was performed, false otherwise.
+     */
+    private static boolean migrateOldModelConfigsIfNecessary(Properties props) {
+        boolean changed = false;
+        for (var entry : MODEL_TYPE_INFOS.entrySet()) {
+            String modelType = entry.getKey();
+            ModelTypeInfo typeInfo = entry.getValue();
+
+            // Check if old keys exist AND new key does NOT
+            if (props.containsKey(typeInfo.oldModelNameKey()) && !props.containsKey(typeInfo.configKey())) {
+                String modelName = props.getProperty(typeInfo.oldModelNameKey());
+                // Old reasoning might be missing, default to preferred in that case
+                Service.ReasoningLevel reasoningLevel = Service.ReasoningLevel.fromString(
+                    props.getProperty(typeInfo.oldReasoningKey()),
+                    typeInfo.preferredConfig().reasoning()
+                );
+
+                if (modelName == null || modelName.isBlank()) {
+                    // This case should be rare if oldModelNameKey exists, but handle defensively.
+                    logger.warn("Old model name key '{}' for {} exists but value is blank. Skipping migration for this type.", typeInfo.oldModelNameKey(), modelType);
+                    continue;
+                }
+
+                ModelConfig migratedConfig = new ModelConfig(modelName, reasoningLevel);
+                try {
+                    String jsonString = objectMapper.writeValueAsString(migratedConfig);
+                    props.setProperty(typeInfo.configKey(), jsonString);
+                    props.remove(typeInfo.oldModelNameKey());
+                    // oldReasoningKey might be null in ModelTypeInfo if it wasn't used historically,
+                    // but for current models, it should exist.
+                    if (typeInfo.oldReasoningKey() != null) {
+                         props.remove(typeInfo.oldReasoningKey());
+                    }
+                    changed = true;
+                    logger.info("Migrated model config for {} from old keys ('{}', '{}') to new key '{}'.",
+                                modelType, typeInfo.oldModelNameKey(), typeInfo.oldReasoningKey(), typeInfo.configKey());
+                } catch (JsonProcessingException e) {
+                    logger.error("Error serializing migrated ModelConfig for {} to JSON. Old keys ('{}', '{}') will be kept. Error: {}",
+                                 modelType, typeInfo.oldModelNameKey(), typeInfo.oldReasoningKey(), e.getMessage());
+                }
+            }
+        }
+        return changed;
     }
 
     /**
@@ -282,175 +346,116 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Gets the configured model name for architect/agent tasks.
+     * Internal helper to get a ModelConfig for a given model type.
+     * Reads from global properties, deserializes JSON, or returns preferred default.
      */
-    public String getArchitectModelName() {
-        var props = loadGlobalProperties();
-        return props.getProperty(ARCHITECT_MODEL_KEY, Service.GEMINI_2_5_PRO);
+    private ModelConfig getModelConfigInternal(String modelTypeKey) {
+        var props = loadGlobalProperties(); // Ensures migration has run if needed
+        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
+        assert typeInfo != null : "Unknown modelTypeKey: " + modelTypeKey;
+
+        String jsonString = props.getProperty(typeInfo.configKey());
+        if (jsonString != null && !jsonString.isBlank()) {
+            try {
+                return objectMapper.readValue(jsonString, ModelConfig.class);
+            } catch (JsonProcessingException e) {
+                logger.warn("Error parsing ModelConfig JSON for {} from key '{}': {}. Using preferred default. JSON: '{}'",
+                            modelTypeKey, typeInfo.configKey(), e.getMessage(), jsonString);
+                // Fall through to return preferred default
+            }
+        }
+        return typeInfo.preferredConfig();
     }
 
     /**
-     * Sets the model name for architect/agent tasks.
+     * Internal helper to set a ModelConfig for a given model type.
+     * Serializes to JSON and saves to global properties.
      */
-    public void setArchitectModelName(String modelName) {
-        var props = loadGlobalProperties();
-        props.setProperty(ARCHITECT_MODEL_KEY, modelName);
-        saveGlobalProperties(props);
+    private void setModelConfigInternal(String modelTypeKey, ModelConfig config) {
+        assert config != null;
+        var props = loadGlobalProperties(); // Ensures migration has run if needed
+        var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
+        assert typeInfo != null : "Unknown modelTypeKey: " + modelTypeKey;
+
+        try {
+            String jsonString = objectMapper.writeValueAsString(config);
+            props.setProperty(typeInfo.configKey(), jsonString);
+            saveGlobalProperties(props);
+        } catch (JsonProcessingException e) {
+            // Log error and rethrow as unchecked, as this indicates a programming error (e.g., unmarshallable config)
+            logger.error("Error serializing ModelConfig for {} (key '{}'): {}", modelTypeKey, typeInfo.configKey(), config, e);
+            throw new RuntimeException("Failed to serialize ModelConfig for " + modelTypeKey, e);
+        }
     }
 
     /**
-     * Gets the configured model name for code generation tasks.
+     * Gets the configured model and reasoning for architect tasks.
      */
-    public String getCodeModelName() {
-        var props = loadGlobalProperties();
-        return props.getProperty(CODE_MODEL_KEY, Service.GEMINI_2_5_PRO);
+    public ModelConfig getArchitectModelConfig() {
+        return getModelConfigInternal("Architect");
     }
 
     /**
-     * Sets the model name for code generation tasks.
+     * Sets the model and reasoning for architect tasks.
      */
-    public void setCodeModelName(String modelName) {
-        var props = loadGlobalProperties();
-        props.setProperty(CODE_MODEL_KEY, modelName);
-        saveGlobalProperties(props);
+    public void setArchitectModelConfig(ModelConfig config) {
+        setModelConfigInternal("Architect", config);
     }
 
     /**
-     * Gets the configured model name for ask tasks.
+     * Gets the configured model and reasoning for code generation tasks.
      */
-    public String getAskModelName() {
-        var props = loadGlobalProperties();
-        return props.getProperty(ASK_MODEL_KEY, Service.GEMINI_2_5_PRO);
+    public ModelConfig getCodeModelConfig() {
+        return getModelConfigInternal("Code");
     }
 
     /**
-     * Sets the model name for ask tasks.
+     * Sets the model and reasoning for code generation tasks.
      */
-    public void setAskModelName(String modelName) {
-        var props = loadGlobalProperties();
-        props.setProperty(ASK_MODEL_KEY, modelName);
-        saveGlobalProperties(props);
-    }
-
-
-    /**
-     * Gets the configured model name for edit tasks.
-     */
-    public String getEditModelName() {
-        var props = loadGlobalProperties();
-        return props.getProperty(EDIT_MODEL_KEY, Service.GEMINI_2_5_PRO);
+    public void setCodeModelConfig(ModelConfig config) {
+        setModelConfigInternal("Code", config);
     }
 
     /**
-     * Sets the model name for edit tasks.
+     * Gets the configured model and reasoning for ask tasks.
      */
-    public void setEditModelName(String modelName) {
-        var props = loadGlobalProperties();
-        props.setProperty(EDIT_MODEL_KEY, modelName);
-        saveGlobalProperties(props);
+    public ModelConfig getAskModelConfig() {
+        return getModelConfigInternal("Ask");
     }
 
     /**
-     * Gets the reasoning level for architect tasks. Defaults to DEFAULT.
+     * Sets the model and reasoning for ask tasks.
      */
-    public Service.ReasoningLevel getArchitectReasoningLevel() {
-        var props = loadGlobalProperties();
-        return Service.ReasoningLevel.fromString(props.getProperty(ARCHITECT_REASONING_KEY), Service.ReasoningLevel.HIGH);
+    public void setAskModelConfig(ModelConfig config) {
+        setModelConfigInternal("Ask", config);
     }
 
     /**
-     * Sets the reasoning level for architect tasks.
+     * Gets the configured model and reasoning for edit tasks.
      */
-    public void setArchitectReasoningLevel(Service.ReasoningLevel level) {
-        var props = loadGlobalProperties();
-        props.setProperty(ARCHITECT_REASONING_KEY, level.name());
-        saveGlobalProperties(props);
+    public ModelConfig getEditModelConfig() {
+        return getModelConfigInternal("Edit");
     }
 
     /**
-     * Gets the reasoning level for code tasks. Defaults to DEFAULT.
+     * Sets the model and reasoning for edit tasks.
      */
-    public Service.ReasoningLevel getCodeReasoningLevel() {
-        var props = loadGlobalProperties();
-        return Service.ReasoningLevel.fromString(props.getProperty(CODE_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
+    public void setEditModelConfig(ModelConfig config) {
+        setModelConfigInternal("Edit", config);
     }
 
     /**
-     * Sets the reasoning level for code tasks.
+     * Gets the configured model and reasoning for search tasks.
      */
-    public void setCodeReasoningLevel(Service.ReasoningLevel level) {
-        var props = loadGlobalProperties();
-        props.setProperty(CODE_REASONING_KEY, level.name());
-        saveGlobalProperties(props);
+    public ModelConfig getSearchModelConfig() {
+        return getModelConfigInternal("Search");
     }
 
     /**
-     * Gets the reasoning level for ask tasks. Defaults to DEFAULT.
+     * Sets the model and reasoning for search tasks.
      */
-    public Service.ReasoningLevel getAskReasoningLevel() {
-        var props = loadGlobalProperties();
-        return Service.ReasoningLevel.fromString(props.getProperty(ASK_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
-    }
-
-    /**
-     * Sets the reasoning level for ask tasks.
-     */
-    public void setAskReasoningLevel(Service.ReasoningLevel level) {
-        var props = loadGlobalProperties();
-        props.setProperty(ASK_REASONING_KEY, level.name());
-        saveGlobalProperties(props);
-    }
-
-    /**
-     * Gets the reasoning level for edit tasks. Defaults to LOW.
-     */
-    public Service.ReasoningLevel getEditReasoningLevel() {
-        var props = loadGlobalProperties();
-        return Service.ReasoningLevel.fromString(props.getProperty(EDIT_REASONING_KEY), Service.ReasoningLevel.LOW);
-    }
-
-    /**
-     * Sets the reasoning level for edit tasks.
-     */
-    public void setEditReasoningLevel(Service.ReasoningLevel level) {
-        var props = loadGlobalProperties();
-        props.setProperty(EDIT_REASONING_KEY, level.name());
-        saveGlobalProperties(props);
-    }
-
-    /**
-     * Gets the reasoning level for search tasks. Defaults to DEFAULT.
-     */
-    public Service.ReasoningLevel getSearchReasoningLevel() {
-        var props = loadGlobalProperties();
-        return Service.ReasoningLevel.fromString(props.getProperty(SEARCH_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
-    }
-
-    /**
-     * Sets the reasoning level for search tasks.
-     */
-    public void setSearchReasoningLevel(Service.ReasoningLevel level) {
-        var props = loadGlobalProperties();
-        props.setProperty(SEARCH_REASONING_KEY, level.name());
-        saveGlobalProperties(props);
-    }
-
-    /**
-     * Gets the configured model name for search/RAG tasks.
-     * Falls back to the default search model if not set.
-     */
-    public String getSearchModelName() {
-        var props = loadGlobalProperties();
-        return props.getProperty(SEARCH_MODEL_KEY, Service.GEMINI_2_5_PRO);
-    }
-
-    /**
-     * Sets the model name for search/RAG tasks.
-     */
-    public void setSearchModelName(String modelName) {
-        var props = loadGlobalProperties();
-        props.setProperty(SEARCH_MODEL_KEY, modelName);
-        saveGlobalProperties(props);
+    public void setSearchModelConfig(ModelConfig config) {
+        setModelConfigInternal("Search", config);
     }
 
     /**
@@ -1212,60 +1217,69 @@ public class Project implements IProject, AutoCloseable {
      * @return A list of warning messages describing the overrides performed.
      */
     @Override
-    public List<String> overrideMissingModels(Set<String> availableModels, String genericDefaultModel) {
+    public List<String> overrideMissingModels(Set<String> availableModels, String genericDefaultModelName) {
         var warnings = new ArrayList<String>();
-        var globalProps = loadGlobalProperties();
+        var globalProps = loadGlobalProperties(); // Load raw props once
         boolean changed = false;
 
-        // Define preferred defaults for each model type
-        var preferredDefaults = Map.of(ARCHITECT_MODEL_KEY, Service.O3,
-                                       CODE_MODEL_KEY, Service.GEMINI_2_5_PRO,
-                                       ASK_MODEL_KEY, Service.GEMINI_2_5_PRO,
-                                       EDIT_MODEL_KEY, Service.GEMINI_2_5_PRO,
-                                       SEARCH_MODEL_KEY, Service.GEMINI_2_5_PRO);
+        for (var entry : MODEL_TYPE_INFOS.entrySet()) {
+            String modelTypeName = entry.getKey();
+            ModelTypeInfo typeInfo = entry.getValue();
 
-        for (var e : preferredDefaults.entrySet()) {
-            var key = e.getKey();
-            var preferredDefault = e.getValue();
-            var configuredModel = globalProps.getProperty(key);
-            String modelToUse;
-            String reason;
+            // Determine the current configuration from properties, or fall back to preferred.
+            ModelConfig configFromProps = null;
+            String currentJson = globalProps.getProperty(typeInfo.configKey());
+            if (currentJson != null && !currentJson.isBlank()) {
+                try {
+                    configFromProps = objectMapper.readValue(currentJson, ModelConfig.class);
+                } catch (JsonProcessingException e) {
+                    logger.warn("Error parsing current ModelConfig for {} from JSON: {}. Will use preferred default as base. JSON: '{}'",
+                                modelTypeName, e.getMessage(), currentJson);
+                    // configFromProps remains null, preferredConfig will be used
+                }
+            }
+            // This is what the user effectively has configured or what we'd default to if their config is bad/missing.
+            ModelConfig currentEffectiveUserConfig = (configFromProps != null) ? configFromProps : typeInfo.preferredConfig();
 
-            if (configuredModel != null && !configuredModel.isBlank() && availableModels.contains(configuredModel)) {
-                // Use configured and available model
-                modelToUse = configuredModel;
-                reason = "Using configured model";
+            ModelConfig finalEffectiveConfigToUse;
+            String reasonSuffix;
+
+            // Check if the user's chosen model (from currentEffectiveUserConfig) is available
+            if (availableModels.contains(currentEffectiveUserConfig.name())) {
+                finalEffectiveConfigToUse = currentEffectiveUserConfig; // User's choice is available
+                reasonSuffix = "Using configured model and reasoning.";
             } else {
-                // Configured model is unavailable or null, check preferred default
-                if (availableModels.contains(preferredDefault)) {
-                    modelToUse = preferredDefault;
-                    if (configuredModel != null && !configuredModel.isBlank()) { // Only warn if there was a specific (but unavailable) configuration
-                        warnings.add(String.format("Configured %s model '%s' is not available. Temporarily using preferred default '%s'.",
-                                                   key, configuredModel, modelToUse));
-                    }
-                    reason = String.format("Setting %s model to available preferred default '%s' (configured was '%s')", key, modelToUse, configuredModel);
+                // User's chosen model is not available. Try preferred default.
+                if (availableModels.contains(typeInfo.preferredConfig().name())) {
+                    finalEffectiveConfigToUse = typeInfo.preferredConfig();
+                    warnings.add(String.format("Configured %s model '%s' is not available. Temporarily using preferred default (Model: '%s', Reasoning: '%s').",
+                                               modelTypeName, currentEffectiveUserConfig.name(), finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning()));
+                    reasonSuffix = String.format("Set to available preferred default config (Model: %s, Reasoning: %s).",
+                                               finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning());
                 } else {
-                    // Preferred default is also unavailable, use generic default
-                    modelToUse = genericDefaultModel;
-                     if (configuredModel != null && !configuredModel.isBlank()) { // Warn if there was a specific configuration
-                        warnings.add(String.format("Configured %s model '%s' and preferred default '%s' are not available. Temporarily using generic default '%s'.",
-                                                   key, configuredModel, preferredDefault, modelToUse));
-                    } else if (!availableModels.contains(preferredDefault)) { // Warn if preferred default was also unavailable
-                         warnings.add(String.format("Preferred default %s model '%s' is not available. Temporarily using generic default '%s'.",
-                                                    key, preferredDefault, modelToUse));
-                     }
-                    reason = String.format("Setting %s model to generic default '%s' (configured was '%s', preferred default was '%s')", key, modelToUse, configuredModel, preferredDefault);
+                    // Preferred default is also not available. Use generic default with preferred reasoning.
+                    finalEffectiveConfigToUse = new ModelConfig(genericDefaultModelName, typeInfo.preferredConfig().reasoning());
+                    warnings.add(String.format("Configured %s model '%s' and preferred default model '%s' are not available. Temporarily using generic default (Model: '%s', Reasoning: '%s').",
+                                               modelTypeName, currentEffectiveUserConfig.name(), typeInfo.preferredConfig().name(), finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning()));
+                    reasonSuffix = String.format("Set to generic default model '%s' with preferred reasoning '%s'.",
+                                               finalEffectiveConfigToUse.name(), finalEffectiveConfigToUse.reasoning());
                 }
             }
 
-            // Set the determined model in globalProps if it's different from what was loaded or if it was null
-            assert modelToUse != null;
-            if (!modelToUse.equals(configuredModel)) {
-                globalProps.setProperty(key, modelToUse);
-                changed = true;
-                logger.debug("{} model set to '{}' in global properties (was '{}'). Reason: {}.", key, modelToUse, configuredModel, reason);
+            // Only update and log if the finalEffectiveConfigToUse is different from what was effectively in props (or preferred default)
+            // This also covers the case where configFromProps was null (due to missing prop or parse error) and we are now setting it.
+            if (!finalEffectiveConfigToUse.equals(currentEffectiveUserConfig)) {
+                try {
+                    String newJson = objectMapper.writeValueAsString(finalEffectiveConfigToUse);
+                    globalProps.setProperty(typeInfo.configKey(), newJson);
+                    changed = true;
+                    logger.debug("{} model config. {}", modelTypeName, reasonSuffix);
+                } catch (JsonProcessingException e) {
+                    logger.error("Error serializing ModelConfig for {} during override: {}. Config was: {}", modelTypeName, e.getMessage(), finalEffectiveConfigToUse);
+                    // Don't save this specific change if serialization fails
+                }
             } else {
-                logger.trace("{} model remains '{}'. Reason: {}.", key, modelToUse, reason);
+                logger.trace("{} model config remains (Name: '{}', Reasoning: '{}').", modelTypeName, currentEffectiveUserConfig.name(), currentEffectiveUserConfig.reasoning());
             }
         }
 

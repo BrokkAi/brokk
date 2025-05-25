@@ -34,6 +34,9 @@ public final class Service {
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
 
+    // Helper record to store model name and reasoning level for checking
+    public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
+
     /**
      * Enum defining the reasoning effort levels for models.
      */
