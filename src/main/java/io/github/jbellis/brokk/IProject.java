@@ -1,14 +1,10 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Set;
 
 public interface IProject {
@@ -46,10 +42,6 @@ public interface IProject {
 
     default Project.DataRetentionPolicy getDataRetentionPolicy() {
         return Project.DataRetentionPolicy.MINIMAL;
-    }
-
-    default List<String> overrideMissingModels(Set<String> availableModels, String genericDefaultModel) {
-        return List.of();
     }
 
     default String getStyleGuide() {

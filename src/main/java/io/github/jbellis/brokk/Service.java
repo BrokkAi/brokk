@@ -111,6 +111,7 @@ public final class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
+    public static final String GROK_3_MINI = "grok-3-mini-beta";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
@@ -157,16 +158,8 @@ public final class Service {
         }
 
         if (tempModelLocations.isEmpty()) {
-            logger.warn("No chat models available, cannot set defaults or override.");
+            logger.warn("No chat models available");
             tempModelLocations.put(UNAVAILABLE, "not_a_model");
-        } else {
-            var availableNamesForOverride = tempModelLocations.keySet().stream()
-                                              .filter(s -> !SYSTEM_ONLY_MODELS.contains(s))
-                                              .collect(Collectors.toSet());
-            var defaultModelName = availableNamesForOverride.stream().findFirst()
-                                   .orElseGet(() -> tempModelLocations.keySet().stream().findFirst().orElse(UNAVAILABLE));
-            var warnings = project.overrideMissingModels(availableNamesForOverride, defaultModelName);
-            warnings.forEach(logger::debug);
         }
 
         this.modelLocations = Map.copyOf(tempModelLocations);

@@ -396,7 +396,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getArchitectModel() {
         var config = project.getArchitectModelConfig();
-        return service.getModel(config.name(), config.reasoning());
+        return getModelOrDefault(config, "Architect");
     }
 
     /**
@@ -404,7 +404,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getCodeModel() {
         var config = project.getCodeModelConfig();
-        return service.getModel(config.name(), config.reasoning());
+        return getModelOrDefault(config, "Code");
     }
 
     /**
@@ -412,16 +412,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getAskModel() {
         var config = project.getAskModelConfig();
-        return service.getModel(config.name(), config.reasoning());
+        return getModelOrDefault(config, "Ask");
     }
-
 
     /**
      * Returns the configured Edit model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getEditModel() {
         var config = project.getEditModelConfig();
-        return service.getModel(config.name(), config.reasoning());
+        return getModelOrDefault(config, "Edit");
     }
 
     /**
@@ -429,7 +428,40 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getSearchModel() {
         var config = project.getSearchModelConfig();
-        return service.getModel(config.name(), config.reasoning());
+        return getModelOrDefault(config, "Search");
+    }
+
+    private StreamingChatLanguageModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+        StreamingChatLanguageModel model = service.getModel(config.name(), config.reasoning());
+        if (model != null) {
+            return model;
+        }
+
+        // Configured model is not available. Attempt fallbacks.
+        String chosenFallbackName = Service.GEMINI_2_5_PRO; // For the io.toolError message
+        model = service.getModel(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT);
+        if (model != null) {
+            io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                                          config.name(), modelTypeName, chosenFallbackName));
+            return model;
+        }
+
+        chosenFallbackName = Service.GROK_3_MINI;
+        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+        if (model != null) {
+            io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                                          config.name(), modelTypeName, chosenFallbackName));
+            return model;
+        }
+
+        var quickModel = service.get().quickModel();
+        // Determine the "name" of the quick model for the error message.
+        // This is a bit of a heuristic as quickModel() doesn't directly expose its config name.
+        // We iterate known models to find a match; otherwise, use a generic placeholder.
+        String quickModelName = service.get().nameOf(quickModel);
+        io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
+                                      config.name(), modelTypeName, quickModelName));
+        return quickModel;
     }
 
     public Future<?> submitUserTask(String description, Runnable task) {
