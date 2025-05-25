@@ -7,7 +7,7 @@ import io.github.jbellis.brokk.Project;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
-public class ModelsWrapper {
+public class ServiceWrapper {
     private volatile CompletableFuture<Service> future;
 
     public void reinit(Project project) {
@@ -22,7 +22,7 @@ public class ModelsWrapper {
         }
     }
 
-    public StreamingChatLanguageModel get(String modelName, Service.ReasoningLevel reasoning) {
+    public StreamingChatLanguageModel getModel(String modelName, Service.ReasoningLevel reasoning) {
         return get().get(modelName, reasoning);
     }
 

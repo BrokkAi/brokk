@@ -105,7 +105,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                    Executors.defaultThreadFactory()),
             Set.of(InterruptedException.class));
 
-    private final ModelsWrapper service;
+    private final ServiceWrapper service;
     private final Project project;
     private final ToolRegistry toolRegistry;
 
@@ -134,7 +134,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     {
         this.project = project;
         this.contextHistory = new ContextHistory();
-        this.service = new ModelsWrapper();
+        this.service = new ServiceWrapper();
         this.service.reinit(project);
 
         // set up global tools
@@ -396,7 +396,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getArchitectModel() {
         var config = project.getArchitectModelConfig();
-        return service.get(config.name(), config.reasoning());
+        return service.getModel(config.name(), config.reasoning());
     }
 
     /**
@@ -404,7 +404,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getCodeModel() {
         var config = project.getCodeModelConfig();
-        return service.get(config.name(), config.reasoning());
+        return service.getModel(config.name(), config.reasoning());
     }
 
     /**
@@ -412,7 +412,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getAskModel() {
         var config = project.getAskModelConfig();
-        return service.get(config.name(), config.reasoning());
+        return service.getModel(config.name(), config.reasoning());
     }
 
 
@@ -421,7 +421,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getEditModel() {
         var config = project.getEditModelConfig();
-        return service.get(config.name(), config.reasoning());
+        return service.getModel(config.name(), config.reasoning());
     }
 
     /**
@@ -429,7 +429,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public StreamingChatLanguageModel getSearchModel() {
         var config = project.getSearchModelConfig();
-        return service.get(config.name(), config.reasoning());
+        return service.getModel(config.name(), config.reasoning());
     }
 
     public Future<?> submitUserTask(String description, Runnable task) {
