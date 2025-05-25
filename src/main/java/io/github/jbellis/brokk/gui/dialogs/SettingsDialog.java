@@ -1369,131 +1369,125 @@ public class SettingsDialog extends JDialog {
         // Apply Project Settings (if project is open)
         // Model settings are also project-specific and handled below.
         var project = chrome.getProject();
-        if (project != null) {
-            // --- Apply settings from "Project" tab ---
-            // (This checks tabbedPane.isEnabledAt(1) implicitly by project != null,
-            // as the tab's enabled state is tied to project presence)
+        // --- Apply settings from "Project" tab ---
+        // (This checks tabbedPane.isEnabledAt(1) implicitly by project != null,
+        // as the tab's enabled state is tied to project presence)
 
-            // Get current details to compare against and preserve non-editable fields
-            var currentDetails = project.getBuildDetails();
+        // Get current details to compare against and preserve non-editable fields
+        var currentDetails = project.getBuildDetails();
 
-            // Read potentially edited values from Build tab
-            var newBuildLint = buildCleanCommandField.getText();
-            var newTestAll = allTestsCommandField.getText();
-            var newInstructions = buildInstructionsArea.getText();
+        // Read potentially edited values from Build tab
+        var newBuildLint = buildCleanCommandField.getText();
+        var newTestAll = allTestsCommandField.getText();
+        var newInstructions = buildInstructionsArea.getText();
 
-            // Create a list from the DefaultListModel for excluded directories
-            var newExcludedDirs = new HashSet<String>();
-            if (excludedDirectoriesListModel != null) { // Check if initialized (project open)
-                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
-                    newExcludedDirs.add(excludedDirectoriesListModel.getElementAt(i));
-                }
+        // Create a list from the DefaultListModel for excluded directories
+        var newExcludedDirs = new HashSet<String>();
+        if (excludedDirectoriesListModel != null) { // Check if initialized (project open)
+            for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
+                newExcludedDirs.add(excludedDirectoriesListModel.getElementAt(i));
             }
-
-            // Create a new BuildDetails record with updated fields
-            var newDetails = new BuildAgent.BuildDetails(currentDetails.buildFiles(),
-                                                         currentDetails.dependencies(),
-                                                         newBuildLint,
-                                                         newTestAll,
-                                                         newInstructions,
-                                                         newExcludedDirs);
-            logger.trace("Applying Build Details: {}", newDetails);
-
-            // Only save if details have actually changed
-            if (!newDetails.equals(currentDetails)) {
-                project.saveBuildDetails(newDetails);
-                logger.debug("Applied Build Details changes.");
-            }
-
-            // Apply CPG Refresh Setting (from Code Intelligence Tab)
-            if (cpgRefreshComboBox != null) { // Check if initialized (project open and tab created)
-                var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
-                if (selectedRefresh != project.getAnalyzerRefresh()) {
-                    project.setAnalyzerRefresh(selectedRefresh);
-                    logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
-                }
-            }
-
-            // Apply Code Intelligence Languages (from Code Intelligence Tab)
-            if (languageCheckBoxMap != null && !languageCheckBoxMap.isEmpty()) {
-                var selectedLanguages = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
-                for (var entry : languageCheckBoxMap.entrySet()) {
-                    if (entry.getValue().isSelected()) {
-                        selectedLanguages.add(entry.getKey());
-                    }
-                }
-                // Only update if the set of languages has changed
-                if (!selectedLanguages.equals(project.getAnalyzerLanguages())) {
-                    project.setAnalyzerLanguages(selectedLanguages);
-                    logger.debug("Applied Code Intelligence Languages: {}", selectedLanguages);
-                    // Consider notifying user about potential analyzer rebuild if behavior changes
-                }
-            }
-
-            // Apply Code Agent Test Scope (from Build Tab)
-            if (runAllTestsRadio != null && runTestsInWorkspaceRadio != null) { // Check initialized
-                Project.CodeAgentTestScope selectedScope = runAllTestsRadio.isSelected()
-                                                           ? Project.CodeAgentTestScope.ALL
-                                                           : Project.CodeAgentTestScope.WORKSPACE;
-                if (selectedScope != project.getCodeAgentTestScope()) {
-                    project.setCodeAgentTestScope(selectedScope);
-                    logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
-                }
-            }
-
-            // Apply Style Guide
-            var currentStyleGuide = project.getStyleGuide();
-            var newStyleGuide = styleGuideArea.getText(); // Get text from the text area
-            if (!newStyleGuide.equals(currentStyleGuide)) {
-                project.saveStyleGuide(newStyleGuide);
-                logger.debug("Applied Style Guide changes.");
-            }
-
-            // Apply Commit Message Format
-            var currentCommitFormat = project.getCommitMessageFormat();
-            var newCommitFormat = commitFormatArea.getText(); // Get text from the text area
-            // The setter handles checking for changes and null/blank/default values
-            project.setCommitMessageFormat(newCommitFormat);
-            if (!newCommitFormat.trim().equals(currentCommitFormat)
-                    && !newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT)
-                    && !newCommitFormat.isBlank()) {
-                logger.debug("Applied Commit Message Format changes.");
-            } else if (!newCommitFormat.trim().equals(currentCommitFormat)
-                    && (newCommitFormat.isBlank() || newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT))) {
-                logger.debug("Reset Commit Message Format to default.");
-            }
-
-
-            // Apply Data Retention Policy
-            if (dataRetentionPanel != null) { // Check if the panel was created
-                var oldPolicy = project.getDataRetentionPolicy();
-                dataRetentionPanel.applyPolicy();
-                var newPolicy = project.getDataRetentionPolicy();
-                // Refresh models if the policy changed, as it might affect availability
-                if (oldPolicy != newPolicy && newPolicy != Project.DataRetentionPolicy.UNSET) {
-                    // Submit as background task so it doesn't block the settings dialog closing
-                    chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
-                        chrome.getContextManager().reloadModelsAsync();
-                    });
-                }
-            }
-
-            // Apply Model Selections and Reasoning Levels
-            applyModelConfig(project, architectModelComboBox, architectReasoningComboBox,
-                             project::getArchitectModelConfig, project::setArchitectModelConfig);
-
-            applyModelConfig(project, codeModelComboBox, codeReasoningComboBox,
-                             project::getCodeModelConfig, project::setCodeModelConfig);
-
-            applyModelConfig(project, askModelComboBox, askReasoningComboBox,
-                             project::getAskModelConfig, project::setAskModelConfig);
-
-            applyModelConfig(project, editModelComboBox, editReasoningComboBox,
-                             project::getEditModelConfig, project::setEditModelConfig);
-
-            applyModelConfig(project, searchModelComboBox, searchReasoningComboBox,
-                             project::getSearchModelConfig, project::setSearchModelConfig);
         }
+
+        // Create a new BuildDetails record with updated fields
+        var newDetails = new BuildAgent.BuildDetails(currentDetails.buildFiles(),
+                                                     currentDetails.dependencies(),
+                                                     newBuildLint,
+                                                     newTestAll,
+                                                     newInstructions,
+                                                     newExcludedDirs);
+        logger.trace("Applying Build Details: {}", newDetails);
+
+        // Only save if details have actually changed
+        if (!newDetails.equals(currentDetails)) {
+            project.saveBuildDetails(newDetails);
+            logger.debug("Applied Build Details changes.");
+        }
+
+        // Apply CPG Refresh Setting (from Code Intelligence Tab)
+        if (cpgRefreshComboBox != null) { // Check if initialized (project open and tab created)
+            var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
+            if (selectedRefresh != project.getAnalyzerRefresh()) {
+                project.setAnalyzerRefresh(selectedRefresh);
+                logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
+            }
+        }
+
+        // Apply Code Intelligence Languages (from Code Intelligence Tab)
+        if (languageCheckBoxMap != null && !languageCheckBoxMap.isEmpty()) {
+            var selectedLanguages = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
+            for (var entry : languageCheckBoxMap.entrySet()) {
+                if (entry.getValue().isSelected()) {
+                    selectedLanguages.add(entry.getKey());
+                }
+            }
+            // Only update if the set of languages has changed
+            if (!selectedLanguages.equals(project.getAnalyzerLanguages())) {
+                project.setAnalyzerLanguages(selectedLanguages);
+                logger.debug("Applied Code Intelligence Languages: {}", selectedLanguages);
+                // Consider notifying user about potential analyzer rebuild if behavior changes
+            }
+        }
+
+        // Apply Code Agent Test Scope (from Build Tab)
+        if (runAllTestsRadio != null && runTestsInWorkspaceRadio != null) { // Check initialized
+            Project.CodeAgentTestScope selectedScope = runAllTestsRadio.isSelected()
+                                                       ? Project.CodeAgentTestScope.ALL
+                                                       : Project.CodeAgentTestScope.WORKSPACE;
+            if (selectedScope != project.getCodeAgentTestScope()) {
+                project.setCodeAgentTestScope(selectedScope);
+                logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
+            }
+        }
+
+        // Apply Style Guide
+        var currentStyleGuide = project.getStyleGuide();
+        var newStyleGuide = styleGuideArea.getText(); // Get text from the text area
+        if (!newStyleGuide.equals(currentStyleGuide)) {
+            project.saveStyleGuide(newStyleGuide);
+            logger.debug("Applied Style Guide changes.");
+        }
+
+        // Apply Commit Message Format
+        var currentCommitFormat = project.getCommitMessageFormat();
+        var newCommitFormat = commitFormatArea.getText(); // Get text from the text area
+        // The setter handles checking for changes and null/blank/default values
+        project.setCommitMessageFormat(newCommitFormat);
+        if (!newCommitFormat.trim().equals(currentCommitFormat)
+                && !newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT)
+                && !newCommitFormat.isBlank()) {
+            logger.debug("Applied Commit Message Format changes.");
+        } else if (!newCommitFormat.trim().equals(currentCommitFormat)
+                && (newCommitFormat.isBlank() || newCommitFormat.trim().equals(Project.DEFAULT_COMMIT_MESSAGE_FORMAT))) {
+            logger.debug("Reset Commit Message Format to default.");
+        }
+
+
+        // Apply Data Retention Policy
+        if (dataRetentionPanel != null) { // Check if the panel was created
+            dataRetentionPanel.applyPolicy();
+        }
+
+        // Apply Model Selections and Reasoning Levels
+        applyModelConfig(project, architectModelComboBox, architectReasoningComboBox,
+                         project::getArchitectModelConfig, project::setArchitectModelConfig);
+
+        applyModelConfig(project, codeModelComboBox, codeReasoningComboBox,
+                         project::getCodeModelConfig, project::setCodeModelConfig);
+
+        applyModelConfig(project, askModelComboBox, askReasoningComboBox,
+                         project::getAskModelConfig, project::setAskModelConfig);
+
+        applyModelConfig(project, editModelComboBox, editReasoningComboBox,
+                         project::getEditModelConfig, project::setEditModelConfig);
+
+        applyModelConfig(project, searchModelComboBox, searchReasoningComboBox,
+                         project::getSearchModelConfig, project::setSearchModelConfig);
+
+        chrome.getContextManager().submitBackgroundTask("Refreshing models due to policy change", () -> {
+            chrome.getContextManager().reloadModelsAsync();
+        });
+
         return true; // All settings applied successfully or with non-blocking errors
     }
 
