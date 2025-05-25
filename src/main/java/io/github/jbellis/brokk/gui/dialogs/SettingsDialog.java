@@ -70,6 +70,8 @@ public class SettingsDialog extends JDialog {
     private FavoriteModelsTableModel quickModelsTableModel;
     // Balance field (Global -> Service)
     private JTextField balanceField;
+    // Signup Label (Global -> Service)
+    private BrowserLabel signupLabel;
 
 
     public SettingsDialog(Frame owner, Chrome chrome) {
@@ -265,14 +267,14 @@ public class SettingsDialog extends JDialog {
 
         // Sign-up/login link
         var signupUrl = "https://brokk.ai";
-        var signupLabel = new BrowserLabel(signupUrl, "Sign up or get your key at " + signupUrl);
-        signupLabel.setFont(signupLabel.getFont().deriveFont(Font.ITALIC));
+        this.signupLabel = new BrowserLabel(signupUrl, "Sign up or get your key at " + signupUrl);
+        this.signupLabel.setFont(this.signupLabel.getFont().deriveFont(Font.ITALIC));
         gbc.gridx = 1;
         gbc.gridy = row++;
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.weightx = 1.0;
         gbc.insets = new Insets(2, 5, 8, 5); // Extra bottom margin for spacing
-        servicePanel.add(signupLabel, gbc);
+        servicePanel.add(this.signupLabel, gbc);
         gbc.insets = new Insets(2, 5, 2, 5); // Reset insets
 
         // LLM Proxy Setting
@@ -330,7 +332,19 @@ public class SettingsDialog extends JDialog {
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
         servicePanel.add(Box.createVerticalGlue(), gbc);
+
+        updateSignupLabelVisibility(); // Set initial visibility based on current key
         return servicePanel;
+    }
+
+    private void updateSignupLabelVisibility() {
+        if (this.signupLabel == null) {
+            logger.warn("signupLabel is null, cannot update visibility.");
+            return;
+        }
+        String currentPersistedKey = Project.getBrokkKey();
+        boolean keyIsEffectivelyPresent = currentPersistedKey != null && !currentPersistedKey.trim().isEmpty();
+        this.signupLabel.setVisible(!keyIsEffectivelyPresent); // Show label if key is NOT present/empty
     }
 
     private JPanel createAppearancePanel() {
@@ -1300,36 +1314,47 @@ public class SettingsDialog extends JDialog {
         // Apply Global Settings
 
         // -- Apply Brokk Key --
-        String currentBrokkKey = Project.getBrokkKey();
-        String newBrokkKey = brokkKeyField.getText().trim();
-        if (!newBrokkKey.equals(currentBrokkKey)) {
-            if (!newBrokkKey.isEmpty()) {
+        String currentBrokkKeyInSettings = Project.getBrokkKey();
+        String newBrokkKeyFromField = brokkKeyField.getText().trim();
+        boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
+
+        if (keyStateChangedInUI) {
+            if (!newBrokkKeyFromField.isEmpty()) {
                 try {
-                    Service.validateKey(newBrokkKey);
+                    Service.validateKey(newBrokkKeyFromField);
+                    // Key validation passed (no exception)
+                    Project.setBrokkKey(newBrokkKeyFromField); // Set the key if validation is successful
+                    logger.debug("Applied Brokk Key: {}", "****");
+                    refreshBalanceDisplay();
+                    updateSignupLabelVisibility(); // Update based on newly set valid key
+                    // Re-evaluate data sharing allowance as key change might affect it
+                    if (chrome.getProject() != null && dataRetentionPanel != null) {
+                        dataRetentionPanel.refreshStateAndUI();
+                    }
                 } catch (IllegalArgumentException ex) {
-                    JOptionPane.showMessageDialog(this,
-                                                  "Invalid Brokk Key",
-                                                  "Invalid Key",
-                                                  JOptionPane.ERROR_MESSAGE);
-                    return false; // Validation failed, do not proceed further with OK
-                } catch (IOException ex) {
-                    JOptionPane.showMessageDialog(this,
-                                                  "Network error: " + ex.getMessage(),
-                                                  "Unable to reach Brokk service to validate key.",
-                                                  JOptionPane.ERROR_MESSAGE);
-                    // allow key to save
+                    JOptionPane.showMessageDialog(this, "Invalid Brokk Key", "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                    // Do not set the invalid key in Project. Do not update signup label visibility based on this attempt.
+                    return false; // Validation failed, do not proceed
+                } catch (IOException ex) { // Network error, but we still allow saving the key
+                    JOptionPane.showMessageDialog(this, "Network error: " + ex.getMessage(), "Unable to reach Brokk service to validate key.", JOptionPane.ERROR_MESSAGE);
+                    Project.setBrokkKey(newBrokkKeyFromField); // Set the new key (accepted despite network error)
+                    logger.debug("Applied Brokk Key (network error during validation): {}", "****");
+                    refreshBalanceDisplay();
+                    updateSignupLabelVisibility(); // Update based on newly set accepted key
+                    // Re-evaluate data sharing allowance
+                    if (chrome.getProject() != null && dataRetentionPanel != null) {
+                        dataRetentionPanel.refreshStateAndUI();
+                    }
                 }
-            }
-            Project.setBrokkKey(newBrokkKey);
-            logger.debug("Applied Brokk Key: {}", newBrokkKey.isEmpty() ? "<empty>" : "****");
-
-            // Refresh balance display as it might change with the key
-            refreshBalanceDisplay();
-
-            // Re-evaluate data sharing allowance and update DataRetentionPanel UI accordingly
-            var projectForRefresh = chrome.getProject(); // get a fresh reference or use existing `project` var
-            if (projectForRefresh != null && dataRetentionPanel != null) {
-                dataRetentionPanel.refreshStateAndUI();
+            } else { // newBrokkKeyFromField is empty
+                Project.setBrokkKey(newBrokkKeyFromField); // Set empty key
+                logger.debug("Applied Brokk Key: <empty>");
+                refreshBalanceDisplay();
+                updateSignupLabelVisibility(); // Label will become visible
+                // Re-evaluate data sharing allowance
+                if (chrome.getProject() != null && dataRetentionPanel != null) {
+                    dataRetentionPanel.refreshStateAndUI();
+                }
             }
         }
 
