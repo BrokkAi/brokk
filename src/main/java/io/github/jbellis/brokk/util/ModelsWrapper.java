@@ -22,7 +22,7 @@ public class ModelsWrapper {
         }
     }
 
-    public StreamingChatLanguageModel get(String modelName, Project.ReasoningLevel reasoning) {
+    public StreamingChatLanguageModel get(String modelName, Service.ReasoningLevel reasoning) {
         return get().get(modelName, reasoning);
     }
 

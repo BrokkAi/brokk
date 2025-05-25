@@ -33,6 +33,34 @@ public final class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
+
+    /**
+     * Enum defining the reasoning effort levels for models.
+     */
+    public enum ReasoningLevel {
+        DEFAULT, LOW, MEDIUM, HIGH;
+
+        @Override
+        public String toString() {
+            // Capitalize first letter for display
+            return name().charAt(0) + name().substring(1).toLowerCase();
+        }
+
+        /**
+         * Converts a String to a ReasoningLevel, falling back to the provided default.
+         */
+        public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
+            if (value == null || value.isBlank()) {
+                return defaultLevel;
+            }
+            try {
+                return ReasoningLevel.valueOf(value.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return defaultLevel; // Fallback to provided default if string is invalid
+            }
+        }
+    }
+
     /**
      * Represents the parsed Brokk API key components.
      */
@@ -41,7 +69,7 @@ public final class Service {
     /**
      * Represents a user-defined favorite model alias.
      */
-    public record FavoriteModel(String alias, String modelName, Project.ReasoningLevel reasoning) {}
+    public record FavoriteModel(String alias, String modelName, ReasoningLevel reasoning) {}
 
     /**
      * Parses a Brokk API key of the form 'brk+<userId>+<proToken>+<freeToken>'.
@@ -137,12 +165,12 @@ public final class Service {
         }
 
         // these should always be available
-        quickModel = get("gemini-2.0-flash", Project.ReasoningLevel.DEFAULT);
+        quickModel = get("gemini-2.0-flash", ReasoningLevel.DEFAULT);
         if (quickModel == null) {
             quickModel = new UnavailableStreamingModel();
         }
         // hardcode quickest temperature to 0 so that Quick Context inference is reproducible
-        quickestModel = get("gemini-2.0-flash-lite", Project.ReasoningLevel.DEFAULT, 0.0);
+        quickestModel = get("gemini-2.0-flash-lite", ReasoningLevel.DEFAULT, 0.0);
         if (quickestModel == null) {
             quickestModel = new UnavailableStreamingModel();
         }
@@ -502,7 +530,7 @@ public final class Service {
      *
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
-    public StreamingChatLanguageModel get(String modelName, Project.ReasoningLevel reasoningLevel, Double temperature) {
+    public StreamingChatLanguageModel get(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
         String location = modelLocations.get(modelName);
         logger.debug("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -547,7 +575,7 @@ public final class Service {
                 .temperature(temperature);
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
-        if (supportsReasoningEffort(modelName) && reasoningLevel != Project.ReasoningLevel.DEFAULT) {
+        if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
                 params = params.reasoningEffort(reasoningLevel.name().toLowerCase());
         }
         builder.defaultRequestParameters(params.build());
@@ -562,7 +590,7 @@ public final class Service {
         return builder.build();
     }
 
-    public StreamingChatLanguageModel get(String modelName, Project.ReasoningLevel reasoningLevel) {
+    public StreamingChatLanguageModel get(String modelName, ReasoningLevel reasoningLevel) {
         return get(modelName, reasoningLevel, null);
     }
 

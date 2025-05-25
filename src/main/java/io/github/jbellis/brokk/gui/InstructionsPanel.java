@@ -1628,7 +1628,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      *                      Receives the model name and the reasoning level configured for that favorite.
      * @return A JPopupMenu containing available favorite models or configuration options.
      */
-    private JPopupMenu createModelSelectionMenu(BiConsumer<String, Project.ReasoningLevel> onModelSelect)
+    private JPopupMenu createModelSelectionMenu(BiConsumer<String, Service.ReasoningLevel> onModelSelect)
     {
         var popupMenu = new JPopupMenu();
         if (this.contextManager == null) {

@@ -353,15 +353,15 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Gets the reasoning level for architect tasks. Defaults to DEFAULT.
      */
-    public ReasoningLevel getArchitectReasoningLevel() {
+    public Service.ReasoningLevel getArchitectReasoningLevel() {
         var props = loadGlobalProperties();
-        return ReasoningLevel.fromString(props.getProperty(ARCHITECT_REASONING_KEY), ReasoningLevel.HIGH);
+        return Service.ReasoningLevel.fromString(props.getProperty(ARCHITECT_REASONING_KEY), Service.ReasoningLevel.HIGH);
     }
 
     /**
      * Sets the reasoning level for architect tasks.
      */
-    public void setArchitectReasoningLevel(ReasoningLevel level) {
+    public void setArchitectReasoningLevel(Service.ReasoningLevel level) {
         var props = loadGlobalProperties();
         props.setProperty(ARCHITECT_REASONING_KEY, level.name());
         saveGlobalProperties(props);
@@ -370,15 +370,15 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Gets the reasoning level for code tasks. Defaults to DEFAULT.
      */
-    public ReasoningLevel getCodeReasoningLevel() {
+    public Service.ReasoningLevel getCodeReasoningLevel() {
         var props = loadGlobalProperties();
-        return ReasoningLevel.fromString(props.getProperty(CODE_REASONING_KEY), ReasoningLevel.DEFAULT);
+        return Service.ReasoningLevel.fromString(props.getProperty(CODE_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
     }
 
     /**
      * Sets the reasoning level for code tasks.
      */
-    public void setCodeReasoningLevel(ReasoningLevel level) {
+    public void setCodeReasoningLevel(Service.ReasoningLevel level) {
         var props = loadGlobalProperties();
         props.setProperty(CODE_REASONING_KEY, level.name());
         saveGlobalProperties(props);
@@ -387,15 +387,15 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Gets the reasoning level for ask tasks. Defaults to DEFAULT.
      */
-    public ReasoningLevel getAskReasoningLevel() {
+    public Service.ReasoningLevel getAskReasoningLevel() {
         var props = loadGlobalProperties();
-        return ReasoningLevel.fromString(props.getProperty(ASK_REASONING_KEY), ReasoningLevel.DEFAULT);
+        return Service.ReasoningLevel.fromString(props.getProperty(ASK_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
     }
 
     /**
      * Sets the reasoning level for ask tasks.
      */
-    public void setAskReasoningLevel(ReasoningLevel level) {
+    public void setAskReasoningLevel(Service.ReasoningLevel level) {
         var props = loadGlobalProperties();
         props.setProperty(ASK_REASONING_KEY, level.name());
         saveGlobalProperties(props);
@@ -404,15 +404,15 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Gets the reasoning level for edit tasks. Defaults to LOW.
      */
-    public ReasoningLevel getEditReasoningLevel() {
+    public Service.ReasoningLevel getEditReasoningLevel() {
         var props = loadGlobalProperties();
-        return ReasoningLevel.fromString(props.getProperty(EDIT_REASONING_KEY), ReasoningLevel.LOW);
+        return Service.ReasoningLevel.fromString(props.getProperty(EDIT_REASONING_KEY), Service.ReasoningLevel.LOW);
     }
 
     /**
      * Sets the reasoning level for edit tasks.
      */
-    public void setEditReasoningLevel(ReasoningLevel level) {
+    public void setEditReasoningLevel(Service.ReasoningLevel level) {
         var props = loadGlobalProperties();
         props.setProperty(EDIT_REASONING_KEY, level.name());
         saveGlobalProperties(props);
@@ -421,15 +421,15 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Gets the reasoning level for search tasks. Defaults to DEFAULT.
      */
-    public ReasoningLevel getSearchReasoningLevel() {
+    public Service.ReasoningLevel getSearchReasoningLevel() {
         var props = loadGlobalProperties();
-        return ReasoningLevel.fromString(props.getProperty(SEARCH_REASONING_KEY), ReasoningLevel.DEFAULT);
+        return Service.ReasoningLevel.fromString(props.getProperty(SEARCH_REASONING_KEY), Service.ReasoningLevel.DEFAULT);
     }
 
     /**
      * Sets the reasoning level for search tasks.
      */
-    public void setSearchReasoningLevel(ReasoningLevel level) {
+    public void setSearchReasoningLevel(Service.ReasoningLevel level) {
         var props = loadGlobalProperties();
         props.setProperty(SEARCH_REASONING_KEY, level.name());
         saveGlobalProperties(props);
@@ -1276,33 +1276,6 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Enum defining the reasoning effort levels for models.
-     */
-    public enum ReasoningLevel {
-        DEFAULT, LOW, MEDIUM, HIGH;
-
-        @Override
-        public String toString() {
-            // Capitalize first letter for display
-            return name().charAt(0) + name().substring(1).toLowerCase();
-        }
-
-        /**
-         * Converts a String to a ReasoningLevel, falling back to the provided default.
-         */
-        public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
-            if (value == null || value.isBlank()) {
-                return defaultLevel;
-            }
-            try {
-                return ReasoningLevel.valueOf(value.toUpperCase());
-            } catch (IllegalArgumentException e) {
-                return defaultLevel; // Fallback to provided default if string is invalid
-            }
-        }
-    }
-
-    /**
      * Enum defining the data retention policies.
      */
     public enum DataRetentionPolicy {
@@ -1372,10 +1345,10 @@ public class Project implements IProject, AutoCloseable {
      * Default favorite model aliases.
      */
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
-            new Service.FavoriteModel("o3", Service.O3, ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Sonnet 3.7", "claude-3.7-sonnet", ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Flash 2.0", "gemini-2.0-flash", ReasoningLevel.DEFAULT)
+            new Service.FavoriteModel("o3", Service.O3, Service.ReasoningLevel.DEFAULT),
+            new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT),
+            new Service.FavoriteModel("Sonnet 3.7", "claude-3.7-sonnet", Service.ReasoningLevel.DEFAULT),
+            new Service.FavoriteModel("Flash 2.0", "gemini-2.0-flash", Service.ReasoningLevel.DEFAULT)
     );
 
     /**

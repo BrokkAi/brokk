@@ -99,7 +99,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
-                StreamingChatLanguageModel model = models.get(modelName, Project.ReasoningLevel.DEFAULT);
+                StreamingChatLanguageModel model = models.get(modelName, Service.ReasoningLevel.DEFAULT);
                 var coder = contextManager.getLlm(model, "testModels");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -156,7 +156,7 @@ public class LlmTest {
                 .forEach(modelName -> {
                     try {
                         System.out.println("Testing tool calling for model: " + modelName);
-                        StreamingChatLanguageModel model = models.get(modelName, Project.ReasoningLevel.DEFAULT);
+                        StreamingChatLanguageModel model = models.get(modelName, Service.ReasoningLevel.DEFAULT);
                         var coder = contextManager.getLlm(model, "testToolCalling");
                         assertNotNull(model, "Failed to get model instance for: " + modelName);
 

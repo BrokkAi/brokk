@@ -18,7 +18,6 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -46,14 +45,14 @@ public class SettingsDialog extends JDialog {
     // Model selection combo boxes (initialized in createModelsPanel)
     private JComboBox<String> architectModelComboBox;
     private JComboBox<String> codeModelComboBox;
-    private JComboBox<Project.ReasoningLevel> codeReasoningComboBox;
+    private JComboBox<Service.ReasoningLevel> codeReasoningComboBox;
     private JComboBox<String> askModelComboBox; // Added Ask model combo box
-    private JComboBox<Project.ReasoningLevel> askReasoningComboBox;
+    private JComboBox<Service.ReasoningLevel> askReasoningComboBox;
     private JComboBox<String> editModelComboBox;
-    private JComboBox<Project.ReasoningLevel> editReasoningComboBox;
+    private JComboBox<Service.ReasoningLevel> editReasoningComboBox;
     private JComboBox<String> searchModelComboBox;
-    private JComboBox<Project.ReasoningLevel> searchReasoningComboBox;
-    private JComboBox<Project.ReasoningLevel> architectReasoningComboBox;
+    private JComboBox<Service.ReasoningLevel> searchReasoningComboBox;
+    private JComboBox<Service.ReasoningLevel> architectReasoningComboBox;
     // Theme radio buttons (Global)
     private JRadioButton lightThemeRadio;
     private JRadioButton darkThemeRadio;
@@ -379,7 +378,7 @@ public class SettingsDialog extends JDialog {
 
         var models = chrome.getContextManager().getModels(); // Needed for available models & reasoning support check
         var availableModelNames = models.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);
-        var reasoningLevels = Project.ReasoningLevel.values();
+        var reasoningLevels = Service.ReasoningLevel.values();
 
         // Table Model
         quickModelsTableModel = new FavoriteModelsTableModel(Project.loadFavoriteModels());
@@ -420,7 +419,7 @@ public class SettingsDialog extends JDialog {
             if (quickModelsTable.isEditing()) {
                 quickModelsTable.getCellEditor().stopCellEditing();
             }
-            quickModelsTableModel.addFavorite(new Service.FavoriteModel("new-alias", availableModelNames[0], Project.ReasoningLevel.DEFAULT));
+            quickModelsTableModel.addFavorite(new Service.FavoriteModel("new-alias", availableModelNames[0], Service.ReasoningLevel.DEFAULT));
             int newRowIndex = quickModelsTableModel.getRowCount() - 1;
             quickModelsTable.setRowSelectionInterval(newRowIndex, newRowIndex);
             quickModelsTable.scrollRectToVisible(quickModelsTable.getCellRect(newRowIndex, 0, true));
@@ -1099,7 +1098,7 @@ public class SettingsDialog extends JDialog {
                 .stream()
                 .sorted()
                 .toArray(String[]::new);
-        var reasoningLevels = Project.ReasoningLevel.values();
+        var reasoningLevels = Service.ReasoningLevel.values();
 
         // will (de)activate reasoning dropdowns when model changes
         Runnable updateReasoningState = () -> {
@@ -1230,7 +1229,7 @@ public class SettingsDialog extends JDialog {
                                 int startRow,
                                 String typeLabel,
                                 JComboBox<String> modelCombo,
-                                JComboBox<Project.ReasoningLevel> reasoningCombo,
+                                JComboBox<Service.ReasoningLevel> reasoningCombo,
                                 String explanation)
     {
         /* ---------- model row ------------------------------------------------ */
@@ -1501,11 +1500,11 @@ public class SettingsDialog extends JDialog {
      */
     private void applyModelAndReasoning(Project project,
                                         JComboBox<String> modelCombo,
-                                        JComboBox<Project.ReasoningLevel> reasoningCombo,
+                                        JComboBox<Service.ReasoningLevel> reasoningCombo,
                                         java.util.function.Supplier<String> currentModelGetter,
                                         java.util.function.Consumer<String> modelSetter,
-                                        java.util.function.Supplier<Project.ReasoningLevel> currentReasoningGetter,
-                                        java.util.function.Consumer<Project.ReasoningLevel> reasoningSetter)
+                                        java.util.function.Supplier<Service.ReasoningLevel> currentReasoningGetter,
+                                        java.util.function.Consumer<Service.ReasoningLevel> reasoningSetter)
     {
         if (modelCombo != null) { // Check if combo box was initialized
             String selectedModel = (String) modelCombo.getSelectedItem();
@@ -1514,7 +1513,7 @@ public class SettingsDialog extends JDialog {
             }
         }
         if (reasoningCombo != null) { // Check if combo box was initialized
-            Project.ReasoningLevel selectedReasoning = (Project.ReasoningLevel) reasoningCombo.getSelectedItem();
+            Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
             // Only save if the combo box is enabled (i.e., model supports reasoning)
             // and the selected value is different from the current setting.
             if (selectedReasoning != null && reasoningCombo.isEnabled() && selectedReasoning != currentReasoningGetter.get()) {
@@ -1527,7 +1526,7 @@ public class SettingsDialog extends JDialog {
     /**
      * Updates the enabled state and selection of a reasoning combo box based on the selected model.
      */
-    private void updateReasoningComboBox(JComboBox<String> modelComboBox, JComboBox<Project.ReasoningLevel> reasoningComboBox, Service service) {
+    private void updateReasoningComboBox(JComboBox<String> modelComboBox, JComboBox<Service.ReasoningLevel> reasoningComboBox, Service service) {
         if (modelComboBox == null || reasoningComboBox == null) return; // Not initialized yet
 
         String selectedModelName = (String) modelComboBox.getSelectedItem();
@@ -1538,7 +1537,7 @@ public class SettingsDialog extends JDialog {
 
         if (!supportsReasoning) {
             // Set underlying item to DEFAULT, but render as "Off" when disabled
-            reasoningComboBox.setSelectedItem(Project.ReasoningLevel.DEFAULT);
+            reasoningComboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
             reasoningComboBox.setRenderer(new DefaultListCellRenderer() {
                 @Override
                 public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -1548,7 +1547,7 @@ public class SettingsDialog extends JDialog {
                     if (index == -1 && !reasoningComboBox.isEnabled()) {
                         label.setText("Off");
                         label.setForeground(UIManager.getColor("ComboBox.disabledForeground")); // Use standard disabled color
-                    } else if (value instanceof Project.ReasoningLevel level) {
+                    } else if (value instanceof Service.ReasoningLevel level) {
                         label.setText(level.toString()); // Use standard enum toString for dropdown items
                     } else {
                         label.setText(value == null ? "" : value.toString()); // Handle null or unexpected types
@@ -1788,7 +1787,7 @@ public class SettingsDialog extends JDialog {
             return switch (columnIndex) {
                 case 0 -> String.class; // Alias
                 case 1 -> String.class; // Model Name (uses JComboBox editor)
-                case 2 -> Project.ReasoningLevel.class; // Reasoning (uses JComboBox editor)
+                case 2 -> Service.ReasoningLevel.class; // Reasoning (uses JComboBox editor)
                 default -> Object.class;
             };
         }
@@ -1831,7 +1830,7 @@ public class SettingsDialog extends JDialog {
                         }
                         break;
                     case 2: // Reasoning
-                        if (aValue instanceof Project.ReasoningLevel reasoning) {
+                        if (aValue instanceof Service.ReasoningLevel reasoning) {
                             newFavorite = new Service.FavoriteModel(oldFavorite.alias(), oldFavorite.modelName(), reasoning);
                         }
                         break;
@@ -1880,7 +1879,7 @@ public class SettingsDialog extends JDialog {
                 label.setText("Off");
                 label.setEnabled(false); // Visually indicate disabled state
                 label.setToolTipText("Reasoning effort not supported by " + modelName);
-            } else if (value instanceof Project.ReasoningLevel level) {
+            } else if (value instanceof Service.ReasoningLevel level) {
                 label.setText(level.toString());
                 label.setEnabled(true);
                 label.setToolTipText("Select reasoning effort");
@@ -1912,9 +1911,9 @@ public class SettingsDialog extends JDialog {
     private static class ReasoningCellEditor extends DefaultCellEditor {
         private final Service models;
         private final JTable table;
-        private final JComboBox<Project.ReasoningLevel> comboBox; // Keep reference to the actual combo
+        private final JComboBox<Service.ReasoningLevel> comboBox; // Keep reference to the actual combo
 
-        public ReasoningCellEditor(JComboBox<Project.ReasoningLevel> comboBox, Service service, JTable table) {
+        public ReasoningCellEditor(JComboBox<Service.ReasoningLevel> comboBox, Service service, JTable table) {
             super(comboBox);
             this.comboBox = comboBox; // Store the combo box instance
             this.models = service;
@@ -1935,7 +1934,7 @@ public class SettingsDialog extends JDialog {
 
             if (!supportsReasoning) {
                 // If not supported, ensure the displayed value is DEFAULT (rendered as "Off")
-                comboBox.setSelectedItem(Project.ReasoningLevel.DEFAULT);
+                comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
                 comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
                 // Use the same renderer logic as the cell renderer for consistency
                 comboBox.setRenderer(new DefaultListCellRenderer() {
@@ -1945,7 +1944,7 @@ public class SettingsDialog extends JDialog {
                         if (index == -1) { // Display value in the editor box when disabled
                             label.setText("Off");
                             label.setForeground(UIManager.getColor("ComboBox.disabledForeground"));
-                        } else if (value instanceof Project.ReasoningLevel level) {
+                        } else if (value instanceof Service.ReasoningLevel level) {
                             label.setText(level.toString());
                         } else {
                             label.setText(value == null ? "" : value.toString());
@@ -1982,7 +1981,7 @@ public class SettingsDialog extends JDialog {
         @Override
         public Object getCellEditorValue() {
             // If the editor was disabled, return DEFAULT, otherwise return the selected item.
-            return comboBox.isEnabled() ? super.getCellEditorValue() : Project.ReasoningLevel.DEFAULT;
+            return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT;
         }
     }
 

@@ -663,7 +663,7 @@ public class WorkspacePanel extends JPanel {
         Map<String, Integer> yellowWarningModels = new HashMap<>();
 
         // Helper record to store model name and reasoning level for checking
-        record ModelConfig(String name, io.github.jbellis.brokk.Project.ReasoningLevel level) {}
+        record ModelConfig(String name, Service.ReasoningLevel level) {}
 
         List<ModelConfig> configuredModelChecks = List.of(
                 new ModelConfig(project.getArchitectModelName(), project.getArchitectReasoningLevel()),
