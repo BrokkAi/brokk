@@ -33,6 +33,14 @@ public record SessionResult(String actionDescription,
              stopDetails);
     }
 
+    public SessionResult(String actionDescription,
+                         List<ChatMessage> uiMessages,
+                         Map<ProjectFile, String> originalContents,
+                         StopReason simpleReason)
+    {
+        this(actionDescription, uiMessages, originalContents, new StopDetails(simpleReason));
+    }
+
     /**
      * Enum representing the reason a CodeAgent session concluded.
      */

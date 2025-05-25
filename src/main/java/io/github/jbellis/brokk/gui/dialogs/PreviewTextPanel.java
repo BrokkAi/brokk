@@ -1074,7 +1074,7 @@ public class PreviewTextPanel extends JPanel {
                 var saveResult = new SessionResult(actionDescription,
                                                    quickEditMessages,
                                                    Map.of(file, contentBeforeFirstSave),
-                                                   new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS));
+                                                   SessionResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);
             } catch (Exception e) {

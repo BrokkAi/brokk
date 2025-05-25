@@ -1194,7 +1194,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var sessionResult = new SessionResult("Ask: " + question,
                                                           List.copyOf(chrome.getLlmRawMessages()),
                                                           Map.of(), // No undo contents for Ask
-                                                          new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS));
+                                                          SessionResult.StopReason.SUCCESS);
                     contextManager.addToHistory(sessionResult, false);
                     chrome.systemOutput("Ask command complete!");
                 } else {

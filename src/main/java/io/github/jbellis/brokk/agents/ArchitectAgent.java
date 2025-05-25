@@ -481,7 +481,7 @@ public class ArchitectAgent {
         return new SessionResult("Architect: " + goal,
                                  List.of(),
                                  Map.of(),
-                                 new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR));
+                                 SessionResult.StopReason.LLM_ERROR);
     }
 
     /**
