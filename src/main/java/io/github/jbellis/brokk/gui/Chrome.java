@@ -33,8 +33,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
 
-    // is the change of the context triggered by a user or the system?
-    private boolean internalContextChange = true;
+    // is a setContext updating the MOP?
+    private boolean skipNextUpdateOutputPanelOnContextChange = false;
+
+    /**
+     * Gets whether updates to the output panel are skipped on context changes.
+     * @return true if updates are skipped, false otherwise
+     */
+    public boolean isSkipNextUpdateOutputPanelOnContextChange() {
+        return skipNextUpdateOutputPanelOnContextChange;
+    }
+
+    /**
+     * Sets whether updates to the output panel should be skipped on context changes.
+     * @param skipNextUpdateOutputPanelOnContextChange true to skip updates, false otherwise
+     */
+    public void setSkipNextUpdateOutputPanelOnContextChange(boolean skipNextUpdateOutputPanelOnContextChange) {
+        this.skipNextUpdateOutputPanelOnContextChange = skipNextUpdateOutputPanelOnContextChange;
+    }
 
     // Dependencies:
     final ContextManager contextManager;
@@ -329,15 +345,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert ctx != null;
 
-        // If the new context is logically distinct from the active one, update the text.
-        // This prevents stomping on an active llm output since it will only be the case
-        // if the user is selecting a different context, as opposed to a background task
-        // updating the summary or autocontext.
         logger.trace("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
-        // If internalContextChange is true, it means it's a programmatic selection (new history item),
-        // so don't force scroll. Otherwise (user click), do force scroll. Do not scroll the welcome message (id=1)
+        // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
 
-        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !internalContextChange);
+        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !isSkipNextUpdateOutputPanelOnContextChange());
+        setSkipNextUpdateOutputPanelOnContextChange(false);
         activeContext = ctx;
 
         SwingUtilities.invokeLater(() -> {
@@ -559,15 +571,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Also update HistoryOutputPanel's local buttons
             if (historyOutputPanel != null) historyOutputPanel.updateUndoRedoButtonStates();
-
-            // Update the main context table and history table display
-            internalContextChange = true;
-            try {
-                setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
-                updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
-            } finally {
-                internalContextChange = false;
-            }
+            setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
+            updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
         });
     }
 

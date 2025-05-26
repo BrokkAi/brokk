@@ -1155,6 +1155,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.systemOutput("Code Agent cancelled!");
                 // Save the partial result (if we didn't interrupt before we got any replies)
                 if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
+                    chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(result, false);
                 }
             } else {
@@ -1162,6 +1163,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.systemOutput("Code Agent complete!");
                 }
                 // Code agent has logged error to console already
+                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(result, false);
             }
         } finally {
@@ -1195,6 +1197,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                           List.copyOf(chrome.getLlmRawMessages()),
                                                           Map.of(), // No undo contents for Ask
                                                           SessionResult.StopReason.SUCCESS);
+                    chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(sessionResult, false);
                     chrome.systemOutput("Ask command complete!");
                 } else {
