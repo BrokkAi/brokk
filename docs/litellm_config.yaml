@@ -23,14 +23,6 @@ model_list:
       free_tier_eligible: false
       is_private: true
 
-  - model_name: gpt-4.1-nano
-    litellm_params:
-      model: openai/gpt-4.1-nano
-      api_key: "os.environ/OPENAI_API_KEY"
-    model_info:
-      free_tier_eligible: true
-      is_private: true
-
   - model_name: gemini-2.5-pro
     litellm_params:
       model: gemini/gemini-2.5-pro-preview-05-06
