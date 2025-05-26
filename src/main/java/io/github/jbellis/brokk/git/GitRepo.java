@@ -9,6 +9,8 @@ import org.eclipse.jgit.api.ListBranchCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffFormatter;
 // StashInfo removed
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -380,7 +382,36 @@ public class GitRepo implements Closeable, IGitRepo {
      * Push the committed changes to the remote repository
      */
     public void push() throws GitAPIException {
-        git.push().call();
+        Iterable<PushResult> results = git.push().call();
+        var rejectionMessages = new StringBuilder();
+
+        for (var result : results) {
+            for (var rru : result.getRemoteUpdates()) {
+                var status = rru.getStatus();
+                // Consider any status other than OK or UP_TO_DATE as a failure for that ref.
+                if (status != RemoteRefUpdate.Status.OK && status != RemoteRefUpdate.Status.UP_TO_DATE) {
+                    if (rejectionMessages.length() > 0) {
+                        rejectionMessages.append("\n");
+                    }
+                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' update failed: ");
+                    if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
+                        status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
+                        rejectionMessages.append("The remote contains work that you do not have locally. ")
+                                         .append("Pull and merge from the remote (or rebase) before pushing.");
+                    } else {
+                        rejectionMessages.append(status.toString());
+                        if (rru.getMessage() != null) {
+                            rejectionMessages.append(" (").append(rru.getMessage()).append(")");
+                        }
+                    }
+                }
+            }
+        }
+
+        if (rejectionMessages.length() > 0) {
+            throw new GitPushRejectedException("Push rejected by remote:\n" + rejectionMessages.toString());
+        }
+        // If loop completes without rejections, push was successful or refs were up-to-date.
     }
 
     /**
@@ -1304,6 +1335,12 @@ public class GitRepo implements Closeable, IGitRepo {
 
     public static class GitStateException extends GitAPIException {
         protected GitStateException(String message) {
+            super(message);
+        }
+    }
+
+    public static class GitPushRejectedException extends GitAPIException {
+        public GitPushRejectedException(String message) {
             super(message);
         }
     }
