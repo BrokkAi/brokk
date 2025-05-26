@@ -713,26 +713,8 @@ public class SettingsDialog extends JDialog {
             }
 
             // List of controls to disable/enable
-            // rerunBuildButton itself is handled separately.
-            List<Component> controlsToManage = List.of(
-                    buildCleanCommandField, allTestsCommandField,
-                    runAllTestsRadio, runTestsInWorkspaceRadio,
-                    instructionsScrollPane, buildInstructionsArea,
-                    cpgRefreshComboBox,
-                    editLanguagesButtonInProjectPanel,
-                    excludedScrollPane, excludedDirectoriesList,
-                    addExcludedDirButton, removeExcludedDirButton,
-                    okButton, cancelButton, applyButton
-            );
-
-            // Disable controls
+            setBuildControlsEnabled(false);
             rerunBuildButton.setEnabled(false);
-            buildProgressBar.setVisible(true);
-            for (Component control : controlsToManage) {
-                if (control != null) {
-                    control.setEnabled(false);
-                }
-            }
 
             cm.submitUserTask("Running Build Agent", () -> {
                 try {
@@ -750,16 +732,8 @@ public class SettingsDialog extends JDialog {
                     SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Build Agent failed: " + ex.getMessage()));
                 } finally {
                     SwingUtilities.invokeLater(() -> {
-                        boolean projectStillOpen = chrome.getProject() != null;
-                        rerunBuildButton.setEnabled(projectStillOpen);
-                        buildProgressBar.setVisible(false);
-                        for (Component control : controlsToManage) {
-                            if (control != null) {
-                                // Only re-enable if a project is open; otherwise, they should remain disabled
-                                // as per the main project tab enabling logic.
-                                control.setEnabled(projectStillOpen);
-                            }
-                        }
+                        setBuildControlsEnabled(true);
+                        rerunBuildButton.setEnabled(true);
                     });
                 }
             });
@@ -867,6 +841,28 @@ public class SettingsDialog extends JDialog {
 
         projectTabRootPanel.add(subTabbedPane, BorderLayout.CENTER);
         return projectTabRootPanel;
+    }
+
+    private void setBuildControlsEnabled(boolean enabled) {
+        // Determine effective enabled state based on project presence if we are re-enabling
+        boolean effectiveEnabled = enabled ? (chrome.getProject() != null) : false;
+
+        buildProgressBar.setVisible(!enabled); // Progress bar visible when controls are disabled
+
+        List<Component> controlsToManage = List.of(
+                buildCleanCommandField, allTestsCommandField,
+                runAllTestsRadio, runTestsInWorkspaceRadio,
+                instructionsScrollPane, buildInstructionsArea,
+                cpgRefreshComboBox,
+                editLanguagesButtonInProjectPanel,
+                excludedScrollPane, excludedDirectoriesList,
+                addExcludedDirButton, removeExcludedDirButton,
+                okButton, cancelButton, applyButton
+        );
+
+        for (Component control : controlsToManage) {
+            control.setEnabled(effectiveEnabled);
+        }
     }
 
     private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
