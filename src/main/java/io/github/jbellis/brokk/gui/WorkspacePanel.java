@@ -666,7 +666,6 @@ public class WorkspacePanel extends JPanel {
                 project.getArchitectModelConfig(),
                 project.getCodeModelConfig(),
                 project.getAskModelConfig(),
-                project.getEditModelConfig(),
                 project.getSearchModelConfig()
         );
 

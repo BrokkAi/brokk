@@ -1324,11 +1324,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var contextManager = chrome.getContextManager();
         var models = contextManager.getService();
         var architectModel = contextManager.getArchitectModel();
-        var editModel = contextManager.getEditModel();
+        var codeModel = contextManager.getCodeModel();
         var searchModel = contextManager.getSearchModel();
 
         if (contextHasImages()) {
-            var nonVisionModels = Stream.of(architectModel, editModel, searchModel)
+            var nonVisionModels = Stream.of(architectModel, codeModel, searchModel)
                     .filter(m -> !models.supportsVision(m))
                     .map(models::nameOf)
                     .toList();

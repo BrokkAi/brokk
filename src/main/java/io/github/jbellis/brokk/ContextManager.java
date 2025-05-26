@@ -418,10 +418,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the configured Edit model, falling back to the system model if unavailable.
      */
-    public StreamingChatLanguageModel getEditModel() {
-        var config = project.getEditModelConfig();
-        return getModelOrDefault(config, "Edit");
-    }
 
     /**
      * Returns the configured Search model, falling back to the system model if unavailable.

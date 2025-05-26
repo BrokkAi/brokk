@@ -142,7 +142,7 @@ public class ArchitectAgent {
 
         // TODO label this Architect
         io.setLlmOutput(new ContextFragment.TaskFragment(List.of(Messages.customSystem(instructions)), "Code (Architect)"));
-        var result = new CodeAgent(contextManager, contextManager.getEditModel()).runSession(instructions, true);
+        var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runSession(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         // always add to history
@@ -242,7 +242,7 @@ public class ArchitectAgent {
 
         // Check if ContextAgent is enabled in options before using it
         if (options.includeContextAgent()) {
-            var contextAgent = new ContextAgent(contextManager, contextManager.getEditModel(), goal, true);
+            var contextAgent = new ContextAgent(contextManager, contextManager.getSearchModel(), goal, true);
             contextAgent.execute();
         }
 
@@ -256,7 +256,7 @@ public class ArchitectAgent {
             var models = new ArrayList<StreamingChatLanguageModel>();
             models.add(this.model);
             if (options.includeCodeAgent) {
-                models.add(contextManager.getEditModel());
+                models.add(contextManager.getCodeModel());
             }
             if (options.includeSearchAgent) {
                 models.add(contextManager.getSearchModel());;

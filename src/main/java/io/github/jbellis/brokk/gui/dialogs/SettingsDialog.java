@@ -48,8 +48,6 @@ public class SettingsDialog extends JDialog {
     private JComboBox<Service.ReasoningLevel> codeReasoningComboBox;
     private JComboBox<String> askModelComboBox;
     private JComboBox<Service.ReasoningLevel> askReasoningComboBox;
-    private JComboBox<String> editModelComboBox;
-    private JComboBox<Service.ReasoningLevel> editReasoningComboBox;
     private JComboBox<String> searchModelComboBox;
     private JComboBox<Service.ReasoningLevel> searchReasoningComboBox;
     private JComboBox<Service.ReasoningLevel> architectReasoningComboBox;
@@ -197,8 +195,6 @@ public class SettingsDialog extends JDialog {
             updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, chrome.getContextManager().getService());
         if (askReasoningComboBox != null)
             updateReasoningComboBox(askModelComboBox, askReasoningComboBox, chrome.getContextManager().getService());
-        if (editReasoningComboBox != null)
-            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, chrome.getContextManager().getService());
         if (searchReasoningComboBox != null)
             updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, chrome.getContextManager().getService());
 
@@ -1124,7 +1120,6 @@ public class SettingsDialog extends JDialog {
             updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, models);
             updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, models);
             updateReasoningComboBox(askModelComboBox, askReasoningComboBox, models);
-            updateReasoningComboBox(editModelComboBox, editReasoningComboBox, models);
             updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, models);
         };
 
@@ -1158,7 +1153,7 @@ public class SettingsDialog extends JDialog {
                               "Code",
                               codeModelComboBox,
                               codeReasoningComboBox,
-                              "Used when invoking the Code Agent manually");
+                              "Used when invoking the Code Agent manually or via Architect");
 
         /* ---------------- Ask -------------------------------------------- */
         var askConfig = project.getAskModelConfig();
@@ -1175,21 +1170,6 @@ public class SettingsDialog extends JDialog {
                               askReasoningComboBox,
                               "Answers questions about the current Workspace contents");
 
-        /* ---------------- Edit ------------------------------------------- */
-        var editConfig = project.getEditModelConfig();
-        editModelComboBox = new JComboBox<>(availableModels);
-        editModelComboBox.setSelectedItem(editConfig.name());
-        editModelComboBox.addActionListener(e -> updateReasoningState.run());
-
-        editReasoningComboBox = new JComboBox<>(reasoningLevels);
-        editReasoningComboBox.setSelectedItem(editConfig.reasoning());
-
-        row = addModelSection(panel, gbc, row,
-                              "Edit",
-                              editModelComboBox,
-                              editReasoningComboBox,
-                              "Used when invoking the Code Agent from the Architect; also used for Deep Scan");
-
         /* ---------------- Search ----------------------------------------- */
         var searchConfig = project.getSearchModelConfig();
         searchModelComboBox = new JComboBox<>(availableModels);
@@ -1203,7 +1183,7 @@ public class SettingsDialog extends JDialog {
                               "Search",
                               searchModelComboBox,
                               searchReasoningComboBox,
-                              "Searches the project for information described in natural language");
+                              "Searches the project for information described in natural language; also used for Deep Scan");
 
         /* push everything up */
         gbc.gridx = 0;
@@ -1503,8 +1483,6 @@ public class SettingsDialog extends JDialog {
         applyModelConfig(project, askModelComboBox, askReasoningComboBox,
                          project::getAskModelConfig, project::setAskModelConfig);
 
-        applyModelConfig(project, editModelComboBox, editReasoningComboBox,
-                         project::getEditModelConfig, project::setEditModelConfig);
 
         applyModelConfig(project, searchModelComboBox, searchReasoningComboBox,
                          project::getSearchModelConfig, project::setSearchModelConfig);

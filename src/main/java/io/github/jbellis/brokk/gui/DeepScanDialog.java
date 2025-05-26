@@ -51,7 +51,7 @@ class DeepScanDialog {
         // ContextAgent
         Future<ContextAgent.RecommendationResult> contextFuture = contextManager.submitBackgroundTask("Deep Scan: ContextAgent", () -> {
             logger.debug("Deep Scan: Running ContextAgent...");
-            var model = contextManager.getEditModel();
+            var model = contextManager.getSearchModel();
             // Use full workspace context for deep scan
             var agent = new ContextAgent(contextManager, model, goal, true);
             var recommendations = agent.getRecommendations(false);

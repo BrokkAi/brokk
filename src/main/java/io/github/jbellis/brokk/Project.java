@@ -48,7 +48,6 @@ public class Project implements IProject, AutoCloseable {
         "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH), "architectModel", "architectReasoning"),
         "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "codeModel", "codeReasoning"),
         "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "askModel", "askReasoning"),
-        "Edit", new ModelTypeInfo("editConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.LOW), "editModel", "editReasoning"),
         "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "searchModel", "searchReasoning")
     );
 
@@ -429,19 +428,6 @@ public class Project implements IProject, AutoCloseable {
         setModelConfigInternal("Ask", config);
     }
 
-    /**
-     * Gets the configured model and reasoning for edit tasks.
-     */
-    public ModelConfig getEditModelConfig() {
-        return getModelConfigInternal("Edit");
-    }
-
-    /**
-     * Sets the model and reasoning for edit tasks.
-     */
-    public void setEditModelConfig(ModelConfig config) {
-        setModelConfigInternal("Edit", config);
-    }
 
     /**
      * Gets the configured model and reasoning for search tasks.
