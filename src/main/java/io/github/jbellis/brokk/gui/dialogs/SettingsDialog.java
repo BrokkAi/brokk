@@ -737,13 +737,8 @@ public class SettingsDialog extends JDialog {
             cm.submitUserTask("Running Build Agent", () -> {
                 try {
                     chrome.systemOutput("Starting Build Agent...");
-                    var agent = new BuildAgent(proj,
-                                                new Llm(cm.getService().quickModel(),
-                                                        "BuildAgent",
-                                                        cm,
-                                                        false,
-                                                        false),
-                                                cm.getToolRegistry());
+                    // Use the same as on ContextManager#ensureBuildDetailsAsync
+                    var agent = new BuildAgent(proj, cm.getLlm(cm.getService().quickModel(), "Infer build details"), cm.getToolRegistry());
                     var newBuildDetails = agent.execute();
                     proj.saveBuildDetails(newBuildDetails);
                     SwingUtilities.invokeLater(() -> {
@@ -1564,7 +1559,7 @@ public class SettingsDialog extends JDialog {
             }
         }
 
-        // Apply Code Intelligence Languages 
+        // Apply Code Intelligence Languages
         if (currentAnalyzerLanguagesForDialog != null) {
             // Only update if the set of languages has changed
             if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {
