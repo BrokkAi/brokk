@@ -722,14 +722,29 @@ public class SettingsDialog extends JDialog {
                     // Use the same as on ContextManager#ensureBuildDetailsAsync
                     var agent = new BuildAgent(proj, cm.getLlm(cm.getService().quickModel(), "Infer build details"), cm.getToolRegistry());
                     var newBuildDetails = agent.execute();
-                    proj.saveBuildDetails(newBuildDetails);
-                    SwingUtilities.invokeLater(() -> {
-                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
-                        chrome.systemOutput("Build Agent finished. Settings updated.");
-                    });
+
+                    if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
+                        logger.warn("Build Agent returned empty details, considering it an error.");
+                        SwingUtilities.invokeLater(() -> {
+                            String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
+                            chrome.toolErrorRaw(errorMessage);
+                            JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                            // Do not save or update UI with empty details
+                        });
+                    } else {
+                        proj.saveBuildDetails(newBuildDetails);
+                        SwingUtilities.invokeLater(() -> {
+                            updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                            chrome.systemOutput("Build Agent finished. Settings updated.");
+                        });
+                    }
                 } catch (Exception ex) {
                     logger.error("Error running Build Agent", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Build Agent failed: " + ex.getMessage()));
+                    SwingUtilities.invokeLater(() -> {
+                        String errorMessage = "Build Agent failed: " + ex.getMessage();
+                        chrome.toolErrorRaw(errorMessage);
+                        JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                    });
                 } finally {
                     SwingUtilities.invokeLater(() -> {
                         setBuildControlsEnabled(true);
