@@ -4,7 +4,6 @@ model_list:
       model: openai/o3
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      is_reasoning: true
       free_tier_eligible: false
       is_private: true
 
@@ -13,7 +12,6 @@ model_list:
       model: openai/o4-mini
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      is_reasoning: true
       free_tier_eligible: false
       is_private: true
 
@@ -22,7 +20,6 @@ model_list:
       model: openai/gpt-4.1
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: false
       is_private: true
 
@@ -31,7 +28,6 @@ model_list:
       model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: true
       is_private: true
 
@@ -41,7 +37,6 @@ model_list:
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       supports_reasoning: true # override incorrect default
-      is_reasoning: true
       free_tier_eligible: false
       is_private: true
 
@@ -50,7 +45,6 @@ model_list:
       model: gemini/gemini-2.5-flash-preview-04-17
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
-      is_reasoning: true
       free_tier_eligible: false
       is_private: true
 
@@ -59,7 +53,6 @@ model_list:
       model: gemini/gemini-2.0-flash
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: true
       is_private: true
 
@@ -68,7 +61,6 @@ model_list:
       model: gemini/gemini-2.0-flash-lite
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: true
       is_private: true
 
@@ -77,7 +69,6 @@ model_list:
       model: anthropic/claude-opus-4-20250514
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
@@ -89,7 +80,6 @@ model_list:
       model: anthropic/claude-sonnet-4-20250514
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
@@ -101,7 +91,6 @@ model_list:
       model: anthropic/claude-3-7-sonnet-latest
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
@@ -113,7 +102,6 @@ model_list:
       model: anthropic/claude-3-5-sonnet-latest
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: false
       is_private: true
 
@@ -131,7 +119,6 @@ model_list:
       model: deepseek/deepseek-chat
       api_key: "os.environ/DEEPSEEK_API_KEY"
     model_info:
-      is_reasoning: false
       free_tier_eligible: true
       is_private: false
 
