@@ -104,6 +104,10 @@ public class EditBlockConflictsParser extends EditBlockParser {
 
         Use the *FULL* filename, as shown to you by the user. This appears on each of the three marker lines.
         No other text should appear on the marker lines.
+        
+        You should expect to encounter git merge conflict markers in the files you are editing. These
+        bear some resemblance to your *SEARCH/REPLACE* blocks. To avoid confusion, ALWAYS remember to
+        include the filename after the *SEARCH/REPLACE* delimiters, including the dividing marker!
         """.stripIndent();
     }
 
