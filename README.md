@@ -159,7 +159,7 @@ When Brokk doesn’t (yet) have full AST-level intelligence for a language, it f
 
 Brokk uses sbt (Scala Build Tool) since it has a Scala component. To build Brokk,
 1. Install sbt (e.g. with sdkman)
-2. Run the sbt repl: `sbt`
+2. Run the sbt repl: `sbt` (with JDK 21 or newer)
 3. In the sbt repl, run individual commands: `run`, `clean`, `test`, `assembly`, etc.
 
 If you have `sbtn` installed it can be used to run commands such as `sbtn run` with a faster startup time.
