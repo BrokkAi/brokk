@@ -72,6 +72,30 @@ model_list:
       free_tier_eligible: true
       is_private: true
 
+  - model_name: claude-4-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-20250514
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      is_reasoning: false
+      free_tier_eligible: false
+      is_private: true
+      # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
+      # which is weighted the wrong way for typical coding tasks
+      max_output_tokens: 32768
+
+  - model_name: claude-4-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+    model_info:
+      is_reasoning: false
+      free_tier_eligible: false
+      is_private: true
+      # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
+      # which is weighted the wrong way for typical coding tasks
+      max_output_tokens: 32768
+
   - model_name: claude-3.7-sonnet
     litellm_params:
       model: anthropic/claude-3-7-sonnet-latest
