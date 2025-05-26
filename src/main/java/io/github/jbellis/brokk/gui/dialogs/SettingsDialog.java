@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.Project.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.Llm;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -671,6 +672,50 @@ public class SettingsDialog extends JDialog {
             }
         });
 
+        // --- Run Build Agent button (moved to bottom) ---
+        gbc.gridx = 1; // Align with input fields (right column)
+        gbc.gridy = row++; // Next available row
+        gbc.weightx = 0.0; // Don't stretch button horizontally
+        gbc.weighty = 0.0; // Don't stretch button vertically
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.EAST; // Align button to the right
+        var rerunBuildButton = new JButton("Run Build Agent");
+        buildPanel.add(rerunBuildButton, gbc);
+
+        rerunBuildButton.addActionListener(e -> {
+            var cm = chrome.getContextManager();
+            var proj = chrome.getProject();
+            if (proj == null) {
+                chrome.toolErrorRaw("No project is open.");
+                return;
+            }
+            rerunBuildButton.setEnabled(false);
+            cm.submitUserTask("Running Build Agent", () -> {
+                try {
+                    chrome.systemOutput("Starting Build Agent...");
+                    var agent = new BuildAgent(proj,
+                                                new Llm(cm.getService().quickModel(),
+                                                        "BuildAgent",
+                                                        cm,
+                                                        false,
+                                                        false),
+                                                cm.getToolRegistry());
+                    var newBuildDetails = agent.execute();
+                    proj.saveBuildDetails(newBuildDetails);
+                    SwingUtilities.invokeLater(() -> {
+                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                        chrome.systemOutput("Build Agent finished. Settings updated.");
+                    });
+                } catch (Exception ex) {
+                    logger.error("Error running Build Agent", ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Build Agent failed: " + ex.getMessage()));
+                } finally {
+                    SwingUtilities.invokeLater(() -> rerunBuildButton.setEnabled(chrome.getProject() != null));
+                }
+            });
+        });
+        // No anchor reset needed if it's the last component in this GridBagLayout sequence for buildPanel
+
 
         // ----- Other Tab (now General Tab) -----
         var otherPanel = new JPanel(new GridBagLayout());
@@ -773,6 +818,33 @@ public class SettingsDialog extends JDialog {
 
         projectTabRootPanel.add(subTabbedPane, BorderLayout.CENTER);
         return projectTabRootPanel;
+    }
+
+    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
+        if (details == null) {
+            logger.warn("Attempted to update build details fields with null details.");
+            return;
+        }
+        // Ensure updates happen on the EDT, though this method is expected to be called from within one.
+        SwingUtilities.invokeLater(() -> {
+            if (buildCleanCommandField != null) {
+                buildCleanCommandField.setText(details.buildLintCommand());
+            }
+            if (allTestsCommandField != null) {
+                allTestsCommandField.setText(details.testAllCommand());
+            }
+            if (buildInstructionsArea != null) {
+                buildInstructionsArea.setText(details.instructions());
+            }
+            if (excludedDirectoriesListModel != null) {
+                excludedDirectoriesListModel.clear();
+                var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
+                for (String dir : sortedExcludedDirs) {
+                    excludedDirectoriesListModel.addElement(dir);
+                }
+            }
+            logger.trace("UI fields updated with new BuildDetails from agent: {}", details);
+        });
     }
 
     private void updateLanguagesDisplayField() {
