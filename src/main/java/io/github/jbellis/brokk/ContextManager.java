@@ -1530,8 +1530,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // No details found, run the BuildAgent asynchronously
         submitBackgroundTask("Inferring build details", () -> {
             io.systemOutput("Inferring project build details");
-            var model = getSearchModel();
-            BuildAgent agent = new BuildAgent(project, getLlm(model, "Infer build details"), toolRegistry);
+            BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();

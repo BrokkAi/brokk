@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.Project.DataRetentionPolicy;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import io.github.jbellis.brokk.Llm;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -719,8 +718,7 @@ public class SettingsDialog extends JDialog {
             cm.submitUserTask("Running Build Agent", () -> {
                 try {
                     chrome.systemOutput("Starting Build Agent...");
-                    // Use the same as on ContextManager#ensureBuildDetailsAsync
-                    var agent = new BuildAgent(proj, cm.getLlm(cm.getService().quickModel(), "Infer build details"), cm.getToolRegistry());
+                    var agent = new BuildAgent(proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
                     var newBuildDetails = agent.execute();
 
                     if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {

@@ -3,10 +3,7 @@ package io.github.jbellis.brokk.agents;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
@@ -75,7 +72,9 @@ public class BuildAgent {
         ToolExecutionResult initialResult = toolRegistry.executeTool(this, initialRequest);
         ToolExecutionResultMessage initialResultMessage = initialResult.toExecutionResultMessage();
 
-        // Add the initial result to history (no AI request for this one)
+        // Add the initial result to history (forge an AI request to make inflexible LLMs happy)
+        chatHistory.add(new UserMessage("Start by examining the project root directory."));
+        chatHistory.add(new AiMessage(List.of(ToolExecutionRequest.builder().name("listFiles").arguments("{\"directoryPath\": \".\"}").build())));
         chatHistory.add(initialResultMessage);
         logger.trace("Initial tool result added to history: {}", initialResultMessage.text());
 
