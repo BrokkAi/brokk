@@ -317,6 +317,16 @@ public class FileSelectionPanel extends JPanel {
         }
 
         List<BrokkFile> result = new ArrayList<>(uniqueFiles.values());
+
+        // If external files are not allowed, keep only git-tracked project files.
+        if (!config.allowExternalFiles()) {
+            assert project != null : "project should not be null when external files are disallowed";
+            var tracked = project.getRepo().getTrackedFiles();
+            result = result.stream()
+                           .filter(file -> file instanceof ProjectFile pf && tracked.contains(pf))
+                           .collect(Collectors.toCollection(ArrayList::new));
+        }
+
         logger.debug("Resolved unique files: {}", result);
         // Notify listeners if selection changed (simple check for now)
         // currentSelection = result; // This needs a proper equality check if used for fine-grained listener notification
@@ -506,11 +516,25 @@ public class FileSelectionPanel extends JPanel {
         }
 
         private ShorthandCompletion createPathCompletion(Path path) {
-            String fullPath = path.toAbsolutePath().toString();
-            String fileName = path.getFileName().toString();
-            String replacementText = multiSelectMode ? quotePathIfNecessary(fullPath) + " " : fullPath;
-            // Display filename, summary is full path
-            return new ShorthandCompletion(this, fileName, replacementText, fullPath);
+            Path absolutePath = path.toAbsolutePath().normalize();
+
+            String pathForReplacement;
+            if (!this.allowExternalFiles
+                    && this.project != null
+                    && absolutePath.startsWith(this.project.getRoot())) {
+                pathForReplacement = this.project.getRoot().relativize(absolutePath).toString();
+            } else {
+                pathForReplacement = absolutePath.toString();
+            }
+
+            String summaryPathString = pathForReplacement; // same as replacement target
+            String displayFileName = Objects.requireNonNull(absolutePath.getFileName()).toString();
+
+            String replacementText = multiSelectMode
+                    ? quotePathIfNecessary(pathForReplacement) + " "
+                    : pathForReplacement;
+
+            return new ShorthandCompletion(this, displayFileName, replacementText, summaryPathString);
         }
 
 
