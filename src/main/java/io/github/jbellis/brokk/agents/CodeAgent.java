@@ -595,6 +595,7 @@ public class CodeAgent {
 
         // Use up to 5 related classes as context
         var seeds = analyzer.getDeclarationsInFile(file).stream()
+                .filter(CodeUnit::isClass)
                 .collect(Collectors.toMap(CodeUnit::fqName, cls -> 1.0));
         var relatedCode = Context.buildAutoContext(analyzer, seeds, Set.of(), 5);
 
