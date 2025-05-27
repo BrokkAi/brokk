@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.Project.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
+import io.github.jbellis.brokk.Llm;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -20,7 +21,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 public class SettingsDialog extends JDialog {
@@ -31,6 +31,12 @@ public class SettingsDialog extends JDialog {
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
     private final JPanel projectPanel; // Keep a reference to enable/disable
+
+    // Dialog-level buttons
+    private final JButton okButton;
+    private final JButton cancelButton;
+    private final JButton applyButton;
+
     // Brokk Key field (Global)
     private JTextField brokkKeyField;
     // Global proxy selection
@@ -57,10 +63,16 @@ public class SettingsDialog extends JDialog {
     // Project -> General tab specific fields
     private JTextArea styleGuideArea;
     private JTextArea commitFormatArea;
-    // Project -> Code Intelligence tab specific fields
-    private Map<io.github.jbellis.brokk.analyzer.Language, JCheckBox> languageCheckBoxMap;
-    private JList<String> excludedDirectoriesList; // Moved to Code Intelligence Panel
-    private DefaultListModel<String> excludedDirectoriesListModel; // Moved to Code Intelligence Panel
+    // Project -> Build tab / Code Intelligence specific fields
+    private JScrollPane instructionsScrollPane;
+    private JList<String> excludedDirectoriesList;
+    private DefaultListModel<String> excludedDirectoriesListModel;
+    private JScrollPane excludedScrollPane;
+    private JButton addExcludedDirButton;
+    private JButton removeExcludedDirButton;
+    private JTextField languagesDisplayField;
+    private JButton editLanguagesButtonInProjectPanel;
+    private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog;
     private JRadioButton runAllTestsRadio;
     private JRadioButton runTestsInWorkspaceRadio;
     // Quick Models Tab components
@@ -70,6 +82,8 @@ public class SettingsDialog extends JDialog {
     private JTextField balanceField;
     // Signup Label (Global -> Service)
     private BrowserLabel signupLabel;
+    // Build progress bar
+    private JProgressBar buildProgressBar;
 
 
     public SettingsDialog(Frame owner, Chrome chrome) {
@@ -123,9 +137,9 @@ public class SettingsDialog extends JDialog {
 
         // Buttons Panel
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        var okButton = new JButton("OK");
-        var cancelButton = new JButton("Cancel");
-        var applyButton = new JButton("Apply"); // Added Apply button
+        okButton = new JButton("OK");
+        cancelButton = new JButton("Cancel");
+        applyButton = new JButton("Apply"); // Added Apply button
 
         okButton.addActionListener(e -> {
             if (applySettings()) {
@@ -487,7 +501,7 @@ public class SettingsDialog extends JDialog {
         buildInstructionsArea = new JTextArea(10, 20);
         buildInstructionsArea.setWrapStyleWord(true);
         buildInstructionsArea.setLineWrap(true);
-        var instructionsScrollPane = new JScrollPane(buildInstructionsArea);
+        instructionsScrollPane = new JScrollPane(buildInstructionsArea);
         instructionsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         instructionsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
@@ -559,9 +573,187 @@ public class SettingsDialog extends JDialog {
         gbc.weightx = 1.0;
         gbc.weighty = 1.0; // Allow build instructions to take up remaining vertical space
         gbc.fill = GridBagConstraints.BOTH;
-        buildPanel.add(instructionsScrollPane, gbc);
+        buildPanel.add(this.instructionsScrollPane, gbc);
         row++; // Increment row after instructions
 
+        // ----- Code Intelligence Settings integrated into Build Panel -----
+        // CPG Refresh
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.weighty = 0.0; // Reset weighty
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        buildPanel.add(new JLabel("CI Refresh:"), gbc); // CI for Code Intelligence
+        cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART});
+        var currentRefresh = project.getAnalyzerRefresh();
+        cpgRefreshComboBox.setSelectedItem(currentRefresh == Project.CpgRefresh.UNSET ? Project.CpgRefresh.AUTO : currentRefresh);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        buildPanel.add(cpgRefreshComboBox, gbc);
+
+        // Analyze Languages (CDL + Edit Button)
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.WEST;
+        buildPanel.add(new JLabel("CI Languages:"), gbc);
+
+        languagesDisplayField = new JTextField(20);
+        languagesDisplayField.setEditable(false);
+        currentAnalyzerLanguagesForDialog = new HashSet<>(project.getAnalyzerLanguages());
+        updateLanguagesDisplayField(); // Populate the CDL
+
+        this.editLanguagesButtonInProjectPanel = new JButton("Edit");
+        this.editLanguagesButtonInProjectPanel.addActionListener(e -> showLanguagesDialog(project));
+
+        var languagesPanel = new JPanel(new BorderLayout(5, 0)); // 5px hgap
+        languagesPanel.add(languagesDisplayField, BorderLayout.CENTER);
+        languagesPanel.add(this.editLanguagesButtonInProjectPanel, BorderLayout.EAST);
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(languagesPanel, gbc);
+
+        // Excluded Directories
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Align label top-left for list
+        buildPanel.add(new JLabel("CI Exclusions:"), gbc);
+
+        excludedDirectoriesListModel = new DefaultListModel<>();
+        var sortedExcludedDirs = (details != null ? details.excludedDirectories() : Set.<String>of())
+                .stream().sorted().toList();
+        for (String dir : sortedExcludedDirs) {
+            excludedDirectoriesListModel.addElement(dir);
+        }
+        excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
+        excludedDirectoriesList.setVisibleRowCount(3); // Adjusted row count
+        this.excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+
+        gbc.gridx = 1;
+        gbc.gridy = row;
+        gbc.weightx = 1.0;
+        gbc.weighty = 0.5; // Allow list to take some vertical space
+        gbc.fill = GridBagConstraints.BOTH;
+        buildPanel.add(this.excludedScrollPane, gbc);
+
+        // Buttons for Excluded Directories
+        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        this.addExcludedDirButton = new JButton("Add");
+        this.removeExcludedDirButton = new JButton("Remove");
+        excludedButtonsPanel.add(this.addExcludedDirButton);
+        excludedButtonsPanel.add(this.removeExcludedDirButton);
+
+        gbc.gridy = row + 1; // Position buttons below the list (same row logically, but next grid cell down)
+        gbc.weighty = 0.0;   // Buttons don't take vertical space
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST;
+        gbc.insets = new Insets(2, 0, 2, 2); // Adjust insets for button panel
+        buildPanel.add(excludedButtonsPanel, gbc);
+        row += 2; // Increment row for list and buttons
+        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
+
+        this.addExcludedDirButton.addActionListener(e -> {
+            String newDir = JOptionPane.showInputDialog(SettingsDialog.this,
+                                                        "Enter directory to exclude (e.g., target/, build/):",
+                                                        "Add Excluded Directory",
+                                                        JOptionPane.PLAIN_MESSAGE);
+            if (newDir != null && !newDir.trim().isEmpty()) {
+                String trimmedNewDir = newDir.trim();
+                excludedDirectoriesListModel.addElement(trimmedNewDir);
+                var elements = new ArrayList<String>();
+                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
+                    elements.add(excludedDirectoriesListModel.getElementAt(i));
+                }
+                elements.sort(String::compareToIgnoreCase);
+                excludedDirectoriesListModel.clear();
+                for (String element : elements) {
+                    excludedDirectoriesListModel.addElement(element);
+                }
+            }
+        });
+
+        this.removeExcludedDirButton.addActionListener(e -> {
+            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
+            for (int i = selectedIndices.length - 1; i >= 0; i--) {
+                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
+            }
+        });
+
+        // --- Run Build Agent button (moved to bottom) ---
+        gbc.gridx = 1; // Align with input fields (right column)
+        gbc.gridy = row++; // Next available row
+        gbc.weightx = 0.0; // Don't stretch button horizontally
+        gbc.weighty = 0.0; // Don't stretch button vertically
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.EAST; // Align button to the right
+        var rerunBuildButton = new JButton("Run Build Agent");
+        buildPanel.add(rerunBuildButton, gbc);
+
+        // --- Progress Bar for Build Agent ---
+        buildProgressBar = new JProgressBar();
+        buildProgressBar.setIndeterminate(true);
+        buildProgressBar.setVisible(false);
+        gbc.gridx = 1; // Align with input fields (right column)
+        gbc.gridy = row++; // Next available row
+        gbc.fill = GridBagConstraints.HORIZONTAL; // Let progress bar fill width
+        gbc.anchor = GridBagConstraints.EAST;
+        buildPanel.add(buildProgressBar, gbc);
+
+        rerunBuildButton.addActionListener(e -> {
+            var cm = chrome.getContextManager();
+            var proj = chrome.getProject();
+            if (proj == null) {
+                chrome.toolErrorRaw("No project is open.");
+                return;
+            }
+
+            // List of controls to disable/enable
+            setBuildControlsEnabled(false);
+            rerunBuildButton.setEnabled(false);
+
+            cm.submitUserTask("Running Build Agent", () -> {
+                try {
+                    chrome.systemOutput("Starting Build Agent...");
+                    // Use the same as on ContextManager#ensureBuildDetailsAsync
+                    var agent = new BuildAgent(proj, cm.getLlm(cm.getService().quickModel(), "Infer build details"), cm.getToolRegistry());
+                    var newBuildDetails = agent.execute();
+
+                    if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
+                        logger.warn("Build Agent returned empty details, considering it an error.");
+                        SwingUtilities.invokeLater(() -> {
+                            String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
+                            chrome.toolErrorRaw(errorMessage);
+                            JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                            // Do not save or update UI with empty details
+                        });
+                    } else {
+                        proj.saveBuildDetails(newBuildDetails);
+                        SwingUtilities.invokeLater(() -> {
+                            updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                            chrome.systemOutput("Build Agent finished. Settings updated.");
+                        });
+                    }
+                } catch (Exception ex) {
+                    logger.error("Error running Build Agent", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        String errorMessage = "Build Agent failed: " + ex.getMessage();
+                        chrome.toolErrorRaw(errorMessage);
+                        JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                    });
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        setBuildControlsEnabled(true);
+                        rerunBuildButton.setEnabled(true);
+                    });
+                }
+            });
+        });
+        // No anchor reset needed if it's the last component in this GridBagLayout sequence for buildPanel
 
         // ----- Other Tab (now General Tab) -----
         var otherPanel = new JPanel(new GridBagLayout());
@@ -654,13 +846,9 @@ public class SettingsDialog extends JDialog {
         gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
 
-        // Add General tab, then Build tab, then Code Intelligence tab
+        // Add General tab, then Build tab
         subTabbedPane.addTab("General", otherPanel); // Renamed from "Other"
         subTabbedPane.addTab("Build", buildPanel);
-
-        // ----- Code Intelligence Tab -----
-        var codeIntelPanel = createCodeIntelligencePanel(project);
-        subTabbedPane.addTab("Code Intelligence", codeIntelPanel);
 
         // ----- Data Retention Tab -----
         dataRetentionPanel = new DataRetentionPanel(project); // Create the panel instance
@@ -670,36 +858,67 @@ public class SettingsDialog extends JDialog {
         return projectTabRootPanel;
     }
 
+    private void setBuildControlsEnabled(boolean enabled) {
+        // Determine effective enabled state based on project presence if we are re-enabling
+        boolean effectiveEnabled = enabled ? (chrome.getProject() != null) : false;
 
-    private JPanel createCodeIntelligencePanel(Project project) {
-        var panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var gbc = new GridBagConstraints();
-        gbc.insets = new Insets(2, 2, 2, 2);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        int row = 0;
+        buildProgressBar.setVisible(!enabled); // Progress bar visible when controls are disabled
 
-        // Code Intelligence Refresh
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        panel.add(new JLabel("Refresh:"), gbc); // Simplified label
-        cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART});
-        var currentRefresh = project.getAnalyzerRefresh();
-        cpgRefreshComboBox.setSelectedItem(currentRefresh == Project.CpgRefresh.UNSET ? Project.CpgRefresh.AUTO : currentRefresh);
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        panel.add(cpgRefreshComboBox, gbc);
+        List<Component> controlsToManage = List.of(
+                buildCleanCommandField, allTestsCommandField,
+                runAllTestsRadio, runTestsInWorkspaceRadio,
+                instructionsScrollPane, buildInstructionsArea,
+                cpgRefreshComboBox,
+                editLanguagesButtonInProjectPanel,
+                excludedScrollPane, excludedDirectoriesList,
+                addExcludedDirButton, removeExcludedDirButton,
+                okButton, cancelButton, applyButton
+        );
 
-        // Code Intelligence Languages
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        panel.add(new JLabel("Analyze Languages:"), gbc);
+        for (Component control : controlsToManage) {
+            control.setEnabled(effectiveEnabled);
+        }
+    }
 
-        languageCheckBoxMap = new java.util.LinkedHashMap<>(); // Preserve order
+    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
+        if (details == null) {
+            logger.warn("Attempted to update build details fields with null details.");
+            return;
+        }
+        // Ensure updates happen on the EDT, though this method is expected to be called from within one.
+        SwingUtilities.invokeLater(() -> {
+            buildCleanCommandField.setText(details.buildLintCommand());
+            allTestsCommandField.setText(details.testAllCommand());
+            buildInstructionsArea.setText(details.instructions());
+            excludedDirectoriesListModel.clear();
+            var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
+            for (String dir : sortedExcludedDirs) {
+                excludedDirectoriesListModel.addElement(dir);
+            }
+            logger.trace("UI fields updated with new BuildDetails from agent: {}", details);
+        });
+    }
+
+    private void updateLanguagesDisplayField() {
+        if (languagesDisplayField == null || currentAnalyzerLanguagesForDialog == null) {
+            return;
+        }
+        String cdl = currentAnalyzerLanguagesForDialog.stream()
+                .map(lang -> lang.name()) // Use lambda expression for clarity and to aid type inference
+                .sorted()
+                .collect(java.util.stream.Collectors.joining(", "));
+        languagesDisplayField.setText(cdl.isEmpty() ? "None" : cdl);
+    }
+
+    private void showLanguagesDialog(Project project) {
+        var dialog = new JDialog(this, "Select Languages for Analysis", true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setLayout(new BorderLayout(10, 10));
+        dialog.setSize(300, 400);
+        dialog.setLocationRelativeTo(this);
+
+        // Preserve Order
+        var languageCheckBoxMapLocal = new java.util.LinkedHashMap<io.github.jbellis.brokk.analyzer.Language, JCheckBox>();
         var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
         if (project.getRoot() != null) {
             Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan;
@@ -720,9 +939,9 @@ public class SettingsDialog extends JDialog {
             }
         }
 
-        var languagesPanel = new JPanel();
-        languagesPanel.setLayout(new BoxLayout(languagesPanel, BoxLayout.PAGE_AXIS));
-        var currentAnalyzerLanguages = project.getAnalyzerLanguages();
+        var checkBoxesPanel = new JPanel();
+        checkBoxesPanel.setLayout(new BoxLayout(checkBoxesPanel, BoxLayout.PAGE_AXIS));
+        checkBoxesPanel.setBorder(BorderFactory.createEmptyBorder(10,10,10,10));
 
         var sortedLanguagesToShow = languagesInProject.stream()
                 .sorted(java.util.Comparator.comparing(io.github.jbellis.brokk.analyzer.Language::name))
@@ -730,105 +949,38 @@ public class SettingsDialog extends JDialog {
 
         for (var lang : sortedLanguagesToShow) {
             var checkBox = new JCheckBox(lang.name());
-            checkBox.setSelected(currentAnalyzerLanguages.contains(lang));
-            languageCheckBoxMap.put(lang, checkBox);
-            languagesPanel.add(checkBox);
+            checkBox.setSelected(currentAnalyzerLanguagesForDialog.contains(lang)); // Use current dialog state
+            languageCheckBoxMapLocal.put(lang, checkBox);
+            checkBoxesPanel.add(checkBox);
+        }
+        if (sortedLanguagesToShow.isEmpty()) {
+            checkBoxesPanel.add(new JLabel("No analyzable languages detected in the project."));
         }
 
-        gbc.gridx = 1;
-        gbc.gridy = row++;
-        gbc.weightx = 1.0;
-        gbc.fill = GridBagConstraints.HORIZONTAL; // Checkboxes panel should fill horizontally
-        gbc.anchor = GridBagConstraints.WEST;
-        panel.add(new JScrollPane(languagesPanel), gbc); // Add scroll pane in case of many languages
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var okButton = new JButton("OK");
+        var cancelButton = new JButton("Cancel");
+        buttonPanel.add(okButton);
+        buttonPanel.add(cancelButton);
 
-        // Excluded Directories
-        var excludedLabelPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // To align label nicely
-        excludedLabelPanel.add(new JLabel("Exclusions:"));
-
-        gbc.gridx = 0;
-        gbc.gridy = row;
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0; // Reset weighty
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.fill = GridBagConstraints.NONE;
-        panel.add(excludedLabelPanel, gbc);
-
-
-        excludedDirectoriesListModel = new DefaultListModel<>();
-        // Details might be null if project just created, or if build details haven't been populated
-        var details = project.getBuildDetails();
-        var sortedExcludedDirs = (details != null ? details.excludedDirectories() : Set.<String>of())
-                .stream().sorted().toList();
-        for (String dir : sortedExcludedDirs) {
-            excludedDirectoriesListModel.addElement(dir);
-        }
-        excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
-        excludedDirectoriesList.setVisibleRowCount(5);
-        var excludedScrollPane = new JScrollPane(excludedDirectoriesList);
-
-        gbc.gridx = 1;
-        gbc.gridy = row;
-        gbc.weightx = 1.0;
-        gbc.weighty = 1.0; // Allow list to grow vertically
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.anchor = GridBagConstraints.NORTHWEST; // Changed from NORTH
-        panel.add(excludedScrollPane, gbc);
-
-        // Buttons for Excluded Directories
-        var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        var addButton = new JButton("Add");
-        var removeButton = new JButton("Remove");
-        excludedButtonsPanel.add(addButton);
-        excludedButtonsPanel.add(removeButton);
-
-        gbc.gridx = 1;
-        gbc.gridy = row + 1; // Position buttons below the list
-        gbc.weightx = 0.0;
-        gbc.weighty = 0.0;
-        gbc.fill = GridBagConstraints.NONE;
-        gbc.anchor = GridBagConstraints.NORTHWEST;
-        gbc.insets = new Insets(2, 0, 2, 2);
-        panel.add(excludedButtonsPanel, gbc);
-        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
-
-        addButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(SettingsDialog.this,
-                                                        "Enter directory to exclude (e.g., target/, build/):",
-                                                        "Add Excluded Directory",
-                                                        JOptionPane.PLAIN_MESSAGE);
-            if (newDir != null && !newDir.trim().isEmpty()) {
-                String trimmedNewDir = newDir.trim();
-                excludedDirectoriesListModel.addElement(trimmedNewDir);
-                var elements = new java.util.ArrayList<String>();
-                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) {
-                    elements.add(excludedDirectoriesListModel.getElementAt(i));
-                }
-                elements.sort(String::compareToIgnoreCase);
-                excludedDirectoriesListModel.clear();
-                for (String element : elements) {
-                    excludedDirectoriesListModel.addElement(element);
+        okButton.addActionListener(e -> {
+            currentAnalyzerLanguagesForDialog.clear();
+            for (var entry : languageCheckBoxMapLocal.entrySet()) {
+                if (entry.getValue().isSelected()) {
+                    currentAnalyzerLanguagesForDialog.add(entry.getKey());
                 }
             }
+            updateLanguagesDisplayField();
+            dialog.dispose();
         });
 
-        removeButton.addActionListener(e -> {
-            int[] selectedIndices = excludedDirectoriesList.getSelectedIndices();
-            for (int i = selectedIndices.length - 1; i >= 0; i--) {
-                excludedDirectoriesListModel.removeElementAt(selectedIndices[i]);
-            }
-        });
-        row++; // For the list itself
-        row++; // For the buttons panel
+        cancelButton.addActionListener(e -> dialog.dispose());
 
-        // Add vertical glue to push content up, if needed, or ensure last component stretches
-        gbc.gridy = row;
-        gbc.weighty = 0.1; // Give a little weight to push up if panel is taller
-        gbc.fill = GridBagConstraints.VERTICAL;
-        panel.add(Box.createVerticalGlue(), gbc);
-
-        return panel;
+        dialog.add(new JScrollPane(checkBoxesPanel), BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        dialog.setVisible(true);
     }
+
 
     /**
      * Static inner class to encapsulate the Data Retention settings UI and logic.
@@ -1409,8 +1561,8 @@ public class SettingsDialog extends JDialog {
             logger.debug("Applied Build Details changes.");
         }
 
-        // Apply CPG Refresh Setting (from Code Intelligence Tab)
-        if (cpgRefreshComboBox != null) { // Check if initialized (project open and tab created)
+        // Apply CPG Refresh Setting (now in Build Tab)
+        if (cpgRefreshComboBox != null) {
             var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
             if (selectedRefresh != project.getAnalyzerRefresh()) {
                 project.setAnalyzerRefresh(selectedRefresh);
@@ -1418,18 +1570,12 @@ public class SettingsDialog extends JDialog {
             }
         }
 
-        // Apply Code Intelligence Languages (from Code Intelligence Tab)
-        if (languageCheckBoxMap != null && !languageCheckBoxMap.isEmpty()) {
-            var selectedLanguages = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
-            for (var entry : languageCheckBoxMap.entrySet()) {
-                if (entry.getValue().isSelected()) {
-                    selectedLanguages.add(entry.getKey());
-                }
-            }
+        // Apply Code Intelligence Languages
+        if (currentAnalyzerLanguagesForDialog != null) {
             // Only update if the set of languages has changed
-            if (!selectedLanguages.equals(project.getAnalyzerLanguages())) {
-                project.setAnalyzerLanguages(selectedLanguages);
-                logger.debug("Applied Code Intelligence Languages: {}", selectedLanguages);
+            if (!currentAnalyzerLanguagesForDialog.equals(project.getAnalyzerLanguages())) {
+                project.setAnalyzerLanguages(currentAnalyzerLanguagesForDialog);
+                logger.debug("Applied Code Intelligence Languages: {}", currentAnalyzerLanguagesForDialog);
                 // Consider notifying user about potential analyzer rebuild if behavior changes
             }
         }
@@ -1653,7 +1799,6 @@ public class SettingsDialog extends JDialog {
             // Determine if target is a Project sub-tab
             boolean isProjectSubTab = "General".equals(targetTabName) ||
                     "Build".equals(targetTabName) ||
-                    "Code Intelligence".equals(targetTabName) ||
                     "Data Retention".equals(targetTabName);
 
             if (isGlobalSubTab) {
