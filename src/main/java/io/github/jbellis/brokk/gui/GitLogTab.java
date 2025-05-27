@@ -8,9 +8,11 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
 import javax.swing.*;
+import java.util.stream.Collectors;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
@@ -1426,12 +1428,31 @@ public class GitLogTab extends JPanel {
     private void mergeBranchIntoHead(String branchName) {
         contextManager.submitUserTask("Merging branch: " + branchName, () -> {
             try {
-                getRepo().mergeIntoHead(branchName);
-                chrome.systemOutput("Branch '" + branchName + "' was successfully merged into HEAD.");
-                update();
+                MergeResult mergeResult = getRepo().mergeIntoHead(branchName);
+                MergeResult.MergeStatus status = mergeResult.getMergeStatus();
+
+                if (status.isSuccessful()) {
+                    if (status == MergeResult.MergeStatus.ALREADY_UP_TO_DATE) {
+                        chrome.systemOutput("Branch '" + branchName + "' is already up-to-date with HEAD.");
+                    } else {
+                        chrome.systemOutput("Branch '" + branchName + "' was successfully merged into HEAD.");
+                    }
+                } else if (status == MergeResult.MergeStatus.CONFLICTING) {
+                    String conflictingFiles = mergeResult.getConflicts().keySet().stream()
+                            .map(s -> "  - " + s)
+                            .collect(Collectors.joining("\n"));
+                    chrome.toolErrorRaw("Merge conflicts detected for branch '" + branchName + "'.\n" +
+                                        "Please resolve conflicts manually and then commit.\n" +
+                                        "Conflicting files:\n" + conflictingFiles);
+                } else {
+                    // For other non-successful statuses like FAILED, ABORTED etc.
+                    chrome.toolErrorRaw("Merge of branch '" + branchName + "' failed with error: " + status);
+                }
+                update(); // Refresh UI to reflect new state (merged, conflicting, or failed)
             } catch (GitAPIException e) {
                 logger.error("Error merging branch: {}", branchName, e);
-                chrome.toolErrorRaw(e.getMessage());
+                chrome.toolErrorRaw("Error merging branch '" + branchName + "': " + e.getMessage());
+                update(); // Refresh UI to show current state after error
             }
         });
     }

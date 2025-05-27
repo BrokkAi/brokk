@@ -6,6 +6,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffFormatter;
 // StashInfo removed
@@ -637,10 +638,12 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /**
      * Merge a branch into HEAD
+     * @return The result of the merge operation.
      */
-    public void mergeIntoHead(String branchName) throws GitAPIException {
-        git.merge().include(resolve(branchName)).call();
+    public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
+        var result = git.merge().include(resolve(branchName)).call();
         refresh();
+        return result;
     }
 
     /**
