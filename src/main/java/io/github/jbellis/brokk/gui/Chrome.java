@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
@@ -757,23 +758,45 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // Handle text fragments
-            String content = fragment.text();
-            io.github.jbellis.brokk.analyzer.ProjectFile file;
-            // Handle PathFragment using the unified previewFile method
             if (fragment instanceof ContextFragment.PathFragment pf) {
-                // Ensure we are on the EDT before calling previewFile
-                if (!SwingUtilities.isEventDispatchThread()) {
-                    SwingUtilities.invokeLater(() -> previewFile((ProjectFile) pf.file()));
-                } else {
-                    previewFile((ProjectFile) pf.file());
+                var brokkFile = pf.file();
+                if (brokkFile instanceof ProjectFile projectFile) {
+                    // Ensure we are on the EDT before calling previewFile
+                    if (!SwingUtilities.isEventDispatchThread()) {
+                        SwingUtilities.invokeLater(() -> previewFile(projectFile));
+                    } else {
+                        previewFile(projectFile);
+                    }
+                    return; // previewFile handles showing the frame
+                } else if (brokkFile instanceof ExternalFile externalFile) {
+                    Runnable task = () -> {
+                        try {
+                            String content = externalFile.read();
+                            String syntaxStyle = externalFile.getSyntaxStyle();
+                            // For ExternalFile, ProjectFile arg to PreviewTextPanel is null.
+                            // Pass `fragment` (which is `pf`) to PreviewTextPanel for context.
+                            var panel = new PreviewTextPanel(contextManager, null, content, syntaxStyle, themeManager, fragment);
+                            showPreviewFrame(contextManager, "Preview: " + externalFile.toString(), panel);
+                        } catch (IOException ex) {
+                            toolErrorRaw("Error reading external file for preview: " + ex.getMessage());
+                            logger.error("Error reading external file {} for preview", externalFile.absPath(), ex);
+                        }
+                    };
+                    // Ensure UI operations are on EDT
+                    if (!SwingUtilities.isEventDispatchThread()) {
+                        SwingUtilities.invokeLater(task);
+                    } else {
+                        task.run();
+                    }
+                    return;
                 }
-                return; // previewFile handles showing the frame
             }
 
             // Handle other text-based fragments (e.g., VirtualFragment, GitFileFragment)
+            String content = fragment.text();
             String syntaxStyle = fragment.syntaxStyle();
             // Check specifically for GitFileFragment to get the associated file, otherwise null
-            file = (fragment instanceof ContextFragment.GitFileFragment gff) ? (ProjectFile) gff.file() : null;
+            ProjectFile file = (fragment instanceof ContextFragment.GitFileFragment gff) ? gff.file() : null;
             var previewPanel = new PreviewTextPanel(contextManager, file, content, syntaxStyle, themeManager, fragment);
             showPreviewFrame(contextManager, title, previewPanel); // Use helper for these too
 
