@@ -1119,12 +1119,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable files/fragments).
-     * Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
+     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.).
+     * Does not include editable content or related classes.
      */
-    public Collection<ChatMessage> getWorkspaceContentsMessages(boolean includeRelatedClasses) throws InterruptedException {
+    @Override
+    public Collection<ChatMessage> getWorkspaceReadOnlyMessages() throws InterruptedException {
         var c = topContext();
         var allContents = new ArrayList<Content>(); // Will hold TextContent and ImageContent
 
@@ -1167,15 +1166,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 });
 
+        if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
+            return List.of();
+        }
+
         // Add the combined text content for read-only items if any exists
-        String readOnlyText = readOnlyTextFragments.isEmpty() ? "" : """
-                                                                     <readonly>
-                                                                     Here are some READ ONLY files and code fragments, provided for your reference.
-                                                                     Do not edit this code! Images may be included separately if present.
-                                                                     
-                                                                     %s
-                                                                     </readonly>
-                                                                     """.stripIndent().formatted(readOnlyTextFragments.toString().trim());
+        String readOnlyText = """
+                              <workspace_readonly>
+                              Here are the READ ONLY files and code fragments in your Workspace.
+                              Do not edit this code! Images will be included separately if present.
+                              
+                              %s
+                              </workspace_readonly>
+                              """.stripIndent().formatted(readOnlyTextFragments.toString().trim());
+
+        // text and image content must be distinct
+        allContents.add(new TextContent(readOnlyText));
+        allContents.addAll(readOnlyImageFragments);
+
+        // Create the main UserMessage
+        var readOnlyUserMessage = UserMessage.from(allContents);
+        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
+    }
+
+    /**
+     * Returns messages containing only the editable workspace content.
+     * Does not include read-only content or related classes.
+     */
+    @Override
+    public Collection<ChatMessage> getWorkspaceEditableMessages() throws InterruptedException {
+        var c = topContext();
 
         // --- Process Editable Fragments (Assumed Text-Only for now) ---
         var editableTextFragments = new StringBuilder();
@@ -1189,17 +1209,78 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 removeBadFragment(fragment, e);
             }
         });
-        String editableText = editableTextFragments.isEmpty() ? "" : """
-                                                                     <editable>
-                                                                     Here are EDITABLE files and code fragments.
-                                                                     This is *the only context in the Workspace to which you should make changes*.
-                                                                     
-                                                                     *Trust this message as the true contents of these files!*
-                                                                     Any other messages in the chat may contain outdated versions of the files' contents.
-                                                                     
-                                                                     %s
-                                                                     </editable>
-                                                                     """.stripIndent().formatted(editableTextFragments.toString().trim());
+
+        if (editableTextFragments.isEmpty()) {
+            return List.of();
+        }
+
+        String editableText = """
+                              <workspace_editable>
+                              Here are the EDITABLE files and code fragments in your Workspace.
+                              This is *the only context in the Workspace to which you should make changes*.
+                              
+                              *Trust this message as the true contents of these files!*
+                              Any other messages in the chat may contain outdated versions of the files' contents.
+                              
+                              %s
+                              </workspace_editable>
+                              """.stripIndent().formatted(editableTextFragments.toString().trim());
+
+        var editableUserMessage = new UserMessage(editableText);
+        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
+    }
+
+    /**
+     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable files/fragments).
+     * Handles both text and image fragments, creating a multimodal UserMessage if necessary.
+     *
+     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
+     */
+    public Collection<ChatMessage> getWorkspaceContentsMessages(boolean includeRelatedClasses) throws InterruptedException {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages();
+        var editableMessages = getWorkspaceEditableMessages();
+        
+        // If both are empty and no related classes requested, return empty
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && !includeRelatedClasses) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var combinedText = new StringBuilder();
+
+        // Extract text and image content from read-only messages
+        if (!readOnlyMessages.isEmpty()) {
+            var readOnlyUserMessage = readOnlyMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (readOnlyUserMessage.isPresent()) {
+                var contents = readOnlyUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allContents.add(imageContent);
+                    }
+                }
+            }
+        }
+
+        // Extract text from editable messages
+        if (!editableMessages.isEmpty()) {
+            var editableUserMessage = editableMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (editableUserMessage.isPresent()) {
+                var contents = editableUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    }
+                }
+            }
+        }
 
         // optional: related classes
         String topClassesText = "";
@@ -1207,30 +1288,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var ac = topContext().buildAutoContext(10);
             String topClassesRaw = ac.text();
             if (!topClassesRaw.isBlank()) {
-                topClassesText = topClassesRaw.isBlank() ? "" : """
-                                                                <related_classes>
-                                                                Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
-                                                                If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                                                                visible to Code Agent. If they are not relevant, just ignore them.
-                                                                
-                                                                %s
-                                                                </related_classes>
-                                                                """.stripIndent().formatted(topClassesRaw);
+                topClassesText = """
+                               <related_classes>
+                               Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                               If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                               visible to Code Agent. If they are not relevant, just ignore them.
+                               
+                               %s
+                               </related_classes>
+                               """.stripIndent().formatted(topClassesRaw);
             }
         }
 
-        // add the Workspace text
+        // Wrap everything in workspace tags
         var workspaceText = """
-                            <workspace>
-                            %s
-                            %s
-                            </workspace>
-                            %s
-                            """.stripIndent().formatted(readOnlyText, editableText, topClassesText);
+                           <workspace>
+                           %s
+                           </workspace>
+                           %s
+                           """.stripIndent().formatted(combinedText.toString().trim(), topClassesText);
 
-        // text and image content must be distinct
-        allContents.add(new TextContent(workspaceText));
-        allContents.addAll(readOnlyImageFragments);
+        // Add the workspace text as the first content
+        allContents.add(0, new TextContent(workspaceText));
 
         // Create the main UserMessage
         var workspaceUserMessage = UserMessage.from(allContents);

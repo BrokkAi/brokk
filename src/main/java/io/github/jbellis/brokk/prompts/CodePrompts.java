@@ -63,10 +63,11 @@ public abstract class CodePrompts {
         var reminder = reminderForModel(cm.getService(), model);
 
         messages.add(systemMessage(cm, reminder));
+        messages.addAll(cm.getWorkspaceReadOnlyMessages());
         messages.addAll(parser.exampleMessages());
         messages.addAll(cm.getHistoryMessages());
         messages.addAll(sessionMessages);
-        messages.addAll(cm.getWorkspaceContentsMessages());
+        messages.addAll(cm.getWorkspaceEditableMessages());
         messages.add(request);
 
         return messages;
