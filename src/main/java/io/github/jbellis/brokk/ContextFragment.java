@@ -768,7 +768,11 @@ public interface ContextFragment extends Serializable {
 
         @Override
         public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            if (classes.isEmpty()) {
+                return SyntaxConstants.SYNTAX_STYLE_NONE;
+            }
+            var firstClass = classes.iterator().next();
+            return firstClass.source().getSyntaxStyle();
         }
     }
 
@@ -812,7 +816,11 @@ public interface ContextFragment extends Serializable {
 
         @Override
         public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            if (classes.isEmpty()) {
+                return SyntaxConstants.SYNTAX_STYLE_NONE;
+            }
+            var firstClass = classes.iterator().next();
+            return firstClass.source().getSyntaxStyle();
         }
     }
 
@@ -924,7 +932,11 @@ public interface ContextFragment extends Serializable {
 
         @Override
         public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_JAVA;
+            if (skeletons.isEmpty()) {
+                return SyntaxConstants.SYNTAX_STYLE_NONE;
+            }
+            var firstCodeUnit = skeletons.keySet().iterator().next();
+            return firstCodeUnit.source().getSyntaxStyle();
         }
 
         @Override

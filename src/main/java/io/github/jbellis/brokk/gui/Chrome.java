@@ -676,7 +676,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var content = pf.read();
 
             // 2. Deduce syntax style
-            var syntax = SyntaxDetector.detect(pf);
+            var syntax = pf.getSyntaxStyle();
 
             // 3. Build the PTP
             // 3. Build the PTP

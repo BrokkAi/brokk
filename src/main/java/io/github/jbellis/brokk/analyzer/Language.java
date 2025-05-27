@@ -410,6 +410,7 @@ public interface Language {
             return new GoAnalyzer(project, project.getBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        // TODO
         @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
     };
 

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.ContextFragment.StringFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -8,6 +9,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.transport.RefSpec;
+import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
@@ -1189,7 +1191,19 @@ public class GitPullRequestsTab extends JPanel {
                 }
 
                 String description = "PR #" + pr.getNumber() + " (" + pr.getTitle() + ") diff vs " + baseBranchName + "@{" + prBaseSha.substring(0, 7) + "}";
-                var fragment = new io.github.jbellis.brokk.ContextFragment.StringFragment(diff, description, SyntaxConstants.SYNTAX_STYLE_JAVA);
+                
+                // Determine syntax style from changed files in the PR
+                String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                try {
+                    var changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, prBaseSha);
+                    if (!changedFiles.isEmpty()) {
+                        syntaxStyle = SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Could not determine syntax style for PR diff: {}", e.getMessage());
+                }
+                
+                var fragment = new StringFragment(diff, description, syntaxStyle);
                 SwingUtilities.invokeLater(() -> chrome.openFragmentPreview(fragment));
                 chrome.systemOutput("Opened diff for PR #" + pr.getNumber() + " in preview panel");
             } catch (Exception ex) {

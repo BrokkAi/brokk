@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -59,5 +60,9 @@ public interface BrokkFile extends Serializable, Comparable<BrokkFile> {
             return filename.substring(lastDot + 1).toLowerCase();
         }
         return ""; // No extension found or invalid placement
-    } 
+    }
+
+    default String getSyntaxStyle() {
+        return SyntaxDetector.fromExtension(extension());
+    }
 }

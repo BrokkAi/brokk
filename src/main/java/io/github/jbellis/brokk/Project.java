@@ -496,8 +496,7 @@ public class Project implements IProject, AutoCloseable {
         // This is the runtime default if no specific languages are set in projectProps.
         // This detected default is NOT written back to projectProps automatically.
         Map<Language, Long> languageCounts = repo.getTrackedFiles().stream()
-            .map(ProjectFile::extension)
-            .map(Language::fromExtension)
+            .map(ProjectFile::getLanguage)
             .filter(l -> l != Language.NONE) // Ignore files with no specific language or unclassifiable extensions
             .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
 

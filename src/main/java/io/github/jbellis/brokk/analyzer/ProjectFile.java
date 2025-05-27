@@ -87,6 +87,10 @@ public class ProjectFile implements BrokkFile {
         return relPath.hashCode();
     }
 
+    public Language getLanguage() {
+        return Language.fromExtension(extension());
+    }
+
     private void writeObject(ObjectOutputStream oos) throws IOException {
         oos.defaultWriteObject();
         // store the string forms of root/relPath
