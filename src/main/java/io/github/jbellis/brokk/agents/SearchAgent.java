@@ -1255,8 +1255,11 @@ public class SearchAgent {
         var coalesced = AnalyzerUtil.coalesceInnerClasses(codeUnits);
 
         logger.debug("Final sources identified (files): {}", coalesced.stream().map(CodeUnit::source).toList());
-        var fragment = new ContextFragment.SearchFragment(query, explanationText, coalesced);
-        return new SessionResult("Search: " + query,
+
+        io.llmOutput("\n# Answer\n%s".formatted(explanationText), ChatMessageType.AI);
+        var sessionName = "Search: " + query;
+        var fragment = new ContextFragment.SearchFragment(sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
+        return new SessionResult(sessionName,
                                  fragment, Map.of(),
                                  new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS));
     }

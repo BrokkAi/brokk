@@ -489,18 +489,15 @@ public interface ContextFragment extends Serializable {
     // the search, I think we need to add a messages parameter and pass them to super();
     // then we'd also want to override format() to keep it out of what the LLM sees
     class SearchFragment extends TaskFragment {
-        private static final long serialVersionUID = 4L;
-        private final String query;
-        private final String explanation;
+        private static final long serialVersionUID = 5L;
         private final Set<CodeUnit> sources;
 
-        public SearchFragment(String query, String explanation, Set<CodeUnit> sources) {
-            super(List.of(new UserMessage(query), new AiMessage(explanation)), query);
+        public SearchFragment(String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
+            super(messages, sessionName);
             assert sources != null;
-            this.query = query;
-            this.explanation = explanation;
             this.sources = sources;
         }
+
 
         @Override
         public Set<CodeUnit> sources(IAnalyzer analyzer) {
@@ -509,11 +506,6 @@ public interface ContextFragment extends Serializable {
 
         public Set<ProjectFile> files(IProject project) {
             return sources.stream().map(CodeUnit::source).collect(java.util.stream.Collectors.toSet());
-        }
-
-        @Override
-        public String description() {
-            return "Search: " + query;
         }
 
         @Override
@@ -537,32 +529,28 @@ public interface ContextFragment extends Serializable {
             throw new java.io.NotSerializableException("SearchFragment must be serialized via SerializationProxy");
         }
 
-        public String explanation() {
-            return explanation;
-        }
-
         private static class SerializationProxy implements Serializable {
             @Serial
-            private static final long serialVersionUID = 41L; // Unique ID for SearchFragment proxy
+            private static final long serialVersionUID = 41L;
 
-            private final String query;
-            private final String explanation;
+            private final String serializedMessages; // Store messages as JSON string
+            private final String sessionName;
             private final Set<CodeUnit> sources;
-            // No need to serialize 'messages' or 'sessionName' here; TaskFragment's proxy handles them.
 
             SerializationProxy(SearchFragment fragment) {
-                this.query = fragment.query;
-                this.explanation = fragment.explanation;
+                // Store the class name of the parser
+                this.sessionName = fragment.description();
+                this.serializedMessages = ChatMessageSerializer.messagesToJson(fragment.messages());
                 this.sources = fragment.sources;
             }
 
+            /**
+             * Reconstruct the TaskFragment instance after the SerializationProxy is deserialized.
+             */
             @Serial
             private Object readResolve() throws java.io.ObjectStreamException {
-                // Reconstruct the SearchFragment. The constructor call `super(...)`
-                // will initialize the TaskFragment part, including creating the messages
-                // based on query/explanation. If TaskFragment's proxy ran correctly,
-                // the deserialized state should align.
-                return new SearchFragment(query, explanation, sources);
+                List<ChatMessage> deserializedMessages = ChatMessageDeserializer.messagesFromJson(serializedMessages);
+                return new SearchFragment(sessionName, deserializedMessages, sources);
             }
         }
     }

@@ -122,7 +122,13 @@ public class ContextSerializationTest {
 
         // Create SearchFragment separately to ensure sources are serializable
         var searchSources = Set.of(CodeUnit.cls(mockFile, "", "Test"));
-        context = context.addVirtualFragment(new ContextFragment.SearchFragment("query", "explanation", searchSources));
+        
+        List<ChatMessage> searchMessages = List.of(
+                dev.langchain4j.data.message.UserMessage.from("query"),
+                dev.langchain4j.data.message.AiMessage.from("explanation")
+        );
+        
+        context = context.addVirtualFragment(new ContextFragment.SearchFragment("Search: query", searchMessages, searchSources));
 
         // Add fragments that use Future
         CompletableFuture<String> descFuture = CompletableFuture.completedFuture("description");

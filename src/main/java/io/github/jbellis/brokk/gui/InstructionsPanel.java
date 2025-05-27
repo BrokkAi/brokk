@@ -1263,7 +1263,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var result = agent.execute();
             assert result != null;
             // Search does not stream to llmOutput, so add the final answer here
-            chrome.llmOutput("\n# Answer\n%s".formatted(((ContextFragment.SearchFragment) result.output()).explanation()), ChatMessageType.AI);
+            
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             contextManager.addToHistory(result, false);
             chrome.systemOutput("Search complete!");
