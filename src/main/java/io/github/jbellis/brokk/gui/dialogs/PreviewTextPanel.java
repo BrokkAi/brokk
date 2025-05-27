@@ -406,7 +406,7 @@ public class PreviewTextPanel extends JPanel {
                                 String identifier = unit.identifier();
                                 var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
                                 if (p.matcher(lineText).find()) {
-                                    JMenuItem item = new JMenuItem("Capture usages of " + identifier);
+                                    JMenuItem item = new JMenuItem("Capture usages of " + unit.shortName());
                                     // Use a local variable for the action listener lambda
                                     item.addActionListener(action -> {
                                         contextManager.submitBackgroundTask("Capture Usages", () -> contextManager.usageForIdentifier(unit.fqName()));
