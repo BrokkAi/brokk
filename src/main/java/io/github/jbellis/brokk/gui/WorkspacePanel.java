@@ -79,7 +79,8 @@ public class WorkspacePanel extends JPanel {
     private final ContextManager contextManager;
 
     private JTable contextTable;
-    private JPanel locSummaryLabel;
+    private JPanel locSummaryPanel;
+    private JPanel warningPanel; // Panel for warning messages
     private boolean workspaceCurrentlyEditable = true;
 
     // Buttons
@@ -104,7 +105,7 @@ public class WorkspacePanel extends JPanel {
 
         buildContextPanel();
 
-        ((JLabel) locSummaryLabel.getComponent(0)).setText(EMPTY_CONTEXT);
+        ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
     }
 
@@ -490,12 +491,17 @@ public class WorkspacePanel extends JPanel {
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
-        locSummaryLabel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        locSummaryPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         JLabel innerLabel = new JLabel(" ");
         innerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
-        locSummaryLabel.add(innerLabel);
-        locSummaryLabel.setBorder(BorderFactory.createEmptyBorder());
-        contextSummaryPanel.add(locSummaryLabel, BorderLayout.NORTH);
+        locSummaryPanel.add(innerLabel);
+        locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
+        contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
+
+        // Warning panel (for red/yellow context size warnings)
+        warningPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        warningPanel.setBorder(new EmptyBorder(0, 5, 5, 5)); // Top, Left, Bottom, Right padding
+        contextSummaryPanel.add(warningPanel, BorderLayout.CENTER);
 
         // Table panel
         var tablePanel = new JPanel(new BorderLayout());
@@ -582,8 +588,10 @@ public class WorkspacePanel extends JPanel {
 
         // Add the listener to the panel itself
         this.addMouseListener(panelPopupAndFocusListener);
-        // Add the listener to the summary panel
+        // Add the listener to the summary panel and its sub-panels to ensure consistent popup behavior
         contextSummaryPanel.addMouseListener(panelPopupAndFocusListener);
+        locSummaryPanel.addMouseListener(panelPopupAndFocusListener);
+        warningPanel.addMouseListener(panelPopupAndFocusListener);
     }
 
     /**
@@ -610,7 +618,7 @@ public class WorkspacePanel extends JPanel {
         tableModel.setRowCount(0);
 
         if (ctx == null || ctx.isEmpty()) {
-            ((JLabel) locSummaryLabel.getComponent(0)).setText(EMPTY_CONTEXT);
+            ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
             revalidate();
             repaint();
             return;
@@ -653,7 +661,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
-        var innerLabel = (JLabel) locSummaryLabel.getComponent(0);
+        var innerLabel = (JLabel) locSummaryPanel.getComponent(0);
 
         // Check for context size warnings against configured models
         var models = contextManager.getService();
@@ -705,25 +713,38 @@ public class WorkspacePanel extends JPanel {
         Deep Scan can help surface the parts of your codebase that are necessary to solving the problem.
         """;
 
+        // Always set the standard summary text on innerLabel
+        innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
+        var costEstimates = calculateCostEstimates(approxTokens, models);
+        String costText = costEstimates.isEmpty() ? "" : " Estimated cost/request is " + String.join(", ", costEstimates);
+        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.%s".formatted(totalLines, approxTokens / 1000, costText));
+        innerLabel.setToolTipText(null); // Clear tooltip
+
+        // Remove any existing warning labels from the warningPanel
+        warningPanel.removeAll();
+
         if (!redWarningModels.isEmpty()) {
-            innerLabel.setForeground(Color.RED);
             String modelListStr = redWarningModels.entrySet().stream()
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
-            innerLabel.setText(String.format("Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the following models: %s. Performance will be degraded.", approxTokens, modelListStr));
-            innerLabel.setToolTipText(warningTooltip);
+            String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the following models: %s. Performance will be degraded.", approxTokens, modelListStr);
+            JLabel warningLabel = new JLabel(warningText);
+            warningLabel.setForeground(Color.RED);
+            warningLabel.setToolTipText(warningTooltip);
+            warningPanel.add(warningLabel); 
         } else if (!yellowWarningModels.isEmpty()) {
-            innerLabel.setForeground(Color.YELLOW);
             String modelListStr = yellowWarningModels.entrySet().stream()
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
-            innerLabel.setText(String.format("Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the following models: %s. Performance may be degraded.", approxTokens, modelListStr));
-            innerLabel.setToolTipText(warningTooltip);
-        } else {
-            innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
-            innerLabel.setText("Total: %,d LOC, or about %,dk tokens".formatted(totalLines, approxTokens / 1000));
-            innerLabel.setToolTipText(null); // Clear tooltip
+            String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the following models: %s. Performance may be degraded.", approxTokens, modelListStr);
+            JLabel warningLabel = new JLabel(warningText);
+            warningLabel.setForeground(Color.YELLOW); // Standard yellow might be hard to see on some themes; consider a darker yellow or orange if needed.
+            warningLabel.setToolTipText(warningTooltip);
+            warningPanel.add(warningLabel); 
         }
+        
+        warningPanel.revalidate();
+        warningPanel.repaint();
 
         revalidate();
         repaint();
@@ -1426,6 +1447,54 @@ public class WorkspacePanel extends JPanel {
             logger.error("IOException during HEAD request to {}: {}", uri, e.getMessage());
         }
         return false;
+    }
+
+    /**
+     * Calculate cost estimates for the configured models.
+     */
+    private List<String> calculateCostEstimates(int inputTokens, Service models) {
+        var costEstimates = new ArrayList<String>();
+        var seenModels = new HashSet<String>();
+        
+        var project = contextManager.getProject();
+        
+        // Get the three configured models in order: code, ask, architect
+        List<Service.ModelConfig> configsToCheck = List.of(
+                project.getCodeModelConfig(), 
+                project.getAskModelConfig(),
+                project.getArchitectModelConfig()
+        );
+        
+        for (var config : configsToCheck) {
+            if (config.name() == null || config.name().isBlank() || seenModels.contains(config.name())) {
+                continue; // Skip if model name is empty or already processed
+            }
+            
+            try {
+                var model = models.getModel(config.name(), config.reasoning());
+                if (model instanceof Service.UnavailableStreamingModel) {
+                    continue; // Skip unavailable models
+                }
+                
+                var pricing = models.getModelPricing(config.name());
+                if (pricing.bands().isEmpty()) {
+                    continue; // Skip if no pricing info available
+                }
+                
+                // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
+                long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+                double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
+                
+                costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
+                seenModels.add(config.name());
+                
+            } catch (Exception e) {
+                logger.debug("Error calculating cost estimate for model {}: {}", config.name(), e.getMessage());
+                // Continue to next model on error
+            }
+        }
+        
+        return costEstimates;
     }
 
     /**

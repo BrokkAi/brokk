@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static java.lang.Math.min;
@@ -39,6 +40,95 @@ public final class Service {
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
+
+    public record PriceBand(long minTokensInclusive,
+                            long maxTokensInclusive, // Long.MAX_VALUE means "no upper limit"
+                            double inputCostPerToken,
+                            double cachedInputCostPerToken,
+                            double outputCostPerToken)
+    {
+        public boolean contains(long tokens) {
+            return tokens >= minTokensInclusive && tokens <= maxTokensInclusive;
+        }
+
+        public String getDescription() {
+            if (maxTokensInclusive == Long.MAX_VALUE) {
+                return String.format("for prompts ≥ %,d tokens", minTokensInclusive);
+            } else if (minTokensInclusive == 0) {
+                return String.format("for prompts ≤ %,d tokens", maxTokensInclusive);
+            } else {
+                return String.format("for prompts %,d–%,d tokens", minTokensInclusive, maxTokensInclusive);
+            }
+        }
+    }
+
+    public record ModelPricing(List<PriceBand> bands) {
+        public PriceBand bandFor(long tokens) {
+            return bands.stream()
+                        .filter(b -> b.contains(tokens))
+                        .findFirst()
+                        .orElse(bands.getLast()); // fallback to last band if no match
+        }
+
+        public double estimateCost(long inputTokens, long cachedTokens, long outputTokens) {
+            var totalTokens = inputTokens + outputTokens; // prompt size for band selection
+            var band = bandFor(totalTokens);
+            return inputTokens * band.inputCostPerToken()
+                 + cachedTokens * band.cachedInputCostPerToken()
+                 + outputTokens * band.outputCostPerToken();
+        }
+    }
+
+    public ModelPricing getModelPricing(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, cannot get prices.", modelName);
+            return new ModelPricing(List.of());
+        }
+        var info = modelInfoMap.get(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, cannot get prices.", location);
+            return new ModelPricing(List.of());
+        }
+
+        // Helper to get a double or 0.0 if null or wrong type
+        Function<Object, Double> tryDouble = val -> {
+            if (val instanceof Number n) return n.doubleValue();
+            if (val instanceof String s) {
+                try {
+                    return Double.parseDouble(s);
+                } catch (Exception e) {
+                    return 0.0;
+                }
+            }
+            return 0.0;
+        };
+
+        var inputCost = tryDouble.apply(info.get("input_cost_per_token"));
+        var cachedInputCost = tryDouble.apply(info.get("cache_read_input_token_cost"));
+        var outputCost = tryDouble.apply(info.get("output_cost_per_token"));
+
+        var inputAbove200k = info.get("input_cost_per_token_above_200k_tokens");
+        var cachedInputAbove200k = info.get("cache_read_input_token_cost_above_200k_tokens");
+        var outputAbove200k = info.get("output_cost_per_token_above_200k_tokens");
+        boolean hasAbove200k = inputAbove200k != null || cachedInputAbove200k != null || outputAbove200k != null;
+
+        if (hasAbove200k) {
+            // Two-tier pricing: <= 200k and > 200k tokens
+            var band1 = new PriceBand(0, 199_999,
+                                      inputCost, cachedInputCost, outputCost);
+            var band2 = new PriceBand(200_000, Long.MAX_VALUE,
+                                      inputAbove200k == null ? inputCost : tryDouble.apply(inputAbove200k),
+                                      cachedInputAbove200k == null ? cachedInputCost : tryDouble.apply(cachedInputAbove200k),
+                                      outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k));
+            return new ModelPricing(List.of(band1, band2));
+        } else {
+            // Single-tier pricing
+            var band = new PriceBand(0, Long.MAX_VALUE,
+                                     inputCost, cachedInputCost, outputCost);
+            return new ModelPricing(List.of(band));
+        }
+    }
 
     /**
      * Enum defining the reasoning effort levels for models.

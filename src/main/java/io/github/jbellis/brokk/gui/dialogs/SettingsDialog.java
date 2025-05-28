@@ -14,13 +14,15 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import java.awt.*;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
+import javax.swing.plaf.basic.BasicComboPopup;
 
 public class SettingsDialog extends JDialog {
     public static final String MODELS_TAB = "Models";
@@ -1265,12 +1267,51 @@ public class SettingsDialog extends JDialog {
                 .toArray(String[]::new);
         var reasoningLevels = Service.ReasoningLevel.values();
 
+        // --- Add tooltip support for model selection combos ---
+        var modelComboRenderer = new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+
+                if (value instanceof String modelName) {
+                    label.setToolTipText(generateModelTooltipText(modelName, models));
+                } else {
+                    label.setToolTipText(null);
+                }
+                return label;
+            }
+        };
+
         // will (de)activate reasoning dropdowns when model changes
-        Runnable updateReasoningState = () -> {
+        // also updates the JComboBox's own tooltip for the selected item
+        Runnable updateReasoningAndTooltipState = () -> {
+            // Update reasoning combo boxes
             updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, models);
             updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, models);
             updateReasoningComboBox(askModelComboBox, askReasoningComboBox, models);
             updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, models);
+
+            // Update tooltips for the JComboBoxes themselves
+            // This is for when the mouse hovers over the (closed) JComboBox showing the selected item.
+            if (architectModelComboBox.getSelectedItem() instanceof String modelName)
+                architectModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
+            else
+                architectModelComboBox.setToolTipText(null);
+
+            if (codeModelComboBox.getSelectedItem() instanceof String modelName)
+                codeModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
+            else
+                codeModelComboBox.setToolTipText(null);
+
+            if (askModelComboBox.getSelectedItem() instanceof String modelName)
+                askModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
+            else
+                askModelComboBox.setToolTipText(null);
+
+            if (searchModelComboBox.getSelectedItem() instanceof String modelName)
+                searchModelComboBox.setToolTipText(generateModelTooltipText(modelName, models));
+            else
+                searchModelComboBox.setToolTipText(null);
         };
 
         int row = 0;   // running row counter
@@ -1278,8 +1319,10 @@ public class SettingsDialog extends JDialog {
         /* ---------------- Architect -------------------------------------- */
         var architectConfig = project.getArchitectModelConfig();
         architectModelComboBox = new JComboBox<>(availableModels);
+        architectModelComboBox.setRenderer(modelComboRenderer);
         architectModelComboBox.setSelectedItem(architectConfig.name());
-        architectModelComboBox.addActionListener(e -> updateReasoningState.run());
+        architectModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
+        addHoverTooltipUpdater(architectModelComboBox, models);
 
         architectReasoningComboBox = new JComboBox<>(reasoningLevels);
         architectReasoningComboBox.setSelectedItem(architectConfig.reasoning());
@@ -1293,8 +1336,10 @@ public class SettingsDialog extends JDialog {
         /* ---------------- Code ------------------------------------------- */
         var codeConfig = project.getCodeModelConfig();
         codeModelComboBox = new JComboBox<>(availableModels);
+        codeModelComboBox.setRenderer(modelComboRenderer);
         codeModelComboBox.setSelectedItem(codeConfig.name());
-        codeModelComboBox.addActionListener(e -> updateReasoningState.run());
+        codeModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
+        addHoverTooltipUpdater(codeModelComboBox, models);
 
         codeReasoningComboBox = new JComboBox<>(reasoningLevels);
         codeReasoningComboBox.setSelectedItem(codeConfig.reasoning());
@@ -1308,8 +1353,10 @@ public class SettingsDialog extends JDialog {
         /* ---------------- Ask -------------------------------------------- */
         var askConfig = project.getAskModelConfig();
         askModelComboBox = new JComboBox<>(availableModels);
+        askModelComboBox.setRenderer(modelComboRenderer);
         askModelComboBox.setSelectedItem(askConfig.name());
-        askModelComboBox.addActionListener(e -> updateReasoningState.run());
+        askModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
+        addHoverTooltipUpdater(askModelComboBox, models);
 
         askReasoningComboBox = new JComboBox<>(reasoningLevels);
         askReasoningComboBox.setSelectedItem(askConfig.reasoning());
@@ -1323,8 +1370,10 @@ public class SettingsDialog extends JDialog {
         /* ---------------- Search ----------------------------------------- */
         var searchConfig = project.getSearchModelConfig();
         searchModelComboBox = new JComboBox<>(availableModels);
+        searchModelComboBox.setRenderer(modelComboRenderer);
         searchModelComboBox.setSelectedItem(searchConfig.name());
-        searchModelComboBox.addActionListener(e -> updateReasoningState.run());
+        searchModelComboBox.addActionListener(e -> updateReasoningAndTooltipState.run());
+        addHoverTooltipUpdater(searchModelComboBox, models);
 
         searchReasoningComboBox = new JComboBox<>(reasoningLevels);
         searchReasoningComboBox.setSelectedItem(searchConfig.reasoning());
@@ -1343,11 +1392,80 @@ public class SettingsDialog extends JDialog {
         gbc.fill = GridBagConstraints.VERTICAL;
         panel.add(Box.createVerticalGlue(), gbc);
 
-        SwingUtilities.invokeLater(updateReasoningState);   // initial enable/disable
+        SwingUtilities.invokeLater(updateReasoningAndTooltipState);   // initial enable/disable and tooltip setup
 
         // Return the panel directly, without wrapping in a scroll pane
         return panel;
     }
+
+    private void addHoverTooltipUpdater(JComboBox<String> comboBox, Service service) {
+        final String MOUSE_MOTION_LISTENER_KEY = "hoverTooltipMouseMotionListener";
+
+        comboBox.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                JComboBox<?> sourceComboBox = (JComboBox<?>) e.getSource();
+                Object popup = sourceComboBox.getUI().getAccessibleChild(sourceComboBox, 0);
+                if (popup instanceof BasicComboPopup basicPopup) {
+                    JList<?> list = basicPopup.getList();
+                    // Remove any existing listener first to prevent duplicates if this event fires multiple times
+                    MouseMotionListener existingListener = (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
+                    if (existingListener != null) {
+                        list.removeMouseMotionListener(existingListener);
+                    }
+
+                    MouseMotionListener newListener = new MouseMotionAdapter() {
+                        @Override
+                        public void mouseMoved(MouseEvent me) {
+                            JList<?> mousedList = (JList<?>) me.getSource();
+                            int index = mousedList.locationToIndex(me.getPoint());
+                            String tooltipText = null;
+                            if (index != -1) {
+                                Object item = mousedList.getModel().getElementAt(index);
+                                if (item instanceof String modelName) {
+                                    tooltipText = generateModelTooltipText(modelName, service);
+                                }
+                            }
+                            sourceComboBox.setToolTipText(tooltipText);
+                        }
+                    };
+                    list.addMouseMotionListener(newListener);
+                    list.putClientProperty(MOUSE_MOTION_LISTENER_KEY, newListener);
+                }
+            }
+
+            private void cleanupListenerAndResetTooltip(PopupMenuEvent e) {
+                JComboBox<?> sourceComboBox = (JComboBox<?>) e.getSource();
+                // Reset tooltip to reflect the selected item
+                if (sourceComboBox.getSelectedItem() instanceof String modelName) {
+                    sourceComboBox.setToolTipText(generateModelTooltipText(modelName, service));
+                } else {
+                    sourceComboBox.setToolTipText(null);
+                }
+
+                Object popup = sourceComboBox.getUI().getAccessibleChild(sourceComboBox, 0);
+                if (popup instanceof BasicComboPopup basicPopup) {
+                    JList<?> list = basicPopup.getList();
+                    MouseMotionListener listener = (MouseMotionListener) list.getClientProperty(MOUSE_MOTION_LISTENER_KEY);
+                    if (listener != null) {
+                        list.removeMouseMotionListener(listener);
+                        list.putClientProperty(MOUSE_MOTION_LISTENER_KEY, null);
+                    }
+                }
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                cleanupListenerAndResetTooltip(e);
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                cleanupListenerAndResetTooltip(e);
+            }
+        });
+    }
+
 
     private void refreshBalanceDisplay() {
         if (this.balanceField == null) {
@@ -1367,6 +1485,50 @@ public class SettingsDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> this.balanceField.setText("Error"));
             }
         });
+    }
+
+    private String generateModelTooltipText(String modelName, Service service) {
+        if (modelName == null) {
+            return null;
+        }
+        // Ensure service is not null before calling getModelPricing
+        if (service == null) {
+            logger.warn("Service instance is null, cannot generate model tooltip for {}", modelName);
+            return "Price information service not available.";
+        }
+
+        var pricing = service.getModelPricing(modelName);
+        if (pricing == null || pricing.bands().isEmpty()) {
+            logger.debug("Price information not found or empty for model: {}", modelName);
+            return "Price information not available for this model.";
+        }
+
+        // Special-case: if all prices are zero, say "Free"
+        boolean allFree = pricing.bands().stream().allMatch(
+            band -> band.inputCostPerToken() == 0 && band.cachedInputCostPerToken() == 0 && band.outputCostPerToken() == 0
+        );
+        if (allFree) {
+            return "Free";
+        }
+
+        String tooltip;
+        if (pricing.bands().size() > 1) {
+            tooltip = "<html>" +
+                    pricing.bands().stream()
+                            .map(band -> {
+                                double inputPerMillion = band.inputCostPerToken() * 1_000_000;
+                                double outputPerMillion = band.outputCostPerToken() * 1_000_000;
+                                return String.format("%s: $%.2f per 1M in, $%.2f per 1M out", band.getDescription(), inputPerMillion, outputPerMillion);
+                            })
+                            .collect(java.util.stream.Collectors.joining("<br/>"))
+                    + "</html>";
+        } else {
+            var band = pricing.bands().getFirst(); // Assumes bands is not empty due to check above
+            double inputPerMillion = band.inputCostPerToken() * 1_000_000;
+            double outputPerMillion = band.outputCostPerToken() * 1_000_000;
+            tooltip = String.format("$%.2f per 1M in, $%.2f per 1M out", inputPerMillion, outputPerMillion);
+        }
+        return tooltip;
     }
 
     /**
