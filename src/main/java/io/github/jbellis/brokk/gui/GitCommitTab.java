@@ -183,11 +183,8 @@ public class GitCommitTab extends JPanel {
         });
 
         editFileItem.addActionListener(e -> {
-            int row = uncommittedFilesTable.getSelectedRow();
-            if (row >= 0) {
-                var projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                GitUiUtil.editFile(contextManager, projectFile.toString());
-            }
+            var selectedProjectFiles = getSelectedFilesFromTable();
+            GitUiUtil.editFiles(contextManager, selectedProjectFiles); // Use new GitUiUtil.editFiles
         });
 
         // Add action listener for the view history item
@@ -499,7 +496,7 @@ public class GitCommitTab extends JPanel {
             viewDiffItem.setEnabled(false);
             viewDiffItem.setToolTipText("Select a file to view its diff");
             editFileItem.setEnabled(false);
-            editFileItem.setToolTipText("Select a file to edit");
+            editFileItem.setToolTipText("Select file(s) to edit"); // Updated tooltip
             viewHistoryItem.setEnabled(false);
             viewHistoryItem.setToolTipText("Select a single existing file to view its history");
         } else if (selectionCount == 1) {
@@ -514,12 +511,9 @@ public class GitCommitTab extends JPanel {
             ProjectFile projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
             String status = fileStatusMap.get(projectFile);
 
-            // Conditionally enable Edit File
-            boolean alreadyEditable = contextManager.getEditableFiles().contains(projectFile);
-            editFileItem.setEnabled(!alreadyEditable);
-            editFileItem.setToolTipText(alreadyEditable ?
-                                        "File is already in editable context" :
-                                        "Edit this file");
+            // Enable Edit File
+            editFileItem.setEnabled(true);
+            editFileItem.setToolTipText("Edit this file");
 
             // Conditionally enable View History (disable for new files)
             boolean isNew = "new".equals(status);
@@ -527,14 +521,15 @@ public class GitCommitTab extends JPanel {
             viewHistoryItem.setToolTipText(isNew ?
                                            "Cannot view history for a new file" :
                                            "View commit history for this file");
-        } else {
-            // More than one file selected
+        } else { // More than one file selected
             captureDiffItem.setEnabled(true);
             captureDiffItem.setToolTipText("Capture diff of selected files to context");
             viewDiffItem.setEnabled(false); // Disable View Diff for multiple files
             viewDiffItem.setToolTipText("Select a single file to view its diff");
-            editFileItem.setEnabled(false); // Disable Edit File for multiple files
-            editFileItem.setToolTipText("Select a single file to edit");
+
+            editFileItem.setEnabled(true);
+            editFileItem.setToolTipText("Edit selected file(s)");
+
             viewHistoryItem.setEnabled(false); // Disable View History for multiple files
             viewHistoryItem.setToolTipText("Select a single existing file to view its history");
         }

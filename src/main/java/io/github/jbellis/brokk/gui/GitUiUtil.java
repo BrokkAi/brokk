@@ -86,7 +86,20 @@ public final class GitUiUtil
             String filePath
     ) {
         var file = contextManager.toFile(filePath);
-        contextManager.editFiles(List.of(file));
+        editFiles(contextManager, List.of(file)); // Call the new list-based method
+    }
+
+    /**
+     * Open multiple files in the project's editor.
+     */
+    public static void editFiles
+    (
+            ContextManager contextManager,
+            List<ProjectFile> files
+    ) {
+        if (files != null && !files.isEmpty()) {
+            contextManager.editFiles(files);
+        }
     }
 
     /**
