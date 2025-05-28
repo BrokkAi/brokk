@@ -757,25 +757,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // Handle text fragments
-            String content = fragment.text();
-            io.github.jbellis.brokk.analyzer.ProjectFile file;
-            // Handle PathFragment using the unified previewFile method
-            if (fragment instanceof ContextFragment.PathFragment pf) {
-                // Ensure we are on the EDT before calling previewFile
+            String content = fragment.text(); // Content derived from fragment's specific text() method
+            String syntaxStyle = fragment.syntaxStyle(); // Syntax style from fragment
+
+            if (fragment instanceof ContextFragment.GitFileFragment gff) {
+                ProjectFile file = (ProjectFile) gff.file();
+                // For GitFileFragment, 'content' and 'syntaxStyle' are already correctly fetched
+                // from gff.text() and gff.syntaxStyle() due to polymorphism.
+                // Pass 'gff' itself as the fragment argument to PreviewTextPanel.
+                var previewPanel = new PreviewTextPanel(contextManager, file, content, syntaxStyle, themeManager, gff);
+                showPreviewFrame(contextManager, title, previewPanel);
+                return;
+            } else if (fragment instanceof ContextFragment.PathFragment pf) {
+                // Handle PathFragment using the unified previewFile method
+                // This method reads live content and determines syntax internally.
                 if (!SwingUtilities.isEventDispatchThread()) {
                     SwingUtilities.invokeLater(() -> previewFile((ProjectFile) pf.file()));
                 } else {
                     previewFile((ProjectFile) pf.file());
                 }
                 return; // previewFile handles showing the frame
+            } else {
+                // Handle other text-based fragments (e.g., VirtualFragment, StringFragment)
+                // These fragments typically don't have an associated ProjectFile in the same way,
+                // so 'file' is null. 'content' and 'syntaxStyle' are from the fragment.
+                var previewPanel = new PreviewTextPanel(contextManager, null, content, syntaxStyle, themeManager, fragment);
+                showPreviewFrame(contextManager, title, previewPanel);
             }
-
-            // Handle other text-based fragments (e.g., VirtualFragment, GitFileFragment)
-            String syntaxStyle = fragment.syntaxStyle();
-            // Check specifically for GitFileFragment to get the associated file, otherwise null
-            file = (fragment instanceof ContextFragment.GitFileFragment gff) ? (ProjectFile) gff.file() : null;
-            var previewPanel = new PreviewTextPanel(contextManager, file, content, syntaxStyle, themeManager, fragment);
-            showPreviewFrame(contextManager, title, previewPanel); // Use helper for these too
 
         } catch (IOException ex) { // IOException mainly from fragment.text()
             toolErrorRaw("Error reading fragment content: " + ex.getMessage());
