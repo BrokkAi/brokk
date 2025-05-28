@@ -718,7 +718,11 @@ public interface ContextFragment extends Serializable {
 
         @Override
         public String syntaxStyle() {
-            return SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (sources.isEmpty()) {
+                return SyntaxConstants.SYNTAX_STYLE_NONE;
+            }
+            var firstClass = sources.iterator().next();
+            return firstClass.source().getSyntaxStyle();
         }
     }
 

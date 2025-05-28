@@ -42,7 +42,7 @@ When you start Brokk, you’ll see five main areas:
 ![image](https://github.com/user-attachments/assets/fdeb80c6-bec9-411b-bba6-a4152361df46)
 
 1. Instructions: Code, Ask, Search, and Run in Shell specify how your input is interpreted.  Stop cancels the in-progress action.
-   Deep Scan recommends relevant source files to add to the Workspace to accomplish the given task. (TODOLINK)
+   Deep Scan recommends relevant source files to add to the Workspace to accomplish the given task.
 1. Output: Displays the LLM (or shell command) output.
 1. History: A chronological list of your actions.  Can undo changes to the Workspace as well as to your code.
 1. Workspace: Lists active files and code fragments. Manipulated through the right-click menu or the top-level Workspace menu.
@@ -51,7 +51,7 @@ When you start Brokk, you’ll see five main areas:
 As you edit your instructions and add context, Brokk will automatically suggest related files that you
 may wish to add to the Workspace. This helps the LLM avoid hallucinations when
 reasoning about your code.  This is the row of blue filenames you see below the Instructions.
-To get more precise recommendations, use Deep Scan. (TODOLINK)
+[To get more precise recommendations, use Deep Scan](https://brokk.ai/blog/lean-context-lightning-development).
 
 ## Primary Actions
 
