@@ -70,6 +70,7 @@ public class Llm {
     private final StreamingChatLanguageModel model;
     private final boolean allowPartialResponses;
     private final boolean tagRetain;
+    private double totalCost = 0.0;
 
     public Llm(StreamingChatLanguageModel model, String taskDescription, IContextManager contextManager, boolean allowPartialResponses, boolean tagRetain) {
         this.model = model;
@@ -172,6 +173,9 @@ public class Llm {
                         completedChatResponse.set(response);
                         String tokens = response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
+                        
+                        // Update cost tracking
+                        updateCostFromResponse(response, request.messages());
                     }
                     latch.countDown();
                 });
@@ -182,6 +186,10 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     io.toolErrorRaw("LLM error: " + th.getMessage()); // Immediate feedback for user
                     errorRef.set(th);
+                    
+                    // Update cost tracking with estimates
+                    updateCostFromError(request.messages(), accumulatedTextBuilder.toString());
+                    
                     latch.countDown();
                 });
             }
@@ -1009,6 +1017,67 @@ public class Llm {
         } catch (IOException e) {
             logger.error("Failed to write LLM history file", e);
         }
+    }
+
+    /**
+     * Updates cost tracking from a successful response with accurate token usage.
+     */
+    private void updateCostFromResponse(ChatResponse response, List<ChatMessage> requestMessages) {
+        if (response.tokenUsage() == null) {
+            logger.warn("No token usage available, falling back to estimation");
+            updateCostFromError(requestMessages, Messages.getText(response.aiMessage()));
+            return;
+        }
+
+        var tokenUsage = (OpenAiTokenUsage) response.tokenUsage();
+        var modelName = contextManager.getService().nameOf(model);
+        var pricing = contextManager.getService().getModelPricing(modelName);
+        
+        if (pricing == null) {
+            logger.error("No pricing information available for model {}", modelName);
+            return;
+        }
+
+        long inputTokens = tokenUsage.inputTokenCount();
+        long cachedTokens = tokenUsage.inputTokensDetails() == null ? 0 : tokenUsage.inputTokensDetails().cachedTokens();
+        long uncachedInputTokens = inputTokens - cachedTokens;
+        long outputTokens = tokenUsage.outputTokenCount();
+
+        double cost = pricing.estimateCost(uncachedInputTokens, cachedTokens, outputTokens);
+        totalCost += cost;
+        
+        logger.debug("Cost update: ${:.6f} (input: {}, cached: {}, output: {}) - Total: ${:.6f}", 
+                    cost, uncachedInputTokens, cachedTokens, outputTokens, totalCost);
+    }
+
+    /**
+     * Updates cost tracking from an error case using token estimation.
+     */
+    private void updateCostFromError(List<ChatMessage> requestMessages, String partialOutput) {
+        var modelName = contextManager.getService().nameOf(model);
+        var pricing = contextManager.getService().getModelPricing(modelName);
+        
+        if (pricing == null) {
+            logger.debug("No pricing information available for model {}", modelName);
+            return;
+        }
+
+        long estimatedInputTokens = Messages.getApproximateTokens(requestMessages);
+        long estimatedOutputTokens = Messages.getApproximateTokens(partialOutput);
+        
+        // Assume no caching in error cases
+        double cost = pricing.estimateCost(estimatedInputTokens, 0, estimatedOutputTokens);
+        totalCost += cost;
+        
+        logger.debug("Cost update (estimated): ${:.6f} (input: {}, output: {}) - Total: ${:.6f}", 
+                    cost, estimatedInputTokens, estimatedOutputTokens, totalCost);
+    }
+
+    /**
+     * Returns the total cost accumulated by this LLM instance.
+     */
+    public double getTotalCost() {
+        return totalCost;
     }
 
     /**

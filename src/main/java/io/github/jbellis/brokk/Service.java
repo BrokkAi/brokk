@@ -70,10 +70,10 @@ public final class Service {
                         .orElse(bands.getLast()); // fallback to last band if no match
         }
 
-        public double estimateCost(long inputTokens, long cachedTokens, long outputTokens) {
-            var totalTokens = inputTokens + outputTokens; // prompt size for band selection
-            var band = bandFor(totalTokens);
-            return inputTokens * band.inputCostPerToken()
+        public double estimateCost(long uncachedInputTokens, long cachedTokens, long outputTokens) {
+            var promptTokens = uncachedInputTokens + cachedTokens;
+            var band = bandFor(promptTokens);
+            return uncachedInputTokens * band.inputCostPerToken()
                  + cachedTokens * band.cachedInputCostPerToken()
                  + outputTokens * band.outputCostPerToken();
         }
