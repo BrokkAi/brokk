@@ -27,7 +27,6 @@ public class MenuBar {
         var fileMenu = new JMenu("File");
 
         var openProjectItem = new JMenuItem("Open Project...");
-        openProjectItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         openProjectItem.addActionListener(e -> {
             // Use a directory chooser
             var chooser = new JFileChooser();
@@ -161,7 +160,12 @@ public class MenuBar {
         contextMenu.add(readFilesItem);
     
     var viewFileItem = new JMenuItem("View File");
-    viewFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+    // On Mac, use Cmd+O; on Windows/Linux, use Ctrl+N
+    viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
+        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == InputEvent.META_DOWN_MASK
+            ? KeyEvent.VK_O
+            : KeyEvent.VK_N,
+        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
     viewFileItem.addActionListener(e -> {
             assert chrome.getContextManager() != null;
             assert chrome.getProject() != null;
@@ -214,7 +218,7 @@ public class MenuBar {
         contextMenu.add(summarizeItem);
 
         var symbolUsageItem = new JMenuItem("Symbol Usage");
-            symbolUsageItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Y, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+            symbolUsageItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_U, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
             symbolUsageItem.addActionListener(e -> {
                 chrome.getContextPanel().findSymbolUsageAsync(); // Call via ContextPanel
             });
