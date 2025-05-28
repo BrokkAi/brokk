@@ -91,11 +91,12 @@ public class BufferDiffPanel extends AbstractContentPanel
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Set the documents into our file panels:
-        if (filePanels[LEFT] != null && leftDocument != null) {
-            filePanels[LEFT].setBufferDocument(leftDocument);
-        }
+        // Order is important, The left panel will use the left panel syntax type if it can't figure its own
         if (filePanels[RIGHT] != null && rightDocument != null) {
             filePanels[RIGHT].setBufferDocument(rightDocument);
+        }
+        if (filePanels[LEFT] != null && leftDocument != null) {
+            filePanels[LEFT].setBufferDocument(leftDocument);
         }
 
         reDisplay();
