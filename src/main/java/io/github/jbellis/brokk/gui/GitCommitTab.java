@@ -184,7 +184,7 @@ public class GitCommitTab extends JPanel {
 
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
-            GitUiUtil.editFiles(contextManager, selectedProjectFiles); // Use new GitUiUtil.editFiles
+            GitUiUtil.editFiles(contextManager, selectedProjectFiles);
         });
 
         // Add action listener for the view history item
@@ -496,7 +496,7 @@ public class GitCommitTab extends JPanel {
             viewDiffItem.setEnabled(false);
             viewDiffItem.setToolTipText("Select a file to view its diff");
             editFileItem.setEnabled(false);
-            editFileItem.setToolTipText("Select file(s) to edit"); // Updated tooltip
+            editFileItem.setToolTipText("Select file(s) to edit");
             viewHistoryItem.setEnabled(false);
             viewHistoryItem.setToolTipText("Select a single existing file to view its history");
         } else if (selectionCount == 1) {
