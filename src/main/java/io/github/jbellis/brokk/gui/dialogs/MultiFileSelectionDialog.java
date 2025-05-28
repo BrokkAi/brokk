@@ -115,7 +115,7 @@ public class MultiFileSelectionDialog extends JDialog {
                     true, // multiSelect = true
                     null,  // No single file confirmed action for multi-select panel
                     true, // includeProjectFilesInAutocomplete
-                    null   // customHintText
+                    buildFilesTabHintText(allowExternalFiles)
             );
             fileSelectionPanel = new FileSelectionPanel(panelConfig);
             fileSelectionPanel.setName("FilesPanel"); // For focusing logic
@@ -174,6 +174,14 @@ public class MultiFileSelectionDialog extends JDialog {
         pack();
         setSize(Math.max(600, getWidth()), Math.max(550, getHeight()));
         setLocationRelativeTo(parent);
+    }
+
+    private String buildFilesTabHintText(boolean allowExternalFiles) {
+        var sb = new StringBuilder("Ctrl-space to autocomplete project files.");
+        if (allowExternalFiles) {
+            sb.append(" External files may be selected from the tree.");
+        }
+        return sb.toString();
     }
 
     private Future<List<Path>> convertProjectFilesToPaths(Future<Set<ProjectFile>> projectFilesFuture) {
