@@ -606,6 +606,7 @@ public class GitLogTab extends JPanel {
         }
         JMenuItem addFileToContextItem = new JMenuItem("Capture Diff");
         JMenuItem compareFileWithLocalItem = new JMenuItem("Compare with Local");
+        JMenuItem viewFileAtRevisionItem = new JMenuItem("View File at Revision");
         JMenuItem viewDiffItem = new JMenuItem("View Diff");
         JMenuItem viewHistoryItem = new JMenuItem("View History");
         JMenuItem editFileItem = new JMenuItem("Edit File(s)");
@@ -616,6 +617,7 @@ public class GitLogTab extends JPanel {
         changesContextMenu.addSeparator();
         changesContextMenu.add(viewHistoryItem);
         changesContextMenu.addSeparator();
+        changesContextMenu.add(viewFileAtRevisionItem);
         changesContextMenu.add(viewDiffItem);
         changesContextMenu.add(compareFileWithLocalItem);
         changesContextMenu.add(comparePrevWithLocalItem);
@@ -649,6 +651,7 @@ public class GitLogTab extends JPanel {
                     viewHistoryItem.setEnabled(singleFileSelected);
                     addFileToContextItem.setEnabled(hasFileSelection);
                     editFileItem.setEnabled(hasFileSelection);
+                    viewFileAtRevisionItem.setEnabled(singleFileSelected && isSingleCommit);
                     viewDiffItem.setEnabled(singleFileSelected && isSingleCommit);
                     compareFileWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
                     comparePrevWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
@@ -725,6 +728,19 @@ public class GitLogTab extends JPanel {
                     String commitId = commitInfo.id();
                     GitUiUtil.showDiffVsLocal(contextManager, chrome,
                                               commitId, filePath, /*useParent=*/ true);
+                }
+            }
+        });
+        viewFileAtRevisionItem.addActionListener(e -> {
+            var paths = changesTree.getSelectionPaths();
+            if (paths != null && paths.length == 1) {
+                String filePath = getFilePathFromTreePath(paths[0]);
+                int[] selRows = commitsTable.getSelectedRows();
+                if (selRows.length == 1) {
+                    // Get CommitInfo from hidden column 5
+                    ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], 5);
+                    String commitId = commitInfo.id();
+                    GitUiUtil.viewFileAtRevision(contextManager, chrome, commitId, filePath);
                 }
             }
         });
