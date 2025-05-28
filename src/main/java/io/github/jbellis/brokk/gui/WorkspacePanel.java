@@ -1348,25 +1348,12 @@ public class WorkspacePanel extends JPanel {
             return;
         }
 
-        // Call the updated addSummaries method
+        // Call the updated addSummaries method, which outputs a message on success
         boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
-
-        if (success) {
-            int fileCount = selectedFiles.size();
-            int classCount = selectedClasses.size();
-            String message = "Summarized ";
-            if (fileCount > 0 && classCount > 0) {
-                message += fileCount + " file(s) and " + classCount + " symbol(s)";
-            } else if (fileCount > 0) {
-                message += fileCount + " file(s)";
-            } else {
-                message += classCount + " symbol(s)";
-            }
-            chrome.systemOutput(message);
-        } else {
+        if (!success) {
             chrome.toolErrorRaw("No summarizable content found in the selected files or symbols.");
         }
-    } // End: doSummarizeAction
+    }
 
     /**
      * Cast BrokkFile to ProjectFile. Will throw if ExternalFiles are present.
