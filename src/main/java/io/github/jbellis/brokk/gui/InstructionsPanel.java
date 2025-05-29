@@ -12,21 +12,19 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import io.github.jbellis.brokk.Service; // Import Models to access FavoriteModel
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
-import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
-import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.components.SplitButton;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -35,19 +33,27 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
-import javax.swing.text.*;
+import javax.swing.text.AbstractDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
-import java.util.*;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
+import java.util.Comparator;
+
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import org.jetbrains.annotations.Nullable;
+
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.BiConsumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
@@ -81,7 +87,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton runButton;
     private final JButton stopButton;
     private final JButton configureModelsButton;
-    private final JTextPane systemArea;
+    private final JTextArea systemArea;
     private final JScrollPane systemScrollPane;
     private final JLabel commandResultLabel;
     private final ContextManager contextManager; // Can be null if Chrome is initialized without one
@@ -129,7 +135,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             activateCommandInput();
             chrome.actionOutput("Recording");
         }, chrome::toolError);
-        systemArea = new JTextPane();
+        systemArea = new JTextArea();
         systemScrollPane = buildSystemMessagesArea();
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
@@ -561,12 +567,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Moved from HistoryOutputPanel.
      */
     private JScrollPane buildSystemMessagesArea() {
-        // Create text pane for system messages
+        // Create text area for system messages
         systemArea.setEditable(false);
-        systemArea.setContentType("text/plain");   // Keep plain text rendering
-        systemArea.getCaret().setVisible(false);   // Hide the edit caret
-        systemArea.putClientProperty("caretWidth", 0); // Hide caret completely
-        systemArea.setPreferredSize(new Dimension(600, 80)); // Similar size to previous JTextArea
+        systemArea.getCaret().setVisible(false); // Hide the edit caret
+        systemArea.setLineWrap(true);
+        systemArea.setWrapStyleWord(true);
+        systemArea.setRows(4);
 
         // Create scroll pane with border and title
         var scrollPane = new JScrollPane(systemArea);
@@ -733,117 +739,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Utility class to detect file references in text
-     */
-    private static class FileRefDetector {
-        /**
-         * Finds potential file name tokens in the given text
-         * @param text The text to search for tokens
-         * @return A list of potential file name tokens
-         */
-        static List<String> findTokens(String text) {
-            // Very simple: word chars + dot + extension
-            Pattern p = Pattern.compile("\\b[\\w/.-]+\\.[a-zA-Z0-9]+\\b");
-            Matcher m = p.matcher(text);
-            List<String> out = new ArrayList<>();
-            while (m.find()) out.add(m.group());
-            return out;
-        }
-    }
-
-    /**
-     * Resolve a token to a ProjectFile by path or filename
-     * @param token The token to resolve
-     * @return The resolved ProjectFile, or null if not found
-     */
-    @Nullable 
-    private ProjectFile resolve(String token) {
-        // 1) If the token contains path separators, treat it as a path
-        if (token.contains("/") || token.contains("\\")) {
-            var pf = contextManager.toFile(token);
-            if (pf != null) return pf;
-        }
-  
-        // 2) Fallback: match by simple file name (first hit wins)
-        return contextManager.getProject()
-                .getAllFiles()
-                .stream()
-                .filter(f -> f.absPath().getFileName().toString().equals(token))
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * Creates a badge label for a file reference with proper styling and context menu
-     * @param ref The file reference data
-     * @return A JLabel configured as a file badge
-     */
-    private JLabel makeBadge(FileReferenceData ref) {
-        var label = new TableUtils.FileReferenceList().createBadgeLabel(ref.getFileName());
-        label.setToolTipText(ref.getFullPath());
-  
-        label.addMouseListener(new java.awt.event.MouseAdapter() {
-            public void mousePressed(java.awt.event.MouseEvent e) { maybeMenu(e); }
-            public void mouseReleased(java.awt.event.MouseEvent e) { maybeMenu(e); }
-  
-            private void maybeMenu(java.awt.event.MouseEvent e) {
-                if (e.isPopupTrigger() || SwingUtilities.isRightMouseButton(e)) {
-                    ContextMenuUtils.showFileRefMenu(label, ref, chrome, () -> {}); // no refresh callback needed
-                }
-            }
-        });
-        return label;
-    }
-
-    /**
      * Appends text to the system output area with timestamp.
      * Moved from HistoryOutputPanel.
      */
-    public void appendSystemOutput(String msg) {
+    public void appendSystemOutput(String message) {
         SwingUtilities.invokeLater(() -> {
+            // Format timestamp as HH:MM
             String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-            StyledDocument doc = systemArea.getStyledDocument();
-            
-            // Define paragraph attributes for spacing
-            var attrs = new SimpleAttributeSet();
-            StyleConstants.setSpaceAbove(attrs, 5); // Add 2 pixels of space above
-            StyleConstants.setSpaceBelow(attrs, 5); // Add 2 pixels of space below
-  
-            try {
-                int initialLength = doc.getLength();
-                // Add newline if needed
-                if (doc.getLength() > 0) {
-                    String lastChar = doc.getText(doc.getLength() - 1, 1);
-                    if (!lastChar.equals("\n")) {
-                        doc.insertString(doc.getLength(), "\n", null);
-                        initialLength = doc.getLength(); // Update initialLength if newline was added
-                    }
-                }
-  
-                // append timestamp & original text
-                doc.insertString(doc.getLength(), timestamp + ": " + msg, null);
-  
-                // detect & resolve file refs
-                for (var token : FileRefDetector.findTokens(msg)) {
-                    var pf = resolve(token);
-                    if (pf == null) continue;           // not in project → ignore
-  
-                    // create badge & insert component
-                    var refData = new FileReferenceData(pf.absPath().getFileName().toString(), pf.toString(), pf);
-                    doc.insertString(doc.getLength(), " ", null);            // spacer
-                    systemArea.setCaretPosition(doc.getLength());
-                    systemArea.insertComponent(makeBadge(refData));
-                }
-  
-                doc.insertString(doc.getLength(), "\n", null);               // newline
-                
-                // Apply paragraph attributes to the entire inserted line (timestamp, message, badges)
-                doc.setParagraphAttributes(initialLength, doc.getLength() - initialLength, attrs, false);
-                
-                systemArea.setCaretPosition(doc.getLength());                // autoscroll
-            } catch (BadLocationException e) {
-                logger.error("Error appending to system output", e);
+
+            // Add newline if needed
+            if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
+                systemArea.append("\n");
             }
+
+            // Append timestamped message
+            systemArea.append(timestamp + ": " + message);
+            // Scroll to bottom
+            systemArea.setCaretPosition(systemArea.getDocument().getLength());
         });
     }
 
