@@ -83,6 +83,8 @@ public class SettingsDialog extends JDialog {
     private JTextField balanceField;
     // Signup Label (Global -> Service)
     private BrowserLabel signupLabel;
+    // GitHub Token field (Global)
+    private JTextField gitHubTokenField;
     // Build progress bar
     private JProgressBar buildProgressBar;
 
@@ -189,6 +191,10 @@ public class SettingsDialog extends JDialog {
         // Quick Models Tab
         var quickModelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab("Quick Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
+
+        // GitHub Tab
+        var gitHubPanel = createGitHubPanel();
+        globalSubTabbedPane.addTab("GitHub", null, gitHubPanel, "GitHub integration settings");
 
 
         // Enable/disable components within the Default Models panel based on project state
@@ -346,6 +352,48 @@ public class SettingsDialog extends JDialog {
 
         updateSignupLabelVisibility(); // Set initial visibility based on current key
         return servicePanel;
+    }
+
+    private JPanel createGitHubPanel() {
+        var gitHubPanel = new JPanel(new GridBagLayout());
+        gitHubPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(2, 5, 2, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+        int row = 0;
+
+        // GitHub Token Input
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        gbc.weightx = 0.0;
+        gitHubPanel.add(new JLabel("GitHub Token:"), gbc);
+
+        gitHubTokenField = new JTextField(20);
+        gitHubTokenField.setText(Project.getGitHubToken());
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gitHubPanel.add(gitHubTokenField, gbc);
+
+        // GitHub Token Explanation
+        var explanationLabel = new JLabel("<html>This token is used to access GitHub APIs. It should have read access to Pull Requests and Issues.</html>");
+        explanationLabel.setFont(explanationLabel.getFont().deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
+        gbc.insets = new Insets(2, 5, 8, 5); // Extra bottom margin for spacing
+        gitHubPanel.add(explanationLabel, gbc);
+        gbc.insets = new Insets(2, 5, 2, 5); // Reset insets
+
+        // Add vertical glue to push content up
+        gbc.gridy = row;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.VERTICAL;
+        gitHubPanel.add(Box.createVerticalGlue(), gbc);
+
+        return gitHubPanel;
     }
 
     private void updateSignupLabelVisibility() {
@@ -1647,6 +1695,16 @@ public class SettingsDialog extends JDialog {
                 if (chrome.getProject() != null && dataRetentionPanel != null) {
                     dataRetentionPanel.refreshStateAndUI();
                 }
+            }
+        }
+
+        // -- Apply GitHub Token --
+        if (gitHubTokenField != null) {
+            String newToken = gitHubTokenField.getText().trim();
+            String oldToken = Project.getGitHubToken();
+            if (!newToken.equals(oldToken)) {
+                Project.setGitHubToken(newToken);
+                logger.debug("Applied GitHub Token");
             }
         }
 
