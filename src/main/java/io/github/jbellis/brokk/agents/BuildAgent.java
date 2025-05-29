@@ -20,6 +20,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -93,9 +94,15 @@ public class BuildAgent {
             var ignoredPatterns = gitRepo.getIgnoredPatterns();
             var addedFromGitignore = new ArrayList<String>();
             for (var pattern : ignoredPatterns) {
-                var file = project.getRoot().resolve(pattern);
+                Path path;
+                try {
+                    path = project.getRoot().resolve(pattern);
+                } catch (InvalidPathException e) {
+                    // for now we only support literal paths, not globs
+                    continue;
+                }
                 // include non-existing paths if they end with `/` in case they get created later
-                var isDirectory = (Files.exists(file) && Files.isDirectory(file)) || pattern.endsWith("/");
+                var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
                 if (!(pattern.startsWith("!")) && isDirectory) {
                     this.currentExcludedDirectories.add(pattern);
                     addedFromGitignore.add(pattern);
