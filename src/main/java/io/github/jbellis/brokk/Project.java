@@ -39,6 +39,7 @@ public class Project implements IProject, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(Project.class);
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
+    private static final String GITHUB_TOKEN_KEY = "githubToken";
 
     // Helper structure for managing model type configurations
     // Includes old keys for migration purposes.
@@ -1001,18 +1002,24 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Store the GitHub token in workspace properties.
+     * Store the GitHub token in properties.
      */
-    public void setGitHubToken(String token) {
-        workspaceProps.setProperty("githubToken", token);
-        saveWorkspaceProperties();
+    public static void setGitHubToken(String token) {
+        var props = loadGlobalProperties();
+        if (token == null || token.isBlank()) {
+            props.remove(GITHUB_TOKEN_KEY);
+        } else {
+            props.setProperty(GITHUB_TOKEN_KEY, token.trim());
+        }
+        saveGlobalProperties(props);
     }
 
     /**
-     * Retrieve the GitHub token from workspace properties (may be null).
+     * Retrieve the GitHub token. For projects, this now delegates to the global token.
      */
-    public String getGitHubToken() {
-        return workspaceProps.getProperty("githubToken");
+    public static String getGitHubToken() {
+        var props = loadGlobalProperties();
+        return props.getProperty(GITHUB_TOKEN_KEY, "");
     }
 
     /**

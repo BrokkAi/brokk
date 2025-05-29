@@ -51,7 +51,7 @@ public class GitHubAuth
         }
 
         // Try with token
-        var token = project.getGitHubToken();
+        var token = Project.getGitHubToken();
         if (token != null && !token.isBlank()) {
             try {
                 logger.debug("Attempting GitHub connection with token for {}/{}", owner, repoName);
