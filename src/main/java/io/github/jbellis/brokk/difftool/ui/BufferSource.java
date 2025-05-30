@@ -13,10 +13,15 @@ public sealed interface BufferSource {
         }
     }
 
-    record StringSource(String content, String title) implements BufferSource {
+    record StringSource(String content, String title, String filename) implements BufferSource {
         public StringSource {
             Objects.requireNonNull(content, "content cannot be null"); // Empty string is allowed
             Objects.requireNonNull(title, "title cannot be null");
+            // filename can be null
+        }
+
+        public StringSource(String content, String title) {
+            this(content, title, null);
         }
     }
 }

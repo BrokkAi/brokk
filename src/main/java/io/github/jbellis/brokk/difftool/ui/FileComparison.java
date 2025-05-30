@@ -12,9 +12,18 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.util.Objects;
+import java.util.Optional;
+
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.git.CommitInfo;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
+import org.eclipse.jgit.api.errors.GitAPIException;
+
 
 public class FileComparison extends SwingWorker<String, Object> {
     private final BrokkDiffPanel mainPanel;
+private final ContextManager contextManager;
     private JMDiffNode diffNode;
     private BufferDiffPanel panel;
     private final BufferSource leftSource;
@@ -22,23 +31,26 @@ public class FileComparison extends SwingWorker<String, Object> {
     private final GuiTheme theme;
 
     // Constructor
-    private FileComparison(FileComparisonBuilder builder, GuiTheme theme) {
+    private FileComparison(FileComparisonBuilder builder, GuiTheme theme, ContextManager contextManager) {
         this.mainPanel = builder.mainPanel;
         this.leftSource = builder.leftSource;
         this.rightSource = builder.rightSource;
         this.theme = theme;
+        this.contextManager = contextManager;
     }
 
     // Static Builder class
     public static class FileComparisonBuilder {
         private final BrokkDiffPanel mainPanel;
+        private final ContextManager contextManager;
         private BufferSource leftSource;
         private BufferSource rightSource;
         private GuiTheme theme; // Default to light
 
-        public FileComparisonBuilder(BrokkDiffPanel mainPanel, GuiTheme theme) {
+        public FileComparisonBuilder(BrokkDiffPanel mainPanel, GuiTheme theme, ContextManager contextManager) {
             this.mainPanel = mainPanel;
             this.theme = theme;
+            this.contextManager = contextManager;
         }
 
         public FileComparisonBuilder withSources(BufferSource left, BufferSource right) {
@@ -56,7 +68,7 @@ public class FileComparison extends SwingWorker<String, Object> {
             if (leftSource == null || rightSource == null) {
                 throw new IllegalStateException("Both left and right sources must be provided for comparison.");
             }
-            return new FileComparison(this, theme);
+            return new FileComparison(this, theme, contextManager);
         }
     }
 
@@ -86,28 +98,69 @@ public class FileComparison extends SwingWorker<String, Object> {
         return null;
     }
 
+    private String getDisplayTitleForSource(BufferSource source) {
+        String originalTitle = source.title();
+
+        if (source instanceof BufferSource.FileSource) {
+            return "Working Tree"; // Represent local files as "Working Tree"
+        }
+
+        // For StringSource, originalTitle is typically a commit ID or "HEAD"
+        if (originalTitle == null || originalTitle.isBlank() || originalTitle.equals("HEAD") || originalTitle.startsWith("[No Parent]")) {
+            return originalTitle; // Handle special markers or blank as is
+        }
+
+        // Attempt to treat as commitId and fetch message
+        IGitRepo repo = contextManager.getProject().getRepo();
+        if (repo instanceof GitRepo gitRepo) { // Ensure it's our GitRepo implementation
+            try {
+                String commitIdToLookup = originalTitle.endsWith("^") ? originalTitle.substring(0, originalTitle.length() - 1) : originalTitle;
+                Optional<CommitInfo> commitInfoOpt = gitRepo.getLocalCommitInfo(commitIdToLookup);
+                if (commitInfoOpt.isPresent()) {
+                    return commitInfoOpt.get().message(); // This is already the short/first line
+                }
+            } catch (GitAPIException e) {
+                // Fall through to return originalTitle
+            }
+        }
+        return originalTitle; // Fallback to original commit ID if message not found or repo error
+    }
+
     private JMDiffNode createDiffNode(BufferSource left, BufferSource right) {
         Objects.requireNonNull(left, "Left source cannot be null");
         Objects.requireNonNull(right, "Right source cannot be null");
 
-        var node = new JMDiffNode(left.title(), true); // Use left title for the JMDiffNode name, or decide a convention
+        String leftDocSyntaxHint = left.title();
+        if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
+            leftDocSyntaxHint = stringSourceLeft.filename();
+        } else if (left instanceof BufferSource.FileSource fileSourceLeft) {
+            leftDocSyntaxHint = fileSourceLeft.file().getName();
+        }
+
+        String rightDocSyntaxHint = right.title();
+        if (right instanceof BufferSource.StringSource stringSourceRight && stringSourceRight.filename() != null) {
+            rightDocSyntaxHint = stringSourceRight.filename();
+        } else if (right instanceof BufferSource.FileSource fileSourceRight) {
+            rightDocSyntaxHint = fileSourceRight.file().getName();
+        }
+
+        String leftDisplayTitle = getDisplayTitleForSource(left);
+
+        String leftFileDisplay = leftDocSyntaxHint;
+
+        var nodeTitle = "%s (%s)".formatted(leftFileDisplay, leftDisplayTitle);
+        var node = new JMDiffNode(nodeTitle, true);
 
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
-            node.setBufferNodeLeft(new FileNode(fileSourceLeft.title(), fileSourceLeft.file()));
+            node.setBufferNodeLeft(new FileNode(leftDocSyntaxHint, fileSourceLeft.file()));
         } else if (left instanceof BufferSource.StringSource stringSourceLeft) {
-            node.setBufferNodeLeft(new StringNode(stringSourceLeft.title(), stringSourceLeft.content()));
-        } else {
-            // Should not happen with a sealed interface if all subtypes are handled
-            throw new IllegalArgumentException("Unknown left source type: " + left.getClass());
+            node.setBufferNodeLeft(new StringNode(leftDocSyntaxHint, stringSourceLeft.content()));
         }
 
         if (right instanceof BufferSource.FileSource fileSourceRight) {
-            node.setBufferNodeRight(new FileNode(fileSourceRight.title(), fileSourceRight.file()));
+            node.setBufferNodeRight(new FileNode(rightDocSyntaxHint, fileSourceRight.file()));
         } else if (right instanceof BufferSource.StringSource stringSourceRight) {
-            node.setBufferNodeRight(new StringNode(stringSourceRight.title(), stringSourceRight.content()));
-        } else {
-            // Should not happen with a sealed interface
-            throw new IllegalArgumentException("Unknown right source type: " + right.getClass());
+            node.setBufferNodeRight(new StringNode(rightDocSyntaxHint, stringSourceRight.content()));
         }
 
         return node;

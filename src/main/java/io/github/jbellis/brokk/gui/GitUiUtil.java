@@ -161,8 +161,8 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(parentContent, parentCommitId))
-                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(commitContent, commitId))
+                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
+                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(commitContent, commitId, file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -381,7 +381,7 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(finalOldContent, finalBaseCommitTitle))
+                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString()))
                             .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(file.absPath().toFile(), file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);

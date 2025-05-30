@@ -133,16 +133,21 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
     public String getTitle()
     {
+        if (diffNode != null && diffNode.getName() != null && !diffNode.getName().isBlank()) {
+            return diffNode.getName();
+        }
+
+        // Fallback if diffNode or its name is not available
         var titles = new ArrayList<String>();
         for (var fp : filePanels) {
             if (fp == null) continue;
             var bd = fp.getBufferDocument();
-            if (bd != null) {
+            if (bd != null && bd.getShortName() != null && !bd.getShortName().isBlank()) {
                 titles.add(bd.getShortName());
             }
         }
         if (titles.isEmpty()) {
-            return "No files";
+            return "Diff"; // Generic fallback
         }
         if (titles.size() == 1) {
             return titles.getFirst();
@@ -150,7 +155,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (titles.get(0).equals(titles.get(1))) {
             return titles.getFirst();
         }
-        return titles.get(0) + "-" + titles.get(1);
+        return String.join(" vs ", titles);
     }
 
     /**

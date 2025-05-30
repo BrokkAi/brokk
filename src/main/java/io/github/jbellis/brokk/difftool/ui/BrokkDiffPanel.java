@@ -181,7 +181,35 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
             String diffText = String.join("\n", unifiedDiff);
 
             var description = "Captured Diff: %s vs %s".formatted(this.leftSource.title(), this.rightSource.title());
-            var fragment = new ContextFragment.StringFragment(diffText, description, SyntaxConstants.SYNTAX_STYLE_JAVA);
+
+            String detectedFilename = null;
+            if (this.leftSource instanceof BufferSource.StringSource s && s.filename() != null) {
+                detectedFilename = s.filename();
+            } else if (this.leftSource instanceof BufferSource.FileSource f) {
+                detectedFilename = f.file().getName();
+            }
+
+            if (detectedFilename == null) { // Try right source if left didn't provide a filename
+                if (this.rightSource instanceof BufferSource.StringSource s && s.filename() != null) {
+                    detectedFilename = s.filename();
+                } else if (this.rightSource instanceof BufferSource.FileSource f) {
+                    detectedFilename = f.file().getName();
+                }
+            }
+
+            String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+            if (detectedFilename != null) {
+                int dotIndex = detectedFilename.lastIndexOf('.');
+                if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
+                    String extension = detectedFilename.substring(dotIndex + 1);
+                    syntaxStyle = io.github.jbellis.brokk.util.SyntaxDetector.fromExtension(extension);
+                } else {
+                    // If no extension or malformed, SyntaxDetector might still identify some common filenames
+                    syntaxStyle = io.github.jbellis.brokk.util.SyntaxDetector.fromExtension(detectedFilename);
+                }
+            }
+
+            var fragment = new ContextFragment.StringFragment(diffText, description, syntaxStyle);
             contextManager.addVirtualFragment(fragment);
             contextManager.getIo().systemOutput("Added captured diff to context: " + description);
         });
@@ -223,7 +251,7 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void compare() {
-        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this, theme)
+        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this, theme, this.contextManager)
                 .withSources(this.leftSource, this.rightSource)
                 .build();
 
