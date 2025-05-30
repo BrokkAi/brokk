@@ -123,10 +123,9 @@ public class GitPullRequestsTab extends JPanel {
     private List<String> labelChoices = new ArrayList<>();
     private List<String> assigneeChoices = new ArrayList<>();
 
-    private GitHubAuth gitHubAuth;
 
-
-    public GitPullRequestsTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+    public GitPullRequestsTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel)
+    {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -492,84 +491,6 @@ public class GitPullRequestsTab extends JPanel {
     }
 
     /**
-     * Holds a parsed "owner" and "repo" from a Git remote URL
-     */
-    private record OwnerRepo(String owner, String repo) {
-    }
-
-    /**
-     * Parse a Git remote URL of form:
-     * - https://github.com/OWNER/REPO.git
-     * - git@github.com:OWNER/REPO.git
-     * - ssh://github.com/OWNER/REPO
-     * - or any variant that ends with OWNER/REPO(.git)
-     * This attempts to extract the last two path segments
-     * as "owner" and "repo". Returns null if it cannot.
-     */
-    private OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
-        if (remoteUrl == null || remoteUrl.isBlank()) {
-            logger.warn("Remote URL is blank or null");
-            return null;
-        }
-
-        // Strip trailing ".git" if present
-        String cleaned = remoteUrl.endsWith(".git")
-                         ? remoteUrl.substring(0, remoteUrl.length() - 4)
-                         : remoteUrl;
-        logger.debug("Cleaned repo url is {}", cleaned);
-
-        cleaned = cleaned.replace('\\', '/');
-
-        int protocolIndex = cleaned.indexOf("://");
-        if (protocolIndex >= 0) {
-            cleaned = cleaned.substring(protocolIndex + 3);
-        }
-
-        int atIndex = cleaned.indexOf('@');
-        if (atIndex >= 0) {
-            cleaned = cleaned.substring(atIndex + 1);
-        }
-
-        var segments = cleaned.split("[/:]+");
-
-        if (segments.length < 2) {
-            logger.warn("Unable to parse owner/repo from remote URL: {}", remoteUrl);
-            return null;
-        }
-
-        String repo = segments[segments.length - 1];
-        String owner = segments[segments.length - 2];
-        logger.debug("Parsed repo as {} owned by {}", repo, owner);
-
-        if (owner.isBlank() || repo.isBlank()) {
-            logger.warn("Parsed blank owner/repo from remote URL: {}", remoteUrl);
-            return null;
-        }
-
-        return new OwnerRepo(owner, repo);
-    }
-
-    private synchronized GitHubAuth getGitHubAuthInstance() throws IOException {
-        var repo = getRepo(); // GitRepo instance
-        if (repo == null) {
-            throw new IOException("Git repository not available.");
-        }
-        var remoteUrl = repo.getRemoteUrl();
-        var ownerRepo = parseOwnerRepoFromUrl(remoteUrl);
-        if (ownerRepo == null) {
-            throw new IOException("Could not parse 'owner/repo' from remote: " + remoteUrl);
-        }
-
-        if (this.gitHubAuth == null ||
-            !this.gitHubAuth.getOwner().equals(ownerRepo.owner()) ||
-            !this.gitHubAuth.getRepoName().equals(ownerRepo.repo())) {
-            logger.info("Creating or updating GitHubAuth instance for {}/{}", ownerRepo.owner(), ownerRepo.repo());
-            this.gitHubAuth = new GitHubAuth(contextManager.getProject(), ownerRepo.owner(), ownerRepo.repo());
-        }
-        return this.gitHubAuth;
-    }
-
-    /**
      * Fetches open GitHub pull requests and populates the PR table.
      * Also fetches CI statuses for these PRs.
      */
@@ -577,7 +498,8 @@ public class GitPullRequestsTab extends JPanel {
         contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
             List<org.kohsuke.github.GHPullRequest> fetchedPrs;
             try {
-                GitHubAuth auth = getGitHubAuthInstance();
+                var project = contextManager.getProject();
+                GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
 
                 String selectedStatusOption = statusFilter.getSelected();
                 GHIssueState apiState;
@@ -902,9 +824,11 @@ public class GitPullRequestsTab extends JPanel {
 
     private class PrFilesFetcherWorker extends SwingWorker<Map<Integer, List<String>>, Void> {
         private final List<GHPullRequest> prsToFetchFilesFor;
+        private final io.github.jbellis.brokk.Project project;
 
-        public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor) {
+        public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, io.github.jbellis.brokk.Project project) {
             this.prsToFetchFilesFor = prsToFetchFilesFor;
+            this.project = project;
         }
 
         @Override
@@ -926,9 +850,18 @@ public class GitPullRequestsTab extends JPanel {
                     // Ensure head SHA is available
                     String headFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
                     // Assuming 'origin' is the primary remote. Fork logic might be needed if this fails.
+
+                    GitHubAuth auth;
+                    try {
+                        auth = GitHubAuth.getOrCreateInstance(this.project);
+                    } catch (IOException e) {
+                        logger.warn("Failed to get GitHubAuth instance in PrFilesFetcherWorker for PR #{}: {}", prNumber, e.getMessage(), e);
+                        throw new RuntimeException("Failed to initialize GitHubAuth for PR #" + prNumber + ": " + e.getMessage(), e);
+                    }
+
                     if (!ensureShaIsLocal(repo, headSha, headFetchRef, "origin")) {
                         // If direct PR head fetch fails, try fetching the source branch if it's from origin
-                        if (pr.getHead().getRepository().getFullName().equals(getGitHubAuthInstance().getOwner() + "/" + getGitHubAuthInstance().getRepoName())) {
+                        if (pr.getHead().getRepository().getFullName().equals(auth.getOwner() + "/" + auth.getRepoName())) {
                             String headBranchName = pr.getHead().getRef(); // e.g. "feature/my-branch" or "refs/heads/feature/my-branch"
                             if (headBranchName.startsWith("refs/heads/")) headBranchName = headBranchName.substring("refs/heads/".length());
                             String headBranchFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
@@ -1005,7 +938,7 @@ public class GitPullRequestsTab extends JPanel {
         if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
             activePrFilesFetcher.cancel(true);
         }
-        activePrFilesFetcher = new PrFilesFetcherWorker(prsRequiringFileFetch);
+        activePrFilesFetcher = new PrFilesFetcherWorker(prsRequiringFileFetch, contextManager.getProject());
         contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
     }
 
@@ -1096,7 +1029,8 @@ public class GitPullRequestsTab extends JPanel {
         contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>(); // Create a new list in the background
             try {
-                GitHubAuth auth = getGitHubAuthInstance();
+                var project = contextManager.getProject();
+                GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
                 var ghCommitDetails = auth.listPullRequestCommits(prNumber); // Fetches from GitHub API
 
                 var repo = getRepo();
@@ -1268,7 +1202,7 @@ public class GitPullRequestsTab extends JPanel {
         contextManager.submitUserTask("Checking out PR #" + prNumber, () -> {
             try {
                 var remoteUrl = getRepo().getRemoteUrl();
-                var ownerRepo = parseOwnerRepoFromUrl(remoteUrl);
+                GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(remoteUrl);
                 if (ownerRepo == null) {
                     throw new IOException("Could not parse 'owner/repo' from remote: " + remoteUrl);
                 }
