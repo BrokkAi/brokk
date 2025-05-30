@@ -137,7 +137,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                     || event.type == EventType.MODIFY);
         });
         if (needsGitRefresh) {
-            logger.debug("Refreshing git due to changes in .git directory");
+            logger.debug("Changes in .git directory detected");
             listener.onRepoChange();
             listener.onTrackedFileChange(); // not 100% sure this is necessary
         }
@@ -151,6 +151,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         if (trackedPathsChanged) {
             // call listener (refreshes git panel)
+            logger.debug("Changes in tracked files detected");
             listener.onTrackedFileChange();
 
             // update the analyzer if we're configured to do so

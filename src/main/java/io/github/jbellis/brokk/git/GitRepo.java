@@ -136,7 +136,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     @Override
     public synchronized void refresh() {
-        logger.debug("Refreshing git repository");
+        logger.debug("GitRepo refresh");
         // TODO probably we should split ".git changed" apart from "tracked files changed"
         repository.getRefDatabase().refresh();
         trackedFilesCache = null;
