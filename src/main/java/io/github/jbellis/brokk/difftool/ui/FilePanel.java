@@ -470,6 +470,38 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
 
         editor.setSyntaxEditingStyle(style);
+        
+        // After setting syntax style, scroll to show the first diff if available
+        SwingUtilities.invokeLater(this::scrollToFirstDiff);
+    }
+
+    /**
+     * Scrolls the editor to show the first diff highlight if available.
+     */
+    private void scrollToFirstDiff() {
+        var patch = diffPanel.getPatch();
+        if (patch != null && !patch.getDeltas().isEmpty()) {
+            var firstDelta = patch.getDeltas().get(0);
+            int lineToShow = BufferDocumentIF.ORIGINAL.equals(name) 
+                ? firstDelta.getSource().getPosition()
+                : firstDelta.getTarget().getPosition();
+            
+            if (bufferDocument != null) {
+                int offset = bufferDocument.getOffsetForLine(lineToShow);
+                if (offset >= 0) {
+                    try {
+                        editor.setCaretPosition(offset);
+                        // Scroll to make the caret visible
+                        Rectangle rect = editor.modelToView(offset);
+                        if (rect != null) {
+                            editor.scrollRectToVisible(rect);
+                        }
+                    } catch (Exception e) {
+                        // Ignore scroll errors
+                    }
+                }
+            }
+        }
     }
 
     /**
