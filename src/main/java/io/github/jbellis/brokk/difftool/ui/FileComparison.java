@@ -90,38 +90,60 @@ public class FileComparison extends SwingWorker<String, Object> {
         Objects.requireNonNull(left, "Left source cannot be null");
         Objects.requireNonNull(right, "Right source cannot be null");
 
-        String leftDocName = left.title();
+        String leftDocSyntaxHint = left.title();
         if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
-            leftDocName = stringSourceLeft.filename();
+            leftDocSyntaxHint = stringSourceLeft.filename();
+        } else if (left instanceof BufferSource.FileSource fileSourceLeft) {
+            leftDocSyntaxHint = fileSourceLeft.file().getName();
         }
 
-        String rightDocName = right.title();
+        String rightDocSyntaxHint = right.title();
         if (right instanceof BufferSource.StringSource stringSourceRight && stringSourceRight.filename() != null) {
-            rightDocName = stringSourceRight.filename();
+            rightDocSyntaxHint = stringSourceRight.filename();
+        } else if (right instanceof BufferSource.FileSource fileSourceRight) {
+            rightDocSyntaxHint = fileSourceRight.file().getName();
         }
 
-        // For the JMDiffNode itself, we can use a combined title or a generic one.
-        // Using left and right titles might be too long. Let's use a generic approach or a fixed title.
-        // For now, we'll keep the original logic of using left.title() for the JMDiffNode's internal name,
-        // but the individual FileNode/StringNode will use the potentially more accurate doc names for syntax.
-        var node = new JMDiffNode(left.title(), true);
+        // Build a friendly tab title that includes both the filename and the commit identifier
+        // e.g. "MyClass.java (abcdef1)" or "MyClass.java (HEAD)".
+        String nodeTitle;
+        String leftTitlePart = left.title();
+        String rightTitlePart = right.title();
+        String leftFilenameForTitle = leftDocSyntaxHint; // Use the syntax hint as the base for the title filename part
+        String rightFilenameForTitle = rightDocSyntaxHint;
+
+        // If titles are different (e.g. commit vs HEAD), use both in node title
+        if (leftTitlePart.equals(rightTitlePart)) {
+            if (leftFilenameForTitle.equals(rightFilenameForTitle)) {
+                nodeTitle = "%s (%s)".formatted(leftFilenameForTitle, leftTitlePart);
+            } else {
+                // Filenames differ, but titles (commit IDs) are same (e.g. rename in same commit)
+                nodeTitle = "%s -> %s (%s)".formatted(leftFilenameForTitle, rightFilenameForTitle, leftTitlePart);
+            }
+        } else {
+            // Titles differ (e.g. abcdef1 vs HEAD)
+            if (leftFilenameForTitle.equals(rightFilenameForTitle)) {
+                // Same filename, different revisions
+                nodeTitle = "%s (%s vs %s)".formatted(leftFilenameForTitle, leftTitlePart, rightTitlePart);
+            } else {
+                // Different filenames and different revisions (e.g. comparing fileA@commit1 with fileB@commit2)
+                nodeTitle = "%s (%s) vs %s (%s)".formatted(leftFilenameForTitle, leftTitlePart, rightFilenameForTitle, rightTitlePart);
+            }
+        }
+        var node = new JMDiffNode(nodeTitle, true);
 
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
-            // FileSource title is typically the filename already
-            node.setBufferNodeLeft(new FileNode(fileSourceLeft.title(), fileSourceLeft.file()));
+            node.setBufferNodeLeft(new FileNode(leftDocSyntaxHint, fileSourceLeft.file()));
         } else if (left instanceof BufferSource.StringSource stringSourceLeft) {
-            // Use leftDocName (which prioritizes filename) for StringNode
-            node.setBufferNodeLeft(new StringNode(leftDocName, stringSourceLeft.content()));
+            node.setBufferNodeLeft(new StringNode(leftDocSyntaxHint, stringSourceLeft.content()));
         } else {
             throw new IllegalArgumentException("Unknown left source type: " + left.getClass());
         }
 
         if (right instanceof BufferSource.FileSource fileSourceRight) {
-            // FileSource title is typically the filename already
-            node.setBufferNodeRight(new FileNode(fileSourceRight.title(), fileSourceRight.file()));
+            node.setBufferNodeRight(new FileNode(rightDocSyntaxHint, fileSourceRight.file()));
         } else if (right instanceof BufferSource.StringSource stringSourceRight) {
-            // Use rightDocName (which prioritizes filename) for StringNode
-            node.setBufferNodeRight(new StringNode(rightDocName, stringSourceRight.content()));
+            node.setBufferNodeRight(new StringNode(rightDocSyntaxHint, stringSourceRight.content()));
         } else {
             throw new IllegalArgumentException("Unknown right source type: " + right.getClass());
         }
