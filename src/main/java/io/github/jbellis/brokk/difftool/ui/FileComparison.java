@@ -90,23 +90,39 @@ public class FileComparison extends SwingWorker<String, Object> {
         Objects.requireNonNull(left, "Left source cannot be null");
         Objects.requireNonNull(right, "Right source cannot be null");
 
-        var node = new JMDiffNode(left.title(), true); // Use left title for the JMDiffNode name, or decide a convention
+        String leftDocName = left.title();
+        if (left instanceof BufferSource.StringSource stringSourceLeft && stringSourceLeft.filename() != null) {
+            leftDocName = stringSourceLeft.filename();
+        }
+
+        String rightDocName = right.title();
+        if (right instanceof BufferSource.StringSource stringSourceRight && stringSourceRight.filename() != null) {
+            rightDocName = stringSourceRight.filename();
+        }
+
+        // For the JMDiffNode itself, we can use a combined title or a generic one.
+        // Using left and right titles might be too long. Let's use a generic approach or a fixed title.
+        // For now, we'll keep the original logic of using left.title() for the JMDiffNode's internal name,
+        // but the individual FileNode/StringNode will use the potentially more accurate doc names for syntax.
+        var node = new JMDiffNode(left.title(), true);
 
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
+            // FileSource title is typically the filename already
             node.setBufferNodeLeft(new FileNode(fileSourceLeft.title(), fileSourceLeft.file()));
         } else if (left instanceof BufferSource.StringSource stringSourceLeft) {
-            node.setBufferNodeLeft(new StringNode(stringSourceLeft.title(), stringSourceLeft.content()));
+            // Use leftDocName (which prioritizes filename) for StringNode
+            node.setBufferNodeLeft(new StringNode(leftDocName, stringSourceLeft.content()));
         } else {
-            // Should not happen with a sealed interface if all subtypes are handled
             throw new IllegalArgumentException("Unknown left source type: " + left.getClass());
         }
 
         if (right instanceof BufferSource.FileSource fileSourceRight) {
+            // FileSource title is typically the filename already
             node.setBufferNodeRight(new FileNode(fileSourceRight.title(), fileSourceRight.file()));
         } else if (right instanceof BufferSource.StringSource stringSourceRight) {
-            node.setBufferNodeRight(new StringNode(stringSourceRight.title(), stringSourceRight.content()));
+            // Use rightDocName (which prioritizes filename) for StringNode
+            node.setBufferNodeRight(new StringNode(rightDocName, stringSourceRight.content()));
         } else {
-            // Should not happen with a sealed interface
             throw new IllegalArgumentException("Unknown right source type: " + right.getClass());
         }
 
