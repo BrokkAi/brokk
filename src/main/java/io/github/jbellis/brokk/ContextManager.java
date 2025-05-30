@@ -212,6 +212,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onTrackedFileChange() {
+                project.getRepo().refresh();
                 io.updateCommitPanel();
             }
         };
