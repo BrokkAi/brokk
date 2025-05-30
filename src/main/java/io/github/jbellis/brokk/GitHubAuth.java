@@ -4,6 +4,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
+import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
@@ -109,6 +110,16 @@ public class GitHubAuth
     public List<GHPullRequest> listOpenPullRequests(GHIssueState state) throws IOException
     {
         return getGhRepository().getPullRequests(state);
+    }
+
+    /**
+     * Lists issues for the connected repository based on the given state.
+     * Note: This may include Pull Requests as they are a type of Issue in GitHub's API.
+     * Filtering to exclude PRs can be done by checking `issue.isPullRequest()`.
+     */
+    public List<GHIssue> listIssues(GHIssueState state) throws IOException
+    {
+        return getGhRepository().getIssues(state);
     }
 
     /**

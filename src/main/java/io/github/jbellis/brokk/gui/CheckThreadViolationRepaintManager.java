@@ -25,12 +25,16 @@ public class CheckThreadViolationRepaintManager extends RepaintManager {
             return;
         }
 
-        // 2) Allow the JVM's animated-image thread (e.g. spinner GIFs)
-        //    The thread is created by sun.awt.image.ImageFetcher and is
-        //    named "AWT-Image" (older JDKs) or "Image Animator" (JDK 21+).
+        // 2) Allow the JVM's image loading threads (e.g., for animated GIFs).
+        //    These threads are typically created by sun.awt.image.ImageFetcher and may be named
+        //    "AWT-Image-%d" (older JDKs), "Image Animator %d" (JDK 21+), or "Image Fetcher %d".
         var threadName = Thread.currentThread().getName();
-        if (threadName != null && (threadName.startsWith("AWT-Image") || threadName.startsWith("Image Animator"))) {
-            // Updates driven by the image loader are thread-safe as they only call repaint(), which is documented as thread-safe.
+        if (threadName != null &&
+            (threadName.startsWith("AWT-Image") ||
+             threadName.startsWith("Image Animator") ||
+             threadName.startsWith("Image Fetcher"))) {
+            // Updates driven by the image loader (like ImageView.imageUpdate calling repaint)
+            // are generally safe as repaint() itself is documented as thread-safe.
             return;
         }
 
