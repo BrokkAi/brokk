@@ -94,6 +94,19 @@ public class GitHubAuth
         return instance;
     }
 
+    /**
+     * Invalidates the current GitHubAuth instance.
+     * This is typically called when a GitHub token changes or an explicit reset is needed.
+     */
+    public static synchronized void invalidateInstance() {
+        if (instance != null) {
+            logger.info("Invalidating GitHubAuth instance for {}/{} due to token change or explicit request.", instance.getOwner(), instance.getRepoName());
+            instance = null;
+        } else {
+            logger.info("GitHubAuth instance is already null. No action taken for invalidation request.");
+        }
+    }
+
     public String getOwner()
     {
         return owner;

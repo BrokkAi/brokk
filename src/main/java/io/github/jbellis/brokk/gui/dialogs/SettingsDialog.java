@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.Project.DataRetentionPolicy;
 import io.github.jbellis.brokk.Service;
@@ -1716,6 +1717,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             String oldToken = Project.getGitHubToken();
             if (!newToken.equals(oldToken)) {
                 Project.setGitHubToken(newToken);
+                GitHubAuth.invalidateInstance();
                 logger.debug("Applied GitHub Token");
             }
         }
