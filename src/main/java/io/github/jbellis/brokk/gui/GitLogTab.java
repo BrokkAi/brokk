@@ -66,6 +66,9 @@ public class GitLogTab extends JPanel {
     // Search
     private JTextArea searchField;
 
+    // Context menu item for branch diff
+    private JMenuItem captureDiffVsBranchItem;
+
     /**
      * Constructor. Builds and arranges the UI components for the Log tab.
      */
@@ -879,9 +882,12 @@ public class GitLogTab extends JPanel {
         JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
         JMenuItem renameItem = new JMenuItem("Rename");
         JMenuItem deleteItem = new JMenuItem("Delete");
+        captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch"); // Initial text
+
         branchContextMenu.add(checkoutItem);
         branchContextMenu.add(newBranchItem);
         branchContextMenu.add(mergeItem);
+        branchContextMenu.add(captureDiffVsBranchItem);
         branchContextMenu.add(renameItem);
         branchContextMenu.add(deleteItem);
 
@@ -905,7 +911,11 @@ public class GitLogTab extends JPanel {
                         }
                     }
                     checkBranchContextMenuState(branchContextMenu);
-                    branchContextMenu.show(branchTable, e.getX(), e.getY());
+                    // Use invokeLater to ensure selection updates and menu item state changes
+                    // are processed before showing menu.
+                    SwingUtilities.invokeLater(() -> {
+                        branchContextMenu.show(branchTable, e.getX(), e.getY());
+                    });
                 }
             }
         });
@@ -929,6 +939,26 @@ public class GitLogTab extends JPanel {
             if (selectedRow != -1) {
                 String branchDisplay = (String) branchTableModel.getValueAt(selectedRow, 1);
                 mergeBranchIntoHead(branchDisplay);
+            }
+        });
+        captureDiffVsBranchItem.addActionListener(e -> {
+            int row = branchTable.getSelectedRow();
+            if (row != -1) {
+                String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
+                // Pre-checks (should be guaranteed by menu item state, but good for safety)
+                if ("stashes".equals(selectedBranch)) return;
+
+                String currentActualBranch;
+                try {
+                    currentActualBranch = getRepo().getCurrentBranch();
+                } catch (Exception ex) {
+                    logger.error("Could not get current branch for diff operation", ex);
+                    chrome.toolError("Failed to determine current branch. Cannot perform diff.");
+                    return;
+                }
+                if (selectedBranch.equals(currentActualBranch)) return;
+
+                GitUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedBranch);
             }
         });
         renameItem.addActionListener(e -> {
@@ -1835,20 +1865,29 @@ public class GitLogTab extends JPanel {
      */
     private void checkBranchContextMenuState(JPopupMenu menu) {
         int selectedRow = branchTable.getSelectedRow();
-        boolean isLocal = (selectedRow != -1);
+        boolean isAnyItemSelected = (selectedRow != -1);
 
         // Check if the selected branch is the current branch
         boolean isCurrentBranch = false;
-        if (isLocal) {
+        String selectedBranchName = null;
+        if (isAnyItemSelected) {
             String checkmark = (String) branchTableModel.getValueAt(selectedRow, 0);
             isCurrentBranch = "✓".equals(checkmark);
+            selectedBranchName = (String) branchTableModel.getValueAt(selectedRow, 1);
         }
 
-        // newBranch = menu.getComponent(1), merge = menu.getComponent(2)
-        // rename = menu.getComponent(3), delete = menu.getComponent(4)
-        // Adjust as needed if you change order
-        menu.getComponent(3).setEnabled(isLocal);
-        menu.getComponent(4).setEnabled(isLocal && !isCurrentBranch); // Can't delete current branch
+        menu.getComponent(4).setEnabled(isAnyItemSelected && !"stashes".equals(selectedBranchName)); // renameItem
+        menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !"stashes".equals(selectedBranchName)); // deleteItem
+
+
+        // Handle the new "Capture Diff vs Branch" item
+        if (isAnyItemSelected && selectedBranchName != null && !"stashes".equals(selectedBranchName)) {
+            captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
+            captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
+        } else {
+            captureDiffVsBranchItem.setText("Capture Diff vs Branch"); // Reset text
+            captureDiffVsBranchItem.setEnabled(false); // Disable if no selection, or "stashes", or current branch
+        }
     }
 
     /**

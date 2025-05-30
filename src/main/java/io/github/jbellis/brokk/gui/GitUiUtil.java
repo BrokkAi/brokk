@@ -452,4 +452,52 @@ public final class GitUiUtil
         logger.debug("Parsed owner '{}' and repo '{}' from URL '{}'", owner, repo, remoteUrl);
         return new OwnerRepo(owner, repo);
     }
+
+    /**
+     * Capture the diff between two branches (e.g., HEAD vs. a selected feature branch)
+     * and add it to the context.
+     *
+     * @param cm               The ContextManager instance.
+     * @param chrome           The Chrome instance for UI feedback.
+     * @param baseBranchName   The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
+     * @param compareBranchName The name of the branch to compare against the base.
+     */
+    public static void captureDiffBetweenBranches
+    (
+            ContextManager cm,
+            Chrome chrome,
+            String baseBranchName,
+            String compareBranchName
+    ) {
+        var repo = cm.getProject().getRepo();
+        if (repo == null) {
+            chrome.toolError("Git repository not available.");
+            return;
+        }
+
+        cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
+            try {
+                // repo.showDiff(new, old) -> shows changes to get from old to new.
+                // We want to see what's in compareBranchName that's not in baseBranchName.
+                // So, new = compareBranchName, old = baseBranchName.
+                var diff = repo.showDiff(compareBranchName, baseBranchName);
+                if (diff.isEmpty()) {
+                    chrome.systemOutput(String.format("No differences found between %s and %s",
+                                                      compareBranchName, baseBranchName));
+                    return;
+                }
+                var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
+                // Diff output is typically in `diff` format. Use NONE if a specific DIFF style isn't available.
+                var fragment = new ContextFragment.StringFragment(diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
+                cm.addVirtualFragment(fragment);
+                chrome.systemOutput(String.format("Added diff of %s vs %s to context",
+                                                  compareBranchName, baseBranchName));
+            } catch (Exception ex) {
+                logger.warn("Error capturing diff between branches {} and {}: {}",
+                            compareBranchName, baseBranchName, ex.getMessage(), ex);
+                chrome.toolErrorRaw(String.format("Error capturing diff between %s and %s: %s",
+                                                  compareBranchName, baseBranchName, ex.getMessage()));
+            }
+        });
+    }
 }
