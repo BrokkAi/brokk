@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.git.GitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.kohsuke.github.GHIssue;
@@ -64,11 +63,11 @@ public class GitIssuesTab extends JPanel {
     private List<String> labelChoices = new ArrayList<>();
     private List<String> assigneeChoices = new ArrayList<>();
 
-    private GitHubAuth gitHubAuth;
     private final GfmRenderer gfmRenderer;
 
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel)
+    {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -279,88 +278,6 @@ public class GitIssuesTab extends JPanel {
         });
     }
 
-    private GitRepo getRepo() {
-        return (GitRepo) contextManager.getProject().getRepo();
-    }
-
-    /**
-     * Holds a parsed "owner" and "repo" from a Git remote URL
-     */
-    private record OwnerRepo(String owner, String repo) {
-    }
-
-    /**
-     * Parse a Git remote URL of form:
-     * - https://github.com/OWNER/REPO.git
-     * - git@github.com:OWNER/REPO.git
-     * - ssh://github.com/OWNER/REPO
-     * - or any variant that ends with OWNER/REPO(.git)
-     * This attempts to extract the last two path segments
-     * as "owner" and "repo". Returns null if it cannot.
-     */
-    private OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
-        if (remoteUrl == null || remoteUrl.isBlank()) {
-            logger.warn("Remote URL is blank or null");
-            return null;
-        }
-
-        // Strip trailing ".git" if present
-        String cleaned = remoteUrl.endsWith(".git")
-                         ? remoteUrl.substring(0, remoteUrl.length() - 4)
-                         : remoteUrl;
-        logger.debug("Cleaned repo url is {}", cleaned);
-
-        cleaned = cleaned.replace('\\', '/');
-
-        int protocolIndex = cleaned.indexOf("://");
-        if (protocolIndex >= 0) {
-            cleaned = cleaned.substring(protocolIndex + 3);
-        }
-
-        int atIndex = cleaned.indexOf('@');
-        if (atIndex >= 0) {
-            cleaned = cleaned.substring(atIndex + 1);
-        }
-
-        var segments = cleaned.split("[/:]+");
-
-        if (segments.length < 2) {
-            logger.warn("Unable to parse owner/repo from remote URL: {}", remoteUrl);
-            return null;
-        }
-
-        String repo = segments[segments.length - 1];
-        String owner = segments[segments.length - 2];
-        logger.debug("Parsed repo as {} owned by {}", repo, owner);
-
-        if (owner.isBlank() || repo.isBlank()) {
-            logger.warn("Parsed blank owner/repo from remote URL: {}", remoteUrl);
-            return null;
-        }
-
-        return new OwnerRepo(owner, repo);
-    }
-
-    private synchronized GitHubAuth getGitHubAuthInstance() throws IOException {
-        var repo = getRepo(); // GitRepo instance
-        if (repo == null) {
-            throw new IOException("Git repository not available.");
-        }
-        var remoteUrl = repo.getRemoteUrl();
-        var ownerRepo = parseOwnerRepoFromUrl(remoteUrl);
-        if (ownerRepo == null) {
-            throw new IOException("Could not parse 'owner/repo' from remote: " + remoteUrl);
-        }
-
-        if (this.gitHubAuth == null ||
-            !this.gitHubAuth.getOwner().equals(ownerRepo.owner()) ||
-            !this.gitHubAuth.getRepoName().equals(ownerRepo.repo())) {
-            logger.info("Creating or updating GitHubAuth instance for {}/{}", ownerRepo.owner(), ownerRepo.repo());
-            this.gitHubAuth = new GitHubAuth(contextManager.getProject(), ownerRepo.owner(), ownerRepo.repo());
-        }
-        return this.gitHubAuth;
-    }
-
     /**
      * Fetches open GitHub issues and populates the issue table.
      */
@@ -368,7 +285,8 @@ public class GitIssuesTab extends JPanel {
         contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<GHIssue> fetchedIssues;
             try {
-                GitHubAuth auth = getGitHubAuthInstance();
+                var project = contextManager.getProject();
+                GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
 
                 String selectedStatusOption = statusFilter.getSelected();
                 GHIssueState apiState;
