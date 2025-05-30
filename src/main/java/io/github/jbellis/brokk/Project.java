@@ -683,6 +683,35 @@ public class Project implements IProject, AutoCloseable {
         return repo instanceof GitRepo;
     }
 
+    /**
+     * Checks if the project's Git repository is hosted on GitHub by inspecting the "origin" remote URL.
+     *
+     * @return {@code true} if the "origin" remote URL contains "github.com", {@code false} otherwise,
+     *         or if the remote URL is not set or the project doesn't use Git.
+     */
+    public boolean isGitHubRepo() {
+        if (!hasGit()) {
+            return false;
+        }
+        // We can safely cast to GitRepo because hasGit() checks this.
+        // However, getRemoteUrl is available on IGitRepo, which GitRepo implements.
+        // But getRemoteUrl is specific to GitRepo, not on IGitRepo in general.
+        // The IGitRepo interface in the provided context does not have getRemoteUrl.
+        // The GitRepo class *does* have getRemoteUrl("origin").
+        // So, we need to ensure 'repo' is indeed a GitRepo instance if we want to call that specific method.
+        // The current getRepo() returns IGitRepo.
+        // Let's assume getRepo() returns a GitRepo instance when hasGit() is true.
+        // If getRemoteUrl("origin") was on IGitRepo, we wouldn't need the cast.
+        // Given the context, if hasGit() is true, repo *is* a GitRepo.
+        var gitRepo = (GitRepo) getRepo(); // Assuming getRepo() returns GitRepo when hasGit() is true
+        String remoteUrl = gitRepo.getRemoteUrl("origin");
+
+        if (remoteUrl == null || remoteUrl.isBlank()) {
+            return false;
+        }
+        return remoteUrl.contains("github.com");
+    }
+
     public enum CpgRefresh {
         AUTO,
         ON_RESTART,

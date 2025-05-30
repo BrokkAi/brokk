@@ -88,15 +88,18 @@ public class GitPanel extends JPanel
         gitLogTab = new GitLogTab(chrome, contextManager);
         tabbedPane.addTab("Log", gitLogTab);
 
+        // Get project for GitHub specific tabs
+        var project = contextManager.getProject();
+
         // 3) Pull Requests tab (conditionally added)
-        if (Boolean.getBoolean("brokk.prtab")) { // If you keep PRs
+        if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab")) {
             pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
             tabbedPane.addTab("Pull Requests", pullRequestsTab);
         }
 
         // 4) Issues tab (conditionally added)
         // Ensure this property ("brokk.issuetab") is set if you want this tab to appear.
-        if (Boolean.getBoolean("brokk.issuetab")) {
+        if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.issuetab")) {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
