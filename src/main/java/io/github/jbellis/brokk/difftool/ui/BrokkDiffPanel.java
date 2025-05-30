@@ -251,7 +251,7 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void compare() {
-        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this, theme)
+        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this, theme, this.contextManager)
                 .withSources(this.leftSource, this.rightSource)
                 .build();
 
