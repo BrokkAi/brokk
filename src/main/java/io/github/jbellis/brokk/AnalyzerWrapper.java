@@ -48,13 +48,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
             var an = loadOrCreateAnalyzer();
-            // Safe check for getAllDeclarations as it might not be supported by all (e.g. DisabledAnalyzer)
-            java.util.List<CodeUnit> codeUnits;
-            try {
-                codeUnits = an.getAllDeclarations();
-            } catch (UnsupportedOperationException e) {
-                codeUnits = java.util.List.of();
-            }
+            var codeUnits = an.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
             return an;
@@ -70,6 +64,10 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.debug("Error building initial analyzer", e);
             throw new RuntimeException(e);
         }
+
+        logger.debug("Signaling repo + tracked files change to catch any events that we missed during initial analyzer build");
+        listener.onRepoChange();
+        listener.onTrackedFileChange();
 
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
@@ -252,7 +250,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             for (Language lang : projectLangs) {
                 if (lang == Language.NONE) continue;
                 Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
-                IAnalyzer delegate = null;
+                IAnalyzer delegate;
                 long langStartTime = System.currentTimeMillis();
 
                 if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
