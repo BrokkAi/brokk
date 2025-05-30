@@ -477,9 +477,6 @@ public final class GitUiUtil
 
         cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
             try {
-                // repo.showDiff(new, old) -> shows changes to get from old to new.
-                // We want to see what's in compareBranchName that's not in baseBranchName.
-                // So, new = compareBranchName, old = baseBranchName.
                 var diff = repo.showDiff(compareBranchName, baseBranchName);
                 if (diff.isEmpty()) {
                     chrome.systemOutput(String.format("No differences found between %s and %s",
@@ -487,7 +484,6 @@ public final class GitUiUtil
                     return;
                 }
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
-                // Diff output is typically in `diff` format. Use NONE if a specific DIFF style isn't available.
                 var fragment = new ContextFragment.StringFragment(diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
                 cm.addVirtualFragment(fragment);
                 chrome.systemOutput(String.format("Added diff of %s vs %s to context",

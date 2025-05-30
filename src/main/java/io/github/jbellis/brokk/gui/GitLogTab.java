@@ -66,7 +66,6 @@ public class GitLogTab extends JPanel {
     // Search
     private JTextArea searchField;
 
-    // Context menu item for branch diff
     private JMenuItem captureDiffVsBranchItem;
 
     /**
@@ -882,7 +881,7 @@ public class GitLogTab extends JPanel {
         JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
         JMenuItem renameItem = new JMenuItem("Rename");
         JMenuItem deleteItem = new JMenuItem("Delete");
-        captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch"); // Initial text
+        captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch");
 
         branchContextMenu.add(checkoutItem);
         branchContextMenu.add(newBranchItem);
@@ -945,7 +944,6 @@ public class GitLogTab extends JPanel {
             int row = branchTable.getSelectedRow();
             if (row != -1) {
                 String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
-                // Pre-checks (should be guaranteed by menu item state, but good for safety)
                 if ("stashes".equals(selectedBranch)) return;
 
                 String currentActualBranch;
@@ -1880,13 +1878,12 @@ public class GitLogTab extends JPanel {
         menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !"stashes".equals(selectedBranchName)); // deleteItem
 
 
-        // Handle the new "Capture Diff vs Branch" item
         if (isAnyItemSelected && selectedBranchName != null && !"stashes".equals(selectedBranchName)) {
             captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
             captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
         } else {
-            captureDiffVsBranchItem.setText("Capture Diff vs Branch"); // Reset text
-            captureDiffVsBranchItem.setEnabled(false); // Disable if no selection, or "stashes", or current branch
+            captureDiffVsBranchItem.setText("Capture Diff vs Branch");
+            captureDiffVsBranchItem.setEnabled(false);
         }
     }
 
