@@ -98,6 +98,21 @@ public class InMemoryRepo implements IGitRepo {
     // Other methods from IGitRepo can retain default UnsupportedOperationException
     // or be implemented with simple stubs if needed by tests.
 
+    @Override
+    public String showDiff(String newCommitId, String oldCommitId) throws GitAPIException {
+        if (newCommitId == null || oldCommitId == null) {
+            throw new GitAPIException("Commit IDs cannot be null for diffing in InMemoryRepo") {};
+        }
+        return String.format("""
+                             diff --git a/%s b/%s
+                             index 0000000..0000000
+                             --- a/%s
+                             +++ b/%s
+                             @@ -0,0 +0,0 @@
+                             [Simulated diff content for %s vs %s in InMemoryRepo]
+                             """, oldCommitId, newCommitId, oldCommitId, newCommitId, newCommitId, oldCommitId);
+    }
+
     /**
      * Clears all tracked, added, and removed files. For test cleanup.
      */
