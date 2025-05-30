@@ -47,23 +47,26 @@ public class LineNumberBorder extends EmptyBorder {
      * Initializes font and color settings for the line number display.
      */
     private void init() {
-        FontMetrics fm;
-        Color baseColor;
-
-        // Get the base panel background color
-        baseColor = Colors.getPanelBackground();
-
-        // Adjust colors for contrast
-        lineColor = ColorUtil.darker(baseColor);
-        background = ColorUtil.brighter(baseColor);
-
-        // Set a monospaced font for consistent number alignment
+        // Use a monospaced font for consistent number alignment
         font = new Font("Monospaced", Font.PLAIN, 10);
 
         // Retrieve font metrics for calculating character width and height
-        fm = filePanel.getEditor().getFontMetrics(font);
-        fontWidth = fm.stringWidth("0"); // Width of a single character
-        fontHeight = fm.getHeight(); // Height of the font
+        FontMetrics fm = filePanel.getEditor().getFontMetrics(font);
+        fontWidth     = fm.stringWidth("0"); // Width of a single character
+        fontHeight    = fm.getHeight();      // Height of the font
+
+        // Initialize the colours once; they will be refreshed on every paint call
+        updateColors();
+    }
+
+    /**
+     * Refreshes background and separator colours so that they always follow
+     * the current Look-and-Feel / theme.
+     */
+    private void updateColors() {
+        var baseColor = Colors.getPanelBackground();
+        lineColor     = ColorUtil.darker(baseColor);
+        background    = ColorUtil.brighter(baseColor);
     }
 
     /**
@@ -72,6 +75,9 @@ public class LineNumberBorder extends EmptyBorder {
      * @param g The Graphics object used for drawing.
      */
     public void paintBefore(Graphics g) {
+        // Re-evaluate colours for the active theme
+        updateColors();
+
         Rectangle clip = g.getClipBounds();
 
         // Set background color and fill the left margin area
@@ -87,6 +93,9 @@ public class LineNumberBorder extends EmptyBorder {
      * @param endOffset    The end offset of the visible text.
      */
     public void paintAfter(Graphics g, int startOffset, int endOffset) {
+        // Ensure colours match the active theme
+        updateColors();
+
         Rectangle clip;
         int startLine, endLine;
         int y, lineHeight;

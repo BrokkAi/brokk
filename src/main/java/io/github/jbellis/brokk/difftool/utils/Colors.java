@@ -10,8 +10,8 @@ public class Colors {
     private static final Color LIGHT_DELETED = new Color(255, 160, 180);
 
     // Dark Theme Colors (User specified)
-    private static final Color DARK_ADDED = new Color(0, 64, 15);
-    private static final Color DARK_CHANGED = new Color(0, 0, 102);
+    private static final Color DARK_ADDED = new Color(117, 193, 35).darker().darker();
+    private static final Color DARK_CHANGED = new Color(0, 0, 102).brighter();
     private static final Color DARK_DELETED = new Color(77, 46, 8);
 
     // Search colors (currently theme-independent)

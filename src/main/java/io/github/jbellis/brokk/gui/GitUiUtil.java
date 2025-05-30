@@ -160,11 +160,9 @@ public final class GitUiUtil
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var isDark = chrome.themeManager.isDarkTheme();
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(cm)
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
                             .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(parentContent, parentCommitId))
                             .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(commitContent, commitId))
-                            .withTheme(isDark)
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -382,11 +380,9 @@ public final class GitUiUtil
                 String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
 
                 SwingUtilities.invokeLater(() -> {
-                    var isDark = chrome.themeManager.isDarkTheme();
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(cm)
+                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
                             .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(finalOldContent, finalBaseCommitTitle))
                             .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(file.absPath().toFile(), file.toString()))
-                            .withTheme(isDark)
                             .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });

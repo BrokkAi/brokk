@@ -12,7 +12,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class JMHighlighter implements Highlighter {
+import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
+
+public class JMHighlighter implements Highlighter, ThemeAware {
 
     // Define highlight layers with increasing priority
     public static final int LAYER0 = 1;
@@ -169,7 +172,17 @@ public class JMHighlighter implements Highlighter {
             component.repaint();
         }
     }
-
+    
+    /**
+     * ThemeAware callback – simply repaint the host component so that any
+     * highlight painters created with theme-specific colours can refresh.
+     */
+    @Override
+    public void applyTheme(GuiTheme guiTheme)
+    {
+        repaint();
+    }
+    
     /**
      * Represents a highlight within the text component.
      */

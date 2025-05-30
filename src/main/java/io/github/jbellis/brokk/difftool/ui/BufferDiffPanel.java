@@ -16,19 +16,24 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.*;
 import java.util.ArrayList;
+import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
  * It no longer depends on custom JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractContentPanel
+public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 {
     public static final int LEFT = 0;
     public static final int RIGHT = 2;
     public static final int NUMBER_OF_PANELS = 3;
 
+    @NotNull
     private final BrokkDiffPanel mainPanel;
-    private final boolean isDarkTheme;
+    @NotNull
+    private GuiTheme guiTheme;
 
     // Instead of JMRevision:
     private Patch<String> patch; // from JMDiffNode
@@ -47,15 +52,10 @@ public class BufferDiffPanel extends AbstractContentPanel
     private ScrollSynchronizer scrollSynchronizer;
     private JSplitPane splitPane;
 
-    public BufferDiffPanel(BrokkDiffPanel mainPanel)
-    {
-        this(mainPanel, false);
-    }
-
-    public BufferDiffPanel(BrokkDiffPanel mainPanel, boolean isDarkTheme)
+    public BufferDiffPanel(BrokkDiffPanel mainPanel, @NotNull GuiTheme theme)
     {
         this.mainPanel = mainPanel;
-        this.isDarkTheme = isDarkTheme;
+        this.guiTheme = theme;
         // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
         mainPanel.setBufferDiffPanel(this);
         init();
@@ -91,14 +91,15 @@ public class BufferDiffPanel extends AbstractContentPanel
         this.patch = diffNode.getPatch(); // new Patch or null
 
         // Set the documents into our file panels:
-        if (filePanels[LEFT] != null && leftDocument != null) {
-            filePanels[LEFT].setBufferDocument(leftDocument);
-        }
+        // Order is important, The left panel will use the left panel syntax type if it can't figure its own
         if (filePanels[RIGHT] != null && rightDocument != null) {
             filePanels[RIGHT].setBufferDocument(rightDocument);
         }
+        if (filePanels[LEFT] != null && leftDocument != null) {
+            filePanels[LEFT].setBufferDocument(leftDocument);
+        }
 
-        reDisplay();
+        // Don't apply theme here - let it happen after the panel is added to the UI
     }
 
     /**
@@ -144,17 +145,12 @@ public class BufferDiffPanel extends AbstractContentPanel
             return "No files";
         }
         if (titles.size() == 1) {
-            return titles.get(0);
+            return titles.getFirst();
         }
         if (titles.get(0).equals(titles.get(1))) {
-            return titles.get(0);
+            return titles.getFirst();
         }
         return titles.get(0) + "-" + titles.get(1);
-    }
-
-    public boolean isDarkTheme()
-    {
-        return isDarkTheme;
     }
 
     /**
@@ -184,6 +180,8 @@ public class BufferDiffPanel extends AbstractContentPanel
         scrollSynchronizer = new ScrollSynchronizer(this, filePanels[LEFT], filePanels[RIGHT]);
         setSelectedPanel(filePanels[LEFT]);
         mainPanel.updateUndoRedoButtons();
+        // Apply initial theme for syntax highlighting (but not diff highlights yet)
+        applyTheme(guiTheme);
     }
 
     public JCheckBox getCaseSensitiveCheckBox()
@@ -273,7 +271,7 @@ public class BufferDiffPanel extends AbstractContentPanel
         return scrollSynchronizer;
     }
 
-    public BrokkDiffPanel getMainPanel()
+    public @NotNull BrokkDiffPanel getMainPanel()
     {
         return mainPanel;
     }
@@ -352,14 +350,14 @@ public class BufferDiffPanel extends AbstractContentPanel
         var deltas = patch.getDeltas();
         if (selectedDelta == null) {
             // If nothing selected, pick first or last
-            setSelectedDelta(next ? deltas.get(0) : deltas.get(deltas.size() - 1));
+            setSelectedDelta(next ? deltas.getFirst() : deltas.getLast());
             showSelectedDelta();
             return;
         }
         var idx = deltas.indexOf(selectedDelta);
         if (idx < 0) {
             // The current selection is not in the patch list, pick first
-            setSelectedDelta(deltas.get(0));
+            setSelectedDelta(deltas.getFirst());
         } else {
             var newIdx = next ? idx + 1 : idx - 1;
             if (newIdx < 0) newIdx = deltas.size() - 1;
@@ -535,5 +533,41 @@ public class BufferDiffPanel extends AbstractContentPanel
     {
         super.doRedo();
         mainPanel.updateUndoRedoButtons();
+    }
+
+    /**
+     * ThemeAware implementation – update highlight colours and syntax themes
+     * when the global GUI theme changes.
+     */
+    @Override
+    public void applyTheme(GuiTheme guiTheme)
+    {
+        assert javax.swing.SwingUtilities.isEventDispatchThread()
+                : "applyTheme must be invoked on the EDT";
+        this.guiTheme = guiTheme;
+
+        // Refresh RSyntax themes and highlights in each child FilePanel
+        if (filePanels != null) {
+            for (FilePanel fp : filePanels) {
+                if (fp == null) continue;
+                // Note: fp.applyTheme() already calls reDisplay()
+                fp.applyTheme(guiTheme);
+            }
+        }
+
+        // Let the Look-and-Feel repaint every child component (headers, scroll-bars, etc.)
+        SwingUtilities.updateComponentTreeUI(this);
+        revalidate();
+
+        // Repaint diff connectors, revision bars, etc.
+        reDisplay();
+    }
+
+    public GuiTheme getTheme() {
+        return guiTheme;
+    }
+
+    public boolean isDarkTheme() {
+        return guiTheme.isDarkTheme();
     }
 }

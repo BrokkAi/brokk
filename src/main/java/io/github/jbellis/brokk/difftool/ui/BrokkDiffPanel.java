@@ -12,13 +12,13 @@ import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.util.Arrays;
 import java.util.List;
-import java.io.File;
 import java.util.concurrent.ExecutionException;
 
 public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
@@ -28,15 +28,15 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
     private final JLabel loadingLabel = new JLabel("Processing... Please wait.");
     private final BufferSource leftSource;
     private final BufferSource rightSource;
-    private final boolean isDarkTheme;
+    private final GuiTheme theme;
 
 
-    public BrokkDiffPanel(Builder builder) {
+    public BrokkDiffPanel(Builder builder, GuiTheme theme) {
+        this.theme = theme;
         assert builder.contextManager != null;
         this.contextManager = builder.contextManager;
         this.leftSource = builder.leftSource;
         this.rightSource = builder.rightSource;
-        this.isDarkTheme = builder.isDarkTheme;
         assert this.contextManager != null : "ContextManager cannot be null";
         assert this.leftSource != null : "Left source cannot be null";
         assert this.rightSource != null : "Right source cannot be null";
@@ -64,10 +64,11 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
     public static class Builder {
         private BufferSource leftSource;
         private BufferSource rightSource;
-        private boolean isDarkTheme = false; // Default to light theme
+        private final GuiTheme theme; // Default to light theme
         private final ContextManager contextManager;
 
-        public Builder(ContextManager contextManager) {
+        public Builder(GuiTheme theme, ContextManager contextManager) {
+            this.theme = theme;
             assert contextManager != null;
             this.contextManager = contextManager;
         }
@@ -82,16 +83,11 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
             return this;
         }
 
-        public Builder withTheme(boolean isDark) {
-            this.isDarkTheme = isDark;
-            return this;
-        }
-
         public BrokkDiffPanel build() {
             if (leftSource == null || rightSource == null) {
                 throw new IllegalStateException("Both left and right sources must be provided.");
             }
-            return new BrokkDiffPanel(this);
+            return new BrokkDiffPanel(this, theme);
         }
     }
 
@@ -227,9 +223,8 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
     }
 
     private void compare() {
-        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this)
+        FileComparison fileComparison = new FileComparison.FileComparisonBuilder(this, theme)
                 .withSources(this.leftSource, this.rightSource)
-                .withTheme(this.isDarkTheme) // Pass theme state
                 .build();
 
         fileComparison.addPropertyChangeListener(this);

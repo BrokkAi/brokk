@@ -63,7 +63,6 @@ public interface IContextManager {
          * Called when the context has changed.
          *
          * @param newCtx The new context state.
-         * @param source The object that initiated the context change. Can be null.
          */
         void contextChanged(Context newCtx);
     }

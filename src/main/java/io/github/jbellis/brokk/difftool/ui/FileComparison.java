@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.difftool.ui;
 import io.github.jbellis.brokk.difftool.node.FileNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.node.StringNode;
+import io.github.jbellis.brokk.gui.GuiTheme;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -18,14 +19,14 @@ public class FileComparison extends SwingWorker<String, Object> {
     private BufferDiffPanel panel;
     private final BufferSource leftSource;
     private final BufferSource rightSource;
-    private final boolean isDarkTheme;
+    private final GuiTheme theme;
 
     // Constructor
-    private FileComparison(FileComparisonBuilder builder) {
+    private FileComparison(FileComparisonBuilder builder, GuiTheme theme) {
         this.mainPanel = builder.mainPanel;
         this.leftSource = builder.leftSource;
         this.rightSource = builder.rightSource;
-        this.isDarkTheme = builder.isDarkTheme;
+        this.theme = theme;
     }
 
     // Static Builder class
@@ -33,10 +34,11 @@ public class FileComparison extends SwingWorker<String, Object> {
         private final BrokkDiffPanel mainPanel;
         private BufferSource leftSource;
         private BufferSource rightSource;
-        private boolean isDarkTheme = false; // Default to light
+        private GuiTheme theme; // Default to light
 
-        public FileComparisonBuilder(BrokkDiffPanel mainPanel) {
+        public FileComparisonBuilder(BrokkDiffPanel mainPanel, GuiTheme theme) {
             this.mainPanel = mainPanel;
+            this.theme = theme;
         }
 
         public FileComparisonBuilder withSources(BufferSource left, BufferSource right) {
@@ -45,8 +47,8 @@ public class FileComparison extends SwingWorker<String, Object> {
             return this;
         }
 
-        public FileComparisonBuilder withTheme(boolean isDark) {
-            this.isDarkTheme = isDark;
+        public FileComparisonBuilder withTheme(GuiTheme theme) {
+            this.theme = theme;
             return this;
         }
 
@@ -54,7 +56,7 @@ public class FileComparison extends SwingWorker<String, Object> {
             if (leftSource == null || rightSource == null) {
                 throw new IllegalStateException("Both left and right sources must be provided for comparison.");
             }
-            return new FileComparison(this);
+            return new FileComparison(this, theme);
         }
     }
 
@@ -75,7 +77,8 @@ public class FileComparison extends SwingWorker<String, Object> {
         // If no errors, proceed to diffing
         // diffNode can be null if createDiffNode returns null (though it shouldn't with current logic)
         if (diffNode != null) {
-            SwingUtilities.invokeLater(() -> diffNode.diff());
+            // Call diff() directly - we're already in a background thread
+            diffNode.diff();
         } else {
             // This case should ideally not be reached if sources are non-null
             return "Error: Could not create diff node from sources.";
@@ -130,11 +133,14 @@ public class FileComparison extends SwingWorker<String, Object> {
             if (result != null) {
                 JOptionPane.showMessageDialog(mainPanel, result, "Error opening file", JOptionPane.ERROR_MESSAGE);
             } else {
-                panel = new BufferDiffPanel(mainPanel, isDarkTheme); // Pass theme state
+                panel = new BufferDiffPanel(mainPanel, theme);
                 panel.setDiffNode(diffNode);
                 ImageIcon resizedIcon = getScaledIcon();
                 mainPanel.getTabbedPane().addTab(panel.getTitle(), resizedIcon, panel);
                 mainPanel.getTabbedPane().setSelectedComponent(panel);
+                
+                // Apply theme after the panel is added to the UI hierarchy
+                SwingUtilities.invokeLater(() -> panel.applyTheme(theme));
             }
         } catch (Exception ex) {
             // Handle exceptions during the 'done' phase, e.g., from get()

@@ -32,8 +32,16 @@ public class RevisionBar extends JComponent
         this.filePanel = filePanel;
         this.original = original;
 
-        setBorder(BorderFactory.createLineBorder(
-                ColorUtil.darker(ColorUtil.darker(Colors.getPanelBackground()))));
+        // Apply a border color that follows the current Look and Feel
+        Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = UIManager.getColor("Separator.foreground");
+        }
+        if (borderColor == null) {
+            // Fallback: derive from panel background
+            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+        }
+        setBorder(BorderFactory.createLineBorder(borderColor));
         addMouseListener(getMouseListener());
         setPreferredSize(new Dimension(20, 200));
         setMinimumSize(new Dimension(10, 100));
@@ -45,7 +53,12 @@ public class RevisionBar extends JComponent
         super.paintComponent(g);
 
         Rectangle r = getDrawableRectangle();
-        g.setColor(Color.white);
+        // Use the current theme's background color
+        Color bg = UIManager.getColor("Panel.background");
+        if (bg == null) {
+            bg = getBackground();
+        }
+        g.setColor(bg);
         g.fillRect(r.x, r.y, r.width, r.height);
 
         Patch<String> patch = diffPanel.getPatch();
@@ -78,6 +91,20 @@ public class RevisionBar extends JComponent
             g.setColor(ColorUtil.getColor(delta, diffPanel.isDarkTheme()));
             g.fillRect(r.x, y, r.width, height);
         }
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        // Re-apply border with theme-aware color whenever LAF changes
+        Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = UIManager.getColor("Separator.foreground");
+        }
+        if (borderColor == null) {
+            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+        }
+        setBorder(BorderFactory.createLineBorder(borderColor));
     }
 
     /**
