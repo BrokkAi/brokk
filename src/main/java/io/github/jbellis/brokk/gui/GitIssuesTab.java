@@ -74,7 +74,7 @@ public class GitIssuesTab extends JPanel {
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
 
-        // Split panel with Issues on left (larger) and issue details on right (smaller)
+        // Split panel with Issues on left (larger) and issue description on right (smaller)
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         splitPane.setResizeWeight(0.6); // 60% for Issue list, 40% for details
 
@@ -184,7 +184,7 @@ public class GitIssuesTab extends JPanel {
 
         // Right side - Details of the selected issue
         JPanel issueDetailPanel = new JPanel(new BorderLayout());
-        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Details"));
+        issueDetailPanel.setBorder(BorderFactory.createTitledBorder("Issue Description"));
 
         issueBodyTextPane = new JTextPane();
         issueBodyTextPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
