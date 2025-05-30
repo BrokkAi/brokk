@@ -195,9 +195,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         var quickModelsPanel = createQuickModelsPanel();
         globalSubTabbedPane.addTab("Quick Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
 
-        // GitHub Tab
-        var gitHubPanel = createGitHubPanel();
-        globalSubTabbedPane.addTab("GitHub", null, gitHubPanel, "GitHub integration settings");
+        // GitHub Tab (conditionally added)
+        if (project != null && project.isGitHubRepo()) {
+            var gitHubPanel = createGitHubPanel();
+            globalSubTabbedPane.addTab("GitHub", null, gitHubPanel, "GitHub integration settings");
+        }
 
 
         // Enable/disable components within the Default Models panel based on project state
