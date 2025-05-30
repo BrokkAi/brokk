@@ -5,9 +5,12 @@ import io.github.jbellis.brokk.Project.DataRetentionPolicy;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -24,7 +27,7 @@ import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.plaf.basic.BasicComboPopup;
 
-public class SettingsDialog extends JDialog {
+public class SettingsDialog extends JDialog implements ThemeAware {
     public static final String MODELS_TAB = "Models";
 
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
@@ -1027,6 +1030,13 @@ public class SettingsDialog extends JDialog {
         dialog.add(new JScrollPane(checkBoxesPanel), BorderLayout.CENTER);
         dialog.add(buttonPanel, BorderLayout.SOUTH);
         dialog.setVisible(true);
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        var previousSize = SettingsDialog.this.getSize();
+        SwingUtilities.updateComponentTreeUI(SettingsDialog.this);
+        SettingsDialog.this.setSize(previousSize); // Restore previous size
     }
 
 

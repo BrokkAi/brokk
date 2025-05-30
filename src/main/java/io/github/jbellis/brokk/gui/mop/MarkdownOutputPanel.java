@@ -4,11 +4,14 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextFragment;
 import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,7 +42,7 @@ import java.util.stream.Stream;
  * The panel updates incrementally when messages are appended, only re-rendering the affected message
  * rather than the entire content, which prevents flickering during streaming updates.
  */
-public class MarkdownOutputPanel extends JPanel implements Scrollable {
+public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAware {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
     private static long compactionRoundIdCounter = 0;
 
@@ -68,6 +71,12 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
             t.setDaemon(true);
             return t;
         });
+    }
+
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        updateTheme(guiTheme.isDarkTheme());
     }
 
     /**
@@ -101,6 +110,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable {
         // Extract existing messages to re-add them, which will apply the new theme
         var currentMessages = bubbles.stream().map(Bubble::message).toList();
         setText(currentMessages); // This will clear and re-add, applying the new theme
+        SwingUtilities.updateComponentTreeUI(this);
 
         revalidate();
         repaint();

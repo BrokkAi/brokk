@@ -543,13 +543,6 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /**
-     * Updates the theme of the output components
-     */
-    public void updateTheme(boolean isDark) {
-        llmStreamArea.updateTheme(isDark);
-    }
-
-    /**
      * Shows the loading spinner with a message in the Markdown area.
      */
     public void showSpinner(String message) {

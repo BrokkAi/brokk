@@ -285,9 +285,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Apply current theme based on project settings
         String currentTheme = Project.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
-        boolean isDark = THEME_DARK.equalsIgnoreCase(currentTheme);
-        themeManager.applyTheme(isDark);
-        historyOutputPanel.updateTheme(isDark);
+        boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
+        switchTheme(isDark);
     }
 
     /**
@@ -379,20 +378,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Theme manager and constants
     GuiTheme themeManager;
-    private static final String THEME_DARK = "dark";
-    private static final String THEME_LIGHT = "light";
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
-        historyOutputPanel.updateTheme(isDark);
-        for (Window window : Window.getWindows()) {
-            if (window instanceof JFrame && window != frame) {
-                Container contentPane = ((JFrame) window).getContentPane();
-                if (contentPane instanceof PreviewTextPanel) {
-                    ((PreviewTextPanel) contentPane).updateTheme(themeManager);
-                }
-            }
-        }
     }
 
     @Override

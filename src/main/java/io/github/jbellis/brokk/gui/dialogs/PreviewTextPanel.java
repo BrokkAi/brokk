@@ -45,6 +45,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.gui.ThemeAware;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -52,7 +54,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
  *
  * <p>Supports editing {@link io.github.jbellis.brokk.analyzer.ProjectFile} content and capturing revisions.</p>
  */
-public class PreviewTextPanel extends JPanel {
+public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final JTextField searchField;
@@ -285,14 +287,13 @@ public class PreviewTextPanel extends JPanel {
     }
 
     /**
-     * Updates the theme of this panel. Called by Chrome when the theme changes.
-     *
-     * @param guiTheme The theme manager to use
+     * Implementation of {@link ThemeAware}. Delegates the actual work to
+     * {@link GuiTheme#applyCurrentThemeToComponent}.
      */
-    public void updateTheme(GuiTheme guiTheme) {
-        if (guiTheme != null) {
-            guiTheme.applyCurrentThemeToComponent(textArea);
-        }
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        SwingUtilities.updateComponentTreeUI(this);
+        guiTheme.applyCurrentThemeToComponent(textArea);
     }
 
     /**
