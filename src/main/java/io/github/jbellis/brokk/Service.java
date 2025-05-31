@@ -37,7 +37,7 @@ public final class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
-    public static final int LLM_TIMEOUT_SECONDS = 60;
+    public static final int LLM_TIMEOUT_SECONDS = 4 * 60;
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
