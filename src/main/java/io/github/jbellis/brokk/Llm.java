@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -196,7 +197,12 @@ public class Llm {
         });
 
         try {
-            latch.await();
+            if (!latch.await(Service.LLM_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                lock.lock();
+                cancelled.set(true); // Ensure callback stops echoing
+                lock.unlock();
+                errorRef.set(new HttpException(500, "LLM timed out"));
+            }
         } catch (InterruptedException e) {
             lock.lock();
             cancelled.set(true); // Ensure callback stops echoing

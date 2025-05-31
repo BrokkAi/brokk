@@ -37,6 +37,7 @@ public final class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
+    public static final int LLM_TIMEOUT_SECONDS = 60;
 
     // Helper record to store model name and reasoning level for checking
     public record ModelConfig(String name, Service.ReasoningLevel reasoning) {}
@@ -204,9 +205,9 @@ public final class Service {
     public static final String GROK_3_MINI = "grok-3-mini-beta";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
             .build();
 
     public static final String UNAVAILABLE = "AI is unavailable";
@@ -648,7 +649,7 @@ public final class Service {
                 .strictJsonSchema(true)
                 .maxTokens(maxTokens)
                 .baseUrl(baseUrl)
-                .timeout(Duration.ofMinutes(3)); // default 60s is not enough
+                .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
 
             if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
                 var kp = parseKey(Project.getBrokkKey());
