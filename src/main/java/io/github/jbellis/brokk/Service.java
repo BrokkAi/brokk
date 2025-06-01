@@ -763,6 +763,21 @@ public final class Service {
                 || om.defaultRequestParameters().reasoningEffort() != null;
     }
 
+    public boolean isReasoning(ModelConfig config) {
+        var modelName = config.name();
+        // If the model does not support reasoning effort, it's not a reasoning model.
+        if (!supportsReasoningEffort(modelName)) {
+            return false;
+        }
+        // If not Sonnet, all reasoning models default to enabling it. If Sonnet,
+        // only consider it reasoning if the level is not DEFAULT.
+        var lowerName = modelName.toLowerCase();
+        if (!lowerName.contains("sonnet")) {
+            return true;
+        }
+        return config.reasoning() != ReasoningLevel.DEFAULT;
+    }
+
     /**
      * Checks if the model supports vision (image) inputs based on its metadata.
      *
