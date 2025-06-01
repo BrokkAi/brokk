@@ -257,6 +257,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         getActionMap().put("focusSearch", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
+                String selected = textArea.getSelectedText();
+                if (selected != null && !selected.isEmpty()) {
+                    searchField.setText(selected);
+                }
+                searchField.selectAll();
                 searchField.requestFocusInWindow();
                 // If there's text in the search field, re-highlight matches
                 // without changing the caret position
