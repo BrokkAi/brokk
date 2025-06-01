@@ -751,6 +751,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.EAST; // Align button to the right
         inferBuildDetailsButton = new JButton("Infer Build Details");
+        inferBuildDetailsButton.setActionCommand("infer"); // Default action is "infer"
         buildPanel.add(inferBuildDetailsButton, gbc);
         
         // Check if initial build details inference is running
@@ -760,7 +761,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         // --- Progress Bar for Build Agent ---
         buildProgressBar = new JProgressBar();
         buildProgressBar.setIndeterminate(true);
-        buildProgressBar.setVisible(false);
+        buildProgressBar.setVisible(initialAgentRunning); // Show progress bar if initial agent is running
         gbc.gridx = 1; // Align with input fields (right column)
         gbc.gridy = row++; // Next available row
         gbc.fill = GridBagConstraints.HORIZONTAL; // Let progress bar fill width
@@ -772,18 +773,30 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             inferBuildDetailsButton.setEnabled(false);
             inferBuildDetailsButton.setToolTipText("build inference in progress");
             
-            // Add a listener to re-enable the button when the initial agent completes
+            // Add a listener to reset the button when the initial agent completes
             detailsFuture.whenCompleteAsync((result, ex) -> {
                 SwingUtilities.invokeLater(() -> {
                     if (inferBuildDetailsButton != null && manualInferBuildTaskFuture == null) {
                         inferBuildDetailsButton.setEnabled(true);
                         inferBuildDetailsButton.setToolTipText(null);
+                        buildProgressBar.setVisible(false); // Hide progress bar when initial agent completes
                     }
                 });
             });
         }
 
         inferBuildDetailsButton.addActionListener(e -> {
+            String action = inferBuildDetailsButton.getActionCommand();
+            
+            if ("cancel".equals(action)) {
+                // We're in cancel mode - cancel the running task
+                if (manualInferBuildTaskFuture != null && !manualInferBuildTaskFuture.isDone()) {
+                    boolean cancelled = manualInferBuildTaskFuture.cancel(true);
+                    logger.debug("Build agent cancellation requested, result: {}", cancelled);
+                    // Button state will be reset in the finally block of the task
+                }
+                return;
+            }
             var cm = chrome.getContextManager();
             var proj = chrome.getProject();
             if (proj == null) {
@@ -793,10 +806,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
             // List of controls to disable/enable
             setBuildControlsEnabled(false);
-            inferBuildDetailsButton.setEnabled(false);
+            inferBuildDetailsButton.setText("Cancel");
+            inferBuildDetailsButton.setActionCommand("cancel");
             inferBuildDetailsButton.setToolTipText("build inference in progress");
 
-            manualInferBuildTaskFuture = cm.submitUserTask("Inferring Build Details", () -> {
+            manualInferBuildTaskFuture = cm.submitUserTask("Inferring Build Details", true, () -> {
                 try {
                     chrome.systemOutput("Starting Build Details Inference Agent...");
                     var agent = new BuildAgent(proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
@@ -827,7 +841,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                 } finally {
                     SwingUtilities.invokeLater(() -> {
                         setBuildControlsEnabled(true);
-                        inferBuildDetailsButton.setEnabled(true);
+                        inferBuildDetailsButton.setText("Infer Build Details");
+                        inferBuildDetailsButton.setActionCommand("infer");
                         inferBuildDetailsButton.setToolTipText(null);
                         manualInferBuildTaskFuture = null;
                     });
