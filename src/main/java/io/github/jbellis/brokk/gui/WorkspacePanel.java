@@ -1483,6 +1483,9 @@ public class WorkspacePanel extends JPanel {
                 
                 // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
                 long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+                if (models.isReasoning(config)) {
+                    estimatedOutputTokens += 1000;
+                }
                 double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
                 
                 costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
