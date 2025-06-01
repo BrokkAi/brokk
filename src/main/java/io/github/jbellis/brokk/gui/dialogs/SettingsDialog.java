@@ -11,7 +11,6 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -34,6 +33,11 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     public static final String MODELS_TAB = "Models";
 
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
+    
+    // Action command constants for build details inference button
+    private static final String ACTION_INFER = "infer";
+    private static final String ACTION_CANCEL = "cancel";
+    
 
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
@@ -125,8 +129,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             if (projectActualContent instanceof Container) {
                 for (Component comp : ((Container) projectActualContent).getComponents()) {
                     comp.setEnabled(projectIsOpen);
-                    if (comp instanceof JTabbedPane) { // If it's the sub-tabbed pane, enable/disable its tabs too
-                        JTabbedPane subTabs = (JTabbedPane) comp;
+                    if (comp instanceof JTabbedPane subTabs) { // If it's the sub-tabbed pane, enable/disable its tabs too
                         for (int i = 0; i < subTabs.getTabCount(); i++) {
                             subTabs.setEnabledAt(i, projectIsOpen);
                             // And the components within those tabs
@@ -751,7 +754,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.EAST; // Align button to the right
         inferBuildDetailsButton = new JButton("Infer Build Details");
-        inferBuildDetailsButton.setActionCommand("infer"); // Default action is "infer"
+        inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
         buildPanel.add(inferBuildDetailsButton, gbc);
         
         // Check if initial build details inference is running
@@ -760,26 +763,29 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // --- Progress Bar for Build Agent ---
         buildProgressBar = new JProgressBar();
+
+        // Create a wrapper panel with fixed height to reserve space
+        JPanel progressWrapper = new JPanel(new BorderLayout());
+        progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
+        progressWrapper.add(buildProgressBar, BorderLayout.CENTER);
         buildProgressBar.setIndeterminate(true);
         buildProgressBar.setVisible(initialAgentRunning); // Show progress bar if initial agent is running
+
         gbc.gridx = 1; // Align with input fields (right column)
         gbc.gridy = row++; // Next available row
         gbc.fill = GridBagConstraints.HORIZONTAL; // Let progress bar fill width
         gbc.anchor = GridBagConstraints.EAST;
-        buildPanel.add(buildProgressBar, gbc);
+        buildPanel.add(progressWrapper, gbc);
         
         // Initialize button based on the state of the initial build agent
         if (initialAgentRunning) {
-            inferBuildDetailsButton.setEnabled(false);
-            inferBuildDetailsButton.setToolTipText("build inference in progress");
+            setButtonToInferenceInProgress(false); // false = don't set Cancel text (initial agent)
             
             // Add a listener to reset the button when the initial agent completes
             detailsFuture.whenCompleteAsync((result, ex) -> {
                 SwingUtilities.invokeLater(() -> {
                     if (inferBuildDetailsButton != null && manualInferBuildTaskFuture == null) {
-                        inferBuildDetailsButton.setEnabled(true);
-                        inferBuildDetailsButton.setToolTipText(null);
-                        buildProgressBar.setVisible(false); // Hide progress bar when initial agent completes
+                        setButtonToReadyState();
                     }
                 });
             });
@@ -788,7 +794,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         inferBuildDetailsButton.addActionListener(e -> {
             String action = inferBuildDetailsButton.getActionCommand();
             
-            if ("cancel".equals(action)) {
+            if (ACTION_CANCEL.equals(action)) {
                 // We're in cancel mode - cancel the running task
                 if (manualInferBuildTaskFuture != null && !manualInferBuildTaskFuture.isDone()) {
                     boolean cancelled = manualInferBuildTaskFuture.cancel(true);
@@ -806,9 +812,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
             // List of controls to disable/enable
             setBuildControlsEnabled(false);
-            inferBuildDetailsButton.setText("Cancel");
-            inferBuildDetailsButton.setActionCommand("cancel");
-            inferBuildDetailsButton.setToolTipText("build inference in progress");
+            setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
 
             manualInferBuildTaskFuture = cm.submitUserTask("Inferring Build Details", true, () -> {
                 try {
@@ -819,7 +823,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                     if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
                         logger.warn("Build Agent returned empty details, considering it an error.");
                         // When cancel button is pressed, we need to show a different kind of message
-                        boolean isCancellation = "cancel".equals(inferBuildDetailsButton.getActionCommand());
+                        boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
 
                         SwingUtilities.invokeLater(() -> {
                             if (isCancellation) {
@@ -856,9 +860,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
                 } finally {
                     SwingUtilities.invokeLater(() -> {
                         setBuildControlsEnabled(true);
-                        inferBuildDetailsButton.setText("Infer Build Details");
-                        inferBuildDetailsButton.setActionCommand("infer");
-                        inferBuildDetailsButton.setToolTipText(null);
+                        setButtonToReadyState();
                         manualInferBuildTaskFuture = null;
                     });
                 }
@@ -967,6 +969,28 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         projectTabRootPanel.add(subTabbedPane, BorderLayout.CENTER);
         return projectTabRootPanel;
+    }
+
+    private void setButtonToReadyState() {
+        inferBuildDetailsButton.setText("Infer Build Details");
+        inferBuildDetailsButton.setActionCommand(ACTION_INFER);
+        inferBuildDetailsButton.setEnabled(true);
+        inferBuildDetailsButton.setToolTipText(null);
+        buildProgressBar.setVisible(false);
+    }
+
+    private void setButtonToInferenceInProgress(boolean showCancelButton) {
+        inferBuildDetailsButton.setToolTipText("build inference in progress");
+        buildProgressBar.setVisible(true);
+
+        if (showCancelButton) {
+            inferBuildDetailsButton.setText("Cancel");
+            inferBuildDetailsButton.setActionCommand(ACTION_CANCEL);
+            inferBuildDetailsButton.setEnabled(true);
+        } else {
+            // Initial agent running - disable the button
+            inferBuildDetailsButton.setEnabled(false);
+        }
     }
 
     private void setBuildControlsEnabled(boolean enabled) {
