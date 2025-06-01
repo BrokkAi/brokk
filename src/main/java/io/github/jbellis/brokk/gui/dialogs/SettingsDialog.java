@@ -818,11 +818,26 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
                     if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
                         logger.warn("Build Agent returned empty details, considering it an error.");
+                        // When cancel button is pressed, we need to show a different kind of message
+                        boolean isCancellation = "cancel".equals(inferBuildDetailsButton.getActionCommand());
+
                         SwingUtilities.invokeLater(() -> {
-                            String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
-                            chrome.toolErrorRaw(errorMessage);
-                            JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
-                            // Do not save or update UI with empty details
+                            if (isCancellation) {
+                                logger.info("Build Agent execution cancelled by user");
+                                chrome.systemOutput("Build Inference Agent cancelled.");
+                                JOptionPane.showMessageDialog(SettingsDialog.this,
+                                                              "Build Inference Agent cancelled.",
+                                                              "Build Cancelled",
+                                                              JOptionPane.INFORMATION_MESSAGE);
+                            } else {
+                                SwingUtilities.invokeLater(() -> {
+                                    String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
+                                    chrome.toolErrorRaw(errorMessage);
+                                    JOptionPane.showMessageDialog(SettingsDialog.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                                    // Do not save or update UI with empty details
+                                });
+                            }
+                            ;
                         });
                     } else {
                         proj.saveBuildDetails(newBuildDetails);
