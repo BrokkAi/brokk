@@ -241,10 +241,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void afterEachBuild() {
-                var fr = liveContext.freeze();
-                liveContext = fr.liveContext();
-                contextHistory.updateTopContext(fr.frozenContext());
-                io.updateWorkspace();
+                // possible for analyzer build to finish before context load does
+                if (liveContext != null) {
+                    var fr = liveContext.freeze();
+                    liveContext = fr.liveContext();
+                    contextHistory.updateTopContext(fr.frozenContext());
+                    io.updateWorkspace();
+                }
             }
         };
 
