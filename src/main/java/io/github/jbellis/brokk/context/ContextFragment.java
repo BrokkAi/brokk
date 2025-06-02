@@ -732,12 +732,9 @@ public interface ContextFragment {
 
         @Override
         public boolean isDynamic() {
-            // PasteFragments depend on a Future for their description, which might not be
-            // complete at the time of freezing. Also, image content could be considered dynamic
-            // if it's from a mutable source, though PasteImageFragment usually implies clipboard.
-            // Treating them as dynamic ensures their state (description, image bytes) is
-            // captured point-in-time by FrozenFragment.
-            return true;
+            // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the corner case
+            // of the Future timing out in rare error scenarios
+            return false;
         }
 
         @Override
