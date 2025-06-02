@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.agents;
 
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -20,13 +23,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -224,20 +226,31 @@ public class BuildAgent {
         // System Prompt
         messages.add(new SystemMessage("""
         You are an agent tasked with finding build information for the *development* environment of a software project.
-        Your goal is to identify dependencies, plugins,repositories, development profile details, key build commands
-        (clean, compile/build, test all, test specific), how to invoke those commands correctly, and the main application entry point.
+        Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
         Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
         configurations unless they are the only ones available.
 
-        Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files.
-        The information you gather will be handed off to agents that do not have access to these files, so
-        make sure your instructions are comprehensive.
+        Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
+        as necessary, to determine the information needed by `reportBuildDetails`.
 
+        For the `testSomeCommand` parameter, use Mustache templating with either {{classes}} or {{files}} variables. Examples:
+
+        | Build tool        | One-liner a user could write
+        | ----------------- | ------------------------------------------------------------------------
+        | **SBT**           | `sbt "testOnly{{#classes}} {{.}}{{/classes}}"`
+        | **Maven**         | `mvn test -Dtest={{#classes}}{{.}}{{^-last}},{{/-last}}{{/classes}}`
+        | **Gradle**        | `gradle test{{#classes}} --tests {{.}}{{/classes}}`
+        | **Go**            | `go test -run '{{#classes}}{{.}}{{^-last}} | {{/-last}}{{/classes}}`
+        | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{.}}{{^-last}} | {{/-last}}{{/classes}}"`
+        | **pytest**        | `pytest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
+        | **Jest**          | `jest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
+       
         A baseline set of excluded directories has been established from build conventions and .gitignore.
         When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
         you identify that should be excluded from code intelligence, beyond this baseline.
-        
+
         Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
+        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
         """.stripIndent()));
 
         // Add existing history
@@ -251,16 +264,9 @@ public class BuildAgent {
 
     @Tool(value = "Report the gathered build details when ALL information is collected. DO NOT call this method before then.")
     public String reportBuildDetails(
-            @P("List of build files involved in the build, including module build files") List<String> buildfiles,
-            @P("List of identified third-party dependencies") List<String> dependencies,
             @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.") String buildLintCommand,
             @P("Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.") String testAllCommand,
-            @P("""
-               Instructions and details about the build process, including environment configurations
-               and any idiosyncracies observed. Include information on how to run other test configurations, especially
-               individual tests but also at other levels e.g. package or namespace;
-               also include information on other pre-commit tools like code formatters or static analysis tools.
-               """) String instructions,
+            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}} or a {{files}} variable. See system prompt for examples.") String testSomeCommand,
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)") List<String> excludedDirectories
         ) {
             // Combine baseline excluded directories with those suggested by the LLM
@@ -271,7 +277,7 @@ public class BuildAgent {
                     .map(Path::toString)
                     .collect(Collectors.toSet());
 
-            this.reportedDetails = new BuildDetails(buildfiles, dependencies, buildLintCommand, testAllCommand, instructions, finalExcludes);
+            this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
             logger.debug("reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
             return "Build details report received and processed.";
         }
@@ -323,23 +329,19 @@ public class BuildAgent {
     }
 
     /** Holds semi-structured information about a project's build process */
-    public record BuildDetails(List<String> buildFiles,
-                               List<String> dependencies,
-                               String buildLintCommand,
+    public record BuildDetails(String buildLintCommand,
                                String testAllCommand,
-                               String instructions,
+                               String testSomeCommand,
                                Set<String> excludedDirectories)
     {
         public BuildDetails {
-            Objects.requireNonNull(buildFiles);
-            Objects.requireNonNull(dependencies);
             Objects.requireNonNull(buildLintCommand);
             Objects.requireNonNull(testAllCommand);
-            Objects.requireNonNull(instructions);
+            Objects.requireNonNull(testSomeCommand);
             Objects.requireNonNull(excludedDirectories);
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails(List.of(), List.of(), "", "", "", Set.of());
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
     }
 
     /**
@@ -358,7 +360,7 @@ public class BuildAgent {
         return CompletableFuture.supplyAsync(() -> {
             // Retrieve build details from the project associated with the ContextManager
             Project project = (Project) cm.getProject();
-            BuildDetails details = project.getBuildDetails();
+            BuildDetails details = project.loadBuildDetails();
 
             if (details.equals(BuildDetails.EMPTY)) {
                 logger.warn("No build details available, cannot determine verification command.");
@@ -406,54 +408,104 @@ public class BuildAgent {
                 return details.buildLintCommand();
             }
 
-            // Construct the prompt for the LLM
-            logger.debug("Found relevant tests {}, asking LLM for specific command.", workspaceTestFiles);
-            var prompt = """
-                         Given the build details and the list of test files modified or relevant to the recent changes,
-                         give the shell command to run *only* these specific tests. (You may chain multiple
-                         commands with &&, if necessary.)
-                         
-                         Build Details:
-                         Test All Command: %s
-                         Build/Lint Command: %s
-                         Other Instructions: %s
-                         
-                         Test Files to execute:
-                         %s
-                         
-                         Provide *only* the command line string to execute these specific tests.
-                         Do not include any explanation or formatting.
-                         If you cannot determine a more specific command, respond with an empty string.
-                         """.formatted(details.testAllCommand(),
-                                       details.buildLintCommand(),
-                                       details.instructions(),
-                                       workspaceTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"))).stripIndent();
-            // Need a coder instance specifically for this task
-            var inferTestCoder = cm.getLlm(cm.getService().quickModel(), "Infer tests");
-            // Ask the LLM
-            Llm.StreamingResult llmResult;
-            try {
-                llmResult = inferTestCoder.sendRequest(List.of(new UserMessage(prompt)));
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            if (llmResult.chatResponse() == null || llmResult.chatResponse().aiMessage() == null) {
-                logger.warn("No reply from LLM; falling back to default: {}", details.buildLintCommand());
+            // Determine if template is files-based or classes-based
+            String testSomeTemplate = details.testSomeCommand();
+            boolean isFilesBased = testSomeTemplate.contains("{{files}}");
+            boolean isClassesBased = testSomeTemplate.contains("{{classes}}");
+            
+            if (!isFilesBased && !isClassesBased) {
+                logger.debug("Test template doesn't use {{files}} or {{classes}}, using build/lint command: {}", details.buildLintCommand());
                 return details.buildLintCommand();
             }
 
-            // remove potential markdown syntax
-            String rawCommandFromLlm = llmResult.chatResponse().aiMessage().text();
-            var suggestedCommand = unmarkdown(rawCommandFromLlm);
+            List<String> targetItems;
+            if (isFilesBased) {
+                // Use file paths directly
+                targetItems = workspaceTestFiles.stream()
+                    .map(ProjectFile::toString)
+                    .toList();
+                logger.debug("Using files-based template with {} files", targetItems.size());
+            } else {
+                // For classes-based templates, fall back to LLM approach for now
+                logger.debug("Classes-based template detected, falling back to LLM approach");
+                var prompt = """
+                             Given the build details and the list of test files modified or relevant to the recent changes,
+                             give the shell command to run *only* these specific tests. (You may chain multiple
+                             commands with &&, if necessary.)
+                             
+                             Build Details:
+                             Test All Command: %s
+                             Build/Lint Command: %s
+                             Test Some Command Template: %s
+                             
+                             Test Files to execute:
+                             %s
+                             
+                             Provide *only* the command line string to execute these specific tests.
+                             Do not include any explanation or formatting.
+                             If you cannot determine a more specific command, respond with an empty string.
+                             """.formatted(details.testAllCommand(),
+                                           details.buildLintCommand(),
+                                           details.testSomeCommand(),
+                                           workspaceTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"))).stripIndent();
+                // Need a coder instance specifically for this task
+                var inferTestCoder = cm.getLlm(cm.getService().quickModel(), "Infer tests");
+                // Ask the LLM
+                Llm.StreamingResult llmResult;
+                try {
+                    llmResult = inferTestCoder.sendRequest(List.of(new UserMessage(prompt)));
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+                if (llmResult.chatResponse() == null || llmResult.chatResponse().aiMessage() == null) {
+                    logger.warn("No reply from LLM; falling back to default: {}", details.buildLintCommand());
+                    return details.buildLintCommand();
+                }
 
-            // Use the suggested command if valid, otherwise fallback
-            if (suggestedCommand.isBlank()) {
-                logger.warn("Blank reply from LLM; falling back to default: {}", details.buildLintCommand());
-                return details.buildLintCommand();
+                // remove potential markdown syntax
+                String rawCommandFromLlm = llmResult.chatResponse().aiMessage().text();
+                var suggestedCommand = unmarkdown(rawCommandFromLlm);
+
+                // Use the suggested command if valid, otherwise fallback
+                if (suggestedCommand.isBlank()) {
+                    logger.warn("Blank reply from LLM; falling back to default: {}", details.buildLintCommand());
+                    return details.buildLintCommand();
+                }
+
+                logger.debug("LLM suggested specific test command: '{}'", suggestedCommand);
+                return suggestedCommand;
             }
 
-            logger.debug("LLM suggested specific test command: '{}'", suggestedCommand);
-            return suggestedCommand;
+            // Perform simple template interpolation for files-based templates
+            String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, isFilesBased);
+            logger.debug("Interpolated test command: '{}'", interpolatedCommand);
+            return interpolatedCommand;
         }, cm.getBackgroundTasks());
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items.
+     * Supports {{files}} and {{classes}} variables with {{^-last}} separators.
+     */
+    private static String interpolateMustacheTemplate(String template, List<String> items, boolean isFilesBased) {
+        if (template == null || template.isEmpty()) {
+            return "";
+        }
+
+        MustacheFactory mf = new DefaultMustacheFactory();
+        // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
+        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+
+        Map<String, Object> context = new HashMap<>();
+        String listKey = isFilesBased ? "files" : "classes";
+        // Mustache.java handles null or empty lists correctly for {{#section}} blocks.
+        context.put(listKey, items);
+
+        StringWriter writer = new StringWriter();
+        // This can throw MustacheException, which will propagate as a RuntimeException
+        // as per the project's "let it throw" style.
+        mustache.execute(writer, context);
+
+        return writer.toString();
     }
 }

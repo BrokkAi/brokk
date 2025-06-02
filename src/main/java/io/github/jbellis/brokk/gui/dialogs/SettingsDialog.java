@@ -621,7 +621,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST;
         buildPanel.add(new JLabel("Build Instructions:"), gbc);
-        buildInstructionsArea.setText(details.instructions());
+        buildInstructionsArea.setText("");
         gbc.gridx = 1;
         gbc.gridy = row; // Current row for instructions
         gbc.weightx = 1.0;
@@ -942,7 +942,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
-            buildInstructionsArea.setText(details.instructions());
+            buildInstructionsArea.setText("");
             excludedDirectoriesListModel.clear();
             var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
             for (String dir : sortedExcludedDirs) {
@@ -1778,11 +1778,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         }
 
         // Create a new BuildDetails record with updated fields
-        var newDetails = new BuildAgent.BuildDetails(currentDetails.buildFiles(),
-                                                     currentDetails.dependencies(),
-                                                     newBuildLint,
+        var newDetails = new BuildAgent.BuildDetails(newBuildLint,
                                                      newTestAll,
-                                                     newInstructions,
+                                                     currentDetails.testSomeCommand(),
                                                      newExcludedDirs);
         logger.trace("Applying Build Details: {}", newDetails);
 

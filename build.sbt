@@ -66,6 +66,7 @@ libraryDependencies ++= Seq(
   "org.kohsuke" % "github-api" % "1.327",
   "org.jsoup" % "jsoup" % "1.19.1",
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
+  "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
 
   // TreeSitter Java parser
   "io.github.bonede" % "tree-sitter" % "0.25.3",
