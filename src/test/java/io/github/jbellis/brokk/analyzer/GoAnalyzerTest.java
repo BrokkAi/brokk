@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.treesitter.TSLanguage;
@@ -11,15 +10,10 @@ import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
-import java.io.IOException;
-import io.github.jbellis.brokk.analyzer.SymbolNotFoundException;
 
 
 import static org.junit.jupiter.api.Assertions.*;

@@ -26,4 +26,10 @@ public interface AnalyzerListener
      * Called when external changes to the git repo are detected
      */
     void onRepoChange();
+
+    /**
+     * Called after each Analyzer build, successful or not.
+     * This includes the initial build and any subsequent rebuilds.
+     */
+    void afterEachBuild();
 }

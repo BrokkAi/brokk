@@ -1,6 +1,8 @@
-package io.github.jbellis.brokk.analyzer;
+package io.github.jbellis.brokk.testutil;
 
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 
 import java.io.IOException;
@@ -16,17 +18,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Lightweight IProject implementation for unit-testing Tree-sitter analyzers.
  */
-final class TestProject implements IProject {
+public final class TestProject implements IProject {
     private final Path root;
-    private final Language language; // Use Brokk's Language enum
+    private final Language language;
 
-    TestProject(Path root, Language language) {
+    public TestProject(Path root, Language language) {
         this.root = root;
         this.language = language;
     }
 
     /** Creates a TestProject rooted under src/test/resources/{subDir}. */
-    static TestProject createTestProject(String subDir, Language lang) { // Use Brokk's Language enum
+    public static TestProject createTestProject(String subDir, Language lang) {
         Path testDir = Path.of("src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
         assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");

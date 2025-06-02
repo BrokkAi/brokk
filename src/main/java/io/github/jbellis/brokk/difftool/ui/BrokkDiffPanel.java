@@ -9,7 +9,7 @@ import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.algorithm.DiffAlgorithmListener;
 import com.github.difflib.patch.Patch;
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -209,7 +209,7 @@ public class BrokkDiffPanel extends JPanel implements PropertyChangeListener {
                 }
             }
 
-            var fragment = new ContextFragment.StringFragment(diffText, description, syntaxStyle);
+            var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
             contextManager.addVirtualFragment(fragment);
             contextManager.getIo().systemOutput("Added captured diff to context: " + description);
         });

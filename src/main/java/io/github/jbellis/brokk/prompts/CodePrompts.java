@@ -4,12 +4,24 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import com.google.common.collect.Streams;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.*;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.util.ImageUtil;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -19,6 +31,7 @@ import java.util.stream.Collectors;
  * Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks.
  */
 public abstract class CodePrompts {
+    private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {}; // Changed instance creation
 
     public static final String LAZY_REMINDER = """
@@ -52,7 +65,7 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectCodeMessages(IContextManager cm,
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
-                                                       ArrayList<ChatMessage> sessionMessages,
+                                                       ArrayList<ChatMessage> taskMessages,
                                                        UserMessage request)
     throws InterruptedException
     {
@@ -66,7 +79,7 @@ public abstract class CodePrompts {
         messages.addAll(cm.getWorkspaceReadOnlyMessages());
         messages.addAll(parser.exampleMessages());
         messages.addAll(cm.getHistoryMessages());
-        messages.addAll(sessionMessages);
+        messages.addAll(taskMessages);
         messages.addAll(cm.getWorkspaceEditableMessages());
         messages.add(request);
 
@@ -358,5 +371,223 @@ public abstract class CodePrompts {
         messages.add(new UserMessage(userMessage));
 
         return messages;
+    }
+
+    /**
+     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.).
+     * Does not include editable content or related classes.
+     */
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(IContextManager cm) throws InterruptedException {
+        var c = cm.topContext();
+        var allContents = new ArrayList<Content>();
+
+        // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
+        var readOnlyTextFragments = new StringBuilder();
+        var readOnlyImageFragments = new ArrayList<ImageContent>();
+        c.getReadOnlyFragments()
+                .forEach(fragment -> {
+                    if (fragment.isText()) {
+                        // Handle text-based fragments
+                        String formatted = fragment.format(); // No analyzer
+                        if (formatted != null && !formatted.isBlank()) {
+                            readOnlyTextFragments.append(formatted).append("\n\n");
+                        }
+                    } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE ||
+                               fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+                        // Handle image fragments - explicitly check for known image fragment types
+                        try {
+                            // Convert AWT Image to LangChain4j ImageContent
+                            var l4jImage = ImageUtil.toL4JImage(fragment.image());
+                            readOnlyImageFragments.add(ImageContent.from(l4jImage));
+                            // Add a placeholder in the text part for reference
+                            readOnlyTextFragments.append(fragment.format()).append("\n\n"); // No analyzer
+                        } catch (IOException e) {
+                            logger.error("Failed to process image fragment {} for LLM message", fragment.description(), e);
+                            // Add a placeholder indicating the error, do not call removeBadFragment from here
+                            readOnlyTextFragments.append(String.format("[Error processing image: %s - %s]\n\n", fragment.description(), e.getMessage()));
+                        }
+                    } else {
+                        // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
+                        // Just add their formatted representation as text
+                        String formatted = fragment.format(); // No analyzer
+                        if (formatted != null && !formatted.isBlank()) {
+                            readOnlyTextFragments.append(formatted).append("\n\n");
+                        }
+                    }
+                });
+
+        if (readOnlyTextFragments.isEmpty() && readOnlyImageFragments.isEmpty()) {
+            return List.of();
+        }
+
+        // Add the combined text content for read-only items if any exists
+        String readOnlyText = """
+                              <workspace_readonly>
+                              Here are the READ ONLY files and code fragments in your Workspace.
+                              Do not edit this code! Images will be included separately if present.
+                              
+                              %s
+                              </workspace_readonly>
+                              """.stripIndent().formatted(readOnlyTextFragments.toString().trim());
+
+        // text and image content must be distinct
+        allContents.add(new TextContent(readOnlyText));
+        allContents.addAll(readOnlyImageFragments);
+
+        // Create the main UserMessage
+        var readOnlyUserMessage = UserMessage.from(allContents);
+        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
+    }
+
+    /**
+     * Returns messages containing only the editable workspace content.
+     * Does not include read-only content or related classes.
+     */
+    public final Collection<ChatMessage> getWorkspaceEditableMessages(IContextManager cm) throws InterruptedException {
+        var c = cm.topContext();
+
+        // --- Process Editable Fragments ---
+        var editableTextFragments = new StringBuilder();
+        c.getEditableFragments().forEach(fragment -> {
+            String formatted = fragment.format(); // format() on live fragment
+            if (formatted != null && !formatted.isBlank()) {
+                editableTextFragments.append(formatted).append("\n\n");
+            }
+        });
+
+        if (editableTextFragments.isEmpty()) {
+            return List.of();
+        }
+
+        String editableText = """
+                              <workspace_editable>
+                              Here are the EDITABLE files and code fragments in your Workspace.
+                              This is *the only context in the Workspace to which you should make changes*.
+                              
+                              *Trust this message as the true contents of these files!*
+                              Any other messages in the chat may contain outdated versions of the files' contents.
+                              
+                              %s
+                              </workspace_editable>
+                              """.stripIndent().formatted(editableTextFragments.toString().trim());
+
+        var editableUserMessage = new UserMessage(editableText);
+        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
+    }
+
+    /**
+     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable files/fragments).
+     * Handles both text and image fragments, creating a multimodal UserMessage if necessary.
+     *
+     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
+     */
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(IContextManager cm, boolean includeRelatedClasses) throws InterruptedException {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(cm);
+        var editableMessages = getWorkspaceEditableMessages(cm);
+
+        // If both are empty and no related classes requested, return empty
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && !includeRelatedClasses) {
+            return List.of();
+        }
+
+        var allContents = new ArrayList<Content>();
+        var combinedText = new StringBuilder();
+
+        // Extract text and image content from read-only messages
+        if (!readOnlyMessages.isEmpty()) {
+            var readOnlyUserMessage = readOnlyMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (readOnlyUserMessage.isPresent()) {
+                var contents = readOnlyUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    } else if (content instanceof ImageContent imageContent) {
+                        allContents.add(imageContent);
+                    }
+                }
+            }
+        }
+
+        // Extract text from editable messages
+        if (!editableMessages.isEmpty()) {
+            var editableUserMessage = editableMessages.stream()
+                    .filter(UserMessage.class::isInstance)
+                    .map(UserMessage.class::cast)
+                    .findFirst();
+            if (editableUserMessage.isPresent()) {
+                var contents = editableUserMessage.get().contents();
+                for (var content : contents) {
+                    if (content instanceof TextContent textContent) {
+                        combinedText.append(textContent.text()).append("\n\n");
+                    }
+                }
+            }
+        }
+
+        // optional: related classes
+        String topClassesText = "";
+        if (includeRelatedClasses && cm.getAnalyzerWrapper().isCpg()) {
+            var acFragment = cm.liveContext().buildAutoContext(10); // Assumes liveContext() is available on IContextManager
+            String topClassesRaw = acFragment.text();
+            if (!topClassesRaw.isBlank()) {
+                topClassesText = """
+                               <related_classes>
+                               Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                               If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                               visible to Code Agent. If they are not relevant, just ignore them.
+                               
+                               %s
+                               </related_classes>
+                               """.stripIndent().formatted(topClassesRaw);
+            }
+        }
+
+        // Wrap everything in workspace tags
+        var workspaceText = """
+                           <workspace>
+                           %s
+                           </workspace>
+                           %s
+                           """.stripIndent().formatted(combinedText.toString().trim(), topClassesText);
+
+        // Add the workspace text as the first content
+        allContents.add(0, new TextContent(workspaceText));
+
+        // Create the main UserMessage
+        var workspaceUserMessage = UserMessage.from(allContents);
+        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
+    }
+
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(IContextManager cm) throws InterruptedException {
+        return getWorkspaceContentsMessages(cm, false);
+    }
+
+    /**
+     * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
+     * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
+     */
+    public final Collection<ChatMessage> getWorkspaceSummaryMessages(IContextManager cm) {
+        var c = cm.topContext();
+
+        var summaries = Streams.concat(c.getReadOnlyFragments(), c.getEditableFragments())
+                .map(ContextFragment::formatSummary)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+
+        if (summaries.isEmpty()) {
+            return List.of();
+        }
+
+        String summaryText = """
+                             <workspace-summary>
+                             %s
+                             </workspace-summary>
+                             """.stripIndent().formatted(summaries).trim();
+
+        var summaryUserMessage = new UserMessage(summaryText);
+        return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
     }
 }

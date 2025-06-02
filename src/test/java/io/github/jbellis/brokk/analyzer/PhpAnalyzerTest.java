@@ -9,7 +9,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static io.github.jbellis.brokk.analyzer.TestProject.createTestProject;
+import static io.github.jbellis.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class PhpAnalyzerTest {

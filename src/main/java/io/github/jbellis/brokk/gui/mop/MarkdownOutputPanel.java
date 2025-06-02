@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.gui.mop;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
