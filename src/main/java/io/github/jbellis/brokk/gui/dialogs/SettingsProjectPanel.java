@@ -15,10 +15,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
+    private static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog;
@@ -88,6 +90,50 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         projectSubTabbedPane.addTab("Data Retention", null, dataRetentionPanelInner, "Data retention policy for this project");
 
         add(projectSubTabbedPane, BorderLayout.CENTER);
+
+        // Handle initial loading state for Build Details
+        if (!project.hasBuildDetails()) {
+            projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, false);
+            if (buildProgressBar != null) {
+                buildProgressBar.setVisible(true);
+            }
+            if (rerunBuildButton != null) {
+                rerunBuildButton.setEnabled(false);
+            }
+
+            project.getBuildDetailsFuture().whenCompleteAsync((detailsResult, ex) -> {
+                SwingUtilities.invokeLater(() -> {
+                    projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, true);
+                    if (buildProgressBar != null) {
+                        buildProgressBar.setVisible(false);
+                    }
+                    if (rerunBuildButton != null) {
+                        rerunBuildButton.setEnabled(true);
+                    }
+
+                    if (ex != null) {
+                        logger.error("Initial build details determination failed", ex);
+                        chrome.toolErrorRaw("Failed to determine initial build details: " + ex.getMessage());
+                    } else {
+                        if (detailsResult == BuildAgent.BuildDetails.EMPTY) {
+                            logger.warn("Initial Build Agent returned empty details. Using defaults.");
+                            chrome.systemOutput("Initial Build Agent completed but found no specific details. Using defaults.");
+                        } else {
+                            logger.info("Initial build details determined successfully.");
+                            chrome.systemOutput("Initial build details determined. Settings panel updated.");
+                        }
+                    }
+                    loadBuildPanelSettings(); // Load settings for the build panel now
+                });
+            }, ForkJoinPool.commonPool());
+        } else { // Project exists and details are already available
+            if (buildProgressBar != null) {
+                buildProgressBar.setVisible(false);
+            }
+            if (rerunBuildButton != null) {
+                rerunBuildButton.setEnabled(true);
+            }
+        }
     }
     
     public JTabbedPane getProjectSubTabbedPane() {
@@ -419,12 +465,33 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         styleGuideArea.setText(project.getStyleGuide());
         commitFormatArea.setText(project.getCommitMessageFormat());
 
-        // Build Tab
-        var details = project.loadBuildDetails();
+        // Build Tab - Load settings only if details are available
+        // If not available, the whenCompleteAsync callback from initComponents will call loadBuildPanelSettings
+        if (project.hasBuildDetails()) {
+            loadBuildPanelSettings();
+        }
+
+        // Data Retention Tab
+        if (dataRetentionPanelInner != null) dataRetentionPanelInner.loadPolicy();
+    }
+
+    private void loadBuildPanelSettings() {
+        var project = chrome.getProject();
+        if (project == null) return; // Should not happen if panel is active
+
+        BuildAgent.BuildDetails details;
+        try {
+            // This call is now safe as it's guarded by hasBuildDetails() or called after awaitBuildDetails()
+            details = project.loadBuildDetails();
+        } catch (Exception e) {
+            logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
+            details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
+            chrome.toolErrorRaw("Error loading build details: " + e.getMessage() + ". Using defaults.");
+        }
+
         buildCleanCommandField.setText(details.buildLintCommand());
         allTestsCommandField.setText(details.testAllCommand());
         someTestsCommandField.setText(details.testSomeCommand());
-        // buildInstructionsArea removed
 
         if (project.getCodeAgentTestScope() == Project.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
@@ -440,10 +507,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         excludedDirectoriesListModel.clear();
         var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
-        for (String dir : sortedExcludedDirs) excludedDirectoriesListModel.addElement(dir);
-
-        // Data Retention Tab
-        if (dataRetentionPanelInner != null) dataRetentionPanelInner.loadPolicy();
+        for (String dir : sortedExcludedDirs) {
+            excludedDirectoriesListModel.addElement(dir);
+        }
+        logger.trace("Build panel settings loaded/reloaded with details: {}", details);
     }
 
     public boolean applySettings() {

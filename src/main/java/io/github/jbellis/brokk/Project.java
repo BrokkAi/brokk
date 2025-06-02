@@ -351,6 +351,16 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
+     * Returns the CompletableFuture that will complete with the BuildDetails.
+     * This allows for non-blocking asynchronous handling of build detail determination.
+     *
+     * @return The {@link CompletableFuture} for {@link BuildAgent.BuildDetails}.
+     */
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    /**
      * Waits for the build details to become available.
      * This method will block until the build details are loaded or generated.
      *
