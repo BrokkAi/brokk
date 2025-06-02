@@ -278,8 +278,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.contextManager.addContextListener(this);
         }
 
-        // Set initial button states based on CM availability
-        updateButtonStates();
+        // Buttons start disabled and will be enabled by ContextManager when session loading completes
+        disableButtons();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -1514,7 +1514,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Updates the enabled state of all action buttons based on project load status
-     * and ContextManager availability. Called initially and when actions complete.
+     * and ContextManager availability. Called when actions complete.
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {

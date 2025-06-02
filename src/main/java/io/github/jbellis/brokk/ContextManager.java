@@ -274,6 +274,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             notifyContextListeners(topContext()); // Notify with the live context
             io.updateContextHistoryTable(liveContext); // Update UI with the live context
+            io.enableActionButtons(); // Enable buttons now that session loading is complete
         });
 
         // Ensure style guide and build details are loaded/generated asynchronously
