@@ -27,11 +27,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JComboBox<Project.CpgRefresh> cpgRefreshComboBox;
     private JTextField buildCleanCommandField;
     private JTextField allTestsCommandField;
-    private JTextArea buildInstructionsArea;
+    private JTextField someTestsCommandField; // Added for testSomeCommand
     private DataRetentionPanel dataRetentionPanelInner; // Renamed to avoid conflict if outer is also named this
     private JTextArea styleGuideArea;
     private JTextArea commitFormatArea;
-    private JScrollPane instructionsScrollPane;
+    // buildInstructionsArea and instructionsScrollPane removed
     private JList<String> excludedDirectoriesList;
     private DefaultListModel<String> excludedDirectoriesListModel;
     private JScrollPane excludedScrollPane;
@@ -161,11 +161,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         buildCleanCommandField = new JTextField();
         allTestsCommandField = new JTextField();
-        buildInstructionsArea = new JTextArea(10, 20);
-        buildInstructionsArea.setWrapStyleWord(true); buildInstructionsArea.setLineWrap(true);
-        instructionsScrollPane = new JScrollPane(buildInstructionsArea);
-        instructionsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        instructionsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        someTestsCommandField = new JTextField(); // Added for testSomeCommand
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         buildPanel.add(new JLabel("Build/Lint Command:"), gbc);
@@ -176,6 +172,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildPanel.add(new JLabel("Test All Command:"), gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         buildPanel.add(allTestsCommandField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
+        buildPanel.add(new JLabel("Test Some Command:"), gbc);
+        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
+        buildPanel.add(someTestsCommandField, gbc);
+        var testSomeInfo = new JLabel("<html>Use a placeholder like {{FILE_OR_CLASS_PATH}} for the part that will be replaced.</html>");
+        testSomeInfo.setFont(testSomeInfo.getFont().deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));
+        gbc.gridx = 1; gbc.gridy = row++; gbc.insets = new Insets(0, 2, 8, 2);
+        buildPanel.add(testSomeInfo, gbc);
+        gbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE;
@@ -189,12 +195,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(radioPanel, gbc);
 
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.anchor = GridBagConstraints.NORTHWEST;
-        buildPanel.add(new JLabel("Build Instructions:"), gbc);
-        gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
-        buildPanel.add(this.instructionsScrollPane, gbc);
+        // Removed Build Instructions Area and its ScrollPane
 
-        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.weighty = 0.0;
+        gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.weighty = 0.0; // Ensure weighty is reset before this
         gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(new JLabel("CI Refresh:"), gbc);
         cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART, Project.CpgRefresh.MANUAL});
@@ -319,9 +322,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildProgressBar.setVisible(!enabled);
 
         List<Component> controlsToManage = new ArrayList<>(List.of(
-                buildCleanCommandField, allTestsCommandField,
+                buildCleanCommandField, allTestsCommandField, someTestsCommandField,
                 runAllTestsRadio, runTestsInWorkspaceRadio,
-                instructionsScrollPane, buildInstructionsArea,
+                // instructionsScrollPane, buildInstructionsArea removed
                 cpgRefreshComboBox,
                 editLanguagesButton,
                 excludedScrollPane, excludedDirectoriesList,
@@ -344,7 +347,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
-            // Do NOT update buildInstructionsArea from agent, it's user-provided
+            someTestsCommandField.setText(details.testSomeCommand());
             excludedDirectoriesListModel.clear();
             var sortedExcludedDirs = details.excludedDirectories().stream().sorted().toList();
             for (String dir : sortedExcludedDirs) excludedDirectoriesListModel.addElement(dir);
@@ -420,8 +423,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var details = project.loadBuildDetails();
         buildCleanCommandField.setText(details.buildLintCommand());
         allTestsCommandField.setText(details.testAllCommand());
-        // buildInstructionsArea is user-provided, not loaded from BuildDetails
-        buildInstructionsArea.setText(""); // Clear it, user should fill if needed
+        someTestsCommandField.setText(details.testSomeCommand());
+        // buildInstructionsArea removed
 
         if (project.getCodeAgentTestScope() == Project.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
@@ -455,13 +458,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var currentDetails = project.loadBuildDetails();
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
-        // buildInstructionsArea is not saved to BuildDetails
+        var newTestSome = someTestsCommandField.getText();
+        // buildInstructionsArea removed
 
         var newExcludedDirs = new HashSet<String>();
         for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) newExcludedDirs.add(excludedDirectoriesListModel.getElementAt(i));
 
-        // Preserve testSomeCommand from currentDetails as it's not editable in this UI
-        var newDetails = new BuildAgent.BuildDetails(newBuildLint, newTestAll, currentDetails.testSomeCommand(), newExcludedDirs);
+        var newDetails = new BuildAgent.BuildDetails(newBuildLint, newTestAll, newTestSome, newExcludedDirs);
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");
