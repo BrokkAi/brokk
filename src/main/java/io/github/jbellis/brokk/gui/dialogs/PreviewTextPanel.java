@@ -4,11 +4,11 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.SessionResult;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -46,7 +46,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.ThemeAware;
-import org.fife.ui.rsyntaxtextarea.Theme;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -133,7 +132,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Capture button (conditionally added for GitHistoryFragment)
         captureButton = null;
-        if (fragment instanceof ContextFragment.GitFileFragment ghf) {
+        if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
+            var ghf = (ContextFragment.GitFileFragment) fragment;
             captureButton = new JButton("Capture this Revision");
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
@@ -147,7 +147,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Edit button (conditionally added for ProjectFile)
         editButton = null; // Initialize to null
         if (file != null) {
-            var text = fragment instanceof ContextFragment.GitFileFragment ? "Edit Current Version" : "Edit File";
+            var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) ? "Edit Current Version" : "Edit File";
             editButton = new JButton(text);
             if (contextManager.getEditableFiles().contains(file)) {
                 editButton.setEnabled(false);
@@ -723,9 +723,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Submit the quick-edit session to a background future
         var future = contextManager.submitUserTask("Quick Edit", () -> {
             var agent = new CodeAgent(contextManager, contextManager.getService().quickModel());
-            return agent.runQuickSession(file,
-                                         selectedText,
-                                         instructions);
+            return agent.runQuickTask(file,
+                                      selectedText,
+                                      instructions);
         });
 
         // Stop button cancels the task and closes the dialog.
@@ -815,7 +815,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      *
      * @throws InterruptedException If future.get() is interrupted.
      */
-    private QuickEditResult performQuickEdit(Future<SessionResult> future,
+    private QuickEditResult performQuickEdit(Future<TaskResult> future,
                                              String selectedText) throws ExecutionException, InterruptedException
     {
         var sessionResult = future.get(); // might throw InterruptedException or ExecutionException
@@ -823,7 +823,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         quickEditMessages = sessionResult.output().messages(); // Capture messages regardless of outcome
 
         // If the LLM itself was not successful, return the error
-        if (stopDetails.reason() != SessionResult.StopReason.SUCCESS) {
+        if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {
             var explanation = stopDetails.explanation() != null ? stopDetails.explanation() : "LLM task failed with " + stopDetails.reason();
             logger.debug("Quick Edit LLM task failed: {}", explanation);
             return new QuickEditResult(null, explanation);
@@ -1077,10 +1077,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 // Create the SessionResult representing the net change
                 String actionDescription = "Edited " + file;
                 quickEditMessages.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
-                var saveResult = new SessionResult(actionDescription,
-                                                   quickEditMessages,
-                                                   Map.of(file, contentBeforeFirstSave),
-                                                   SessionResult.StopReason.SUCCESS);
+                var saveResult = new TaskResult(contextManager,
+                                                actionDescription,
+                                                quickEditMessages,
+                                                Map.of(file, contentBeforeFirstSave),
+                                                TaskResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);
             } catch (Exception e) {

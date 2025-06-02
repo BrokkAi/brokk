@@ -5,6 +5,7 @@ import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
@@ -52,6 +53,10 @@ public interface IContextManager {
     }
 
     default Context topContext() {
+        throw new UnsupportedOperationException();
+    }
+
+    default Context liveContext() {
         throw new UnsupportedOperationException();
     }
 
@@ -104,11 +109,7 @@ public interface IContextManager {
                 .filter(ContextManager::isTestFile)
                 .toList();
     }
-
-    default void replaceContext(Context newContext, Context replacement) {
-        // no-op
-    }
-
+    
     default AnalyzerWrapper getAnalyzerWrapper() {
         throw new UnsupportedOperationException();
     }

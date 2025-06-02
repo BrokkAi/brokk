@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -141,14 +142,14 @@ public class ArchitectAgent {
         }
 
         // TODO label this Architect
-        io.setLlmOutput(new ContextFragment.TaskFragment(List.of(Messages.customSystem(instructions)), "Code (Architect)"));
-        var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runSession(instructions, true);
+        io.setLlmOutput(new ContextFragment.TaskFragment(contextManager, List.of(Messages.customSystem(instructions)), "Code (Architect)"));
+        var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         // always add to history
         var entry = contextManager.addToHistory(result, true); // Keep changes on success
 
-        if (reason == SessionResult.StopReason.SUCCESS) {
+        if (reason == TaskResult.StopReason.SUCCESS) {
             String summary = """
                     CodeAgent success!
                     <summary>
@@ -170,10 +171,10 @@ public class ArchitectAgent {
         logger.debug("Reverted changes from CodeAgent due to stop reason: {}", reason);
 
         // throw errors that should halt the architect
-        if (reason == SessionResult.StopReason.INTERRUPTED) {
+        if (reason == TaskResult.StopReason.INTERRUPTED) {
             throw new InterruptedException();
         }
-        if (reason == SessionResult.StopReason.LLM_ERROR) {
+        if (reason == TaskResult.StopReason.LLM_ERROR) {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new FatalLlmException(stopDetails.explanation());
         }
@@ -207,19 +208,19 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}", query);
 
         // Instantiate and run SearchAgent
-        io.setLlmOutput(new ContextFragment.TaskFragment(List.of(Messages.customSystem(query)), "Search (Architect)"));
+        io.setLlmOutput(new ContextFragment.TaskFragment(contextManager, List.of(Messages.customSystem(query)), "Search (Architect)"));
         var searchAgent = new SearchAgent(query, contextManager, model, toolRegistry, searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
-        if (result.stopDetails().reason() == SessionResult.StopReason.LLM_ERROR) {
+        if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
         }
 
-        if (result.stopDetails().reason() != SessionResult.StopReason.SUCCESS) {
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
             logger.debug("SearchAgent returned non-success for query {}: {}", query, result.stopDetails());
             return result.stopDetails().toString();
         }
 
-        var relevantClasses = result.output().sources(contextManager.getAnalyzer()).stream()
+        var relevantClasses = result.output().sources().stream()
                 .map(CodeUnit::fqName)
                 .collect(Collectors.joining(","));
         var stringResult = """
@@ -237,7 +238,7 @@ public class ArchitectAgent {
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks.
      * This uses an iterative approach, letting the LLM decide which tool to call each time.
      */
-    public SessionResult execute() throws ExecutionException, InterruptedException {
+    public TaskResult execute() throws ExecutionException, InterruptedException {
         io.systemOutput("Architect Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(goal)));
 
         // Check if ContextAgent is enabled in options before using it
@@ -387,19 +388,19 @@ public class ArchitectAgent {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
                 logger.debug("Project final answer: {}", toolResult.resultText());
-                return new SessionResult("Architect: " + goal,
-                                         List.of(new AiMessage(toolResult.resultText())),
-                                         Map.of(),
-                                         new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS, toolResult.resultText()));
+                return new TaskResult("Architect: " + goal,
+                                      new ContextFragment.TaskFragment(contextManager, List.of(new AiMessage(toolResult.resultText())), goal),
+                                      Map.of(),
+                                      new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText()));
             }
             if (abortReq != null) {
                 logger.debug("LLM decided to abortProject. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, abortReq);
                 logger.debug("Project aborted: {}", toolResult.resultText());
-                return new SessionResult("Architect: " + goal,
-                                         List.of(new AiMessage(toolResult.resultText())),
-                                         Map.of(),
-                                         new SessionResult.StopDetails(SessionResult.StopReason.LLM_ABORTED, toolResult.resultText()));
+                return new TaskResult("Architect: " + goal,
+                                      new ContextFragment.TaskFragment(contextManager, List.of(new AiMessage(toolResult.resultText())), goal),
+                                      Map.of(),
+                                      new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText()));
             }
 
             // 7) Execute remaining tool calls in the desired order:
@@ -477,11 +478,12 @@ public class ArchitectAgent {
         }
     }
 
-    private @NotNull SessionResult llmErrorResult() {
-        return new SessionResult("Architect: " + goal,
-                                 List.of(),
-                                 Map.of(),
-                                 SessionResult.StopReason.LLM_ERROR);
+    private @NotNull TaskResult llmErrorResult() {
+        return new TaskResult(contextManager,
+                              "Architect: " + goal,
+                              List.of(),
+                              Map.of(),
+                              new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR));
     }
 
     /**

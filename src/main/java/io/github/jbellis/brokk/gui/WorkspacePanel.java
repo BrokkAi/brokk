@@ -2,16 +2,14 @@ package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import io.github.jbellis.brokk.Context;
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.ContextFragment.PathFragment;
-import io.github.jbellis.brokk.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMode;
@@ -34,6 +32,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
@@ -42,7 +41,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.CharacterCodingException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -92,6 +90,9 @@ public class WorkspacePanel extends JPanel {
      */
     public WorkspacePanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
+        assert chrome != null;
+        assert contextManager != null;
+
         this.chrome = chrome;
         this.contextManager = contextManager;
 
@@ -278,7 +279,7 @@ public class WorkspacePanel extends JPanel {
                 if (e.isConsumed()) return; // Respect if event was already handled
                 if (e.isPopupTrigger()) {
                     int row = contextTable.rowAtPoint(e.getPoint());
-                    int col = contextTable.columnAtPoint(e.getPoint());
+                    contextTable.columnAtPoint(e.getPoint());
 
                     // Clear the menu and rebuild according to row/column
                     contextMenu.removeAll();
@@ -308,14 +309,16 @@ public class WorkspacePanel extends JPanel {
                         // show "View History" only if it's a ProjectPathFragment and Git is available
                         boolean hasGit = contextManager != null && contextManager.getProject() != null
                                 && contextManager.getProject().hasGit();
-                        if (hasGit && fragmentToShow instanceof ContextFragment.ProjectPathFragment ppf) {
-                            JMenuItem viewHistoryItem = new JMenuItem("View History");
-                            viewHistoryItem.addActionListener(ev -> {
-                                // Already know it's a ProjectPathFragment here, use ppf captured by the outer if
-                                chrome.getGitPanel().addFileHistoryTab(ppf.file());
-                            });
-                            contextMenu.add(viewHistoryItem);
-                        } else if (fragmentToShow instanceof ContextFragment.HistoryFragment cf) {
+                        if (hasGit && fragmentToShow.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                            fragmentToShow.files().stream()
+                                .findFirst()
+                                .ifPresent(projectFile -> {
+                                    JMenuItem viewHistoryItem = new JMenuItem("View History");
+                                    viewHistoryItem.addActionListener(ev -> chrome.getGitPanel().addFileHistoryTab(projectFile));
+                                    contextMenu.add(viewHistoryItem);
+                                });
+                        } else if (fragmentToShow.getType() == ContextFragment.FragmentType.HISTORY) {
+                            var cf = (ContextFragment.HistoryFragment) fragmentToShow;
                             // Add Compress History option for conversation fragment
                             JMenuItem compressHistoryItem = new JMenuItem("Compress History");
                             compressHistoryItem.addActionListener(e1 -> {
@@ -334,34 +337,35 @@ public class WorkspacePanel extends JPanel {
                             var selectedFragments = getSelectedFragments(); // Get selected fragments once
 
                             // Special case: Single ProjectPathFragment selected -> show specific actions for it
-                            if (selectedFragments.size() == 1 && selectedFragments.getFirst() instanceof ContextFragment.ProjectPathFragment ppf) {
-                                // Create FileReferenceData for this fragment's file
-                                var fileData = new TableUtils.FileReferenceList.FileReferenceData(
-                                        ppf.file().getFileName(),
-                                        ppf.file().toString(),
-                                        ppf.file()
-                                );
-                                // Add specific actions using existing helpers
-                                contextMenu.add(buildAddMenuItem(fileData)); // Handles edit for single tracked file
-                                contextMenu.add(buildReadMenuItem(fileData));
-                                contextMenu.add(buildSummarizeMenuItem(fileData));
+                            if (selectedFragments.size() == 1 && selectedFragments.getFirst().getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                                selectedFragments.getFirst().files().stream()
+                                    .findFirst()
+                                    .ifPresent(projectFile -> {
+                                        var fileData = new TableUtils.FileReferenceList.FileReferenceData(
+                                                projectFile.getFileName(),
+                                                projectFile.toString(),
+                                                projectFile
+                                        );
+                                        // Add specific actions using existing helpers
+                                        contextMenu.add(buildAddMenuItem(fileData)); // Handles edit for single tracked file
+                                        contextMenu.add(buildReadMenuItem(fileData));
+                                        contextMenu.add(buildSummarizeMenuItem(fileData));
+                                    });
                             } else {
                                 // Default: Show "All References" actions, enabled based on file presence and track status
                                 var project = contextManager.getProject();
                                 Set<BrokkFile> allFiles = selectedFragments.stream()
-                                        .flatMap(frag -> frag.files(project).stream())
+                                        .flatMap(frag -> frag.files().stream())
                                         .collect(Collectors.toSet());
 
                                 boolean allFilesAreTrackedProjectFiles = !allFiles.isEmpty() && allFiles.stream().allMatch(f ->
-                                        f instanceof ProjectFile pf &&
+                                        f instanceof ProjectFile pf && // This instanceof is on BrokkFile, not ContextFragment, so it's okay
                                         project.getRepo().getTrackedFiles().contains(pf)
                                 );
                                 boolean hasFiles = !allFiles.isEmpty(); // Re-introduce hasFiles
 
                                 JMenuItem editAllRefsItem = new JMenuItem("Edit all References");
-                                editAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.EDIT, selectedFragments);
-                                });
+                                editAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.EDIT, selectedFragments));
                                 editAllRefsItem.setEnabled(allFilesAreTrackedProjectFiles);
                                 if (!allFilesAreTrackedProjectFiles && !allFiles.isEmpty()) {
                                     editAllRefsItem.setToolTipText("Cannot edit because selection includes untracked or external files.");
@@ -370,15 +374,11 @@ public class WorkspacePanel extends JPanel {
                                 }
 
                                 JMenuItem readAllRefsItem = new JMenuItem("Read all References");
-                                readAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.READ, selectedFragments);
-                                });
+                                readAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.READ, selectedFragments));
                                 readAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
 
                                 JMenuItem summarizeAllRefsItem = new JMenuItem("Summarize all References");
-                                summarizeAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.SUMMARIZE, selectedFragments);
-                                });
+                                summarizeAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.SUMMARIZE, selectedFragments));
                                 summarizeAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
 
                                 contextMenu.add(editAllRefsItem);
@@ -431,7 +431,7 @@ public class WorkspacePanel extends JPanel {
             @Override
             protected Transferable createTransferable(JComponent c) {
                 String contentToCopy = getSelectedContent(getSelectedFragments());
-                if (contentToCopy != null && !contentToCopy.isEmpty()) {
+                if (!contentToCopy.isEmpty()) {
                     return new StringSelection(contentToCopy);
                 }
                 return null;
@@ -460,21 +460,18 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.addSeparator();
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-        dropAllMenuItem.addActionListener(e -> {
-
-            performContextActionAsync(ContextAction.DROP, List.<ContextFragment>of());
-        });
+        dropAllMenuItem.addActionListener(e -> performContextActionAsync(ContextAction.DROP, List.of()));
         tablePopupMenu.add(dropAllMenuItem);
 
         JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
         copyAllMenuItem.addActionListener(e -> {
-            performContextActionAsync(ContextAction.COPY, List.<ContextFragment>of());
+            performContextActionAsync(ContextAction.COPY, List.of());
         });
         tablePopupMenu.add(copyAllMenuItem);
 
         JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
         pasteMenuItem.addActionListener(e -> {
-            performContextActionAsync(ContextAction.PASTE, List.<ContextFragment>of());
+            performContextActionAsync(ContextAction.PASTE, List.of());
         });
         tablePopupMenu.add(pasteMenuItem);
 
@@ -629,8 +626,8 @@ public class WorkspacePanel extends JPanel {
         StringBuilder fullText = new StringBuilder();
         for (var frag : allFragments) {
             String locText;
-            if (frag.isText() || frag instanceof ContextFragment.OutputFragment) {
-                var text = getTextSafe(frag);
+            if (frag.isText() || frag.getType().isOutputFragment()) {
+                var text = frag.text();
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
                 totalLines += loc;
@@ -648,8 +645,8 @@ public class WorkspacePanel extends JPanel {
 
             // Build file references
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
-            if (!(frag instanceof ContextFragment.ProjectPathFragment)) {
-                fileReferences = frag.files(contextManager.getProject())
+            if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                fileReferences = frag.files()
                         .stream()
                         .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
                         .distinct()
@@ -751,34 +748,10 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
-     * Get the fragment text or remove it if it errors out
-     */
-    private String getTextSafe(ContextFragment fragment) {
-        try {
-            return fragment.text();
-        } catch (IOException e) {
-            String msg;
-            if (e instanceof CharacterCodingException) {
-                msg = "Unable to read fragment `%s` (probable non-text data)".formatted(fragment.description());
-            } else {
-                msg = "Unable to read fragment `%s`".formatted(fragment.description());
-            }
-            logger.debug(msg, e);
-            chrome.systemOutput(msg);
-            contextManager.removeBadFragment(fragment, e);
-            return "";
-        }
-    }
-
-// No longer needed as edit button is now in the menu
-
-    /**
      * Called by Chrome to refresh the table if context changes
      */
     public void updateContextTable() {
-        SwingUtilities.invokeLater(() -> {
-            populateContextTable(contextManager.selectedContext());
-        });
+        SwingUtilities.invokeLater(() -> populateContextTable(contextManager.selectedContext()));
     }
 
     /**
@@ -790,10 +763,10 @@ public class WorkspacePanel extends JPanel {
             if (fileRef.getRepoFile() != null) {
                 performContextActionAsync(
                         ContextAction.EDIT,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
+                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), contextManager)) // Pass contextManager
                 );
             } else {
-                chrome.toolErrorRaw("Cannot edit file: " + fileRef.getFullPath() + " - no ProjectFile available"); // Corrected message
+                chrome.toolErrorRaw("Cannot edit file: " + fileRef.getFullPath() + " - no ProjectFile available");
             }
         });
         // Disable if no git, file isn't a ProjectFile, or file isn't tracked
@@ -821,10 +794,10 @@ public class WorkspacePanel extends JPanel {
             if (fileRef.getRepoFile() != null) {
                 performContextActionAsync(
                         ContextAction.READ,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
+                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), contextManager)) // Pass contextManager
                 );
             } else {
-                chrome.toolErrorRaw("Cannot read file: " + fileRef.getFullPath() + " - no ProjectFile available"); // Corrected message
+                chrome.toolErrorRaw("Cannot read file: " + fileRef.getFullPath() + " - no ProjectFile available");
             }
         });
         return readItem;
@@ -846,10 +819,10 @@ public class WorkspacePanel extends JPanel {
             if (fileRef.getRepoFile() != null) {
                 performContextActionAsync(
                         ContextAction.SUMMARIZE,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
+                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), contextManager)) // Pass contextManager
                 );
             } else {
-                chrome.toolErrorRaw("Cannot summarize: " + fileRef.getFullPath() + " - ProjectFile information not available"); // Corrected message
+                chrome.toolErrorRaw("Cannot summarize: " + fileRef.getFullPath() + " - ProjectFile information not available");
             }
         });
         return summarizeItem;
@@ -926,7 +899,7 @@ public class WorkspacePanel extends JPanel {
                     chrome.systemOutput("No method selected.");
                 } else {
 
-                    contextManager.callersForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
+                    contextManager.addCallersForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput("Method selection canceled.");
@@ -1056,16 +1029,17 @@ public class WorkspacePanel extends JPanel {
         } else {
             // Edit files from selected fragments
             var files = new HashSet<ProjectFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files(project));
-            }
+            selectedFragments.stream()
+                             .flatMap(fragment -> fragment.files().stream()) // Corrected: No analyzer
+                             .filter(Objects::nonNull)
+                             .forEach(files::add);
             contextManager.editFiles(files); 
         }
     }
 
     /** Read Action: Allows selecting Files (internal/external) */
     private void doReadAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject(); 
+        var project = contextManager.getProject();
         if (selectedFragments.isEmpty()) {
             // Show dialog allowing ONLY file selection (internal + external)
             // TODO when we can extract a single class from a source file, enable classes as well
@@ -1078,15 +1052,14 @@ public class WorkspacePanel extends JPanel {
                 return;
             }
 
-            contextManager.addReadOnlyFiles(selection.files()); 
-            chrome.systemOutput("Added " + selection.files().size() + " file(s) as read-only context."); 
+            contextManager.addReadOnlyFiles(selection.files());
         } else {
             // Add files from selected fragments
             var files = new HashSet<BrokkFile>();
             for (var fragment : selectedFragments) {
-                files.addAll(fragment.files(project));
+                files.addAll(fragment.files()); // No analyzer
             }
-            contextManager.addReadOnlyFiles(files); 
+            contextManager.addReadOnlyFiles(files);
         }
     }
 
@@ -1102,7 +1075,7 @@ public class WorkspacePanel extends JPanel {
         String content;
         if (selectedFragments.isEmpty()) {
             // gather entire context
-            List<ChatMessage> msgs = null;
+            List<ChatMessage> msgs;
             try {
                 msgs = CopyExternalPrompts.instance.collectMessages(contextManager);
             } catch (InterruptedException e) {
@@ -1123,14 +1096,7 @@ public class WorkspacePanel extends JPanel {
             // copy only selected fragments
             var sb = new StringBuilder();
             for (var frag : selectedFragments) {
-                try {
-                    sb.append(frag.text()).append("\n\n");
-                } catch (IOException e) {
-                    contextManager.removeBadFragment(frag, e);
-                    var msg = "Error reading fragment `%s`".formatted(frag.description());
-                    logger.debug(msg, e);
-                    chrome.toolErrorRaw(msg);
-                }
+                sb.append(frag.text()).append("\n\n"); // No analyzer
             }
             content = sb.toString();
         }
@@ -1148,7 +1114,7 @@ public class WorkspacePanel extends JPanel {
         // Log all available flavors for debugging
         var flavors = contents.getTransferDataFlavors();
         logger.debug("Clipboard flavors available: {}", java.util.Arrays.stream(flavors)
-                .map(f -> f.getMimeType())
+                .map(DataFlavor::getMimeType)
                 .collect(Collectors.joining(", ")));
 
         // Prioritize Image Flavors - check all available flavors for image compatibility
@@ -1160,16 +1126,19 @@ public class WorkspacePanel extends JPanel {
                     Object data = contents.getTransferData(flavor);
                     java.awt.Image image = null;
 
-                    if (data instanceof java.awt.Image) {
-                        image = (java.awt.Image) data;
-                    } else if (data instanceof java.io.InputStream inputStream) {
-                        // Try to read the stream as an image using ImageIO
-                        image = javax.imageio.ImageIO.read(inputStream);
-                    } else if (data instanceof java.util.List<?> fileList && !fileList.isEmpty()) {
-                        // Handle file list (e.g., dragged image file from file manager)
-                        var file = fileList.get(0);
-                        if (file instanceof java.io.File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                            image = javax.imageio.ImageIO.read(f);
+                    switch (data) {
+                        case Image image1 -> image = image1;
+                        case java.io.InputStream inputStream ->
+                            // Try to read the stream as an image using ImageIO
+                                image = javax.imageio.ImageIO.read(inputStream);
+                        case List<?> fileList when !fileList.isEmpty() -> {
+                            // Handle file list (e.g., dragged image file from file manager)
+                            var file = fileList.getFirst();
+                            if (file instanceof java.io.File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                image = javax.imageio.ImageIO.read(f);
+                            }
+                        }
+                        default -> {
                         }
                     }
 
@@ -1263,7 +1232,7 @@ public class WorkspacePanel extends JPanel {
             Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
             String finalContent = content;
             contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(finalContent, summaryFuture);
+                var fragment = new ContextFragment.PasteTextFragment(contextManager, finalContent, summaryFuture); // Pass contextManager
                 return ctx.addVirtualFragment(fragment);
             });
 
@@ -1287,18 +1256,14 @@ public class WorkspacePanel extends JPanel {
             }
             contextManager.dropAll(); 
         } else {
-            var pathFragsToRemove = new ArrayList<PathFragment>();
-            var virtualToRemove = new ArrayList<VirtualFragment>();
+            var idsToRemove = new ArrayList<Integer>();
             boolean clearHistory = false;
 
             for (var frag : selectedFragments) {
-                if (frag instanceof ContextFragment.HistoryFragment) {
+                if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
                     clearHistory = true;
-                } else if (frag instanceof ContextFragment.PathFragment pf) {
-                    pathFragsToRemove.add(pf);
                 } else {
-                    assert frag instanceof ContextFragment.VirtualFragment : frag;
-                    virtualToRemove.add((VirtualFragment) frag);
+                    idsToRemove.add(frag.id());
                 }
             }
 
@@ -1307,10 +1272,9 @@ public class WorkspacePanel extends JPanel {
                 chrome.systemOutput("Cleared task history");
             }
 
-            contextManager.drop(pathFragsToRemove, virtualToRemove); 
-
-            if (!pathFragsToRemove.isEmpty() || !virtualToRemove.isEmpty()) {
-                chrome.systemOutput("Dropped " + (pathFragsToRemove.size() + virtualToRemove.size()) + " items");
+            if (!idsToRemove.isEmpty()) {
+                contextManager.drop(idsToRemove); // Use the new ID-based method
+                chrome.systemOutput("Dropped " + idsToRemove.size() + " item(s)");
             }
         }
     }
@@ -1338,7 +1302,6 @@ public class WorkspacePanel extends JPanel {
 
             if (selection == null || selection.isEmpty()) {
                 chrome.systemOutput("No files or classes selected for summarization.");
-                chrome.systemOutput("No files or classes selected for summarization.");
                 return;
             }
 
@@ -1350,17 +1313,10 @@ public class WorkspacePanel extends JPanel {
             if (selection.classes() != null) {
                 selectedClasses.addAll(selection.classes());
             }
-        } // End: if (selectedFragments.isEmpty())
-        else {
+        } else {
             // Fragment case: Extract files and classes from selected fragments
             for (var frag : selectedFragments) {
-                if (frag instanceof ContextFragment.ProjectPathFragment ppf) {
-                    // If it's a file fragment, add the file
-                    selectedFiles.add(ppf.file());
-                } else {
-                    // Otherwise, add the sources (which should be classes/symbols)
-                    selectedClasses.addAll(frag.sources(contextManager.getAnalyzerUninterrupted()));
-                }
+                selectedFiles.addAll(frag.files());
             }
         }
 

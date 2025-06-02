@@ -2,6 +2,7 @@ package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 
 import java.util.List;
 import java.util.Map;
@@ -10,35 +11,38 @@ import java.util.Map;
  * Represents the outcome of a CodeAgent session, containing all necessary information
  * to update the context history.
  */
-public record SessionResult(String actionDescription,
-                            ContextFragment.TaskFragment output,
-                            Map<ProjectFile, String> originalContents, // for undo
-                            StopDetails stopDetails)
+public record TaskResult(String actionDescription,
+                         ContextFragment.TaskFragment output,
+                         Map<ProjectFile, String> originalContents, // for undo
+                         StopDetails stopDetails)
 {
-    public SessionResult {
+    public TaskResult {
         assert actionDescription != null;
         assert originalContents != null;
         assert output != null;
         assert stopDetails != null;
     }
 
-    public SessionResult(String actionDescription,
-                         List<ChatMessage> uiMessages,
-                         Map<ProjectFile, String> originalContents,
-                         StopDetails stopDetails)
+    public TaskResult(IContextManager contextManager, String actionDescription,
+                      List<ChatMessage> uiMessages,
+                      Map<ProjectFile, String> originalContents,
+                      StopDetails stopDetails)
     {
         this(actionDescription,
-             new ContextFragment.TaskFragment(uiMessages, actionDescription),
+             new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
              originalContents,
              stopDetails);
     }
 
-    public SessionResult(String actionDescription,
-                         List<ChatMessage> uiMessages,
-                         Map<ProjectFile, String> originalContents,
-                         StopReason simpleReason)
+    public TaskResult(IContextManager contextManager, String actionDescription,
+                      List<ChatMessage> uiMessages,
+                      Map<ProjectFile, String> originalContents,
+                      StopReason simpleReason)
     {
-        this(actionDescription, uiMessages, originalContents, new StopDetails(simpleReason));
+        this(actionDescription,
+             new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
+             originalContents,
+             new StopDetails(simpleReason));
     }
 
     /**

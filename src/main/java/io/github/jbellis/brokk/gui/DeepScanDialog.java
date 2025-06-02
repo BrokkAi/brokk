@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import com.google.common.collect.Streams;
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.ValidationAgent;
@@ -67,6 +67,8 @@ class DeepScanDialog {
             var relevantTestResults = agent.execute(goal);
             var ctx = contextManager.topContext();
             var filesInWorkspace = Streams.concat(ctx.editableFiles(), ctx.readonlyFiles())
+                    .filter(ContextFragment.PathFragment.class::isInstance)
+                    .map(ContextFragment.PathFragment.class::cast)
                     .map(ContextFragment.PathFragment::file)
                     .collect(Collectors.toSet());
             var files = relevantTestResults.stream()
@@ -99,7 +101,7 @@ class DeepScanDialog {
 
                 // Convert validation files to ProjectPathFragments
                 var validationFragments = validationFiles.stream()
-                        .map(ContextFragment.ProjectPathFragment::new)
+                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager)) // Pass contextManager
                         .toList();
 
                 // Combine context agent fragments and validation agent fragments
@@ -109,14 +111,14 @@ class DeepScanDialog {
 
                 // Add validation fragments first, then context fragments, so the latter overwrite the former on collision
                 Streams.concat(validationFragments.stream(), contextFragments.stream()).forEach(fragment -> {
-                    fragment.files(contextManager.getProject()).stream().findFirst().ifPresent(file -> {
+                    fragment.files().stream().findFirst().ifPresent(file -> { // No arguments for files()
                         fragmentMap.putIfAbsent(file, fragment);
                     });
                 });
 
                 var allSuggestedFragments = fragmentMap.values().stream()
                         // Sort by file path string for consistent order in dialog
-                        .sorted(Comparator.comparing(f -> f.files(contextManager.getProject()).stream()
+                        .sorted(Comparator.comparing(f -> f.files().stream() // No arguments for files()
                                 .findFirst()
                                 .map(Object::toString)
                                 .orElse("")))
@@ -168,9 +170,10 @@ class DeepScanDialog {
 
         for (ContextFragment fragment : suggestedFragments) {
             // Determine the primary ProjectFile associated with the fragment
-            ProjectFile pf = fragment.files(project).stream()
+            ProjectFile pf = fragment.files().stream()
                     .findFirst()
                     .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
                     .orElse(null); // Get the ProjectFile or null
 
             if (pf != null) {
@@ -228,9 +231,10 @@ class DeepScanDialog {
             rowPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0)); // Padding between rows
 
             // Get the display name and tooltip (full path) from the fragment's file
-            ProjectFile pf = fragment.files(project).stream()
+            ProjectFile pf = fragment.files().stream()
                     .findFirst()
                     .filter(ProjectFile.class::isInstance)
+                    .map(ProjectFile.class::cast)
                     .orElse(null); // Should not be null here based on earlier filtering
 
             String fileName = (pf != null) ? pf.getFileName() : fragment.shortDescription();
@@ -243,11 +247,12 @@ class DeepScanDialog {
             JComboBox<String> comboBox = new JComboBox<>(options);
 
             // Determine default action based on fragment type
-            if (fragment instanceof ContextFragment.SkeletonFragment && Arrays.asList(options).contains(SUMMARIZE)) {
+            if (fragment.getType() == ContextFragment.FragmentType.SKELETON && Arrays.asList(options).contains(SUMMARIZE)) {
                 comboBox.setSelectedItem(SUMMARIZE);
-            } else if (fragment instanceof ContextFragment.ProjectPathFragment) {
+            } else if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                var ppf = (ContextFragment.ProjectPathFragment) fragment;
                 // EDIT if the file is in git, otherwise READ
-                var edit = hasGit && contextManager.getRepo().getTrackedFiles().contains(pf);
+                var edit = hasGit && contextManager.getRepo().getTrackedFiles().contains(ppf.file()); // Use ppf.file()
                 comboBox.setSelectedItem(edit ? EDIT : READ_ONLY);
             } else {
                 logger.error("Unexpected fragment {} returned to DeepScanDialog", fragment);
@@ -355,14 +360,14 @@ class DeepScanDialog {
 
                 switch (selectedAction) {
                     case SUMMARIZE:
-                        filesToSummarize.addAll(fragment.files(project));
+                        filesToSummarize.addAll(fragment.files()); // No analyzer
                         break;
                     case EDIT:
-                        if (hasGit) filesToEdit.addAll(fragment.files(project));
+                        if (hasGit) filesToEdit.addAll(fragment.files()); // No analyzer
                         else logger.warn("Edit action selected for {} but Git is not available. Ignoring.", fragment);
                         break;
                     case READ_ONLY:
-                        filesToReadOnly.addAll(fragment.files(project));
+                        filesToReadOnly.addAll(fragment.files()); // No analyzer
                         break;
                     case OMIT: // Do nothing
                     default:
@@ -377,12 +382,12 @@ class DeepScanDialog {
                 switch (selectedAction) {
                     // SUMMARIZE is not an option for tests via UI
                     case EDIT:
-                        if (hasGit) filesToEdit.addAll(fragment.files(project));
+                        if (hasGit) filesToEdit.addAll(fragment.files()); // No analyzer
                         else
                             logger.warn("Edit action selected for test {} but Git is not available. Ignoring.", fragment);
                         break;
                     case READ_ONLY:
-                        filesToReadOnly.addAll(fragment.files(project));
+                        filesToReadOnly.addAll(fragment.files()); // No analyzer
                         break;
                     case OMIT: // Do nothing
                     default:

@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
-import java.io.Serializable;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-public interface BrokkFile extends Serializable, Comparable<BrokkFile> {
+public interface BrokkFile extends Comparable<BrokkFile> {
     Path absPath();
 
     default String read() throws IOException {
@@ -21,6 +21,7 @@ public interface BrokkFile extends Serializable, Comparable<BrokkFile> {
     }
 
     /** best guess as to whether a file is text and hence eligible for substring search */
+    @JsonIgnore
     default boolean isText() {
         try {
             return Files.isRegularFile(absPath())
@@ -35,6 +36,7 @@ public interface BrokkFile extends Serializable, Comparable<BrokkFile> {
     /**
      * Just the filename, no path at all
      */
+    @JsonIgnore
     default String getFileName() {
         return absPath().getFileName().toString();
     }
@@ -47,11 +49,13 @@ public interface BrokkFile extends Serializable, Comparable<BrokkFile> {
         return absPath().compareTo(o.absPath());
     }
 
+    @JsonIgnore
     default long mtime() throws IOException {
         return Files.getLastModifiedTime(absPath()).toMillis();
     }
 
     /** return the (lowercased) extension [not including the dot] */
+    @JsonIgnore
     default String extension() {
         var filename = toString();
         int lastDot = filename.lastIndexOf('.');

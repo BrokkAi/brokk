@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.agents;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -16,6 +15,7 @@ import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
@@ -197,26 +197,21 @@ public class SearchAgent {
      *
      * @return The final set of discovered code units
      */
-    public SessionResult execute() throws InterruptedException {
+    public TaskResult execute() throws InterruptedException {
         io.systemOutput("Search Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(query)));
 
         // If context exists, ask LLM to evaluate its relevance and kick off async summary
-        var contextWithClasses = contextManager.topContext().allFragments().map(f -> {
+        var contextWithClasses = contextManager.liveContext().allFragments().map(f -> {
             String text;
-            try {
-                text = f.text();
-            } catch (IOException e) {
-                contextManager.removeBadFragment(f, e);
-                return null;
-            }
+            text = f.text();
             return """
                     <fragment description="%s" sources="%s">
                     %s
                     </fragment>
                     """.stripIndent().formatted(f.description(),
-                                                (f.sources(analyzer).stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))),
+                                                (f.sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))), // No analyzer
                                                 text);
-        }).filter(Objects::nonNull).collect(Collectors.joining("\n\n"));
+        }).collect(Collectors.joining("\n\n"));
         if (!contextWithClasses.isBlank()) {
             llmOutput("\nEvaluating context...");
             var messages = new ArrayList<ChatMessage>();
@@ -285,11 +280,11 @@ public class SearchAgent {
             if (toolRequests.isEmpty()) {
                 if (beastMode) {
                     logger.warn("LLM failed to provide a final answer/abort in Beast Mode.");
-                    return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, "LLM failed to finalize search in Beast Mode."));
+                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "LLM failed to finalize search in Beast Mode."));
                 } else {
                     logger.error("LLM failed to determine next action.");
                     // Use errorResult for consistent SessionResult format
-                    return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, "LLM failed to determine next action."));
+                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, "LLM failed to determine next action."));
                 }
             }
 
@@ -326,7 +321,7 @@ public class SearchAgent {
                 String explanation = firstResult.execResult.resultText();
                 if (explanation == null || explanation.isBlank() || explanation.split("\\s").length < 5) {
                     logger.error("LLM provided blank explanation for 'answer' tool.");
-                    return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.SEARCH_INVALID_ANSWER));
+                    return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.SEARCH_INVALID_ANSWER));
                 }
                 return createFinalFragment(firstResult);
             } else if (firstToolName.equals("abortSearch")) {
@@ -339,7 +334,7 @@ public class SearchAgent {
                     logger.warn("LLM provided blank explanation for 'abort' tool. Using default.");
                 }
                 // Return the abort explanation as a simple fragment
-                return errorResult(new SessionResult.StopDetails(SessionResult.StopReason.LLM_ABORTED, explanation));
+                return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explanation));
             }
 
             // Wait for initial context summary if it's pending (before the second LLM call)
@@ -369,7 +364,7 @@ public class SearchAgent {
         return ordinal == 0;
     }
 
-    private SessionResult errorResult(SessionResult.StopDetails details) {
+    private TaskResult errorResult(TaskResult.StopDetails details) {
         String explanation = details.explanation() != null ? details.explanation() :
                              switch (details.reason()) {
                                  case INTERRUPTED -> "Search was interrupted.";
@@ -382,10 +377,10 @@ public class SearchAgent {
         return errorResult(details, explanation);
     }
 
-    private SessionResult errorResult(SessionResult.StopDetails details, String explanation) {
-        return new SessionResult("Search: " + query,
-                                 new ContextFragment.TaskFragment(List.of(new UserMessage(query), new AiMessage(explanation)), query), Map.of(),
-                                 details);
+    private TaskResult errorResult(TaskResult.StopDetails details, String explanation) {
+        return new TaskResult("Search: " + query,
+                              new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage(query), new AiMessage(explanation)), query), Map.of(),
+                              details);
     }
 
     /**
@@ -1215,7 +1210,7 @@ public class SearchAgent {
     /**
      * Generates the final context fragment based on the last successful action (answer/abort).
      */
-    private SessionResult createFinalFragment(ToolHistoryEntry finalStep) {
+    private TaskResult createFinalFragment(ToolHistoryEntry finalStep) {
         var request = finalStep.request;
         var execResult = finalStep.execResult;
         var explanationText = execResult.resultText();
@@ -1258,10 +1253,10 @@ public class SearchAgent {
 
         io.llmOutput("\n# Answer\n%s".formatted(explanationText), ChatMessageType.AI);
         var sessionName = "Search: " + query;
-        var fragment = new ContextFragment.SearchFragment(sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
-        return new SessionResult(sessionName,
-                                 fragment, Map.of(),
-                                 new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS));
+        var fragment = new ContextFragment.SearchFragment(contextManager, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
+        return new TaskResult(sessionName,
+                              fragment, Map.of(), // SearchFragment doesn't modify files
+                              new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 
     @Tool(value = "Provide a final answer to the query. Use this when you have enough information to fully address the query.")

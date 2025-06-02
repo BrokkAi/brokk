@@ -5,6 +5,8 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
@@ -148,7 +150,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
             Component newFocusOwner = (Component) evt.getNewValue();
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
-            if (newFocusOwner != null && instructionsPanel != null && historyOutputPanel != null && historyOutputPanel.getLlmStreamArea() != null && historyOutputPanel.getHistoryTable() != null) {
+            if (newFocusOwner != null && instructionsPanel != null && historyOutputPanel.getLlmStreamArea() != null && historyOutputPanel.getHistoryTable() != null) {
                 if (newFocusOwner == instructionsPanel.getInstructionsArea()
                         || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
                         || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
@@ -344,7 +346,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert ctx != null;
 
-        logger.trace("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
+        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
 
         final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !isSkipNextUpdateOutputPanelOnContextChange());
@@ -558,7 +560,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (globalPasteAction != null) globalPasteAction.updateEnabledState();
 
             // Also update HistoryOutputPanel's local buttons
-            if (historyOutputPanel != null) historyOutputPanel.updateUndoRedoButtonStates();
+            historyOutputPanel.updateUndoRedoButtonStates();
             setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
             updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
         });
@@ -688,31 +690,60 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Opens a preview window for a context fragment.
-     * Uses PreviewTextPanel for text fragments and PreviewImagePanel for image fragments.
-     * Uses MarkdownOutputPanel for Markdown and Diff fragments.
+     * Opens an in-place preview of a context fragment.
      *
-     * @param fragment The fragment to preview.
+     * <ul>
+     *   <li>If the fragment lives in the <em>current</em> context (i.e. the latest context in
+     *       the Context-History stack) and represents a live file on disk, we surface the
+     *       <b>editable</b> version so the user can save changes, capture usages, etc.</li>
+     *   <li>If the fragment comes from an older (historical) context, or if it is a snapshot
+     *       frozen by {@code FrozenFragment}, we instead show the point-in-time content that
+     *       was captured when the context was created.</li>
+     * </ul>
+     *
+     * <p>This logic allows Chrome to run entirely on <em>frozen</em> contexts while still giving
+     * the user a live editing experience for the active one.</p>
      */
     public void openFragmentPreview(ContextFragment fragment) {
-        try {
-            String title = "Preview: " + fragment.description();
+        assert fragment != null;
 
-            if (fragment instanceof ContextFragment.OutputFragment outputFragment) {
-                // Create a panel to hold all message panels
+        try {
+            // 1. Figure out whether this fragment belongs to the *current* (latest) context
+            var latestCtx = contextManager.getContextHistory().topContext();
+            boolean isCurrentContext = latestCtx != null
+                    && latestCtx.allFragments()
+                    .anyMatch(f -> f.id() == fragment.id());
+
+            // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
+            // a true PathFragment instance (gives us access to BrokkFile, etc.).
+            ContextFragment workingFragment;
+            if (isCurrentContext
+                    && fragment.getType().isPathFragment()
+                    && fragment instanceof io.github.jbellis.brokk.context.FrozenFragment frozen) {
+                workingFragment = frozen.unfreeze(contextManager);
+            } else {
+                workingFragment = fragment;
+            }
+
+            // Everything below operates on workingFragment
+            var title = "Preview: " + workingFragment.description();
+
+            // 2. Output-only fragments (Task / History / Search)
+            if (workingFragment.getType().isOutputFragment()) {
+                // (unchanged from previous implementation)
+                var outputFragment = (ContextFragment.OutputFragment) workingFragment;
                 JPanel messagesContainer = new JPanel();
                 messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-                messagesContainer.setBackground(themeManager != null && themeManager.isDarkTheme() ?
-                                                UIManager.getColor("Panel.background") : Color.WHITE);
+                messagesContainer.setBackground(themeManager != null && themeManager.isDarkTheme()
+                                                ? UIManager.getColor("Panel.background")
+                                                : Color.WHITE);
 
-                // Get all messages and create a MarkdownOutputPanel for each
                 var scrollPane = new JScrollPane(messagesContainer);
                 scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
                 scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
-                List<TaskEntry> taskEntries = outputFragment.entries();
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
-                for (TaskEntry entry : taskEntries) {
+                for (TaskEntry entry : outputFragment.entries()) {
                     var markdownPanel = new MarkdownOutputPanel();
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
@@ -721,83 +752,103 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     compactionFutures.add(markdownPanel.scheduleCompaction());
                 }
 
-                // When all panels are compacted, scroll to the top
                 CompletableFuture
                         .allOf(compactionFutures.toArray(CompletableFuture[]::new))
                         .thenRun(() -> SwingUtilities.invokeLater(() ->
-                                scrollPane.getViewport().setViewPosition(new Point(0, 0))));
+                                                                          scrollPane.getViewport().setViewPosition(new Point(0, 0))));
 
-                showPreviewFrame(contextManager, title, scrollPane); // Use helper
+                showPreviewFrame(contextManager, title, scrollPane);
                 return;
             }
 
-            if (!fragment.isText()) {
-                // Handle image fragments
-                if (fragment instanceof ContextFragment.PasteImageFragment pif) {
+            // 3. Image fragments (clipboard image or image file)
+            if (!workingFragment.isText()) {
+                if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
+                    var pif = (ContextFragment.PasteImageFragment) workingFragment;
                     var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
                     imagePanel.setImage(pif.image());
-                    showPreviewFrame(contextManager, title, imagePanel); // Use helper
-                } else if (fragment instanceof ContextFragment.ImageFileFragment iff) {
-                    // PreviewImagePanel has its own static showInFrame that uses showPreviewFrame
-                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file(), themeManager);
-                }
-                return;
-            }
-
-            // Handle text fragments
-            String content = fragment.text(); // Content derived from fragment's specific text() method
-            String syntaxStyle = fragment.syntaxStyle(); // Syntax style from fragment
-
-            if (fragment instanceof ContextFragment.GitFileFragment gff) {
-                ProjectFile file = (ProjectFile) gff.file();
-                // For GitFileFragment, 'content' and 'syntaxStyle' are already correctly fetched
-                // from gff.text() and gff.syntaxStyle() due to polymorphism.
-                // Pass 'gff' itself as the fragment argument to PreviewTextPanel.
-                var previewPanel = new PreviewTextPanel(contextManager, file, content, syntaxStyle, themeManager, gff);
-                showPreviewFrame(contextManager, title, previewPanel);
-                return;
-            } else if (fragment instanceof ContextFragment.PathFragment pf) {
-                // Handle PathFragment using the unified previewFile method
-                // This method reads live content and determines syntax internally.
-                var brokkFile = pf.file();
-                if (brokkFile instanceof ProjectFile projectFile) {
-                    if (!SwingUtilities.isEventDispatchThread()) {
-                        SwingUtilities.invokeLater(() -> previewFile(projectFile));
-                    } else {
-                        previewFile(projectFile);
-                    }
-                    return; // previewFile handles showing the frame
-                } else if (brokkFile instanceof ExternalFile externalFile) {
-                    Runnable task = () -> {
-                        try {
-                            String externalFileContent = externalFile.read();
-                            String externalFileSyntaxStyle = externalFile.getSyntaxStyle();
-                            // For ExternalFile, ProjectFile arg to PreviewTextPanel is null.
-                            // Pass `fragment` (which is `pf`) to PreviewTextPanel for context.
-                            var panel = new PreviewTextPanel(contextManager, null, externalFileContent, externalFileSyntaxStyle, themeManager, fragment);
-                            showPreviewFrame(contextManager, "Preview: " + externalFile.toString(), panel);
-                        } catch (IOException ex) {
-                            toolErrorRaw("Error reading external file for preview: " + ex.getMessage());
-                            logger.error("Error reading external file {} for preview", externalFile.absPath(), ex);
-                        }
-                    };
-                    // Ensure UI operations are on EDT
-                    if (!SwingUtilities.isEventDispatchThread()) {
-                        SwingUtilities.invokeLater(task);
-                    } else {
-                        task.run();
-                    }
+                    showPreviewFrame(contextManager, title, imagePanel);
                     return;
                 }
-            } else {
-                // Handle other text-based fragments (e.g., VirtualFragment, StringFragment)
-                // These fragments typically don't have an associated ProjectFile in the same way,
-                // so 'file' is null. 'content' and 'syntaxStyle' are from the fragment.
-                var previewPanel = new PreviewTextPanel(contextManager, null, content, syntaxStyle, themeManager, fragment);
-                showPreviewFrame(contextManager, title, previewPanel);
+                if (workingFragment.getType() == ContextFragment.FragmentType.IMAGE_FILE) {
+                    var iff = (ContextFragment.ImageFileFragment) workingFragment;
+                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file(), themeManager);
+                    return;
+                }
             }
 
-        } catch (IOException ex) { // IOException mainly from fragment.text()
+            // 4. Specific handling for Git-history snapshots
+            if (workingFragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
+                var ghf = (ContextFragment.GitFileFragment) workingFragment;
+                var previewPanel = new PreviewTextPanel(contextManager,
+                                                        null,
+                                                        ghf.text(),
+                                                        ghf.syntaxStyle(),
+                                                        themeManager,
+                                                        ghf);
+                showPreviewFrame(contextManager, title, previewPanel);
+                return;
+            }
+
+            // 5. Path fragments (files on disk) – live vs. snapshot decision
+            if (workingFragment.getType().isPathFragment()) {
+                // If we were able to unfreeze to a real PathFragment AND it belongs to the
+                // current context, show the live file so the user can edit/save.
+                if (isCurrentContext && workingFragment instanceof ContextFragment.PathFragment pf) {
+                    var brokkFile = pf.file();
+                    if (brokkFile instanceof ProjectFile projectFile) {
+                        // Live ProjectFile – delegate to helper that sets up edit/save UI.
+                        if (!SwingUtilities.isEventDispatchThread()) {
+                            SwingUtilities.invokeLater(() -> previewFile(projectFile));
+                        } else {
+                            previewFile(projectFile);
+                        }
+                        return;
+                    } else if (brokkFile instanceof ExternalFile externalFile) {
+                        // External file on disk – read it live.
+                        Runnable task = () -> {
+                            try {
+                                var panel = new PreviewTextPanel(contextManager,
+                                                                 null,
+                                                                 externalFile.read(),
+                                                                 externalFile.getSyntaxStyle(),
+                                                                 themeManager,
+                                                                 workingFragment);
+                                showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
+                            } catch (IOException ex) {
+                                toolErrorRaw("Error reading external file: " + ex.getMessage());
+                                logger.error("Error reading external file {}", externalFile.absPath(), ex);
+                            }
+                        };
+                        if (!SwingUtilities.isEventDispatchThread()) {
+                            SwingUtilities.invokeLater(task);
+                        } else {
+                            task.run();
+                        }
+                        return;
+                    }
+                }
+
+                // Otherwise – fall back to showing the frozen snapshot.
+                var snapshotPanel = new PreviewTextPanel(contextManager,
+                                                         null,
+                                                         workingFragment.text(),
+                                                         workingFragment.syntaxStyle(),
+                                                         themeManager,
+                                                         workingFragment);
+                showPreviewFrame(contextManager, title, snapshotPanel);
+                return;
+            }
+
+            // 6. Everything else (virtual fragments, skeletons, etc.)
+            var previewPanel = new PreviewTextPanel(contextManager,
+                                                    null,
+                                                    workingFragment.text(),
+                                                    workingFragment.syntaxStyle(),
+                                                    themeManager,
+                                                    workingFragment);
+            showPreviewFrame(contextManager, title, previewPanel);
+        } catch (IOException ex) {
             toolErrorRaw("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
@@ -891,7 +942,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             });
 
             if (contextGitSplitPane != null) {
-                int contextGitPos = project.getContextGitSplitPosition();
+                int contextGitPos = project.getWorkspaceGitSplitPosition();
                 if (contextGitPos > 0) {
                     contextGitSplitPane.setDividerLocation(contextGitPos);
                 } else {
@@ -902,7 +953,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     if (contextGitSplitPane.isShowing()) {
                         var newPos = contextGitSplitPane.getDividerLocation();
                         if (newPos > 0) {
-                            project.saveContextGitSplitPosition(newPos);
+                            project.saveWorkspaceGitSplitPosition(newPos);
                         }
                     }
                 });
@@ -945,9 +996,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     public void showOutputSpinner(String message) {
         SwingUtilities.invokeLater(() -> {
-            if (historyOutputPanel != null) {
-                historyOutputPanel.showSpinner(message);
-            }
+            historyOutputPanel.showSpinner(message);
         });
     }
 
@@ -956,9 +1005,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     public void hideOutputSpinner() {
         SwingUtilities.invokeLater(() -> {
-            if (historyOutputPanel != null) {
-                historyOutputPanel.hideSpinner();
-            }
+            historyOutputPanel.hideSpinner();
         });
     }
 
@@ -983,10 +1030,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         contextGitSplitPane.repaint();
     }
 
-    public void updateContextTable() {
-        if (workspacePanel != null) {
-            workspacePanel.updateContextTable();
-        }
+    public void updateWorkspace() {
+        workspacePanel.updateContextTable();
     }
 
     public ContextManager getContextManager() {
@@ -1032,21 +1077,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private boolean isFocusInContextArea(Component focusOwner) {
         if (focusOwner == null) return false;
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
-        boolean inContextPanel = workspacePanel != null && SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
-        boolean inHistoryTable = historyOutputPanel != null && historyOutputPanel.getHistoryTable() != null &&
+        boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
+        boolean inHistoryTable = historyOutputPanel.getHistoryTable() != null &&
                 SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable());
         return inContextPanel || inHistoryTable;
     }
-
-    private boolean isFocusInTextCopyableArea(Component focusOwner) {
-        if (focusOwner == null) return false;
-        boolean inCommandInput = instructionsPanel != null && instructionsPanel.getInstructionsArea() != null &&
-                lastRelevantFocusOwner == instructionsPanel.getInstructionsArea();
-        boolean inLlmStreamArea = historyOutputPanel != null && historyOutputPanel.getLlmStreamArea() != null &&
-                SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea());
-        return inCommandInput || inLlmStreamArea;
-    }
-
 
     // --- Global Undo/Redo Action Classes ---
     private class GlobalUndoAction extends AbstractAction {
@@ -1239,18 +1274,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * Disables the history panel via HistoryOutputPanel.
      */
     public void disableHistoryPanel() {
-        if (historyOutputPanel != null) {
-            historyOutputPanel.disableHistory();
-        }
+        historyOutputPanel.disableHistory();
     }
 
     /**
      * Enables the history panel via HistoryOutputPanel.
      */
     public void enableHistoryPanel() {
-        if (historyOutputPanel != null) {
-            historyOutputPanel.enableHistory();
-        }
+        historyOutputPanel.enableHistory();
     }
 
     /**
@@ -1261,9 +1292,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void blockLlmOutput(boolean blocked) {
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
-            if (historyOutputPanel != null) {
-                historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
-            }
+            historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
         });
     }
 
@@ -1274,7 +1303,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void postSummarize() {
-        updateContextTable();
+        updateWorkspace();
         updateContextHistoryTable();
     }
 

@@ -63,7 +63,7 @@ libraryDependencies ++= Seq(
   "org.yaml" % "snakeyaml" % "2.3",
   "org.eclipse.jgit" % "org.eclipse.jgit" % "7.1.0.202411261347-r",
   "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.1.0.202411261347-r",
-  "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.0",
+  "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.3",
   "com.vladsch.flexmark" % "flexmark" % "0.64.8",
   "com.vladsch.flexmark" % "flexmark-html2md-converter" % "0.64.8",
   "org.kohsuke" % "github-api" % "1.327",

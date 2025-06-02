@@ -52,7 +52,7 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectCodeMessages(IContextManager cm,
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
-                                                       ArrayList<ChatMessage> sessionMessages,
+                                                       ArrayList<ChatMessage> taskMessages,
                                                        UserMessage request)
     throws InterruptedException
     {
@@ -66,7 +66,7 @@ public abstract class CodePrompts {
         messages.addAll(cm.getWorkspaceReadOnlyMessages());
         messages.addAll(parser.exampleMessages());
         messages.addAll(cm.getHistoryMessages());
-        messages.addAll(sessionMessages);
+        messages.addAll(taskMessages);
         messages.addAll(cm.getWorkspaceEditableMessages());
         messages.add(request);
 
