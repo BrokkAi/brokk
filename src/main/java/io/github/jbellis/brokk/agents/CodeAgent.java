@@ -247,7 +247,6 @@ public class CodeAgent {
                 var parseRetryPrompt = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(),
                                                                           parser,
                                                                           succeededCount,
-                                                                          io,
                                                                           contextManager);
                 if (!parseRetryPrompt.isEmpty()) {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {

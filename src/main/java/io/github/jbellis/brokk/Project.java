@@ -842,36 +842,6 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Loads a ContextHistory object from a ZIP file using HistoryIo (legacy single history)
-     *
-     * @return The loaded ContextHistory, or a new empty history if loading fails
-     */
-    public ContextHistory loadLegacyHistory(IContextManager contextManager) {
-        try {
-            ContextHistory ch = HistoryIo.readZip(historyZipFile, contextManager);
-            if (ch != null && !ch.getHistory().isEmpty()) {
-                int maxId = 0;
-                for (Context ctx : ch.getHistory()) {
-                    for (ContextFragment fragment : ctx.allFragments().toList()) {
-                        maxId = Math.max(maxId, fragment.id());
-                    }
-                    for (TaskEntry taskEntry : ctx.getTaskHistory()) {
-                        if (taskEntry.log() != null) {
-                            maxId = Math.max(maxId, taskEntry.log().id());
-                        }
-                    }
-                }
-                ContextFragment.setNextId(maxId + 1);
-                logger.debug("Restored fragment ID counter to {}", maxId + 1);
-            }
-            return ch;
-        } catch (IOException e) {
-            logger.error("Error loading context history: {}", e.getMessage());
-            return new ContextHistory();
-        }
-    }
-
-    /**
      * Loads a ContextHistory object from a session-specific ZIP file using HistoryIo
      *
      * @return The loaded ContextHistory, or a new empty history if loading fails
@@ -1365,8 +1335,7 @@ public class Project implements IProject, AutoCloseable {
                 // For now, assuming ObjectMapper can handle the record directly
                 var typeFactory = objectMapper.getTypeFactory();
                 var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
-                // Explicit cast needed as readValue with JavaType returns Object
-                @SuppressWarnings("unchecked") // Cast is safe due to the type factory construction
+                // Cast is safe due to the type factory construction
                 List<Service.FavoriteModel> loadedList = objectMapper.readValue(json, listType);
                 logger.debug("Loaded {} favorite models from global properties.", loadedList.size());
                 return loadedList;
