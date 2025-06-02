@@ -116,6 +116,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private String lastCheckedInputText = null;
     private float[][] lastCheckedEmbeddings = null;
     private List<FileReferenceData> pendingQuickContext = null;
+    private String originalInstructionsBeforeAction;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -1152,6 +1153,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var result = new CodeAgent(contextManager, model).runSession(input, false);
             if (result.stopDetails().reason() == SessionResult.StopReason.INTERRUPTED) {
+                restoreOriginalInstructions();
                 chrome.systemOutput("Code Agent cancelled!");
                 // Save the partial result (if we didn't interrupt before we got any replies)
                 if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
@@ -1207,6 +1209,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.systemOutput("Ask command completed with no response data.");
             }
         } catch (InterruptedException e) {
+            restoreOriginalInstructions();
             chrome.systemOutput("Ask command cancelled!");
             // Check if we have any partial output to save
             maybeAddInterruptedResult("Ask", question);
@@ -1240,6 +1243,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.systemOutput("Architect complete!");
             contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
+            restoreOriginalInstructions();
             chrome.systemOutput("Architect Agent cancelled!");
             maybeAddInterruptedResult("Architect", goal);
         } catch (Exception e) {
@@ -1268,6 +1272,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             contextManager.addToHistory(result, false);
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
+            restoreOriginalInstructions();
             chrome.toolErrorRaw("Search agent cancelled without answering");
         }
     }
@@ -1298,6 +1303,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // If interrupted, the ```bash block might be open.
             // It's tricky to know if llmOutput for closing ``` is safe or needed here.
             // For now, just log and return, consistent with previous behavior for interruption.
+            restoreOriginalInstructions();
             chrome.systemOutput("Cancelled!");
             // No action needed for context history on cancellation here
             return;
@@ -1474,6 +1480,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * sets the llm output to indicate the action has started, and submits the task on the user pool
      */
     public Future<?> submitAction(String action, String input, Runnable task) {
+        this.originalInstructionsBeforeAction = input;
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase();
@@ -1488,6 +1495,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 checkFocusAndNotify(action);
             }
         });
+    }
+
+    private void restoreOriginalInstructions() {
+        if (this.originalInstructionsBeforeAction != null) {
+            final String textToRestore = this.originalInstructionsBeforeAction;
+            SwingUtilities.invokeLater(() -> {
+                instructionsArea.setText(textToRestore);
+                instructionsArea.setCaretPosition(textToRestore.length());
+            });
+        }
     }
 
     // Methods to disable and enable buttons.
