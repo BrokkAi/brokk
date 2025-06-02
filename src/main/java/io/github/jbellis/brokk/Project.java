@@ -143,7 +143,7 @@ public class Project implements IProject, AutoCloseable {
                     projectProps.load(reader); // Attempt to load properties
                 }
 
-                var bd = getBuildDetails();
+                var bd = loadBuildDetails();
                 if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
                     this.detailsFuture.complete(bd);
                 }
@@ -315,7 +315,7 @@ public class Project implements IProject, AutoCloseable {
     }
 
     @Override
-    public BuildAgent.BuildDetails getBuildDetails() {
+    public BuildAgent.BuildDetails loadBuildDetails() {
         // Build details are project-specific, not workspace-specific
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {

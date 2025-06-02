@@ -11,7 +11,6 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -560,7 +559,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         instructionsScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         instructionsScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
-        var details = project.getBuildDetails();
+        var details = project.loadBuildDetails();
         logger.trace("Initial Build Details: {}", details);
         // Build/Lint Command
         gbc.gridx = 0;
@@ -1763,7 +1762,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         // as the tab's enabled state is tied to project presence)
 
         // Get current details to compare against and preserve non-editable fields
-        var currentDetails = project.getBuildDetails();
+        var currentDetails = project.loadBuildDetails();
 
         // Read potentially edited values from Build tab
         var newBuildLint = buildCleanCommandField.getText();
