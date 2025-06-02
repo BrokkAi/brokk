@@ -33,9 +33,6 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  // File watching
-  "io.methvin" % "directory-watcher" % "0.18.0",
-  
   // LangChain4j dependencies
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
