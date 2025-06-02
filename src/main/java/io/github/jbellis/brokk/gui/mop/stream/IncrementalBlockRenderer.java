@@ -92,7 +92,8 @@ public final class IncrementalBlockRenderer {
             .set(BrokkMarkdownExtension.ENABLE_EDIT_BLOCK, enableEditBlocks)
             .set(IdProvider.ID_PROVIDER, idProvider)
             .set(HtmlRenderer.SOFT_BREAK, "<br />\n")
-            .set(HtmlRenderer.ESCAPE_HTML, true);
+            .set(HtmlRenderer.ESCAPE_HTML, true)
+            .set(TablesExtension.MIN_SEPARATOR_DASHES, 1);
             
         parser = Parser.builder(options).build();
         renderer = HtmlRenderer.builder(options).build();
