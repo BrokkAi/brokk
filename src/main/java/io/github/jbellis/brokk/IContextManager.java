@@ -36,11 +36,11 @@ public interface IContextManager {
         return List.of();
     }
 
-    default Collection<? extends ChatMessage> getWorkspaceReadOnlyMessages() throws InterruptedException {
+    default Collection<ChatMessage> getWorkspaceReadOnlyMessages() throws InterruptedException {
         return List.of();
     }
 
-    default Collection<? extends ChatMessage> getWorkspaceEditableMessages() throws InterruptedException {
+    default Collection<ChatMessage> getWorkspaceEditableMessages() throws InterruptedException {
         return List.of();
     }
 
