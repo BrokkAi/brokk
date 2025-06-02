@@ -1161,6 +1161,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(result, false);
                 }
+                repopulateInstructionsArea(input);
             } else {
                 if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                     chrome.systemOutput("Code Agent complete!");
@@ -1226,6 +1227,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 chrome.getContextManager().addToHistory(sessionResult, false);
             }
+            repopulateInstructionsArea(input);
         }
 
     /**
@@ -1273,6 +1275,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
             chrome.toolErrorRaw("Search agent cancelled without answering");
+            repopulateInstructionsArea(query);
         }
     }
 
@@ -1303,6 +1306,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // It's tricky to know if llmOutput for closing ``` is safe or needed here.
             // For now, just log and return, consistent with previous behavior for interruption.
             chrome.systemOutput("Cancelled!");
+            repopulateInstructionsArea(input);
             // No action needed for context history on cancellation here
             return;
         } finally {
@@ -1570,6 +1574,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (mainFrame != null && mainFrame.isShowing() && !mainFrame.isActive()) {
                 Environment.instance.sendNotificationAsync("Action '" + actionName + "' completed.");
             }
+        });
+    }
+
+    private void repopulateInstructionsArea(String originalText) {
+        SwingUtilities.invokeLater(() -> {
+            // If placeholder is active or area is disabled, activate input first
+            if (instructionsArea.getText().equals(PLACEHOLDER_TEXT) || !instructionsArea.isEnabled()) {
+                activateCommandInput(); // This enables, clears placeholder, requests focus
+            }
+            instructionsArea.setText(originalText);
+            commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+            instructionsArea.requestFocusInWindow(); // Ensure focus after text set
+            instructionsArea.setCaretPosition(originalText.length()); // Move caret to end
         });
     }
 
