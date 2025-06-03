@@ -742,7 +742,6 @@ public class HistoryOutputPanel extends JPanel {
         // Sessions table components
         private JTable sessionsTable;
         private DefaultTableModel sessionsTableModel;
-        private JButton newSessionButton;
         private JButton closeButton;
         
         // Activity history components
@@ -769,14 +768,14 @@ public class HistoryOutputPanel extends JPanel {
             refreshSessionsTable();
             
             // Set larger size for 4-panel layout
-            setSize(1200, 600);
+            setSize(1400, 800);
             setLocationRelativeTo(chrome.getFrame());
             setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         }
         
         private void initializeComponents() {
-            // Initialize sessions table model with Active, Session Name, Last Modified, and hidden SessionInfo columns
-            sessionsTableModel = new DefaultTableModel(new Object[]{"Active", "Session Name", "Last Modified", "SessionInfo"}, 0) {
+            // Initialize sessions table model with Active, Session Name, and hidden SessionInfo columns
+            sessionsTableModel = new DefaultTableModel(new Object[]{"Active", "Session Name", "SessionInfo"}, 0) {
                 @Override
                 public boolean isCellEditable(int row, int column) {
                     return false;
@@ -790,7 +789,7 @@ public class HistoryOutputPanel extends JPanel {
                     java.awt.Point p = event.getPoint();
                     int rowIndex = rowAtPoint(p);
                     if (rowIndex >= 0 && rowIndex < getRowCount()) {
-                        Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 3);
+                        Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
                         if (sessionInfo != null) {
                             return "Last modified: " + new java.util.Date(sessionInfo.modified()).toString();
                         }
@@ -799,6 +798,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
             };
             sessionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+            sessionsTable.setTableHeader(null);
             
             // Set up column renderers for sessions table
             sessionsTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
@@ -871,56 +871,58 @@ public class HistoryOutputPanel extends JPanel {
             markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
             
             // Initialize buttons
-            newSessionButton = new JButton("New Session");
             closeButton = new JButton("Close");
         }
         
         private void layoutComponents() {
             setLayout(new BorderLayout());
             
-            // Create sessions panel (left)
+            // Create sessions panel
             JPanel sessionsPanel = new JPanel(new BorderLayout());
             sessionsPanel.setBorder(BorderFactory.createTitledBorder("Sessions"));
             JScrollPane sessionsScrollPane = new JScrollPane(sessionsTable);
-            sessionsScrollPane.setPreferredSize(new Dimension(200, 0));
             sessionsPanel.add(sessionsScrollPane, BorderLayout.CENTER);
             
-            // Create activity panel (center-left)
+            // Create activity panel
             JPanel activityPanel = new JPanel(new BorderLayout());
             activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
             JScrollPane activityScrollPane = new JScrollPane(activityTable);
-            activityScrollPane.setPreferredSize(new Dimension(300, 0));
             activityPanel.add(activityScrollPane, BorderLayout.CENTER);
             
-            // Create workspace panel (center-right)
+            // Create workspace panel without additional border (workspacePanel already has its own border)
             JPanel workspacePanelContainer = new JPanel(new BorderLayout());
-            workspacePanelContainer.setBorder(BorderFactory.createTitledBorder("Workspace"));
-            workspacePanelContainer.setPreferredSize(new Dimension(400, 0));
             workspacePanelContainer.add(workspacePanel, BorderLayout.CENTER);
             
-            // Create MOP panel (right)
+            // Create MOP panel
             JPanel mopPanel = new JPanel(new BorderLayout());
             mopPanel.setBorder(BorderFactory.createTitledBorder("Output"));
-            mopPanel.setPreferredSize(new Dimension(300, 0));
             mopPanel.add(markdownScrollPane, BorderLayout.CENTER);
             
-            // Create split panes for 4-panel layout
-            JSplitPane leftSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
-            leftSplit.setDividerLocation(200);
-            leftSplit.setResizeWeight(0.0);
+            // Create top row with Sessions (20%), Activity (40%), and MOP (40%) horizontal space
+            JSplitPane topFirstSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
+            topFirstSplit.setResizeWeight(1.0/3.0); // Sessions gets 20%, Activity gets 40%, so 20/(20+40) = 1/3
             
-            JSplitPane centerSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, workspacePanelContainer, mopPanel);
-            centerSplit.setDividerLocation(400);
-            centerSplit.setResizeWeight(0.57); // 400/(400+300)
+            JSplitPane topSecondSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, topFirstSplit, mopPanel);
+            topSecondSplit.setResizeWeight(0.6); // Sessions+Activity get 60%, MOP gets 40%
             
-            JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, centerSplit);
-            mainSplit.setDividerLocation(500); // 200 + 300
-            mainSplit.setResizeWeight(0.42); // 500/1200
+            // Set divider locations after the dialog is shown to achieve 20%/40%/40% split
+            SwingUtilities.invokeLater(() -> {
+                int totalWidth = topSecondSplit.getWidth();
+                if (totalWidth > 0) {
+                    // Set first divider at 20% of the way (between Sessions and Activity)
+                    topFirstSplit.setDividerLocation(totalWidth / 5);
+                    // Set second divider at 60% of the way (between Activity and MOP) 
+                    topSecondSplit.setDividerLocation((3 * totalWidth) / 5);
+                }
+            });
+            
+            // Create main vertical split with top row and workspace below
+            JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSecondSplit, workspacePanelContainer);
+            mainSplit.setResizeWeight(0.75); // Top gets 75%, workspace gets 25%
             
             // Create button panel
             JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             buttonPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 10, 10));
-            buttonPanel.add(newSessionButton);
             buttonPanel.add(closeButton);
             
             // Add components to dialog
@@ -932,7 +934,7 @@ public class HistoryOutputPanel extends JPanel {
             // Session selection listener - load session history instead of switching
             sessionsTable.getSelectionModel().addListSelectionListener(e -> {
                 if (!e.getValueIsAdjusting() && sessionsTable.getSelectedRow() != -1) {
-                    Project.SessionInfo selectedSessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 3);
+                    Project.SessionInfo selectedSessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 2);
                     loadSessionHistory(selectedSessionInfo.id());
                 }
             });
@@ -970,15 +972,6 @@ public class HistoryOutputPanel extends JPanel {
             });
             
             // Button listeners
-            newSessionButton.addActionListener(e -> {
-                contextManager.createNewSessionAsync("New Session").thenRun(() ->
-                    SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        updateSessionComboBox();
-                    })
-                );
-            });
-            
             closeButton.addActionListener(e -> dispose());
             
             // ESC key to close
@@ -1073,24 +1066,22 @@ public class HistoryOutputPanel extends JPanel {
             UUID currentSessionId = contextManager.getCurrentSessionId();
             for (var session : sessions) {
                 String active = session.id().equals(currentSessionId) ? "✓" : "";
-                String lastModified = new java.text.SimpleDateFormat("MMM dd, yyyy HH:mm").format(new java.util.Date(session.modified()));
-                sessionsTableModel.addRow(new Object[]{active, session.name(), lastModified, session});
+                sessionsTableModel.addRow(new Object[]{active, session.name(), session});
             }
             
             // Hide the "SessionInfo" column
-            sessionsTable.getColumnModel().getColumn(3).setMinWidth(0);
-            sessionsTable.getColumnModel().getColumn(3).setMaxWidth(0);
-            sessionsTable.getColumnModel().getColumn(3).setWidth(0);
+            sessionsTable.getColumnModel().getColumn(2).setMinWidth(0);
+            sessionsTable.getColumnModel().getColumn(2).setMaxWidth(0);
+            sessionsTable.getColumnModel().getColumn(2).setWidth(0);
             
             // Set column widths for sessions table
             sessionsTable.getColumnModel().getColumn(0).setPreferredWidth(40);
             sessionsTable.getColumnModel().getColumn(0).setMaxWidth(40);
             sessionsTable.getColumnModel().getColumn(1).setPreferredWidth(120);
-            sessionsTable.getColumnModel().getColumn(2).setPreferredWidth(80);
             
             // Select current session and load its history
             for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-                Project.SessionInfo rowInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(i, 3);
+                Project.SessionInfo rowInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(i, 2);
                 if (rowInfo.id().equals(currentSessionId)) {
                     sessionsTable.setRowSelectionInterval(i, i);
                     loadSessionHistory(rowInfo.id()); // Load history for current session
@@ -1104,7 +1095,7 @@ public class HistoryOutputPanel extends JPanel {
             if (row < 0) return;
             
             sessionsTable.setRowSelectionInterval(row, row);
-            Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(row, 3);
+            Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(row, 2);
             
             JPopupMenu popup = new JPopupMenu();
             
