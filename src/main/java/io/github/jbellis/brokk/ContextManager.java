@@ -235,8 +235,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onTrackedFileChange() {
                 project.getRepo().refresh();
+                if (liveContext != null) {
+                    var fr = liveContext.freeze();
+                    liveContext = fr.liveContext();
+                    contextHistory.updateTopContext(fr.frozenContext());
+                    // analyzer refresh will call this too, but it will be delayed
+                    io.updateWorkspace();
+                }
                 io.updateCommitPanel();
-                // let analyzer rebuild refresh the Workspace
             }
 
             @Override

@@ -779,6 +779,10 @@ public class Context {
 
     public record FreezeResult(Context liveContext, Context frozenContext) { }
 
+    /**
+     * @return a FreezeResult with the (potentially modified to exclude invalid Fragments)
+     *         liveContext + frozenContext
+     */
     public FreezeResult freeze() {
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
