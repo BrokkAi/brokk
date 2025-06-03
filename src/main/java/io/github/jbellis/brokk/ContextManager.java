@@ -1206,6 +1206,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
     public Context pushContext(Function<Context, Context> contextGenerator) {
+        Instant start = Instant.now();
+        while (liveContext == null && java.time.Duration.between(start, Instant.now()).getSeconds() < 5) {
+            Thread.onSpinWait();
+        }
+        if (liveContext == null) {
+            logger.error("Timeout waiting for liveContext after 5 seconds");
+            liveContext = new Context(this, "Placeholder Workspace");
+        }
+
         var updatedLiveContext = contextGenerator.apply(liveContext);
         if (updatedLiveContext == liveContext) {
             // No change occurred

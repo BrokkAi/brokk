@@ -777,7 +777,12 @@ public class Context {
         return maxId;
     }
 
-    public record FreezeResult(Context liveContext, Context frozenContext) { }
+    public record FreezeResult(Context liveContext, Context frozenContext) {
+        public FreezeResult {
+            assert liveContext != null;
+            assert frozenContext != null;
+        }
+    }
 
     /**
      * @return a FreezeResult with the (potentially modified to exclude invalid Fragments)
