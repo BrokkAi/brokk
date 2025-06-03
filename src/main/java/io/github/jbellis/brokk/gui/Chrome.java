@@ -30,12 +30,15 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+import static io.github.jbellis.brokk.gui.Constants.*;
+
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
+    private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
@@ -72,7 +75,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private Dimension backgroundLabelPreferredSize;
+    private JLabel systemMessageLabel;
+    private final List<String> systemMessages = new ArrayList<>();
     private JPanel bottomPanel;
 
     private JSplitPane topSplitPane;
@@ -115,6 +119,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         loadWindowSizeAndPosition();
         // Load saved theme, window size, and position
         frame.setTitle("Brokk: " + getProject().getRoot());
+
+        // Show initial system message
+        systemOutput("Opening project at " + getProject().getRoot());
 
         // If the project uses Git, put the context panel and the Git panel in a split pane
         if (getProject().hasGit()) {
@@ -311,7 +318,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Top Area: Instructions + History/Output
         instructionsPanel = new InstructionsPanel(this);
-        instructionsPanel.appendSystemOutput("Opening project at " + getProject().getRoot());
         historyOutputPanel = new HistoryOutputPanel(this, contextManager);
 
         topSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -321,9 +327,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
-        // Status label at the very bottom
-        var statusLabel = buildBackgroundStatusLabel();
-        bottomPanel.add(statusLabel, BorderLayout.SOUTH);
+        // Status labels at the very bottom
+        var statusLabels = buildStatusLabels();
+        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
 
         // Main Vertical Split: Top Area / Bottom Area
@@ -415,11 +421,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    private JComponent buildBackgroundStatusLabel() {
+    private JComponent buildStatusLabels() {
+        // System message label (left side)
+        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
+        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
+        
+        // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
-        backgroundStatusLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-        backgroundLabelPreferredSize = backgroundStatusLabel.getPreferredSize();
-        return backgroundStatusLabel;
+        backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
+
+        // Panel to hold both labels
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
+        statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
+        
+        return statusPanel;
     }
 
     /**
@@ -498,12 +514,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void toolErrorRaw(String msg) {
-        logger.warn(msg);
-        SwingUtilities.invokeLater(() -> instructionsPanel.appendSystemOutput(msg));
-    }
-
-    @Override
     public void llmOutput(String token, ChatMessageType type) {
         // TODO: use messageSubType later on
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type));
@@ -515,9 +525,45 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
+    public void toolErrorRaw(String msg) {
+        logger.warn(msg);
+        systemOutputInternal(msg);
+    }
+
+    @Override
     public void systemOutput(String message) {
         logger.debug(message);
-        SwingUtilities.invokeLater(() -> instructionsPanel.appendSystemOutput(message));
+        systemOutputInternal(message);
+    }
+
+    private void systemOutputInternal(String message) {
+        SwingUtilities.invokeLater(() -> {
+            // Format timestamp as HH:MM
+            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+            String timestampedMessage = timestamp + ": " + message;
+
+            // Add to messages list
+            systemMessages.add(timestampedMessage);
+
+            // Keep only last 50 messages to prevent memory issues
+            if (systemMessages.size() > 50) {
+                systemMessages.remove(0);
+            }
+
+            // Update label text (show only the latest message)
+            systemMessageLabel.setText(message);
+
+            // Update tooltip with all recent messages
+            StringBuilder tooltipText = new StringBuilder("<html>");
+            for (int i = Math.max(0, systemMessages.size() - 10); i < systemMessages.size(); i++) {
+                if (i > Math.max(0, systemMessages.size() - 10)) {
+                    tooltipText.append("<br>");
+                }
+                tooltipText.append(systemMessages.get(i));
+            }
+            tooltipText.append("</html>");
+            systemMessageLabel.setToolTipText(tooltipText.toString());
+        });
     }
 
     @Override
@@ -535,7 +581,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 backgroundStatusLabel.setText(message);
                 backgroundStatusLabel.setToolTipText(tooltip);
             }
-            backgroundStatusLabel.setPreferredSize(backgroundLabelPreferredSize);
         });
     }
 

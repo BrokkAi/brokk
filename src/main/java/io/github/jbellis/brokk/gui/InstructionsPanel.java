@@ -87,8 +87,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton runButton;
     private final JButton stopButton;
     private final JButton configureModelsButton;
-    private final JTextArea systemArea;
-    private final JScrollPane systemScrollPane;
     private final JLabel commandResultLabel;
     private final ContextManager contextManager; // Can be null if Chrome is initialized without one
     private JTable referenceFileTable;
@@ -135,8 +133,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             activateCommandInput();
             chrome.actionOutput("Recording");
         }, chrome::toolError);
-        systemArea = new JTextArea();
-        systemScrollPane = buildSystemMessagesArea();
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
         // Initialize Buttons first
@@ -206,7 +202,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = buildTopBarPanel();
         add(topBarPanel, BorderLayout.NORTH);
 
-        // Center Panel (Command Input + System/Result) (Center)
+        // Center Panel (Command Input + Result) (Center)
         this.centerPanel = buildCenterPanel();
         add(this.centerPanel, BorderLayout.CENTER);
 
@@ -416,11 +412,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
 
-        // System Messages + Command Result
+        // Command Result
         var topInfoPanel = new JPanel();
         topInfoPanel.setLayout(new BoxLayout(topInfoPanel, BoxLayout.PAGE_AXIS));
         topInfoPanel.add(commandResultLabel);
-        topInfoPanel.add(systemScrollPane);
         panel.add(topInfoPanel);
 
         return panel;
@@ -562,31 +557,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    /**
-     * Builds the system messages area that appears below the command input area.
-     * Moved from HistoryOutputPanel.
-     */
-    private JScrollPane buildSystemMessagesArea() {
-        // Create text area for system messages
-        systemArea.setEditable(false);
-        systemArea.getCaret().setVisible(false); // Hide the edit caret
-        systemArea.setLineWrap(true);
-        systemArea.setWrapStyleWord(true);
-        systemArea.setRows(4);
-
-        // Create scroll pane with border and title
-        var scrollPane = new JScrollPane(systemArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "System Messages",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        AutoScroller.install(scrollPane);
-
-        return scrollPane;
-    }
 
     /**
      * Builds the command result label.
@@ -738,26 +708,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> commandResultLabel.setText(" ")); // Set back to space to maintain height
     }
 
-    /**
-     * Appends text to the system output area with timestamp.
-     * Moved from HistoryOutputPanel.
-     */
-    public void appendSystemOutput(String message) {
-        SwingUtilities.invokeLater(() -> {
-            // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-
-            // Add newline if needed
-            if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
-                systemArea.append("\n");
-            }
-
-            // Append timestamped message
-            systemArea.append(timestamp + ": " + message);
-            // Scroll to bottom
-            systemArea.setCaretPosition(systemArea.getDocument().getLength());
-        });
-    }
 
 
     /**
