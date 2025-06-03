@@ -177,13 +177,10 @@ public class BrokkDiffPanel extends JPanel {
     }
 
     private JButton btnUndo;
-
-    public JButton getBtnRedo() {
-        return btnRedo;
-    }
-
     private JButton btnRedo;
     private JButton captureDiffButton;
+    private JButton btnNext;
+    private JButton btnPrevious;
     private BufferDiffPanel bufferDiffPanel;
 
     public void setBufferDiffPanel(BufferDiffPanel bufferDiffPanel) {
@@ -266,8 +263,8 @@ public class BrokkDiffPanel extends JPanel {
         JToolBar toolBar = new JToolBar();
 
         // Create buttons
-        JButton btnNext = new JButton("Next Change");
-        JButton btnPrevious = new JButton("Previous Change");
+        btnNext = new JButton("Next Change");
+        btnPrevious = new JButton("Previous Change");
         btnUndo = new JButton("Undo");
         btnRedo = new JButton("Redo");
         captureDiffButton = new JButton("Capture Diff");
@@ -278,20 +275,8 @@ public class BrokkDiffPanel extends JPanel {
         fileIndicatorLabel = new JLabel("");
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
-        btnNext.addActionListener(e -> {
-            AbstractContentPanel panel = getCurrentContentPanel();
-            if (panel != null) {
-                panel.doDown();
-                repaint();
-            }
-        });
-        btnPrevious.addActionListener(e -> {
-            AbstractContentPanel panel = getCurrentContentPanel();
-            if (panel != null) {
-                panel.doUp();
-                repaint();
-            }
-        });
+        btnNext.addActionListener(e -> navigateToNextChange());
+        btnPrevious.addActionListener(e -> navigateToPreviousChange());
         btnUndo.addActionListener(e -> {
             AbstractContentPanel panel = getCurrentContentPanel();
             if (panel != null) {
@@ -417,8 +402,20 @@ public class BrokkDiffPanel extends JPanel {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         var currentPanel = getCurrentContentPanel();
         if (currentPanel != null) {
-            getBtnUndo().setEnabled(currentPanel.isUndoEnabled());
-            getBtnRedo().setEnabled(currentPanel.isRedoEnabled());
+            btnUndo.setEnabled(currentPanel.isUndoEnabled());
+            btnRedo.setEnabled(currentPanel.isRedoEnabled());
+
+            boolean isFirstChangeOverall = currentFileIndex == 0 && currentPanel.isAtFirstLogicalChange();
+            btnPrevious.setEnabled(!isFirstChangeOverall);
+
+            boolean isLastChangeOverall = currentFileIndex == fileComparisons.size() - 1 && currentPanel.isAtLastLogicalChange();
+            btnNext.setEnabled(!isLastChangeOverall);
+        } else {
+            // Disable all if no panel
+            btnUndo.setEnabled(false);
+            btnRedo.setEnabled(false);
+            btnPrevious.setEnabled(false);
+            btnNext.setEnabled(false);
         }
     }
 
@@ -509,5 +506,43 @@ public class BrokkDiffPanel extends JPanel {
         });
 
         frame.setVisible(true);
+    }
+    
+    private void navigateToNextChange() {
+        var panel = getCurrentContentPanel();
+        if (panel == null) return;
+        
+        if (panel.isAtLastLogicalChange() && canNavigateToNextFile()) {
+            nextFile();
+        } else {
+            panel.doDown();
+        }
+        repaint();
+        updateUndoRedoButtons();
+    }
+    
+    private void navigateToPreviousChange() {
+        var panel = getCurrentContentPanel();
+        if (panel == null) return;
+        
+        if (panel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
+            previousFile();
+            var newPanel = getCurrentContentPanel();
+            if (newPanel != null) {
+                newPanel.goToLastLogicalChange();
+            }
+        } else {
+            panel.doUp();
+        }
+        repaint();
+        updateUndoRedoButtons();
+    }
+    
+    private boolean canNavigateToNextFile() {
+        return getTotalFiles() > 1 && getCurrentFileIndex() < getTotalFiles() - 1;
+    }
+    
+    private boolean canNavigateToPreviousFile() {
+        return getTotalFiles() > 1 && getCurrentFileIndex() > 0;
     }
 }

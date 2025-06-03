@@ -493,8 +493,8 @@ public final class GitUiUtil
                     var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
 
                     builder.addComparison(
-                        new BufferSource.StringSource(oldContent, parentId, file.toString()),
-                        new BufferSource.StringSource(newContent, commitInfo.id(), file.toString())
+                        new BufferSource.StringSource(oldContent, parentId, file.getFileName()),
+                        new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName())
                     );
                 }
 

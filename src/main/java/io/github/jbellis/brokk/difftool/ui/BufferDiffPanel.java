@@ -575,4 +575,58 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     public boolean isDarkTheme() {
         return guiTheme.isDarkTheme();
     }
+
+    /**
+     * Checks if the current selection is the first logical change in the diff.
+     *
+     * @return true if at the first change, or if no changes exist.
+     */
+    @Override
+    public boolean isAtFirstLogicalChange() {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return true; // No changes, or no patch, so vacuously at the "first" (and "last").
+        }
+        var deltas = patch.getDeltas();
+        if (selectedDelta == null) {
+            // If nothing is selected, a "doUp" (toNextDelta(false)) would go to the last delta.
+            // So, we are not "at the first" in a way that would prevent doUp from moving to a prior delta.
+            return false;
+        }
+        int currentIndex = deltas.indexOf(selectedDelta);
+        // If selectedDelta is not in deltas (e.g., after a change was applied), currentIndex will be -1.
+        return currentIndex == 0;
+    }
+
+    /**
+     * Checks if the current selection is the last logical change in the diff.
+     *
+     * @return true if at the last change, or if no changes exist.
+     */
+    @Override
+    public boolean isAtLastLogicalChange() {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return true; // No changes, or no patch, so vacuously at the "last" (and "first").
+        }
+        var deltas = patch.getDeltas();
+        if (selectedDelta == null) {
+            // If nothing is selected, a "doDown" (toNextDelta(true)) would go to the first delta.
+            // So, we are not "at the last" in a way that would prevent doDown from moving to a subsequent delta.
+            return false;
+        }
+        int currentIndex = deltas.indexOf(selectedDelta);
+        // If selectedDelta is not in deltas, currentIndex will be -1.
+        return currentIndex != -1 && currentIndex == deltas.size() - 1;
+    }
+
+    /**
+     * Navigates to the last logical change in the current diff.
+     */
+    @Override
+    public void goToLastLogicalChange() {
+        if (patch != null && !patch.getDeltas().isEmpty()) {
+            var deltas = patch.getDeltas();
+            setSelectedDelta(deltas.getLast());
+            showSelectedDelta();
+        }
+    }
 }
