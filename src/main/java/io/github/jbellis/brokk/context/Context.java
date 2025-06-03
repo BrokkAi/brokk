@@ -434,7 +434,12 @@ public class Context {
     }
 
     public Stream<ContextFragment.VirtualFragment> virtualFragments() {
-        return virtualFragments.stream();
+        if (this.virtualFragments == null || this.virtualFragments.isEmpty()) {
+            return Stream.empty();
+        }
+        final Set<String> seenTexts = new HashSet<>();
+        return this.virtualFragments.stream()
+                                    .filter(fragment -> seenTexts.add(fragment.text()));
     }
 
     /**
