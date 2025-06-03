@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.JoernAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment.HistoryFragment;
 import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
 import io.github.jbellis.brokk.util.Messages;
@@ -740,6 +739,111 @@ public class Context {
                            newHistory,
                            null,
                            CompletableFuture.completedFuture("Reset context to historical state"));
+    }
+
+    /**
+     * Creates a new Context by appending specified fragments from a source historical context
+     * to the current context's fragments, and adopting the history from the source.
+     *
+     * @param sourceHistoricalContext The historical context to source fragments from.
+     * @param fragmentsToKeep All fragments that the user selected to keep.
+     * @param actionMessage The description of the action creating this context.
+     * @return A new Context instance with appended fragments and merged history.
+     */
+    public Context appendFrom(Context sourceHistoricalContext,
+                              List<ContextFragment> fragmentsToKeep,
+                              String actionMessage) {
+
+        List<TaskEntry> finalHistory = new ArrayList<>(getTaskHistory());
+        Set<TaskEntry> existingEntries = new HashSet<>(finalHistory); // For efficient duplicate checking
+
+        // Calculate fragmentIdsToKeep from fragmentsToKeep
+        var fragmentIdsToKeep = fragmentsToKeep.stream()
+                .map(ContextFragment::id)
+                .collect(Collectors.toSet());
+
+        Optional<HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
+            .filter(HistoryFragment.class::isInstance)
+            .map(HistoryFragment.class::cast)
+            .filter(hf -> fragmentIdsToKeep.contains(hf.id())) // Check if this HistoryFragment itself is selected
+            .findFirst();
+
+        if (selectedHistoryFragmentOpt.isPresent()) {
+            // User explicitly selected a HistoryFragment to keep; append its entries
+            List<TaskEntry> entriesToAppend = selectedHistoryFragmentOpt.get().entries();
+            for (TaskEntry entry : entriesToAppend) {
+                if (existingEntries.add(entry)) { // .add() returns true if element was added (not already present)
+                    finalHistory.add(entry);
+                }
+            }
+        }
+        // If no specific HistoryFragment was selected (matching ID in fragmentIdsToKeep),
+        // finalHistory will only contain entries from currentHistory plus those from an explicitly selected HistoryFragment.
+
+        finalHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
+        var newHistory = List.copyOf(finalHistory);
+
+        var currentEditablePaths = this.editableFiles.stream()
+            .filter(ContextFragment.PathFragment.class::isInstance)
+            .map(f -> ((ContextFragment.PathFragment) f).file().absPath())
+            .collect(Collectors.toSet());
+
+        var currentReadonlyPaths = this.readonlyFiles.stream()
+            .filter(ContextFragment.PathFragment.class::isInstance)
+            .map(f -> ((ContextFragment.PathFragment) f).file().absPath())
+            .collect(Collectors.toSet());
+
+        // Start with current fragments
+        var newEditableFiles = new ArrayList<>(this.editableFiles);
+        var newReadonlyFiles = new ArrayList<>(this.readonlyFiles);
+        var newVirtualFragments = new ArrayList<>(this.virtualFragments);
+
+        // Process and add editable files from source
+        sourceHistoricalContext.editableFiles()
+            .filter(f -> fragmentIdsToKeep.contains(f.id()))
+            .map(fragment -> unfreezeFragmentIfNeeded(fragment, this.contextManager))
+            .forEach(unfrozen -> {
+                if (unfrozen instanceof ContextFragment.PathFragment pf) {
+                    // Only add if its path is not already present as editable or readonly
+                    if (!currentEditablePaths.contains(pf.file().absPath()) && !currentReadonlyPaths.contains(pf.file().absPath())) {
+                        newEditableFiles.add(unfrozen);
+                        currentEditablePaths.add(pf.file().absPath()); // Track to prevent adding as readonly later
+                    }
+                } else { // Non-path based editable fragment
+                    newEditableFiles.add(unfrozen);
+                }
+            });
+
+        // Process and add readonly files from source
+        sourceHistoricalContext.readonlyFiles()
+            .filter(f -> fragmentIdsToKeep.contains(f.id()))
+            .map(fragment -> unfreezeFragmentIfNeeded(fragment, this.contextManager))
+            .forEach(unfrozen -> {
+                if (unfrozen instanceof ContextFragment.PathFragment pf) {
+                    // Only add if its path is not already present as editable or readonly
+                    if (!currentEditablePaths.contains(pf.file().absPath()) && !currentReadonlyPaths.contains(pf.file().absPath())) {
+                        newReadonlyFiles.add(unfrozen);
+                        currentReadonlyPaths.add(pf.file().absPath());
+                    }
+                } else { // Non-path based readonly fragment
+                    newReadonlyFiles.add(unfrozen);
+                }
+            });
+
+        // Process and add virtual fragments from source
+        sourceHistoricalContext.virtualFragments()
+            .filter(f -> fragmentIdsToKeep.contains(f.id()))
+            .map(fragment -> unfreezeFragmentIfNeeded(fragment, this.contextManager))
+            .forEach(newVirtualFragments::add);
+
+        return new Context(newId(),
+                           this.contextManager,
+                           List.copyOf(newEditableFiles),
+                           List.copyOf(newReadonlyFiles),
+                           List.copyOf(newVirtualFragments),
+                           newHistory,
+                           null,
+                           CompletableFuture.completedFuture(actionMessage));
     }
 
     /**

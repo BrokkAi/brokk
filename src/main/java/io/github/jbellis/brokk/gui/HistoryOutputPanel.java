@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
 import io.github.jbellis.brokk.gui.search.SearchBarPanel;
@@ -35,7 +36,9 @@ public class HistoryOutputPanel extends JPanel {
     private DefaultTableModel historyModel;
     private JButton undoButton;
     private JButton redoButton;
-    private JTabbedPane historyTabbedPane; // Tabbed pane for History (Sessions/Activity)
+    private JComboBox<Project.SessionInfo> sessionComboBox;
+    private JButton newSessionButton;
+    private JButton manageSessionsButton;
 
     // Output components
     private MarkdownOutputPanel llmStreamArea;
@@ -61,31 +64,21 @@ public class HistoryOutputPanel extends JPanel {
         var centerPanel = buildCenterOutputPanel();
         add(centerPanel, BorderLayout.CENTER);
 
-        // Build tabbed panel with Sessions and Activity (East)
-        historyTabbedPane = new JTabbedPane();
-        var sessionsPanel = new SessionsPanel(chrome, contextManager);
+        // Build session controls and activity panel (East)
+        var sessionControlsPanel = buildSessionControlsPanel();
         var activityPanel = buildActivityPanel();
 
-        historyTabbedPane.addTab("Sessions", sessionsPanel);
-        historyTabbedPane.addTab("Activity", activityPanel);
-
-        // Calculate preferred width for the tabbed panel to match old activity panel size
-        int preferredWidth = 230;
-        var preferredSize = new Dimension(preferredWidth, historyTabbedPane.getPreferredSize().height);
-        historyTabbedPane.setPreferredSize(preferredSize);
-        historyTabbedPane.setMinimumSize(preferredSize);
-        historyTabbedPane.setMaximumSize(new Dimension(preferredWidth, Integer.MAX_VALUE));
-
-        // Wrap the tabbed pane in a bordered panel titled "History"
+        // Create main history panel with session controls above activity
         var historyPanel = new JPanel(new BorderLayout());
-        historyPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "History",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        historyPanel.add(historyTabbedPane, BorderLayout.CENTER);
+        historyPanel.add(sessionControlsPanel, BorderLayout.NORTH);
+        historyPanel.add(activityPanel, BorderLayout.CENTER);
+
+        // Calculate preferred width to match old panel size
+        int preferredWidth = 230;
+        var preferredSize = new Dimension(preferredWidth, historyPanel.getPreferredSize().height);
+        historyPanel.setPreferredSize(preferredSize);
+        historyPanel.setMinimumSize(preferredSize);
+        historyPanel.setMaximumSize(new Dimension(preferredWidth, Integer.MAX_VALUE));
 
         add(historyPanel, BorderLayout.EAST);
 
@@ -125,11 +118,131 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     /**
+     * Builds the session controls panel with combo box and buttons
+     */
+    private JPanel buildSessionControlsPanel() {
+        var panel = new JPanel(new BorderLayout(5, 5));
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Sessions",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)
+        ));
+
+        // Session combo box
+        sessionComboBox = new JComboBox<>();
+        sessionComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                         boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Project.SessionInfo sessionInfo) {
+                    setText(sessionInfo.name());
+                }
+                return this;
+            }
+        });
+        
+        // Add selection listener for session switching
+        sessionComboBox.addActionListener(e -> {
+            var selectedSession = (Project.SessionInfo) sessionComboBox.getSelectedItem();
+            if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
+                contextManager.switchSessionAsync(selectedSession.id());
+            }
+        });
+
+        // Buttons panel
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        
+        newSessionButton = new JButton("New");
+        newSessionButton.setToolTipText("Create a new session");
+        var newSessionSize = new Dimension(100, newSessionButton.getPreferredSize().height);
+        newSessionButton.setPreferredSize(newSessionSize);
+        newSessionButton.setMinimumSize(newSessionSize);
+        newSessionButton.setMaximumSize(newSessionSize);
+        newSessionButton.addActionListener(e -> {
+            contextManager.createNewSessionAsync("New Session").thenRun(() ->
+                SwingUtilities.invokeLater(this::updateSessionComboBox)
+            );
+        });
+
+        manageSessionsButton = new JButton("Manage");
+        manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
+        var manageSessionSize = new Dimension(100, manageSessionsButton.getPreferredSize().height);
+        manageSessionsButton.setPreferredSize(manageSessionSize);
+        manageSessionsButton.setMinimumSize(manageSessionSize);
+        manageSessionsButton.setMaximumSize(manageSessionSize);
+        manageSessionsButton.addActionListener(e -> {
+            var dialog = new ManageSessionsDialog(this, chrome, contextManager);
+            dialog.setVisible(true);
+        });
+
+        buttonsPanel.add(newSessionButton);
+        buttonsPanel.add(manageSessionsButton);
+
+        panel.add(sessionComboBox, BorderLayout.CENTER);
+        panel.add(buttonsPanel, BorderLayout.SOUTH);
+
+        // Initialize with current sessions
+        updateSessionComboBox();
+
+        return panel;
+    }
+
+    /**
+     * Updates the session combo box with current sessions and selects the active one
+     */
+    public void updateSessionComboBox() {
+        SwingUtilities.invokeLater(() -> {
+            // Store current selection to avoid triggering change events
+            var currentSelection = sessionComboBox.getSelectedItem();
+            
+            // Remove action listener temporarily
+            var listeners = sessionComboBox.getActionListeners();
+            for (var listener : listeners) {
+                sessionComboBox.removeActionListener(listener);
+            }
+            
+            // Clear and repopulate
+            sessionComboBox.removeAllItems();
+            var sessions = contextManager.getProject().listSessions();
+            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed()); // Most recent first
+            
+            for (var session : sessions) {
+                sessionComboBox.addItem(session);
+            }
+            
+            // Select current session
+            var currentSessionId = contextManager.getCurrentSessionId();
+            for (int i = 0; i < sessionComboBox.getItemCount(); i++) {
+                var sessionInfo = sessionComboBox.getItemAt(i);
+                if (sessionInfo.id().equals(currentSessionId)) {
+                    sessionComboBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+            
+            // Restore action listeners
+            for (var listener : listeners) {
+                sessionComboBox.addActionListener(listener);
+            }
+        });
+    }
+
+    /**
      * Builds the Activity history panel that shows past contexts
      */
     private JPanel buildActivityPanel() {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Activity",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)
+        ));
 
         // Create table model with columns - first two columns are visible, third is hidden
         historyModel = new DefaultTableModel(
@@ -421,8 +534,8 @@ public class HistoryOutputPanel extends JPanel {
                 historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
             }
 
-            // After initial session load, show the Activity tab
-            historyTabbedPane.setSelectedIndex(1);
+            // Update session combo box after table update
+            updateSessionComboBox();
         });
     }
 
@@ -618,170 +731,6 @@ public class HistoryOutputPanel extends JPanel {
             llmStreamArea.setBlocking(blocked);
         } else {
             logger.warn("Attempted to set blocking state on null llmStreamArea");
-        }
-    }
-
-    /**
-     * Inner class for managing sessions UI
-     */
-    private class SessionsPanel extends JPanel {
-        private final Chrome chrome;
-        private final ContextManager contextManager;
-        private JTable sessionsTable;
-        private DefaultTableModel sessionsTableModel;
-        private JButton newSessionButton;
-
-        public SessionsPanel(Chrome chrome, ContextManager contextManager) {
-            super(new BorderLayout());
-            this.chrome = chrome;
-            this.contextManager = contextManager;
-            
-            // Initialize table model
-            sessionsTableModel = new DefaultTableModel(new Object[]{"", "Session Info"}, 0) {
-                @Override
-                public boolean isCellEditable(int row, int column) {
-                    return false;
-                }
-            };
-            
-            // Initialize table
-        sessionsTable = new JTable(sessionsTableModel) {
-            @Override
-            public String getToolTipText(MouseEvent event) {
-                java.awt.Point p = event.getPoint();
-                int rowIndex = rowAtPoint(p);
-                if (rowIndex >= 0 && rowIndex < getRowCount()) { // Check row bounds
-                    Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 1); // Get from hidden column
-                    if (sessionInfo != null) { // Check if sessionInfo is not null
-                        return "Last modified: " + new java.util.Date(sessionInfo.modified()).toString();
-                    }
-                }
-                return super.getToolTipText(event);
-            }
-        };
-        sessionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        
-        // Remove table header
-        sessionsTable.setTableHeader(null);
-        
-        // Add selection listener for session switching
-        sessionsTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting() && sessionsTable.getSelectedRow() != -1) {
-                Project.SessionInfo selectedSessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 1);
-                UUID selectedSessionId = selectedSessionInfo.id();
-                if (!selectedSessionId.equals(contextManager.getCurrentSessionId())) {
-                    contextManager.switchSessionAsync(selectedSessionId);
-                }
-            }
-        });
-        
-        // Add mouse listener for right-click context menu
-        sessionsTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showSessionContextMenu(e);
-                }
-            }
-            
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showSessionContextMenu(e);
-                }
-            }
-        });
-            
-            // Create scroll pane for table
-            JScrollPane sessionsScrollPane = new JScrollPane(sessionsTable);
-            
-            // Initialize new session button
-            newSessionButton = new JButton("New Session");
-            newSessionButton.addActionListener(e -> {
-                contextManager.createNewSessionAsync("New Session").thenRun(() ->
-                    SwingUtilities.invokeLater(this::refreshSessionsTable)
-                );
-            });
-            
-            // Create button panel
-            JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            buttonPanel.add(newSessionButton);
-            
-            // Add components to this panel
-            add(sessionsScrollPane, BorderLayout.CENTER);
-            add(buttonPanel, BorderLayout.SOUTH);
-            
-            // Refresh the table with current sessions
-            refreshSessionsTable();
-        }
-        
-        public void refreshSessionsTable() {
-            sessionsTableModel.setRowCount(0);
-            List<Project.SessionInfo> sessions = contextManager.getProject().listSessions();
-            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified)); // Sort oldest first
-
-            for (var session : sessions) {
-                sessionsTableModel.addRow(new Object[]{session.name(), session});
-            }
-            
-            // Hide the "Session Info" column
-            sessionsTable.getColumnModel().getColumn(1).setMinWidth(0);
-            sessionsTable.getColumnModel().getColumn(1).setMaxWidth(0);
-            sessionsTable.getColumnModel().getColumn(1).setWidth(0);
-            
-            // Select current session
-            UUID currentSessionId = contextManager.getCurrentSessionId();
-            for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-                Project.SessionInfo rowInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(i, 1);
-                if (rowInfo.id().equals(currentSessionId)) {
-                    sessionsTable.setRowSelectionInterval(i, i);
-                    break;
-                }
-            }
-        }
-        
-        private void showSessionContextMenu(MouseEvent e) {
-            int row = sessionsTable.rowAtPoint(e.getPoint());
-            if (row < 0) return;
-            
-            sessionsTable.setRowSelectionInterval(row, row);
-            Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(row, 1);
-            
-            JPopupMenu popup = new JPopupMenu();
-            JMenuItem renameItem = new JMenuItem("Rename");
-            renameItem.addActionListener(event -> {
-                String newName = JOptionPane.showInputDialog(SessionsPanel.this, 
-                    "Enter new name for session '" + sessionInfo.name() + "':", 
-                    sessionInfo.name());
-                if (newName != null && !newName.trim().isBlank()) {
-                    contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
-                        SwingUtilities.invokeLater(this::refreshSessionsTable)
-                    );
-                }
-            });
-            popup.add(renameItem);
-
-            JMenuItem deleteItem = new JMenuItem("Delete");
-            deleteItem.addActionListener(event -> {
-                int confirm = JOptionPane.showConfirmDialog(SessionsPanel.this, 
-                    "Are you sure you want to delete session '" + sessionInfo.name() + "'?", 
-                    "Confirm Delete", 
-                    JOptionPane.YES_NO_OPTION, 
-                    JOptionPane.WARNING_MESSAGE);
-                if (confirm == JOptionPane.YES_OPTION) {
-                    contextManager.deleteSessionAsync(sessionInfo.id()).thenRun(() -> 
-                        SwingUtilities.invokeLater(this::refreshSessionsTable));
-                }
-            });
-            popup.add(deleteItem);
-            
-            JMenuItem copyItem = new JMenuItem("Copy");
-            copyItem.addActionListener(event -> {
-                contextManager.copySessionAsync(sessionInfo.id(), sessionInfo.name()).thenRun(() -> 
-                    SwingUtilities.invokeLater(this::refreshSessionsTable));
-            });
-            popup.add(copyItem);
-            popup.show(sessionsTable, e.getX(), e.getY());
         }
     }
 

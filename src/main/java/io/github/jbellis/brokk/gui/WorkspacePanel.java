@@ -29,6 +29,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
@@ -68,6 +69,8 @@ public class WorkspacePanel extends JPanel {
         EDIT, READ, SUMMARIZE, DROP, COPY, PASTE
     }
 
+    public enum PopupMenuMode { FULL, COPY_ONLY }
+
     // Columns
     private final int FILES_REFERENCED_COLUMN = 2;
     private final int FRAGMENT_COLUMN = 3;
@@ -77,24 +80,30 @@ public class WorkspacePanel extends JPanel {
     private final ContextManager contextManager;
 
     private JTable contextTable;
+
+    private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
     private JPanel warningPanel; // Panel for warning messages
     private boolean workspaceCurrentlyEditable = true;
+    private Context currentContext;
 
     // Buttons
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
 
     /**
-     * Constructor for the context panel
+     * Primary constructor allowing menu-mode selection
      */
-    public WorkspacePanel(Chrome chrome, ContextManager contextManager) {
+    public WorkspacePanel(Chrome chrome,
+                          ContextManager contextManager,
+                          PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
         assert chrome != null;
         assert contextManager != null;
 
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.popupMenuMode = popupMenuMode;
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -108,6 +117,11 @@ public class WorkspacePanel extends JPanel {
 
         ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
+    }
+
+    /** Convenience constructor – defaults to FULL popup menu */
+    public WorkspacePanel(Chrome chrome, ContextManager contextManager) {
+        this(chrome, contextManager, PopupMenuMode.FULL);
     }
 
     /**
@@ -283,6 +297,26 @@ public class WorkspacePanel extends JPanel {
 
                     // Clear the menu and rebuild according to row/column
                     contextMenu.removeAll();
+
+                    if (popupMenuMode == PopupMenuMode.COPY_ONLY) {
+                        if (row >= 0) {
+                            if (contextTable.getSelectedRowCount() == 0
+                                    || !Arrays.stream(contextTable.getSelectedRows()).anyMatch(r -> r == row)) {
+                                contextTable.setRowSelectionInterval(row, row);
+                            }
+                            JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
+                            copyItem.addActionListener(ev -> {
+                                var selectedFragments = getSelectedFragments();
+                                contextManager.addFilteredToContextAsync(currentContext, selectedFragments);
+                            });
+                            contextMenu.add(copyItem);
+                            if (chrome.themeManager != null) {
+                                chrome.themeManager.registerPopupMenu(contextMenu);
+                            }
+                            contextMenu.show(contextTable, e.getX(), e.getY());
+                        }
+                        return;
+                    }
 
                     ContextFragment selected = null;
                     if (row >= 0) {
@@ -611,6 +645,7 @@ public class WorkspacePanel extends JPanel {
      */
     public void populateContextTable(Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
+        this.currentContext = ctx;
         var tableModel = (DefaultTableModel) contextTable.getModel();
         tableModel.setRowCount(0);
 

@@ -772,6 +772,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    /**
+     * Appends selected fragments from a historical (frozen) context to the current live context.
+     * If a {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also
+     * appended to the current live context's history. A new state representing this action is pushed to the context history.
+     *
+     * @param sourceFrozenContext The historical context to source fragments and history from.
+     * @param fragmentsToKeep A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
+        return submitUserTask("Copying workspace items from historical state", () -> {
+            try {
+                String actionMessage = "Copied workspace items from historical state";
+
+                pushContext(liveCtx -> liveCtx.appendFrom(sourceFrozenContext,
+                                                          fragmentsToKeep,
+                                                          actionMessage));
+                io.systemOutput(actionMessage);
+            } catch (CancellationException cex) {
+                io.systemOutput("Copying context items from historical state canceled.");
+            }
+        });
+    }
+
 
     /**
      * Adds any virtual fragment directly to the live context.
@@ -1634,6 +1658,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public UUID getCurrentSessionId() {
         return currentSessionId;
+    }
+
+    /**
+     * Loads the ContextHistory for a specific session without switching to it.
+     * This allows viewing/inspecting session history without changing the current session.
+     * 
+     * @param sessionId The UUID of the session whose history to load
+     * @return A CompletableFuture that resolves to the ContextHistory for the specified session
+     */
+    public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
+        return CompletableFuture.supplyAsync(() -> {
+            return project.loadHistory(sessionId, this);
+        }, backgroundTasks);
     }
 
     /**
