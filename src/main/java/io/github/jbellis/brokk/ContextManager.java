@@ -765,6 +765,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    /**
+     * Reset the live context to match a filtered set of files and fragments from a historical (frozen) context,
+     * also adopting its history. A new state representing this reset is pushed to history.
+     *
+     * @param sourceFrozenContext The historical context to source fragments and history from.
+     * @param fragmentsToKeep A list of fragments. Only these fragments (matched by ID) from sourceFrozenContext will be included.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
+        return submitUserTask("Copying workspace items from historical state", () -> {
+            try {
+                String actionMessage = "Copied workspace items from historical state";
+
+                pushContext(liveCtx -> liveCtx.appendFrom(sourceFrozenContext,
+                                                          fragmentsToKeep,
+                                                          actionMessage));
+                io.systemOutput(actionMessage);
+            } catch (CancellationException cex) {
+                io.systemOutput("Copying context items from historical state canceled.");
+            }
+        });
+    }
+
 
     /**
      * Adds any virtual fragment directly to the live context.

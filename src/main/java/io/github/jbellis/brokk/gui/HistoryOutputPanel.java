@@ -860,8 +860,10 @@ public class HistoryOutputPanel extends JPanel {
             activityTable.getColumnModel().getColumn(2).setMaxWidth(0);
             activityTable.getColumnModel().getColumn(2).setWidth(0);
             
-            // Initialize workspace panel for preview
-            workspacePanel = new WorkspacePanel(chrome, contextManager);
+            // Initialize workspace panel for preview (copy-only menu)
+            workspacePanel = new WorkspacePanel(chrome,
+                                                contextManager,
+                                                WorkspacePanel.PopupMenuMode.COPY_ONLY);
             workspacePanel.setWorkspaceEditable(false); // Make workspace read-only in manage dialog
             
             // Initialize markdown output panel for preview
