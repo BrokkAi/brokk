@@ -9,7 +9,6 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Project;
@@ -38,41 +37,10 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * An intelligent agent that autonomously explores a software project to gather essential
- * build configuration details for development environments.
- * 
- * <p>The BuildAgent uses an iterative approach powered by an LLM to examine project files,
- * build configurations, and directory structures to determine:
- * <ul>
- *   <li><strong>Build/Lint Command:</strong> How to compile or lint the project incrementally</li>
- *   <li><strong>Test All Command:</strong> How to run the complete test suite</li>
- *   <li><strong>Test Some Command:</strong> A Mustache template for running specific tests</li>
- *   <li><strong>Excluded Directories:</strong> Directories to exclude from code intelligence</li>
- * </ul>
- * 
- * <p>The agent automatically detects the build system (Maven, Gradle, SBT, etc.) and applies
- * appropriate conventions while also parsing .gitignore files to establish baseline exclusions.
- * It focuses exclusively on development build configurations, explicitly avoiding production-specific
- * settings unless they are the only available options.
- * 
- * <p><strong>Usage:</strong>
- * <pre>{@code
- * BuildAgent agent = new BuildAgent(project, llm, toolRegistry);
- * BuildDetails details = agent.execute();
- * if (!details.equals(BuildDetails.EMPTY)) {
- *     // Use the gathered build information
- *     System.out.println("Build command: " + details.buildLintCommand());
- *     System.out.println("Test command: " + details.testAllCommand());
- * }
- * }</pre>
- * 
- * <p>The agent employs a tool-based exploration strategy, using file listing, content examination,
- * and pattern searching to understand the project structure. The process continues until either
- * sufficient information is gathered (via {@code reportBuildDetails}) or the agent determines
- * the project structure is unsupported (via {@code abortBuildDetails}).
- * 
- * @see BuildDetails
- * @see ToolRegistry
+ * The BuildAgent class is responsible for executing a process to gather and report build details
+ * for a software project's development environment. It interacts with tools, processes project files,
+ * and uses an LLM to identify build commands, test configurations, and exclusions, ultimately
+ * providing structured build information or aborting if unsupported.
  */
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
@@ -303,7 +271,7 @@ public class BuildAgent {
     public String reportBuildDetails(
             @P("Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.") String buildLintCommand,
             @P("Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.") String testAllCommand,
-            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}} or a {{files}} variable. See system prompt for examples.") String testSomeCommand,
+            @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}} or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.") String testSomeCommand,
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)") List<String> excludedDirectories
         ) {
             // Combine baseline excluded directories with those suggested by the LLM
@@ -472,22 +440,11 @@ public class BuildAgent {
                 }
 
                 if (analyzer.isEmpty()) {
-                    logger.warn("Analyzer is not available or empty; falling back to build/lint command: {}", details.buildLintCommand());
+                    logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
                     return details.buildLintCommand();
                 }
 
-                var classUnitsInTestFiles = workspaceTestFiles.stream()
-                    .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
-                    .filter(CodeUnit::isClass)
-                    .collect(Collectors.toSet());
-
-                var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
-
-                targetItems = coalescedClasses.stream()
-                                              .map(CodeUnit::fqName)
-                                              .sorted() // for consistent test command generation
-                                              .toList();
-
+                targetItems = AnalyzerUtil.testFilesToFQCNs(analyzer, workspaceTestFiles);
                 if (targetItems.isEmpty()) {
                     logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
                     return details.buildLintCommand();
