@@ -1142,6 +1142,28 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
+     * Save left vertical split pane position (project files on top, workspace on bottom)
+     */
+    public void saveLeftVerticalSplitPosition(int position) {
+        if (position > 0) {
+            workspaceProps.setProperty("leftVerticalSplitPosition", String.valueOf(position));
+            saveWorkspaceProperties();
+        }
+    }
+
+    /**
+     * Get left vertical split pane position
+     */
+    public int getLeftVerticalSplitPosition() {
+        try {
+            String posStr = workspaceProps.getProperty("leftVerticalSplitPosition");
+            return posStr != null ? Integer.parseInt(posStr) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
      * Save history split pane position
      */
     public void saveTopSplitPosition(int position) {

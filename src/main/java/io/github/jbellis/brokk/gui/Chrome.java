@@ -80,11 +80,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private JPanel bottomPanel;
 
     private JSplitPane mainHorizontalSplitPane;
+    private JSplitPane leftVerticalSplitPane;
     private JSplitPane rightVerticalSplitPane;
     private HistoryOutputPanel historyOutputPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
+    private final ProjectFilesPanel projectFilesPanel; // New panel for project files
     @Nullable
     private final GitPanel gitPanel; // Null when no git repo is present
 
@@ -122,24 +124,31 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Show initial system message
         systemOutput("Opening project at " + getProject().getRoot());
 
-        // Create workspace panel
+        // Create workspace panel and project files panel
         workspacePanel = new WorkspacePanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
 
-        // Create main horizontal split pane: WorkspacePanel on left, right side content on right
+        // Create a vertical split pane for the left side: ProjectFilesPanel on top, WorkspacePanel on bottom
+        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        leftVerticalSplitPane.setTopComponent(projectFilesPanel);
+        leftVerticalSplitPane.setBottomComponent(workspacePanel);
+        leftVerticalSplitPane.setResizeWeight(0.7); // 70% for project files panel, 30% for workspace
+
+        // Create main horizontal split pane: leftVerticalSplitPane on left, right side content on right
         mainHorizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for workspace panel
-        mainHorizontalSplitPane.setLeftComponent(workspacePanel);
+        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for the entire left side
+        mainHorizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
 
         // Create right side content
         if (getProject().hasGit()) {
             gitPanel = new GitPanel(this, contextManager);
-            
+
             // Right side has HistoryOutput on top, Git on bottom
             rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
             rightVerticalSplitPane.setResizeWeight(0.5); // 50% for history output
             rightVerticalSplitPane.setTopComponent(historyOutputPanel);
             rightVerticalSplitPane.setBottomComponent(gitPanel);
-            
+
             mainHorizontalSplitPane.setRightComponent(rightVerticalSplitPane);
             gitPanel.updateRepo();
         } else {
@@ -1038,6 +1047,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     var newPos = mainHorizontalSplitPane.getDividerLocation();
                     if (newPos > 0) {
                         project.saveHorizontalSplitPosition(newPos);
+                    }
+                }
+            });
+
+            // Load and set left vertical split position (project files on top, workspace on bottom)
+            int leftVerticalPos = project.getLeftVerticalSplitPosition();
+            if (leftVerticalPos > 0) {
+                leftVerticalSplitPane.setDividerLocation(leftVerticalPos);
+            } else {
+                leftVerticalSplitPane.setDividerLocation(0.7);
+            }
+            leftVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (leftVerticalSplitPane.isShowing()) {
+                    var newPos = leftVerticalSplitPane.getDividerLocation();
+                    if (newPos > 0) {
+                        project.saveLeftVerticalSplitPosition(newPos);
                     }
                 }
             });
