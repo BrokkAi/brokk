@@ -1172,6 +1172,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return gitPanel;
     }
 
+    public void showFileInProjectTree(ProjectFile projectFile) {
+        if (projectFilesPanel != null) {
+            projectFilesPanel.showFileInTree(projectFile);
+        }
+    }
+
     public InstructionsPanel getInstructionsPanel() {
         return instructionsPanel;
     }

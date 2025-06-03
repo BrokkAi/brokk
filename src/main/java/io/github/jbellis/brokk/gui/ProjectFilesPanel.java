@@ -185,6 +185,12 @@ public class ProjectFilesPanel extends JPanel {
         }
     }
 
+    public void showFileInTree(ProjectFile file) {
+        if (projectTree != null && file != null) {
+            projectTree.selectAndExpandToFile(file);
+        }
+    }
+
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
         private final io.github.jbellis.brokk.Project project;
 

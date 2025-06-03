@@ -341,6 +341,10 @@ public class WorkspacePanel extends JPanel {
                                 ProjectFile projectFile = clickedFileRef.getRepoFile();
                                 ContextFragment.ProjectPathFragment pseudoFragment = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
 
+                                JMenuItem showInProjectItem = new JMenuItem("Show in Project");
+                                showInProjectItem.addActionListener(ev -> chrome.showFileInProjectTree(projectFile));
+                                contextMenu.add(showInProjectItem);
+
                                 JMenuItem viewFileItem = new JMenuItem("View File");
                                 viewFileItem.addActionListener(ev -> showFragmentPreview(pseudoFragment));
                                 contextMenu.add(viewFileItem);
@@ -401,6 +405,17 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // --- Build menu for selected row(s) ---
+
+                    // 0. Show in Project Item (if applicable)
+                    if (selectionCount == 1 && singleSelectedFragment != null && singleSelectedFragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                        singleSelectedFragment.files().stream()
+                            .findFirst()
+                            .ifPresent(projectFile -> {
+                                JMenuItem showInProjectItem = new JMenuItem("Show in Project");
+                                showInProjectItem.addActionListener(ev -> chrome.showFileInProjectTree(projectFile));
+                                contextMenu.add(showInProjectItem);
+                            });
+                    }
 
                     // 1. View File / Show Contents Item
                     JMenuItem viewItem;
