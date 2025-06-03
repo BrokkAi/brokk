@@ -232,6 +232,7 @@ public class ContextSerializationTest {
         assertEquals(expected.id(), actual.id(), "Fragment ID mismatch");
         assertEquals(expected.getType(), actual.getType(), "Fragment type mismatch for ID " + expected.id());
         assertEquals(expected.description(), actual.description(), "Fragment description mismatch for ID " + expected.id());
+        assertEquals(expected.shortDescription(), actual.shortDescription(), "Fragment shortDescription mismatch for ID " + expected.id());
         assertEquals(expected.isText(), actual.isText(), "Fragment isText mismatch for ID " + expected.id());
         assertEquals(expected.syntaxStyle(), actual.syntaxStyle(), "Fragment syntaxStyle mismatch for ID " + expected.id());
 

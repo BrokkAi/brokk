@@ -663,11 +663,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Drop fragments by their IDs.
      */
-    public void drop(Collection<Integer> fragmentIds) {
+    public void drop(Collection<? extends ContextFragment> fragments) {
         // The pushContext method now returns the new liveContext
-        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(fragmentIds));
+        var ids = fragments.stream().map(ContextFragment::id).toList();
+        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         if (newLiveContext != null) { // Check if a change actually occurred
-            io.systemOutput(newLiveContext.getAction());
+            io.systemOutput("Dropped " + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
         }
     }
 

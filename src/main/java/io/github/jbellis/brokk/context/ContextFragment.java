@@ -238,7 +238,6 @@ public interface ContextFragment {
     }
 
     record ProjectPathFragment(ProjectFile file, int id, IContextManager contextManager) implements PathFragment {
-
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
             this(file, nextId.getAndIncrement(), contextManager);
         }

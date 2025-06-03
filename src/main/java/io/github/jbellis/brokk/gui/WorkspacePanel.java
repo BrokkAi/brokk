@@ -1247,8 +1247,7 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
-    private void doDropAction(List<? extends ContextFragment> selectedFragments) // Use wildcard
-    {
+    private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) { 
                 chrome.toolErrorRaw("No context to drop"); 
@@ -1256,26 +1255,15 @@ public class WorkspacePanel extends JPanel {
             }
             contextManager.dropAll(); 
         } else {
-            var idsToRemove = new ArrayList<Integer>();
-            boolean clearHistory = false;
-
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
-                    clearHistory = true;
-                } else {
-                    idsToRemove.add(frag.id());
+                    contextManager.clearHistory();
+                    chrome.systemOutput("Cleared task history");
+                    break;
                 }
             }
 
-            if (clearHistory) {
-                contextManager.clearHistory();
-                chrome.systemOutput("Cleared task history");
-            }
-
-            if (!idsToRemove.isEmpty()) {
-                contextManager.drop(idsToRemove); // Use the new ID-based method
-                chrome.systemOutput("Dropped " + idsToRemove.size() + " item(s)");
-            }
+            contextManager.drop(selectedFragments); // Use the new ID-based method
         }
     }
 

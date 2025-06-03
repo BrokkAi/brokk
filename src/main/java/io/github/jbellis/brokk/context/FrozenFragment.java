@@ -47,7 +47,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     // Captured fragment state
     private final String contentHash; // SHA-256 hash of the content-defining fields
     private final ContextFragment.FragmentType originalType;
-    private final String description;
+    private final String description; // Full description
+    private final String shortDescriptionContent; // Short description
     private final String textContent;
     private final byte[] imageBytesContent;
     private final boolean isTextFragment;
@@ -66,7 +67,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     private FrozenFragment(String contentHash,
                            int existingId, IContextManager contextManager,
                            ContextFragment.FragmentType originalType,
-                           String description,
+                           String description, // Full description
+                           String shortDescription, // Short description
                            String textContent,
                            byte[] imageBytesContent,
                            boolean isTextFragment,
@@ -79,6 +81,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         this.contentHash = contentHash;
         this.originalType = originalType;
         this.description = description;
+        this.shortDescriptionContent = shortDescription;
         this.textContent = textContent;
         this.imageBytesContent = imageBytesContent;
         this.isTextFragment = isTextFragment;
@@ -95,7 +98,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     
     @Override
     public String shortDescription() {
-        return description;
+        return shortDescriptionContent;
     }
     
     @Override
@@ -221,15 +224,15 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      */
     public static FrozenFragment fromDto(int id, IContextManager contextManager,
                                          ContextFragment.FragmentType originalType,
-                                         String description, String textContent, byte[] imageBytesContent,
+                                         String description, String shortDescription, String textContent, byte[] imageBytesContent,
                                          boolean isTextFragment, String syntaxStyle,
                                          Set<ProjectFile> files,
                                          String originalClassName, Map<String, String> meta)
     {
-        String calculatedHash = calculateContentHash(originalType, description, textContent, imageBytesContent,
+        String calculatedHash = calculateContentHash(originalType, description, shortDescription, textContent, imageBytesContent,
                                                      isTextFragment, syntaxStyle, files,
                                                      originalClassName, meta);
-        return new FrozenFragment(calculatedHash, id, contextManager, originalType, description, textContent,
+        return new FrozenFragment(calculatedHash, id, contextManager, originalType, description, shortDescription, textContent,
                                   imageBytesContent, isTextFragment, syntaxStyle, files,
                                   originalClassName, meta);
     }
@@ -255,7 +258,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         try {
             // Capture basic fragment data
             var type = liveFragment.getType();
-            String description = liveFragment.description();
+            String fullDescription = liveFragment.description();
+            String shortDescription = liveFragment.shortDescription();
             var isText = liveFragment.isText();
             var syntaxStyle = liveFragment.syntaxStyle();
             var files = liveFragment.files();     // These are live files
@@ -315,14 +319,15 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             }
 
             // Calculate content hash based on all identifying fields *except* the live fragment's ID.
-            String contentHash = calculateContentHash(type, description, textContent, imageBytesContent,
+            String contentHash = calculateContentHash(type, fullDescription, shortDescription, textContent, imageBytesContent,
                                                       isText, syntaxStyle, files,
                                                       originalClassName, meta);
 
             // Use liveFragment.id() for the new FrozenFragment if it's created.
             // The INTERN_POOL ensures that if another live fragment (possibly with a different ID)
             // produces the exact same contentHash, the first FrozenFragment instance (with its ID) is reused.
-            final String finalDescription = description; // effectively final for lambda
+            final String finalFullDescription = fullDescription; 
+            final String finalShortDescription = shortDescription;
             final String finalTextContent = textContent;
             final byte[] finalImageBytesContent = imageBytesContent;
             final Set<ProjectFile> finalFiles = files;
@@ -332,7 +337,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                                                                                     liveFragment.id(),
                                                                                     contextManagerForFrozenFragment,
                                                                                     type,
-                                                                                    finalDescription,
+                                                                                    finalFullDescription,
+                                                                                    finalShortDescription,
                                                                                     finalTextContent,
                                                                                     finalImageBytesContent,
                                                                                     isText,
@@ -348,7 +354,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     private static String calculateContentHash(ContextFragment.FragmentType originalType,
-                                               String description,
+                                               String description, // Full description
+                                               String shortDescription, // Short description
                                                String textContent, byte[] imageBytesContent,
                                                boolean isTextFragment, String syntaxStyle,
                                                Set<ProjectFile> files,
@@ -365,7 +372,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             };
 
             updateWithString.accept(md, originalType.name());
-            updateWithString.accept(md, description);
+            updateWithString.accept(md, description); // Full description
+            updateWithString.accept(md, shortDescription); // Short description
             md.update(isTextFragment ? (byte) 1 : (byte) 0);
             updateWithString.accept(md, syntaxStyle);
 
