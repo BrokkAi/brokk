@@ -235,7 +235,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     }
 
     /**
-     * Creates a frozen, potentially interned, representation of the given live fragment.
+     * Creates a frozen, potentially interned, representation of the given live Fragment.
+     *
+     * Non-dynamic Fragments are returned unchanged.
      * 
      * @param liveFragment The live fragment to freeze
      * @param contextManagerForFrozenFragment The context manager for the frozen fragment
@@ -243,9 +245,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @throws IOException If reading fragment content fails
      * @throws InterruptedException If interrupted while reading fragment content
      */
-    public static FrozenFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
+    public static ContextFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
     throws IOException, InterruptedException
     {
+        if (!liveFragment.isDynamic()) {
+            return liveFragment;
+        }
+
         try {
             // Capture basic fragment data
             var type = liveFragment.getType();
