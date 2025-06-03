@@ -990,7 +990,7 @@ public class HistoryOutputPanel extends JPanel {
                 }
             });
         }
-        
+
         private void loadSessionHistory(UUID sessionId) {
             // Clear current preview panels
             clearPreviewPanels();
@@ -1029,11 +1029,13 @@ public class HistoryOutputPanel extends JPanel {
             }
             
             // Select the most recent item (last row) if available
-            if (activityTableModel.getRowCount() > 0) {
-                int lastRow = activityTableModel.getRowCount() - 1;
-                activityTable.setRowSelectionInterval(lastRow, lastRow);
-                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, 0, true));
-            }
+            SwingUtilities.invokeLater(() -> {
+                if (activityTableModel.getRowCount() > 0) {
+                    int lastRow = activityTableModel.getRowCount() - 1;
+                    activityTable.setRowSelectionInterval(lastRow, lastRow);
+                    activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, 0, true));
+                }
+            });
         }
         
         private void updatePreviewPanels(Context context) {
@@ -1051,6 +1053,7 @@ public class HistoryOutputPanel extends JPanel {
             } else {
                 markdownOutputPanel.clear();
             }
+            markdownOutputPanel.scheduleCompaction().thenRun(() -> SwingUtilities.invokeLater(() -> markdownScrollPane.getViewport().setViewPosition(new Point(0, 0))));;
         }
         
         private void clearPreviewPanels() {
@@ -1107,13 +1110,13 @@ public class HistoryOutputPanel extends JPanel {
             setActiveItem.addActionListener(event -> {
                 contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() ->
                     SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        updateSessionComboBox();
+                        refreshSessionsTable(); 
+                        updateSessionComboBox(); 
                     })
                 );
             });
             popup.add(setActiveItem);
-            popup.addSeparator();
+            popup.addSeparator(); 
             
             JMenuItem renameItem = new JMenuItem("Rename");
             renameItem.addActionListener(event -> {
