@@ -24,7 +24,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
@@ -786,5 +786,318 @@ public class ContextSerializationTest {
         assertTrue(copiedSessionInfo.created() >= originalSessionInfo.modified()); // Copied time is 'now'
         
         project.close();
+    }
+
+    // --- Tests for individual fragment type round-trips ---
+
+    private CodeUnit createTestCodeUnit(String fqName, ProjectFile pf) {
+        String shortName = fqName.substring(fqName.lastIndexOf('.') + 1);
+        String packageName = fqName.contains(".") ? fqName.substring(0, fqName.lastIndexOf('.')) : "";
+        // Use CLASS as a generic kind for testing, specific kind might not be critical for serialization tests
+        return new CodeUnit(pf, io.github.jbellis.brokk.analyzer.CodeUnitType.CLASS, packageName, shortName);
+    }
+
+    @Test
+    void testRoundTripGitFileFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var projectFile = new ProjectFile(tempDir, "src/GitFile.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class GitFile {}");
+
+        var fragment = new ContextFragment.GitFileFragment(projectFile, "abcdef1234567890", "content for git file");
+
+        var context = new Context(mockContextManager, "Test GitFileFragment")
+                .addReadonlyFiles(List.of(fragment));
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_gitfile_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        // Verify specific GitFileFragment properties after general assertion
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = (ContextFragment.GitFileFragment) loadedCtx.readonlyFiles()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.GIT_FILE)
+                .findFirst().orElseThrow();
+        assertEquals(projectFile.absPath().toString(), loadedFragment.file().absPath().toString());
+        assertEquals("abcdef1234567890", loadedFragment.revision());
+        assertEquals("content for git file", loadedFragment.content());
+    }
+
+    @Test
+    void testRoundTripExternalPathFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        Path externalFilePath = tempDir.resolve("external_file.txt");
+        Files.writeString(externalFilePath, "External file content");
+        var externalFile = new io.github.jbellis.brokk.analyzer.ExternalFile(externalFilePath);
+        var fragment = new ContextFragment.ExternalPathFragment(externalFile, mockContextManager);
+
+        var context = new Context(mockContextManager, "Test ExternalPathFragment")
+                .addReadonlyFiles(List.of(fragment));
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_externalpath_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx.readonlyFiles()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.EXTERNAL_PATH) // getType on FrozenFragment returns originalType
+                .findFirst().orElseThrow();
+        
+        assertTrue(loadedRawFragment instanceof FrozenFragment, "ExternalPathFragment should be loaded as FrozenFragment");
+        var loadedFrozenFragment = (FrozenFragment) loadedRawFragment;
+        assertEquals(ContextFragment.FragmentType.EXTERNAL_PATH, loadedFrozenFragment.getType());
+        assertEquals(ContextFragment.ExternalPathFragment.class.getName(), loadedFrozenFragment.originalClassName());
+        assertEquals(externalFilePath.toString(), loadedFrozenFragment.meta().get("absPath"));
+    }
+
+    @Test
+    void testRoundTripImageFileFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        Path imageFilePath = tempDir.resolve("test_image.png");
+        var testImage = createTestImage(Color.GREEN, 20, 20);
+        ImageIO.write(testImage, "PNG", imageFilePath.toFile());
+        var brokkImageFile = new io.github.jbellis.brokk.analyzer.ProjectFile(tempDir, tempDir.relativize(imageFilePath)); // Treat as project file for test
+        var fragment = new ContextFragment.ImageFileFragment(brokkImageFile, mockContextManager);
+
+        var context = new Context(mockContextManager, "Test ImageFileFragment")
+                .addReadonlyFiles(List.of(fragment));
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_imagefile_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx.readonlyFiles()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.IMAGE_FILE) // getType on FrozenFragment returns originalType
+                .findFirst().orElseThrow();
+
+        assertTrue(loadedRawFragment instanceof FrozenFragment, "ImageFileFragment should be loaded as FrozenFragment");
+        var loadedFrozenFragment = (FrozenFragment) loadedRawFragment;
+        assertEquals(ContextFragment.FragmentType.IMAGE_FILE, loadedFrozenFragment.getType());
+        assertEquals(ContextFragment.ImageFileFragment.class.getName(), loadedFrozenFragment.originalClassName());
+        
+        // Check path from meta
+        String loadedAbsPath = loadedFrozenFragment.meta().get("absPath");
+        assertNotNull(loadedAbsPath, "absPath not found in FrozenFragment meta for ImageFileFragment");
+        assertEquals(imageFilePath.toString(), loadedAbsPath);
+
+        // Check image content from bytes
+        byte[] imageBytes = loadedFrozenFragment.imageBytesContent();
+        assertNotNull(imageBytes, "Image bytes not found in FrozenFragment for ImageFileFragment");
+        Image loadedImageFromBytes = ImageIO.read(new java.io.ByteArrayInputStream(imageBytes));
+        assertNotNull(loadedImageFromBytes);
+        assertEquals(20, loadedImageFromBytes.getWidth(null));
+        assertEquals(20, loadedImageFromBytes.getHeight(null));
+    }
+
+    @Test
+    void testRoundTripSearchFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var projectFile = new ProjectFile(tempDir, "src/SearchTarget.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class SearchTarget {}");
+        var codeUnit = createTestCodeUnit("com.example.SearchTarget", projectFile);
+        var messages = List.of(UserMessage.from("user query"), AiMessage.from("ai response"));
+        var fragment = new ContextFragment.SearchFragment(mockContextManager, "Search: foobar", messages, Set.of(codeUnit));
+
+        var context = new Context(mockContextManager, "Test SearchFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_search_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = (ContextFragment.SearchFragment) loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SEARCH)
+                .findFirst().orElseThrow();
+        assertEquals("Search: foobar", loadedFragment.description());
+        assertEquals(2, loadedFragment.messages().size());
+        assertEquals(1, loadedFragment.sources().size());
+        assertEquals(codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
+    }
+
+    @Test
+    void testRoundTripSkeletonFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var targetIds = List.of("com.example.ClassA", "com.example.ClassB");
+        var fragment = new ContextFragment.SkeletonFragment(mockContextManager, targetIds, ContextFragment.SummaryType.CLASS_SKELETON);
+
+        var context = new Context(mockContextManager, "Test SkeletonFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_skeleton_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.SKELETON)
+                .findFirst().orElseThrow();
+        
+        if (loadedRawFragment instanceof ContextFragment.SkeletonFragment loadedFragment) {
+            assertEquals(targetIds, loadedFragment.getTargetIdentifiers());
+            assertEquals(ContextFragment.SummaryType.CLASS_SKELETON, loadedFragment.getSummaryType());
+        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.SKELETON, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.SkeletonFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals(String.join(";", targetIds), loadedFrozenFragment.meta().get("targetIdentifiers"));
+            assertEquals(ContextFragment.SummaryType.CLASS_SKELETON.name(), loadedFrozenFragment.meta().get("summaryType"));
+        } else {
+            fail("Expected SkeletonFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
+    void testRoundTripUsageFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var fragment = new ContextFragment.UsageFragment(mockContextManager, "com.example.MyClass.myMethod");
+
+        var context = new Context(mockContextManager, "Test UsageFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_usage_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.USAGE)
+                .findFirst().orElseThrow();
+        
+        if (loadedRawFragment instanceof ContextFragment.UsageFragment loadedFragment) {
+            assertEquals("com.example.MyClass.myMethod", loadedFragment.targetIdentifier());
+        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.USAGE, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.UsageFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals("com.example.MyClass.myMethod", loadedFrozenFragment.meta().get("targetIdentifier"));
+        } else {
+            fail("Expected UsageFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
+    void testRoundTripCallGraphFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var fragment = new ContextFragment.CallGraphFragment(mockContextManager, "com.example.MyClass.doStuff", 3, true);
+
+        var context = new Context(mockContextManager, "Test CallGraphFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_callgraph_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedRawFragment = loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.CALL_GRAPH)
+                .findFirst().orElseThrow();
+        
+        if (loadedRawFragment instanceof ContextFragment.CallGraphFragment loadedFragment) {
+            assertEquals("com.example.MyClass.doStuff", loadedFragment.getMethodName());
+            assertEquals(3, loadedFragment.getDepth());
+            assertTrue(loadedFragment.isCalleeGraph());
+        } else if (loadedRawFragment instanceof FrozenFragment loadedFrozenFragment) {
+            assertEquals(ContextFragment.FragmentType.CALL_GRAPH, loadedFrozenFragment.getType());
+            assertEquals(ContextFragment.CallGraphFragment.class.getName(), loadedFrozenFragment.originalClassName());
+            assertEquals("com.example.MyClass.doStuff", loadedFrozenFragment.meta().get("methodName"));
+            assertEquals("3", loadedFrozenFragment.meta().get("depth"));
+            assertEquals("true", loadedFrozenFragment.meta().get("isCalleeGraph"));
+        } else {
+            fail("Expected CallGraphFragment or FrozenFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
+    void testRoundTripHistoryFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var taskMessages = List.<ChatMessage>of(UserMessage.from("Task user"), AiMessage.from("Task AI"));
+        var taskFragment = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Test Task Log");
+        var taskEntry = new TaskEntry(1, taskFragment, null);
+        var fragment = new ContextFragment.HistoryFragment(mockContextManager, List.of(taskEntry));
+
+        var context = new Context(mockContextManager, "Test HistoryFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_history_frag_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = (ContextFragment.HistoryFragment) loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.HISTORY)
+                .findFirst().orElseThrow();
+        assertEquals(1, loadedFragment.entries().size());
+        assertTaskEntriesEqual(taskEntry, loadedFragment.entries().get(0));
+    }
+
+    @Test
+    void testRoundTripPasteTextFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var fragment = new ContextFragment.PasteTextFragment(mockContextManager, "Pasted text content", CompletableFuture.completedFuture("Pasted text summary"));
+
+        var context = new Context(mockContextManager, "Test PasteTextFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_pastetext_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = (ContextFragment.PasteTextFragment) loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PASTE_TEXT)
+                .findFirst().orElseThrow();
+        assertEquals("Pasted text content", loadedFragment.text());
+        assertEquals("Paste of Pasted text summary", loadedFragment.description());
+    }
+
+    @Test
+    void testRoundTripStacktraceFragment() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+        var projectFile = new ProjectFile(tempDir, "src/ErrorSource.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class ErrorSource {}");
+        var codeUnit = createTestCodeUnit("com.example.ErrorSource", projectFile);
+        var fragment = new ContextFragment.StacktraceFragment(mockContextManager, Set.of(codeUnit),
+                                                              "Full stacktrace original text",
+                                                              "NullPointerException",
+                                                              "ErrorSource.java:10");
+
+        var context = new Context(mockContextManager, "Test StacktraceFragment")
+                .addVirtualFragment(fragment);
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        Path zipFile = tempDir.resolve("test_stacktrace_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertContextsEqual(originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
+        Context loadedCtx = loadedHistory.getHistory().get(0);
+        var loadedFragment = (ContextFragment.StacktraceFragment) loadedCtx.virtualFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.STACKTRACE)
+                .findFirst().orElseThrow();
+        assertEquals("stacktrace of NullPointerException", loadedFragment.description());
+        assertTrue(loadedFragment.text().contains("Full stacktrace original text"));
+        assertTrue(loadedFragment.text().contains("ErrorSource.java:10"));
+        assertEquals(1, loadedFragment.sources().size());
+        assertEquals(codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
     }
 }

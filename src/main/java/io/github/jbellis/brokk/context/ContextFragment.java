@@ -699,6 +699,12 @@ public interface ContextFragment {
             this.sources = sources;
         }
 
+        public SearchFragment(int existingId, IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
+            super(existingId, contextManager, EditBlockParser.instance, messages, sessionName); // Pass to appropriate TaskFragment constructor
+            assert sources != null;
+            this.sources = sources;
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.SEARCH;
@@ -1275,7 +1281,7 @@ public interface ContextFragment {
 
         @Override
         public boolean isText() {
-            return false;
+            return true;
         }
 
         @Override
@@ -1365,7 +1371,7 @@ public interface ContextFragment {
 
         @Override
         public boolean isText() {
-            return false;
+            return true;
         }
 
         @Override

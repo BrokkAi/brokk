@@ -189,7 +189,7 @@ public class DtoMapper {
                 var messages = searchDto.messages().stream()
                         .map(DtoMapper::fromChatMessageDto)
                         .toList();
-                yield new ContextFragment.SearchFragment(mgr, searchDto.query(), messages, sources);
+                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
             case TaskFragmentDto taskDto ->
                 // Ensure TaskFragments from the virtual list also use the caching mechanism
