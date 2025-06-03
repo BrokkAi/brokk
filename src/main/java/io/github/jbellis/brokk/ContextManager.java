@@ -1621,6 +1621,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Loads the ContextHistory for a specific session without switching to it.
+     * This allows viewing/inspecting session history without changing the current session.
+     * 
+     * @param sessionId The UUID of the session whose history to load
+     * @return A CompletableFuture that resolves to the ContextHistory for the specified session
+     */
+    public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
+        return CompletableFuture.supplyAsync(() -> {
+            return project.loadHistory(sessionId, this);
+        }, backgroundTasks);
+    }
+
+    /**
      * Creates a new session with the given name and switches to it asynchronously.
      * 
      * @param name The name for the new session

@@ -149,7 +149,7 @@ public class ContextSerializationTest {
         
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Test Task");
-        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null), taskFragment, CompletableFuture.completedFuture("Action for task"), Map.of());
+        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null), taskFragment, CompletableFuture.completedFuture("Action for task"));
         
         originalHistory.addFrozenContextAndClearRedo(context2.freezeForTesting());
         
@@ -589,11 +589,11 @@ public class ContextSerializationTest {
         var taskEntry           = new TaskEntry(1, sharedTaskFragment, null);
 
         var ctxWithTask1 = new Context(mockContextManager, "CtxTask1")
-                .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action1"), Map.of());
+                .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action1"));
         origHistoryWithTask.setInitialContext(ctxWithTask1.freezeForTesting());
 
         var ctxWithTask2 = new Context(mockContextManager, "CtxTask2")
-                .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"), Map.of());
+                .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"));
         origHistoryWithTask.addFrozenContextAndClearRedo(ctxWithTask2.freezeForTesting());
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
