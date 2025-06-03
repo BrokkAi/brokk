@@ -11,6 +11,8 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
+import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -567,6 +569,62 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
+     * Creates a searchable content panel with a MarkdownOutputPanel and integrated search bar.
+     * This is shared functionality used by both preview windows and detached output windows.
+     *
+     * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
+     * @param showNavigation Whether to show navigation buttons and result counter
+     * @return A JPanel containing the search bar and content
+     */
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, boolean showNavigation) {
+        if (markdownPanels.isEmpty()) {
+            return new JPanel(); // Return empty panel if no content
+        }
+        
+        // If single panel, create a scroll pane for it
+        JComponent contentComponent;
+        if (markdownPanels.size() == 1) {
+            var scrollPane = new JScrollPane(markdownPanels.get(0));
+            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+            contentComponent = scrollPane;
+        } else {
+            // Multiple panels - create container with BoxLayout
+            JPanel messagesContainer = new JPanel();
+            messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
+            messagesContainer.setBackground(markdownPanels.get(0).getBackground());
+            
+            for (MarkdownOutputPanel panel : markdownPanels) {
+                messagesContainer.add(panel);
+            }
+            
+            var scrollPane = new JScrollPane(messagesContainer);
+            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+            contentComponent = scrollPane;
+        }
+        
+        // Create main content panel to hold search bar and content
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.setBackground(markdownPanels.get(0).getBackground());
+        
+        // Create search callback and search bar panel
+        var searchCallback = new MarkdownPanelSearchCallback(markdownPanels);
+        var searchBarPanel = new SearchBarPanel(searchCallback, true, true, 3);
+        searchCallback.setSearchBarPanel(searchBarPanel);
+        searchBarPanel.setBackground(contentPanel.getBackground());
+        
+        // Add components to content panel
+        contentPanel.add(searchBarPanel, BorderLayout.NORTH);
+        contentPanel.add(contentComponent, BorderLayout.CENTER);
+        
+        // Register Ctrl/Cmd+F to focus search field
+        searchBarPanel.registerSearchFocusShortcut(contentPanel);
+        
+        return contentPanel;
+    }
+
+    /**
      * Creates and shows a standard preview JFrame for a given component.
      * Handles title, default close operation, loading/saving bounds using the "preview" key,
      * and visibility.
@@ -578,6 +636,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
         JFrame previewFrame = newFrame(title);
         previewFrame.setContentPane(contentComponent);
+        previewFrame.setBackground(themeManager != null && themeManager.isDarkTheme()
+                                        ? UIManager.getColor("chat_background")
+                                        : Color.WHITE);
+
         // Set initial default close operation. This will be checked/modified by the WindowListener.
         previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
@@ -743,21 +805,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 scrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
+                var markdownPanels = new ArrayList<MarkdownOutputPanel>();
+                
                 for (TaskEntry entry : outputFragment.entries()) {
                     var markdownPanel = new MarkdownOutputPanel();
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
                     messagesContainer.add(markdownPanel);
+                    markdownPanels.add(markdownPanel);
                     compactionFutures.add(markdownPanel.scheduleCompaction());
                 }
 
+                // Use shared utility method to create searchable content panel (without navigation for preview)
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, false);
+
+                // When all panels are compacted, scroll to the top
                 CompletableFuture
                         .allOf(compactionFutures.toArray(CompletableFuture[]::new))
-                        .thenRun(() -> SwingUtilities.invokeLater(() ->
-                                                                          scrollPane.getViewport().setViewPosition(new Point(0, 0))));
+                        .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                            // Find the scroll pane within the searchable content panel
+                            Component foundScrollPane = findScrollPaneIn(previewContentPanel);
+                            if (foundScrollPane instanceof JScrollPane jsp) {
+                                jsp.getViewport().setViewPosition(new Point(0, 0));
+                            }
+                        }));
 
-                showPreviewFrame(contextManager, title, scrollPane);
+                showPreviewFrame(contextManager, title, previewContentPanel); // Use new panel with search
                 return;
             }
 
@@ -1310,5 +1384,22 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void showMessageDialog(String message, String title, int messageType) {
         JOptionPane.showMessageDialog(frame, message, title, messageType);
+    }
+
+    /**
+     * Helper method to find JScrollPane component within a container
+     */
+    private static Component findScrollPaneIn(Container container) {
+        for (Component comp : container.getComponents()) {
+            if (comp instanceof JScrollPane) {
+                return comp;
+            } else if (comp instanceof Container subContainer) {
+                Component found = findScrollPaneIn(subContainer);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 }

@@ -12,6 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.*;
 
 /**
@@ -78,12 +79,12 @@ final class StreamingWorker {
         } catch (CompletionException e) {
             if (e.getCause() instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
-                logger.warn("Flush interrupted while waiting for rendering", e.getCause());
+                logger.trace("Flush interrupted while waiting for rendering", e.getCause());
             } else {
-                logger.warn("Error waiting for rendering to complete during flush", e);
+                logger.trace("Error waiting for rendering to complete during flush", e);
             }
         } catch (CancellationException e) {
-            logger.warn("Flush cancelled while waiting for rendering", e);
+            logger.trace("Flush cancelled while waiting for rendering", e);
         }
     }
 
@@ -131,7 +132,19 @@ final class StreamingWorker {
         var taskDone = new CompletableFuture<Void>();
         inFlight.set(taskDone);
 
-        exec.submit(() -> parseAndRender(snapshot, myEpoch, taskDone));
+        if (exec.isShutdown()) {
+            parseRunning.set(false); // Release the lock as we are not proceeding
+            taskDone.completeExceptionally(new CancellationException("Executor is shutdown, task not scheduled"));
+            return;
+        }
+
+        try {
+            exec.submit(() -> parseAndRender(snapshot, myEpoch, taskDone));
+        } catch (RejectedExecutionException e) {
+            parseRunning.set(false); // Release the lock
+            taskDone.completeExceptionally(new CancellationException("Executor was shut down before task could be scheduled"));
+            logger.trace("Task rejected due to executor shutdown", e);
+        }
     }
 
     private void parseAndRender(CharSequence markdownContent, int myEpoch, CompletableFuture<Void> done) {

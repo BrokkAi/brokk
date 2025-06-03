@@ -4,161 +4,79 @@ package io.github.jbellis.brokk.difftool.search;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
+import io.github.jbellis.brokk.gui.search.SearchBarPanel;
+import io.github.jbellis.brokk.gui.search.SearchCallback;
+import io.github.jbellis.brokk.gui.search.SearchCommand;
+import io.github.jbellis.brokk.gui.search.SearchResults;
 
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.util.Objects;
 
-public class SearchBarDialog extends JPanel {
-    // class variables:
-    private static final String CP_FOREGROUND = "JMeld.foreground";
-    // Instance variables:
-    private JTextField searchField;
-    private JLabel searchResult;
-    private Timer timer;
+/**
+ * Search bar dialog for the diff tool, now using the generic SearchBarPanel.
+ */
+public class SearchBarDialog extends JPanel implements SearchCallback {
     private final BufferDiffPanel bufferDiffPanel;
     private FilePanel filePanel;
+    private final SearchBarPanel searchBarPanel;
 
     public SearchBarDialog(BrokkDiffPanel brokkDiffPanel, BufferDiffPanel bufferDiffPanel) {
         this.bufferDiffPanel = bufferDiffPanel;
+        this.searchBarPanel = new SearchBarPanel(this, false); // Don't show case sensitive checkbox since it's in bufferDiffPanel
         init();
-
     }
 
     public void setFilePanel(FilePanel filePanel) {
         this.filePanel = filePanel;
     }
 
-
-    protected void init() {
-        JButton previousButton;
-        JButton nextButton;
-
-        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS)); // Vertical layout
-
-        // Incremental search:
-        searchField = new JTextField(15);
-        searchField.getDocument().addDocumentListener(getSearchAction());
-
-        // Panel for search field and label
-        JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.LEADING));
-        searchPanel.add(new JLabel("Find:"));
-        searchPanel.add(searchField);
-
-        // Panel for buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
-
-        // Find previous match:
-        previousButton = new JButton("Previous", new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/prev.png"))));
-        previousButton.addActionListener(getPreviousAction());
-        initButton(previousButton);
-
-        // Find next match:
-        nextButton = new JButton("Next", new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/next.png"))));
-        nextButton.addActionListener(getNextAction());
-        initButton(nextButton);
-
-        // Add buttons to their own row
-        buttonPanel.add(previousButton);
-        buttonPanel.add(Box.createHorizontalStrut(10));
-        buttonPanel.add(nextButton);
-
-        // Search result label
-        searchResult = new JLabel();
-
-        // Add components to the main panel
-        add(Box.createVerticalStrut(5));
-        add(searchPanel);
-        add(Box.createVerticalStrut(5));
-        add(buttonPanel);
-        add(Box.createVerticalStrut(10));
-        add(searchResult);
-
-        bufferDiffPanel.getCaseSensitiveCheckBox().addActionListener(e -> filePanel.doSearch());
-
-        timer = new Timer(500, executeSearch());
-        timer.setRepeats(false);
-    }
-
-
-    private void initButton(AbstractButton button) {
-        button.setFocusable(false);
-        button.setBorderPainted(false);
-        button.setBorder(new EmptyBorder(0, 5, 0, 5));
+    private void init() {
+        setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+        add(searchBarPanel);
+        
+        // Connect the external case sensitive checkbox to trigger search
+        bufferDiffPanel.getCaseSensitiveCheckBox().addActionListener(e -> performSearch(getCommand()));
     }
 
     public SearchCommand getCommand() {
-        return new SearchCommand(searchField.getText(), bufferDiffPanel.getCaseSensitiveCheckBox().isSelected());
+        // Use the external case sensitive checkbox from bufferDiffPanel
+        return new SearchCommand(searchBarPanel.getSearchText(), bufferDiffPanel.getCaseSensitiveCheckBox().isSelected());
     }
 
-    private DocumentListener getSearchAction() {
-        return new DocumentListener() {
-            public void changedUpdate(DocumentEvent e) {
-                timer.restart();
-            }
-
-            public void insertUpdate(DocumentEvent e) {
-                timer.restart();
-            }
-
-            public void removeUpdate(DocumentEvent e) {
-                timer.restart();
-            }
-        };
+    // SearchCallback implementation
+    @Override
+    public SearchResults performSearch(SearchCommand command) {
+        if (filePanel == null) {
+            return SearchResults.noMatches();
+        }
+        
+        SearchHits searchHits = filePanel.doSearch();
+        if (searchHits == null || searchHits.getSearchHits().isEmpty()) {
+            return SearchResults.noMatches();
+        }
+        
+        // For now, we don't have detailed result navigation in the diff tool
+        // Just return that we have matches
+        return SearchResults.withMatches(searchHits.getSearchHits().size(), 1);
     }
 
-    private ActionListener executeSearch() {
-        return new ActionListener() {
-            public void actionPerformed(ActionEvent ae) {
-                boolean notFound;
-                Color color;
-                SearchHits searchHits;
-                searchHits = filePanel.doSearch();
-                notFound = (searchHits == null || searchHits.getSearchHits().isEmpty());
-
-                if (notFound && !searchField.getText().isEmpty()) {
-                    if (searchField.getForeground() != Color.red) {
-                        // Remember the original colors:
-                        searchField.putClientProperty(CP_FOREGROUND, searchField
-                                .getForeground());
-
-                        // Set the new colors:
-                        searchField.setForeground(Color.red);
-                    }
-
-                    searchResult.setIcon(new ImageIcon(Objects.requireNonNull(getClass().getResource("/images/result.png"))));
-                    searchResult.setText("Phrase not found");
-                } else {
-                    // Set the original colors:
-                    color = (Color) searchField.getClientProperty(CP_FOREGROUND);
-                    if (color != null) {
-                        searchField.setForeground(color);
-                        searchField.putClientProperty(CP_FOREGROUND, null);
-                    }
-
-                    if (!searchResult.getText().isEmpty()) {
-                        searchResult.setIcon(null);
-                        searchResult.setText("");
-                    }
-                }
-            }
-        };
+    @Override
+    public void goToPreviousResult() {
+        if (filePanel != null) {
+            filePanel.doPreviousSearch();
+        }
     }
 
-    private ActionListener getCloseAction() {
-        return ae -> filePanel.doStopSearch();
+    @Override
+    public void goToNextResult() {
+        if (filePanel != null) {
+            filePanel.doNextSearch();
+        }
     }
 
-    private ActionListener getPreviousAction() {
-        return ae -> filePanel.doPreviousSearch();
-    }
-
-    private ActionListener getNextAction() {
-        return ae -> filePanel.doNextSearch();
+    @Override
+    public void stopSearch() {
+        if (filePanel != null) {
+            filePanel.doStopSearch();
+        }
     }
 }

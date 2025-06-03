@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
+import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -814,16 +816,17 @@ public class HistoryOutputPanel extends JPanel {
 
             // Create markdown panel with the text
             var outputPanel = new MarkdownOutputPanel();
-            var scrollPane = new JScrollPane(outputPanel);
             outputPanel.updateTheme(isDark);
             outputPanel.setText(output);
-            outputPanel.scheduleCompaction().thenRun(() -> SwingUtilities.invokeLater(() -> scrollPane.getViewport().setViewPosition(new Point(0, 0))));;
-
-            // Add to a scroll pane
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            // Add the scroll pane to the frame
-            add(scrollPane);
+            
+            // Use shared utility method to create searchable content panel (without navigation for detached window)
+            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), false);
+            
+            // Add the content panel to the frame
+            add(contentPanel);
+            
+            // Schedule compaction after everything is set up
+            outputPanel.scheduleCompaction();
 
             // Load saved size and position, or use defaults
             var bounds = project.getOutputWindowBounds();
@@ -867,6 +870,23 @@ public class HistoryOutputPanel extends JPanel {
 
             // Make window visible
             setVisible(true);
+        }
+        
+        /**
+         * Helper method to find JScrollPane component within a container
+         */
+        private Component findScrollPane(Container container) {
+            for (Component comp : container.getComponents()) {
+                if (comp instanceof JScrollPane) {
+                    return comp;
+                } else if (comp instanceof Container subContainer) {
+                    Component found = findScrollPane(subContainer);
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+            return null;
         }
     }
 
