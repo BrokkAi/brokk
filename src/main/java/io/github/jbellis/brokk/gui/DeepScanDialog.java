@@ -172,8 +172,6 @@ class DeepScanDialog {
             // Determine the primary ProjectFile associated with the fragment
             ProjectFile pf = fragment.files().stream()
                     .findFirst()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
                     .orElse(null); // Get the ProjectFile or null
 
             if (pf != null) {
@@ -250,9 +248,8 @@ class DeepScanDialog {
             if (fragment.getType() == ContextFragment.FragmentType.SKELETON && Arrays.asList(options).contains(SUMMARIZE)) {
                 comboBox.setSelectedItem(SUMMARIZE);
             } else if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                var ppf = (ContextFragment.ProjectPathFragment) fragment;
                 // EDIT if the file is in git, otherwise READ
-                var edit = hasGit && contextManager.getRepo().getTrackedFiles().contains(ppf.file()); // Use ppf.file()
+                var edit = hasGit && contextManager.getRepo().getTrackedFiles().containsAll(fragment.files());
                 comboBox.setSelectedItem(edit ? EDIT : READ_ONLY);
             } else {
                 logger.error("Unexpected fragment {} returned to DeepScanDialog", fragment);

@@ -407,6 +407,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return A live fragment equivalent to the original
      * @throws IOException If reconstruction fails
      */
+    @Override
     public ContextFragment unfreeze(IContextManager cm) throws IOException {
         return switch (originalClassName) {
             case "io.github.jbellis.brokk.context.ContextFragment$ProjectPathFragment" -> {

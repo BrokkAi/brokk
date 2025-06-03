@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -22,6 +23,7 @@ import org.jetbrains.annotations.NotNull;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -442,8 +444,8 @@ public class ContextAgent {
      * one SkeletonFragment per summary so ArchitectAgent can easily ask user which ones to include
      */
     private static @NotNull List<ContextFragment> skeletonPerSummary(IContextManager contextManager, Map<CodeUnit, String> relevantSummaries) {
-        return relevantSummaries.entrySet().stream()
-                .map(entry -> (ContextFragment) new ContextFragment.SkeletonFragment(contextManager, List.of(entry.getKey().fqName()), ContextFragment.SummaryType.CLASS_SKELETON))
+        return relevantSummaries.keySet().stream()
+                .map(s -> (ContextFragment) new ContextFragment.SkeletonFragment(contextManager, List.of(s.fqName()), ContextFragment.SummaryType.CLASS_SKELETON))
                 .toList();
     }
 
@@ -487,7 +489,7 @@ public class ContextAgent {
     }
 
     private boolean isClassInWorkspace(CodeUnit cls) {
-        return contextManager.topContext().allFragments()
+        return contextManager.liveContext().allFragments()
                 .anyMatch(f -> {
                     if (f.getType() == ContextFragment.FragmentType.SKELETON) {
                         var sf = (ContextFragment.SkeletonFragment) f;

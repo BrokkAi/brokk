@@ -147,6 +147,10 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
+    default ContextFragment unfreeze(IContextManager cm) throws IOException {
+        return this;
+    }
+
     /**
      * If false, the classes returned by sources() will be pruned from AutoContext suggestions.
      * (Corollary: if sources() always returns empty, this doesn't matter.)
@@ -1117,7 +1121,7 @@ public interface ContextFragment {
             }
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
             switch (summaryType) {
-                case CLASS_SKELETON:
+                case CLASS_SKELETON -> {
                     for (String className : targetIdentifiers) {
                         analyzer.getDefinition(className).ifPresent(cu -> {
                             if (cu.isClass()) { // Ensure it's a class for getSkeleton
@@ -1125,8 +1129,8 @@ public interface ContextFragment {
                             }
                         });
                     }
-                    break;
-                case FILE_SKELETONS:
+                }
+                case FILE_SKELETONS -> {
                     // This assumes targetIdentifiers are file paths. Expansion of globs should happen before fragment creation.
                     for (String filePath : targetIdentifiers) {
                         IContextManager cm = getContextManager();
@@ -1135,7 +1139,7 @@ public interface ContextFragment {
                             skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
                         }
                     }
-                    break;
+                }
             }
             return skeletonsMap;
         }
@@ -1182,7 +1186,10 @@ public interface ContextFragment {
 
         @Override
         public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+            return switch (summaryType) {
+                case CLASS_SKELETON -> sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+                case FILE_SKELETONS -> targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
+            };
         }
 
         @Override
