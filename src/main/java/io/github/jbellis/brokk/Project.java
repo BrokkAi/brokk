@@ -1098,21 +1098,43 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Save vertical split pane position
+     * Save horizontal split pane position (workspace on left, content on right)
      */
-    public void saveVerticalSplitPosition(int position) {
+    public void saveHorizontalSplitPosition(int position) {
         if (position > 0) {
-            workspaceProps.setProperty("verticalSplitPosition", String.valueOf(position));
+            workspaceProps.setProperty("horizontalSplitPosition", String.valueOf(position));
             saveWorkspaceProperties();
         }
     }
 
     /**
-     * Get vertical split pane position
+     * Get horizontal split pane position
      */
-    public int getVerticalSplitPosition() {
+    public int getHorizontalSplitPosition() {
         try {
-            String posStr = workspaceProps.getProperty("verticalSplitPosition");
+            String posStr = workspaceProps.getProperty("horizontalSplitPosition");
+            return posStr != null ? Integer.parseInt(posStr) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Save right vertical split pane position (history on top, git on bottom)
+     */
+    public void saveRightVerticalSplitPosition(int position) {
+        if (position > 0) {
+            workspaceProps.setProperty("rightVerticalSplitPosition", String.valueOf(position));
+            saveWorkspaceProperties();
+        }
+    }
+
+    /**
+     * Get right vertical split pane position
+     */
+    public int getRightVerticalSplitPosition() {
+        try {
+            String posStr = workspaceProps.getProperty("rightVerticalSplitPosition");
             return posStr != null ? Integer.parseInt(posStr) : -1;
         } catch (NumberFormatException e) {
             return -1;
@@ -1141,27 +1163,6 @@ public class Project implements IProject, AutoCloseable {
         }
     }
 
-    /**
-     * Save context/git split pane position
-     */
-    public void saveWorkspaceGitSplitPosition(int position) {
-        if (position > 0) {
-            workspaceProps.setProperty("contextGitSplitPosition", String.valueOf(position));
-            saveWorkspaceProperties();
-        }
-    }
-
-    /**
-     * Get context/git split pane position
-     */
-    public int getWorkspaceGitSplitPosition() {
-        try {
-            String posStr = workspaceProps.getProperty("contextGitSplitPosition");
-            return posStr != null ? Integer.parseInt(posStr) : -1;
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
 
     /**
      * Gets the current global UI theme (dark or light)

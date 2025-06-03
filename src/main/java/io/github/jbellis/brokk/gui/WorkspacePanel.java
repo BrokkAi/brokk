@@ -522,10 +522,14 @@ public class WorkspacePanel extends JPanel {
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
-        locSummaryPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        locSummaryPanel = new JPanel();
+        locSummaryPanel.setLayout(new BoxLayout(locSummaryPanel, BoxLayout.Y_AXIS));
         JLabel innerLabel = new JLabel(" ");
-        innerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
+        innerLabel.setBorder(new EmptyBorder(5, 5, 2, 5));
+        JLabel costLabel = new JLabel(" ");
+        costLabel.setBorder(new EmptyBorder(0, 5, 5, 5));
         locSummaryPanel.add(innerLabel);
+        locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
         contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
 
@@ -694,6 +698,7 @@ public class WorkspacePanel extends JPanel {
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
         var innerLabel = (JLabel) locSummaryPanel.getComponent(0);
+        var costLabel = (JLabel) locSummaryPanel.getComponent(1);
 
         // Check for context size warnings against configured models
         var models = contextManager.getService();
@@ -748,9 +753,16 @@ public class WorkspacePanel extends JPanel {
         // Always set the standard summary text on innerLabel
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
         var costEstimates = calculateCostEstimates(approxTokens, models);
-        String costText = costEstimates.isEmpty() ? "" : " Estimated cost/request is " + String.join(", ", costEstimates);
-        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.%s".formatted(totalLines, approxTokens / 1000, costText));
+        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.".formatted(totalLines, approxTokens / 1000));
         innerLabel.setToolTipText(null); // Clear tooltip
+
+        if (costEstimates.isEmpty()) {
+            costLabel.setText(" ");
+            costLabel.setVisible(false);
+        } else {
+            costLabel.setText("Estimated cost/request is " + String.join(", ", costEstimates));
+            costLabel.setVisible(true);
+        }
 
         // Remove any existing warning labels from the warningPanel
         warningPanel.removeAll();

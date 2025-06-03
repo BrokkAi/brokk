@@ -79,8 +79,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final List<String> systemMessages = new ArrayList<>();
     private JPanel bottomPanel;
 
-    private JSplitPane verticalSplitPane;
-    private JSplitPane contextGitSplitPane;
+    private JSplitPane mainHorizontalSplitPane;
+    private JSplitPane rightVerticalSplitPane;
     private HistoryOutputPanel historyOutputPanel;
 
     // Panels:
@@ -122,25 +122,33 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Show initial system message
         systemOutput("Opening project at " + getProject().getRoot());
 
-        // If the project uses Git, put the context panel and the Git panel in a split pane
+        // Create workspace panel
+        workspacePanel = new WorkspacePanel(this, contextManager);
+
+        // Create main horizontal split pane: WorkspacePanel on left, right side content on right
+        mainHorizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for workspace panel
+        mainHorizontalSplitPane.setLeftComponent(workspacePanel);
+
+        // Create right side content
         if (getProject().hasGit()) {
-            contextGitSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            contextGitSplitPane.setResizeWeight(0.7); // 70% for context panel
-
-            workspacePanel = new WorkspacePanel(this, contextManager);
-            contextGitSplitPane.setTopComponent(workspacePanel);
-
             gitPanel = new GitPanel(this, contextManager);
-            contextGitSplitPane.setBottomComponent(gitPanel);
-
-            bottomPanel.add(contextGitSplitPane, BorderLayout.CENTER);
+            
+            // Right side has HistoryOutput on top, Git on bottom
+            rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+            rightVerticalSplitPane.setResizeWeight(0.5); // 50% for history output
+            rightVerticalSplitPane.setTopComponent(historyOutputPanel);
+            rightVerticalSplitPane.setBottomComponent(gitPanel);
+            
+            mainHorizontalSplitPane.setRightComponent(rightVerticalSplitPane);
             gitPanel.updateRepo();
         } else {
-            // No Git => only a context panel in the center
+            // No Git => only history output on the right
             gitPanel = null;
-            workspacePanel = new WorkspacePanel(this, contextManager);
-            bottomPanel.add(workspacePanel, BorderLayout.CENTER);
+            mainHorizontalSplitPane.setRightComponent(historyOutputPanel);
         }
+
+        bottomPanel.add(mainHorizontalSplitPane, BorderLayout.CENTER);
 
         initializeThemeManager();
 
@@ -326,15 +334,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
 
-        // Main Vertical Split: History/Output Area / Bottom Area
-        verticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        verticalSplitPane.setResizeWeight(0.5); // Give history/output area 50% initially
-        verticalSplitPane.setTopComponent(historyOutputPanel);
-        verticalSplitPane.setBottomComponent(bottomPanel);
-
         gbc.weighty = 1.0;
         gbc.gridy = 0;
-        contentPanel.add(verticalSplitPane, gbc);
+        contentPanel.add(bottomPanel, gbc);
 
         panel.add(contentPanel, BorderLayout.CENTER);
         return panel;
@@ -1024,34 +1026,35 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         SwingUtilities.invokeLater(() -> {
-            int verticalPos = project.getVerticalSplitPosition();
-            if (verticalPos > 0) {
-                verticalSplitPane.setDividerLocation(verticalPos);
+            // Load and set main horizontal split position
+            int horizontalPos = project.getHorizontalSplitPosition();
+            if (horizontalPos > 0) {
+                mainHorizontalSplitPane.setDividerLocation(horizontalPos);
             } else {
-                verticalSplitPane.setDividerLocation(0.5);
+                mainHorizontalSplitPane.setDividerLocation(0.3);
             }
-            verticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (verticalSplitPane.isShowing()) {
-                    var newPos = verticalSplitPane.getDividerLocation();
+            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (mainHorizontalSplitPane.isShowing()) {
+                    var newPos = mainHorizontalSplitPane.getDividerLocation();
                     if (newPos > 0) {
-                        project.saveVerticalSplitPosition(newPos);
+                        project.saveHorizontalSplitPosition(newPos);
                     }
                 }
             });
 
-            if (contextGitSplitPane != null) {
-                int contextGitPos = project.getWorkspaceGitSplitPosition();
-                if (contextGitPos > 0) {
-                    contextGitSplitPane.setDividerLocation(contextGitPos);
+            if (rightVerticalSplitPane != null) {
+                int rightVerticalPos = project.getRightVerticalSplitPosition();
+                if (rightVerticalPos > 0) {
+                    rightVerticalSplitPane.setDividerLocation(rightVerticalPos);
                 } else {
-                    contextGitSplitPane.setDividerLocation(0.7);
+                    rightVerticalSplitPane.setDividerLocation(0.5);
                 }
 
-                contextGitSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                    if (contextGitSplitPane.isShowing()) {
-                        var newPos = contextGitSplitPane.getDividerLocation();
+                rightVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                    if (rightVerticalSplitPane.isShowing()) {
+                        var newPos = rightVerticalSplitPane.getDividerLocation();
                         if (newPos > 0) {
-                            project.saveWorkspaceGitSplitPosition(newPos);
+                            project.saveRightVerticalSplitPosition(newPos);
                         }
                     }
                 });
@@ -1112,20 +1115,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void toggleGitPanel() {
-        if (contextGitSplitPane == null) {
+        if (rightVerticalSplitPane == null) {
             return;
         }
 
         // For collapsing/expanding the Git panel
-        int lastGitPanelDividerLocation = contextGitSplitPane.getDividerLocation();
-        var totalHeight = contextGitSplitPane.getHeight();
-        var dividerSize = contextGitSplitPane.getDividerSize();
-        contextGitSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
+        int lastGitPanelDividerLocation = rightVerticalSplitPane.getDividerLocation();
+        var totalHeight = rightVerticalSplitPane.getHeight();
+        var dividerSize = rightVerticalSplitPane.getDividerSize();
+        rightVerticalSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
 
         logger.debug("Git panel collapsed; stored divider location={}", lastGitPanelDividerLocation);
 
-        contextGitSplitPane.revalidate();
-        contextGitSplitPane.repaint();
+        rightVerticalSplitPane.revalidate();
+        rightVerticalSplitPane.repaint();
     }
 
     public void updateWorkspace() {
