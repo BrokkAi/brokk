@@ -766,11 +766,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Reset the live context to match a filtered set of files and fragments from a historical (frozen) context,
-     * also adopting its history. A new state representing this reset is pushed to history.
+     * Appends selected fragments from a historical (frozen) context to the current live context.
+     * If a {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also
+     * appended to the current live context's history. A new state representing this action is pushed to the context history.
      *
      * @param sourceFrozenContext The historical context to source fragments and history from.
-     * @param fragmentsToKeep A list of fragments. Only these fragments (matched by ID) from sourceFrozenContext will be included.
+     * @param fragmentsToKeep A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
      * @return A Future representing the completion of the task.
      */
     public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
