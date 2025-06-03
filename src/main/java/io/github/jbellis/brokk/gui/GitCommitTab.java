@@ -5,13 +5,18 @@ import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.util.*;
@@ -70,7 +75,7 @@ public class GitCommitTab extends JPanel {
             }
         };
         uncommittedFilesTable = new JTable(model);
-        uncommittedFilesTable.setDefaultRenderer(Object.class, new javax.swing.table.DefaultTableCellRenderer() {
+        uncommittedFilesTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public java.awt.Component getTableCellRendererComponent(
                     javax.swing.JTable table, Object value,
@@ -86,9 +91,9 @@ public class GitCommitTab extends JPanel {
                 if (isSelected) {
                     cell.setForeground(table.getSelectionForeground());
                 } else {
-                    var newColor = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(darkTheme, "git_status_new");
-                    var modifiedColor = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(darkTheme, "git_status_modified");
-                    var deletedColor = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(darkTheme, "git_status_deleted");
+                    var newColor = ThemeColors.getColor(darkTheme, "git_status_new");
+                    var modifiedColor = ThemeColors.getColor(darkTheme, "git_status_modified");
+                    var deletedColor = ThemeColors.getColor(darkTheme, "git_status_deleted");
 
                     switch (status) {
                         case "new" -> cell.setForeground(newColor);
@@ -186,7 +191,7 @@ public class GitCommitTab extends JPanel {
                         
                         for (var file : selectedFiles) {
                             // Get the working copy content (right side)
-                            var rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(
+                            var rightSource = new BufferSource.FileSource(
                                 file.absPath().toFile(), file.getFileName()
                             );
                             
@@ -202,7 +207,7 @@ public class GitCommitTab extends JPanel {
                                 headContent = "";
                             }
                             
-                            var leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                            var leftSource = new BufferSource.StringSource(
                                 headContent, "HEAD", file.getFileName()
                             );
                             
@@ -361,28 +366,26 @@ public class GitCommitTab extends JPanel {
                     });
                 } catch (Exception ex) {
                     logger.error("Error committing files:", ex);
-                    SwingUtilities.invokeLater(() ->
-                                                       chrome.toolErrorRaw("Error committing files: " + ex.getMessage())
-                    );
+                    SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error committing files: " + ex.getMessage()));
                 }
             });
         });
         buttonPanel.add(commitButton);
 
         // Commit message area => enable/disable commit/stash buttons
-        commitMessageArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+        commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+            public void insertUpdate(DocumentEvent e) {
                 updateCommitButtonState();
             }
 
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+            public void removeUpdate(DocumentEvent e) {
                 updateCommitButtonState();
             }
 
             @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+            public void changedUpdate(DocumentEvent e) {
                 updateCommitButtonState();
             }
 
@@ -393,7 +396,7 @@ public class GitCommitTab extends JPanel {
 
                 // Commit button still requires a message
                 String text = commitMessageArea.getText().trim();
-                boolean hasNonCommentText = java.util.Arrays.stream(text.split("\n"))
+                boolean hasNonCommentText = Arrays.stream(text.split("\n"))
                         .anyMatch(line -> !line.trim().isEmpty()
                                 && !line.trim().startsWith("#"));
                 commitButton.setEnabled(hasNonCommentText && hasChanges);
