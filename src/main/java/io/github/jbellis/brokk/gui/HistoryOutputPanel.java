@@ -862,6 +862,7 @@ public class HistoryOutputPanel extends JPanel {
             
             // Initialize workspace panel for preview
             workspacePanel = new WorkspacePanel(chrome, contextManager);
+            workspacePanel.setWorkspaceEditable(false); // Make workspace read-only in manage dialog
             
             // Initialize markdown output panel for preview
             markdownOutputPanel = new MarkdownOutputPanel();
