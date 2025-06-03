@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
@@ -154,7 +155,7 @@ public class GitCommitTab extends JPanel {
                         uncommittedFilesTable.setRowSelectionInterval(row, row);
                     }
                     // Update menu items
-                    updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem); // Add viewHistoryItem here
+                    updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem);
                 });
             }
 
@@ -169,10 +170,53 @@ public class GitCommitTab extends JPanel {
 
         // Context menu actions:
         viewDiffItem.addActionListener(e -> {
-            int row = uncommittedFilesTable.getSelectedRow();
-            if (row >= 0) {
-                var projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                GitUiUtil.showUncommittedFileDiff(contextManager, chrome, projectFile.toString());
+            var selectedFiles = getSelectedFilesFromTable();
+            if (selectedFiles.isEmpty()) {
+                return;
+            }
+            
+            if (selectedFiles.size() == 1) {
+                // Single file - use the existing single file diff viewer
+                GitUiUtil.showUncommittedFileDiff(contextManager, chrome, selectedFiles.get(0).toString());
+            } else {
+                // Multiple files - use the multi-file diff viewer
+                contextManager.submitUserTask("Opening multi-file diff", () -> {
+                    try {
+                        var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+                        
+                        for (var file : selectedFiles) {
+                            // Get the working copy content (right side)
+                            var rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(
+                                file.absPath().toFile(), file.getFileName()
+                            );
+                            
+                            // Get the HEAD content (left side)
+                            String headContent = "";
+                            try {
+                                var repo = contextManager.getProject().getRepo();
+                                if (repo != null) {
+                                    headContent = repo.getFileContent("HEAD", file);
+                                }
+                            } catch (Exception ex) {
+                                // File might be new
+                                headContent = "";
+                            }
+                            
+                            var leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(
+                                headContent, "HEAD", file.getFileName()
+                            );
+                            
+                            builder.addComparison(leftSource, rightSource);
+                        }
+                        
+                        SwingUtilities.invokeLater(() -> {
+                            var panel = builder.build();
+                            panel.showInFrame("Uncommitted Changes Diff");
+                        });
+                    } catch (Exception ex) {
+                        chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+                    }
+                });
             }
         });
 
@@ -494,7 +538,7 @@ public class GitCommitTab extends JPanel {
             captureDiffItem.setEnabled(false);
             captureDiffItem.setToolTipText("Select file(s) to capture diff");
             viewDiffItem.setEnabled(false);
-            viewDiffItem.setToolTipText("Select a file to view its diff");
+            viewDiffItem.setToolTipText("Select file(s) to view diff");
             editFileItem.setEnabled(false);
             editFileItem.setToolTipText("Select file(s) to edit");
             viewHistoryItem.setEnabled(false);
@@ -524,8 +568,8 @@ public class GitCommitTab extends JPanel {
         } else { // More than one file selected
             captureDiffItem.setEnabled(true);
             captureDiffItem.setToolTipText("Capture diff of selected files to context");
-            viewDiffItem.setEnabled(false); // Disable View Diff for multiple files
-            viewDiffItem.setToolTipText("Select a single file to view its diff");
+            viewDiffItem.setEnabled(true); // Enable View Diff for multiple files
+            viewDiffItem.setToolTipText("View diff of selected files in multi-file viewer");
 
             editFileItem.setEnabled(true);
             editFileItem.setToolTipText("Edit selected file(s)");
