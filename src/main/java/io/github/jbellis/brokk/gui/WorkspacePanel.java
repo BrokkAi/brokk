@@ -195,13 +195,22 @@ public class WorkspacePanel extends JPanel {
             public void mousePressed(MouseEvent e) {
                 maybeHandleFileRefClick(e);
             }
-            
+
             @Override
             public void mouseReleased(MouseEvent e) {
                 maybeHandleFileRefClick(e);
             }
-            
+
             private void maybeHandleFileRefClick(MouseEvent e) {
+                // If it's a popup trigger, let the table's main popup handler deal with it.
+                // The main handler will build the menu based on the row selection state,
+                // which is the desired "unified" behavior.
+                if (e.isPopupTrigger()) {
+                    return;
+                }
+
+                // For non-popup triggers (e.g., left clicks), proceed with badge-specific actions
+                // like opening the overflow popup.
                 int col = contextTable.columnAtPoint(e.getPoint());
                 if (col == FILES_REFERENCED_COLUMN) {
                     ContextMenuUtils.handleFileReferenceClick(
@@ -214,7 +223,7 @@ public class WorkspacePanel extends JPanel {
                 }
             }
         });
-        
+
         // Add mouse motion for tooltips
         contextTable.addMouseMotionListener(new MouseAdapter() {
             @Override
@@ -293,7 +302,7 @@ public class WorkspacePanel extends JPanel {
                 if (e.isConsumed()) return; // Respect if event was already handled
                 if (e.isPopupTrigger()) {
                     int row = contextTable.rowAtPoint(e.getPoint());
-                    contextTable.columnAtPoint(e.getPoint());
+                    int col = contextTable.columnAtPoint(e.getPoint());
 
                     // Clear the menu and rebuild according to row/column
                     contextMenu.removeAll();
@@ -306,8 +315,8 @@ public class WorkspacePanel extends JPanel {
                             }
                             JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
                             copyItem.addActionListener(ev -> {
-                                var selectedFragments = getSelectedFragments();
-                                contextManager.addFilteredToContextAsync(currentContext, selectedFragments);
+                                var fragsToCopy = getSelectedFragments();
+                                contextManager.addFilteredToContextAsync(currentContext, fragsToCopy);
                             });
                             contextMenu.add(copyItem);
                             if (chrome.themeManager != null) {
@@ -318,130 +327,199 @@ public class WorkspacePanel extends JPanel {
                         return;
                     }
 
-                    ContextFragment selected = null;
-                    if (row >= 0) {
-                        // Select the row only if:
-                        // 1. No rows are currently selected, or
-                        // 2. Only one row is selected and it's not the row we clicked on
-                        if (contextTable.getSelectedRowCount() == 0 || (contextTable.getSelectedRowCount() == 1 && contextTable.getSelectedRow() != row)) {
-                            contextTable.setRowSelectionInterval(row, row);
+                    // Handle clicks on individual file reference badges first
+                    if (col == FILES_REFERENCED_COLUMN && row >= 0) {
+                        @SuppressWarnings("unchecked")
+                        List<TableUtils.FileReferenceList.FileReferenceData> fileRefsInCell =
+                                (List<TableUtils.FileReferenceList.FileReferenceData>) contextTable.getValueAt(row, FILES_REFERENCED_COLUMN);
+
+                        if (fileRefsInCell != null && !fileRefsInCell.isEmpty()) {
+                            TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                    TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileRefsInCell);
+
+                            if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                                ProjectFile projectFile = clickedFileRef.getRepoFile();
+                                ContextFragment.ProjectPathFragment pseudoFragment = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
+
+                                JMenuItem viewFileItem = new JMenuItem("View File");
+                                viewFileItem.addActionListener(ev -> showFragmentPreview(pseudoFragment));
+                                contextMenu.add(viewFileItem);
+
+                                boolean hasGit = contextManager != null && contextManager.getProject() != null && contextManager.getProject().hasGit();
+                                if (hasGit) {
+                                    JMenuItem viewHistoryItem = new JMenuItem("View History");
+                                    viewHistoryItem.addActionListener(ev -> chrome.getGitPanel().addFileHistoryTab(projectFile));
+                                    contextMenu.add(viewHistoryItem);
+                                } else {
+                                    JMenuItem viewHistoryItem = new JMenuItem("View History");
+                                    viewHistoryItem.setEnabled(false);
+                                    viewHistoryItem.setToolTipText("Git not available for this project.");
+                                    contextMenu.add(viewHistoryItem);
+                                }
+                                contextMenu.addSeparator();
+
+                                contextMenu.add(buildAddMenuItem(clickedFileRef));
+                                contextMenu.add(buildReadMenuItem(clickedFileRef));
+                                contextMenu.add(buildSummarizeMenuItem(clickedFileRef));
+
+                                if (chrome.themeManager != null) {
+                                    chrome.themeManager.registerPopupMenu(contextMenu);
+                                }
+                                contextMenu.show(contextTable, e.getX(), e.getY());
+                                e.consume(); // Event handled
+                                return;
+                            }
                         }
-                        selected = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
                     }
 
-                    // Assign to effectively final variable for use in lambdas
-                    final ContextFragment fragmentToShow = selected;
-
+                    // Fallback to row-based selection logic if not a handled badge click
                     if (row >= 0) {
-                        // Show Contents as the first action
-                        JMenuItem showContentsItem = new JMenuItem("Show Contents");
-                        // Use the effectively final variable in the lambda
-                        showContentsItem.addActionListener(e1 -> showFragmentPreview(fragmentToShow));
-                        contextMenu.add(showContentsItem);
-                        contextMenu.addSeparator();
+                        boolean rowIsSelected = false;
+                        for (int selectedRow : contextTable.getSelectedRows()) {
+                            if (selectedRow == row) {
+                                rowIsSelected = true;
+                                break;
+                            }
+                        }
+                        if (!rowIsSelected) {
+                            contextTable.setRowSelectionInterval(row, row);
+                        }
+                    }
 
-                        // show "View History" only if it's a ProjectPathFragment and Git is available
-                        boolean hasGit = contextManager != null && contextManager.getProject() != null
-                                && contextManager.getProject().hasGit();
-                        if (hasGit && fragmentToShow.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                            fragmentToShow.files().stream()
+                    List<ContextFragment> selectedFragments = getSelectedFragments();
+                    int selectionCount = selectedFragments.size();
+                    ContextFragment singleSelectedFragment = (selectionCount == 1) ? selectedFragments.getFirst() : null;
+
+                    // If no rows are selected (e.g., right-click on empty table area after clearing selection),
+                    // or if the click was on an empty area (row < 0), show the tablePopupMenu.
+                    if (row < 0 || selectedFragments.isEmpty()) {
+                        tablePopupMenu.show(contextTable, e.getX(), e.getY());
+                        if (chrome.themeManager != null) {
+                            chrome.themeManager.registerPopupMenu(tablePopupMenu); // Ensure tablePopupMenu is also themed
+                        }
+                        return;
+                    }
+
+                    // --- Build menu for selected row(s) ---
+
+                    // 1. View File / Show Contents Item
+                    JMenuItem viewItem;
+                    if (selectionCount == 1 && singleSelectedFragment != null && singleSelectedFragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                        viewItem = new JMenuItem("View File");
+                    } else {
+                        viewItem = new JMenuItem("Show Contents");
+                    }
+
+                    if (selectionCount == 1 && singleSelectedFragment != null) {
+                        final ContextFragment fragmentForPreview = singleSelectedFragment; // Effectively final for lambda
+                        viewItem.addActionListener(ev -> showFragmentPreview(fragmentForPreview));
+                    } else {
+                        viewItem.setEnabled(false);
+                        viewItem.setToolTipText("Cannot view contents of multiple items at once.");
+                    }
+                    contextMenu.add(viewItem);
+
+                    // 2. View History / Compress History Item
+                    boolean hasGit = contextManager != null && contextManager.getProject() != null && contextManager.getProject().hasGit();
+                    if (selectionCount == 1 && singleSelectedFragment != null) {
+                        final ContextFragment fragmentForHistory = singleSelectedFragment; // Effectively final
+                        if (hasGit && fragmentForHistory.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                            fragmentForHistory.files().stream()
                                 .findFirst()
                                 .ifPresent(projectFile -> {
                                     JMenuItem viewHistoryItem = new JMenuItem("View History");
                                     viewHistoryItem.addActionListener(ev -> chrome.getGitPanel().addFileHistoryTab(projectFile));
                                     contextMenu.add(viewHistoryItem);
                                 });
-                        } else if (fragmentToShow.getType() == ContextFragment.FragmentType.HISTORY) {
-                            var cf = (ContextFragment.HistoryFragment) fragmentToShow;
-                            // Add Compress History option for conversation fragment
+                        } else if (fragmentForHistory.getType() == ContextFragment.FragmentType.HISTORY) {
+                            var cf = (ContextFragment.HistoryFragment) fragmentForHistory;
                             JMenuItem compressHistoryItem = new JMenuItem("Compress History");
-                            compressHistoryItem.addActionListener(e1 -> {
-                                // Call ContextManager to compress history
-                                contextManager.compressHistoryAsync();
-                            });
-                            contextMenu.add(compressHistoryItem);
-                            // Only enable if uncompressed entries exist
+                            compressHistoryItem.addActionListener(ev -> contextManager.compressHistoryAsync());
                             var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
                             compressHistoryItem.setEnabled(uncompressedExists);
+                            contextMenu.add(compressHistoryItem);
+                        } else {
+                            // For other single fragment types, or if no Git for ProjectPath
+                            JMenuItem viewHistoryItem = new JMenuItem("View History");
+                            viewHistoryItem.setEnabled(false);
+                            viewHistoryItem.setToolTipText("View History is available only for single project files.");
+                            contextMenu.add(viewHistoryItem);
                         }
-
-                        // Row popup options
-                        {
-                            contextMenu.addSeparator();
-                            var selectedFragments = getSelectedFragments(); // Get selected fragments once
-
-                            // Special case: Single ProjectPathFragment selected -> show specific actions for it
-                            if (selectedFragments.size() == 1 && selectedFragments.getFirst().getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                                selectedFragments.getFirst().files().stream()
-                                    .findFirst()
-                                    .ifPresent(projectFile -> {
-                                        var fileData = new TableUtils.FileReferenceList.FileReferenceData(
-                                                projectFile.getFileName(),
-                                                projectFile.toString(),
-                                                projectFile
-                                        );
-                                        // Add specific actions using existing helpers
-                                        contextMenu.add(buildAddMenuItem(fileData)); // Handles edit for single tracked file
-                                        contextMenu.add(buildReadMenuItem(fileData));
-                                        contextMenu.add(buildSummarizeMenuItem(fileData));
-                                    });
-                            } else {
-                                // Default: Show "All References" actions, enabled based on file presence and track status
-                                var project = contextManager.getProject();
-                                Set<BrokkFile> allFiles = selectedFragments.stream()
-                                        .flatMap(frag -> frag.files().stream())
-                                        .collect(Collectors.toSet());
-
-                                boolean allFilesAreTrackedProjectFiles = !allFiles.isEmpty() && allFiles.stream().allMatch(f ->
-                                        f instanceof ProjectFile pf && // This instanceof is on BrokkFile, not ContextFragment, so it's okay
-                                        project.getRepo().getTrackedFiles().contains(pf)
-                                );
-                                boolean hasFiles = !allFiles.isEmpty(); // Re-introduce hasFiles
-
-                                JMenuItem editAllRefsItem = new JMenuItem("Edit all References");
-                                editAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.EDIT, selectedFragments));
-                                editAllRefsItem.setEnabled(allFilesAreTrackedProjectFiles);
-                                if (!allFilesAreTrackedProjectFiles && !allFiles.isEmpty()) {
-                                    editAllRefsItem.setToolTipText("Cannot edit because selection includes untracked or external files.");
-                                } else if (allFiles.isEmpty()) {
-                                    editAllRefsItem.setToolTipText("No files associated with the selection to edit.");
-                                }
-
-                                JMenuItem readAllRefsItem = new JMenuItem("Read all References");
-                                readAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.READ, selectedFragments));
-                                readAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
-
-                                JMenuItem summarizeAllRefsItem = new JMenuItem("Summarize all References");
-                                summarizeAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.SUMMARIZE, selectedFragments));
-                                summarizeAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
-
-                                contextMenu.add(editAllRefsItem);
-                                contextMenu.add(readAllRefsItem);
-                                contextMenu.add(summarizeAllRefsItem);
-                            }
-                        }
-
-                        // Add Copy and Drop actions with a separator
-                        contextMenu.addSeparator();
-                        JMenuItem copySelectionItem = new JMenuItem("Copy");
-                        copySelectionItem.addActionListener(ev -> {
-                            var selectedFragments = getSelectedFragments();
-                            performContextActionAsync(ContextAction.COPY, selectedFragments);
-                        });
-                        contextMenu.add(copySelectionItem);
-
-                        JMenuItem dropSelectionItem = new JMenuItem("Drop");
-                        dropSelectionItem.addActionListener(ev -> {
-                            var selectedFragments = getSelectedFragments();
-                            performContextActionAsync(ContextAction.DROP, selectedFragments);
-                        });
-                        contextMenu.add(dropSelectionItem);
-
-                        dropSelectionItem.setEnabled(contextManager.selectedContext().equals(contextManager.topContext()));
-                    } else {
-                        // No row selected - show the popup with all options
-                        tablePopupMenu.show(contextTable, e.getX(), e.getY());
+                    } else { // Multiple rows selected or no rows selected (already handled but defensive)
+                        JMenuItem viewHistoryItem = new JMenuItem("View History");
+                        viewHistoryItem.setEnabled(false);
+                        viewHistoryItem.setToolTipText("Cannot view history for multiple items.");
+                        contextMenu.add(viewHistoryItem);
                     }
+
+                    contextMenu.addSeparator();
+
+                    // 3. Edit / Read / Summarize Section
+                    var project = contextManager.getProject();
+                    Set<BrokkFile> allFilesFromSelection = selectedFragments.stream()
+                            .flatMap(frag -> frag.files().stream())
+                            .filter(Objects::nonNull) // Ensure no null files
+                            .collect(Collectors.toSet());
+
+                    boolean allSelectedFilesAreTrackedProjectFiles = !allFilesFromSelection.isEmpty() && allFilesFromSelection.stream()
+                        .allMatch(f -> f instanceof ProjectFile pf && project.getRepo().getTrackedFiles().contains(pf));
+                    boolean selectionHasFiles = !allFilesFromSelection.isEmpty();
+
+                    if (selectionCount == 1 && singleSelectedFragment != null && singleSelectedFragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                        singleSelectedFragment.files().stream()
+                            .findFirst()
+                            .ifPresent(projectFile -> {
+                                var fileData = new TableUtils.FileReferenceList.FileReferenceData(
+                                        projectFile.getFileName(),
+                                        projectFile.toString(),
+                                        projectFile
+                                );
+                                contextMenu.add(buildAddMenuItem(fileData)); // "Edit File"
+                                contextMenu.add(buildReadMenuItem(fileData)); // "Read File"
+                                contextMenu.add(buildSummarizeMenuItem(fileData)); // "Summarize File"
+                            });
+                    } else {
+                        // This covers:
+                        // - Single selected fragment that is NOT a ProjectPathFragment (e.g., History, Paste, Usage)
+                        // - Multiple selected fragments
+                        JMenuItem editAllRefsItem = new JMenuItem("Edit all References");
+                        editAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.EDIT, selectedFragments));
+                        editAllRefsItem.setEnabled(allSelectedFilesAreTrackedProjectFiles);
+                        if (!allSelectedFilesAreTrackedProjectFiles && selectionHasFiles) {
+                            editAllRefsItem.setToolTipText("Cannot edit because selection includes untracked or external files.");
+                        } else if (!selectionHasFiles) {
+                            editAllRefsItem.setToolTipText("No files associated with the selection to edit.");
+                        }
+                        contextMenu.add(editAllRefsItem);
+
+                        JMenuItem readAllRefsItem = new JMenuItem("Read all References");
+                        readAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.READ, selectedFragments));
+                        readAllRefsItem.setEnabled(selectionHasFiles);
+                        if (!selectionHasFiles) {
+                            readAllRefsItem.setToolTipText("No files associated with the selection to read.");
+                        }
+                        contextMenu.add(readAllRefsItem);
+
+                        JMenuItem summarizeAllRefsItem = new JMenuItem("Summarize all References");
+                        summarizeAllRefsItem.addActionListener(e1 -> performContextActionAsync(ContextAction.SUMMARIZE, selectedFragments));
+                        summarizeAllRefsItem.setEnabled(selectionHasFiles);
+                        if (!selectionHasFiles) {
+                            summarizeAllRefsItem.setToolTipText("No files associated with the selection to summarize.");
+                        }
+                        contextMenu.add(summarizeAllRefsItem);
+                    }
+
+                    contextMenu.addSeparator();
+
+                    // 4. Copy / Drop Section
+                    JMenuItem copySelectionItem = new JMenuItem("Copy");
+                    copySelectionItem.addActionListener(ev -> performContextActionAsync(ContextAction.COPY, selectedFragments));
+                    contextMenu.add(copySelectionItem);
+
+                    JMenuItem dropSelectionItem = new JMenuItem("Drop");
+                    dropSelectionItem.addActionListener(ev -> performContextActionAsync(ContextAction.DROP, selectedFragments));
+                    dropSelectionItem.setEnabled(contextManager.selectedContext().equals(contextManager.topContext()));
+                    contextMenu.add(dropSelectionItem);
 
                     // Final theme registration before showing
                     if (chrome.themeManager != null) {
