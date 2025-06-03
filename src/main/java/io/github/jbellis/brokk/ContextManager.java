@@ -908,7 +908,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                           .collect(Collectors.toList());
             var fileSummaryFragment = new ContextFragment.SkeletonFragment(this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
             addVirtualFragment(fileSummaryFragment);
-            io.systemOutput("Added dynamic summaries for files: " + joinFilesForOutput(files));
+            io.systemOutput("Summarized " + joinFilesForOutput(files));
             summariesAdded = true;
         }
 
@@ -918,7 +918,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                             .collect(Collectors.toList());
             var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CLASS_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
-            io.systemOutput("Added dynamic summaries for classes: " + classFqns.stream().collect(Collectors.joining(", ")));
+            io.systemOutput("Summarized " + String.join(", ", classFqns));
             summariesAdded = true;
         }
         if (!summariesAdded) {
