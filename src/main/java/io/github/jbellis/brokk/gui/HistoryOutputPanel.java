@@ -1101,6 +1101,19 @@ public class HistoryOutputPanel extends JPanel {
             Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(row, 2);
             
             JPopupMenu popup = new JPopupMenu();
+
+            JMenuItem setActiveItem = new JMenuItem("Set as Active");
+            setActiveItem.setEnabled(!sessionInfo.id().equals(contextManager.getCurrentSessionId()));
+            setActiveItem.addActionListener(event -> {
+                contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() ->
+                    SwingUtilities.invokeLater(() -> {
+                        refreshSessionsTable();
+                        updateSessionComboBox();
+                    })
+                );
+            });
+            popup.add(setActiveItem);
+            popup.addSeparator();
             
             JMenuItem renameItem = new JMenuItem("Rename");
             renameItem.addActionListener(event -> {
