@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.gui.mop.stream.blocks.MarkdownComponentData;
 import io.github.jbellis.brokk.gui.mop.stream.blocks.MarkdownFactory;
 import io.github.jbellis.brokk.gui.mop.stream.flex.BrokkMarkdownExtension;
 import io.github.jbellis.brokk.gui.mop.stream.flex.IdProvider;
+import io.github.jbellis.brokk.gui.search.SearchConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
@@ -20,8 +21,13 @@ import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
 
 import javax.swing.*;
+import java.awt.Component;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static java.util.regex.Pattern.*;
 
 /**
  * Renders markdown content incrementally, reusing existing components when possible to minimize flickering
@@ -29,6 +35,9 @@ import java.util.stream.Collectors;
  */
 public final class IncrementalBlockRenderer {
     private static final Logger logger = LogManager.getLogger(IncrementalBlockRenderer.class);
+    
+    // Performance optimization: cached compiled pattern
+    private static final Pattern MARKER_ID_PATTERN = Pattern.compile("data-brokk-id\\s*=\\s*\"(\\d+)\"");
     
     // The root panel that will contain all our content blocks
     private final JPanel root;
@@ -41,9 +50,18 @@ public final class IncrementalBlockRenderer {
 
     // Component tracking
     private final Map<Integer, Reconciler.BlockEntry> registry = new LinkedHashMap<>();
+
+    // Marker-id ► Swing component index, rebuilt after every reconcile
+    private final Map<Integer, JComponent> markerIndex = new ConcurrentHashMap<>();
+    
+    // Content tracking
     private String lastHtmlFingerprint = "";
-    private String lastMarkdown = "";
-    private boolean compacted = false;
+    private String currentMarkdown = "";  // The current markdown content (always markdown, never HTML)
+    private String compactedHtml = "";    // HTML content after compaction (empty if not compacted)
+    private boolean compacted = false;    // Whether content has been compacted for better text selection
+
+    // Per-instance HTML customizer; defaults to NO_OP to avoid null checks
+    private volatile HtmlCustomizer htmlCustomizer = HtmlCustomizer.DEFAULT;
     
     // Component factories
     private static final Map<String, ComponentDataFactory> FACTORIES = 
@@ -117,6 +135,71 @@ public final class IncrementalBlockRenderer {
     public JComponent getRoot() {
         return root;
     }
+
+    /**
+     * Register or clear an HtmlCustomizer.
+     */
+    public void setHtmlCustomizer(HtmlCustomizer customizer) {
+        this.htmlCustomizer = customizer == null ? HtmlCustomizer.DEFAULT : customizer;
+    }
+
+    /**
+     * Re-runs the current HtmlCustomizer against the last rendered Markdown and
+     * updates the Swing components. Safe to call from any thread.
+     * Does nothing if no markdown has been rendered yet.
+     */
+    public void reprocessForCustomizer() {
+        // Always use currentMarkdown for reprocessing
+        if (currentMarkdown.isEmpty()) {
+            return; // nothing rendered yet
+        }
+        
+        // Quick optimisation: bail out if the new customizer would not change anything
+        if (!wouldAffect(currentMarkdown)) {
+            return;
+        }
+
+        Runnable task = () -> {
+            // Always process from markdown for consistency
+            var html = createHtml(currentMarkdown);
+            lastHtmlFingerprint = Integer.toString(html.hashCode());
+            List<ComponentData> components = buildComponentData(html);
+            
+            if (compacted) {
+                // Re-apply compaction after processing
+                components = mergeMarkdownBlocks(components, -1L);
+                // Clear and rebuild UI for compacted state
+                root.removeAll();
+                registry.clear();
+                markerIndex.clear();
+            }
+            
+            updateUI(components);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            SwingUtilities.invokeLater(task);
+        }
+    }
+
+    
+    /**
+     * Returns false when the current htmlCustomizer can be proven to have no
+     * impact on the supplied markdown, allowing us to skip re-rendering.
+     */
+    private boolean wouldAffect(String text) {
+        if (htmlCustomizer instanceof TextNodeMarkerCustomizer tnmc) {
+            try {
+                return tnmc.mightMatch(text);
+            } catch (Exception e) {
+                // fall through – be conservative
+                logger.trace("wouldAffect: conservative fallback after exception", e);
+            }
+        }
+        return true; // unknown customizer types => assume yes
+    }
     
     /**
      * Updates the content with the given markdown text.
@@ -129,9 +212,9 @@ public final class IncrementalBlockRenderer {
         if (compacted) {
             throw new IllegalStateException("Cannot update content after compaction. Call compactMarkdown() only after streaming is complete.");
         }
-        
+
         var html = createHtml(markdown);
-        
+
         // Skip if nothing changed
         String htmlFp = html.hashCode() + "";
         if (htmlFp.equals(lastHtmlFingerprint)) {
@@ -139,7 +222,7 @@ public final class IncrementalBlockRenderer {
             return;
         }
         lastHtmlFingerprint = htmlFp;
-        lastMarkdown = markdown;
+        currentMarkdown = markdown;
         
         // Extract component data from HTML
         List<ComponentData> components = buildComponentData(html);
@@ -178,15 +261,17 @@ public final class IncrementalBlockRenderer {
      */
     private void updateUI(List<ComponentData> components) {
         Reconciler.reconcile(root, components, registry, isDarkTheme);
+        // After components are (re)built update marker index
+        rebuildMarkerIndex();
     }
 
     public String createHtml(CharSequence md) {
         // Parse with Flexmark
         // Parser.parse expects a String or BasedSequence. Convert CharSequence to String.
         String markdownString = md.toString(); // Convert once
-        this.lastMarkdown = markdownString;    // Store it for compaction
+        this.currentMarkdown = markdownString;    // Store current markdown
         var document = parser.parse(markdownString); // Parse the stored string
-        return renderer.render(document);  // Don't sanitize yet - let MarkdownComponentData handle it
+        return renderer.render(document);
     }
     
     /**
@@ -212,6 +297,13 @@ public final class IncrementalBlockRenderer {
         
         Document doc = Jsoup.parse(html);
         var body = doc.body();
+
+        // Allow in-place DOM customisation before component extraction
+        try {
+            htmlCustomizer.customize(body);
+        } catch (Exception e) {
+            logger.warn("HtmlCustomizer threw exception; proceeding with uncustomised DOM", e);
+        }
         
         // Initialize the MiniParser
         var miniParser = new MiniParser();
@@ -225,8 +317,7 @@ public final class IncrementalBlockRenderer {
                 // For stability of IDs, ensure composites get a deterministic ID
                 // derived from the source element's position via IdProvider
                 parsedElements = normalizeCompositeId(element, parsedElements);
-                
-                // Add all parsed components to our result list
+
                 result.addAll(parsedElements);
             } else if (child instanceof org.jsoup.nodes.TextNode textNode && !textNode.isBlank()) {
                 // For plain text nodes, create a markdown component directly.
@@ -279,11 +370,11 @@ public final class IncrementalBlockRenderer {
         if (compacted) {
             return null;
         }
-        if (lastMarkdown.isEmpty()) {
+        if (currentMarkdown.isEmpty()) {
             return null;
         }
 
-        var html = createHtml(lastMarkdown);
+        var html = createHtml(currentMarkdown);
         var originalComponents = buildComponentData(html);
         var merged = mergeMarkdownBlocks(originalComponents, roundId);
         return merged;
@@ -304,7 +395,7 @@ public final class IncrementalBlockRenderer {
         }
 
         // Case 1: No initial markdown content. Mark as compacted and do nothing else.
-        if (lastMarkdown.isEmpty()) {
+        if (currentMarkdown.isEmpty()) {
             compacted = true;
             return;
         }
@@ -323,8 +414,8 @@ public final class IncrementalBlockRenderer {
         updateUI(mergedComponents); 
         compacted = true;
 
-        // Update lastMarkdown and lastHtmlFingerprint to reflect the merged state.
-        this.lastMarkdown = mergedComponents.stream()
+        // Store the compacted HTML for future reference
+        this.compactedHtml = mergedComponents.stream()
                                          .filter(cd -> cd instanceof MarkdownComponentData)
                                          .map(cd -> ((MarkdownComponentData) cd).html())
                                          .collect(Collectors.joining("\n"));
@@ -376,5 +467,118 @@ public final class IncrementalBlockRenderer {
         if (acc == null || htmlBuf == null) return;
         var merged = markdownFactory.fromText(acc.id(), htmlBuf.toString());
         out.add(merged);
+    }
+
+    // ---------------------------------------------------------------------
+    //  Marker-ID indexing helpers
+    // ---------------------------------------------------------------------
+
+    /**
+     * Rebuilds the marker-id to component index by walking the component tree.
+     * Must be called on EDT.
+     */
+    private void rebuildMarkerIndex() {
+        assert SwingUtilities.isEventDispatchThread();
+        markerIndex.clear();
+        // Rebuild marker index
+        walkAndIndex(root);
+        logger.trace("Marker index rebuilt with {} entries", markerIndex.size());
+    }
+
+    private void walkAndIndex(Component c) {
+        if (c instanceof JComponent jc) {
+            var html = extractHtmlFromComponent(jc);
+            if (html != null && !html.isEmpty()) {
+                var matcher = MARKER_ID_PATTERN.matcher(html);
+                boolean foundAny = false;
+                while (matcher.find()) {
+                    try {
+                        int id = Integer.parseInt(matcher.group(1));
+                        markerIndex.put(id, jc);
+                        foundAny = true;
+                        // Found marker in component
+                    } catch (NumberFormatException ignore) {
+                        // should never happen – regex enforces digits
+                    }
+                }
+            }
+        }
+        if (c instanceof java.awt.Container container) {
+            for (var child : container.getComponents()) {
+                walkAndIndex(child);
+            }
+        }
+    }
+
+    /**
+     * Best-effort extraction of inner HTML/text from known Swing components.
+     */
+    private static String extractHtmlFromComponent(JComponent jc) {
+        if (jc instanceof JEditorPane jp) {
+            return jp.getText();
+        } else if (jc instanceof JLabel lbl) {
+            return lbl.getText();
+        }
+        return null;
+    }
+
+    // ---------------------------------------------------------------------
+    //  Public lookup API
+    // ---------------------------------------------------------------------
+
+    /**
+     * Returns the Swing component that displays the given marker id, if any.
+     */
+    public java.util.Optional<JComponent> findByMarkerId(int id) {
+        assert SwingUtilities.isEventDispatchThread() : "findByMarkerId must be called on EDT";
+        return Optional.ofNullable(markerIndex.get(id));
+    }
+
+    /**
+     * Returns all marker ids currently known to this renderer.
+     */
+    public Set<Integer> getIndexedMarkerIds() {
+        assert SwingUtilities.isEventDispatchThread() : "getIndexedMarkerIds must be called on EDT";
+        return Set.copyOf(markerIndex.keySet());
+    }
+    
+    /**
+     * Updates the style of a specific marker by its ID using CSS classes.
+     * This method performs regex replacement to avoid regenerating all marker IDs.
+     */
+    public void updateMarkerStyle(int markerId, boolean isCurrent) {
+        assert SwingUtilities.isEventDispatchThread();
+        Optional<JComponent> component = findByMarkerId(markerId);
+        
+        if (component.isEmpty()) {
+            return;
+        }
+        
+        JComponent comp = component.get();
+        String html = extractHtmlFromComponent(comp);
+        if (html == null || html.isEmpty()) {
+            return;
+        }
+        
+        // Find and update the span with the specific marker ID - replace class attribute
+        String pattern = "(<span[^>]*?data-brokk-id=\"" + markerId + "\"[^>]*?)(?:\\s+class=\"[^\"]*\")?([^>]*?>)";
+        
+        String newClass = isCurrent 
+            ? " class=\"" + SearchConstants.SEARCH_CURRENT_CLASS + "\""
+            : " class=\"" + SearchConstants.SEARCH_HIGHLIGHT_CLASS + "\"";
+            
+        String updatedHtml = html.replaceAll(pattern, "$1" + newClass + "$2");
+        
+        if (!updatedHtml.equals(html)) {
+            // Update the component with the new HTML
+            if (comp instanceof JEditorPane editorPane) {
+                editorPane.setText(updatedHtml);
+            } else if (comp instanceof JLabel label) {
+                label.setText(updatedHtml);
+            }
+            comp.revalidate();
+            comp.repaint();
+        } else {
+        }
     }
 }
