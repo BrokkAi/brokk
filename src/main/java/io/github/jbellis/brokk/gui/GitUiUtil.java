@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import io.github.jbellis.brokk.git.ICommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -515,6 +516,36 @@ public final class GitUiUtil
         } catch (Exception e) {
             return ""; // File may be new or deleted
         }
+    }
+    
+    public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
+        contextManager.submitUserTask("Opening multi-file diff to local", () -> {
+            try {
+                var changedFiles = commitInfo.changedFiles();
+                if (changedFiles.isEmpty()) {
+                    chrome.systemOutput("No files changed in this commit");
+                    return;
+                }
+                
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+                var repo = contextManager.getProject().getRepo();
+                var shortId = commitInfo.id().substring(0, 7);
+                
+                for (var file : changedFiles) {
+                    String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.getFileName());
+                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    builder.addComparison(leftSource, rightSource);
+                }
+                
+                SwingUtilities.invokeLater(() -> {
+                    var panel = builder.build();
+                    panel.showInFrame("Compare " + shortId + " to Local");
+                });
+            } catch (Exception ex) {
+                chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+            }
+        });
     }
 
     public static void captureDiffBetweenBranches

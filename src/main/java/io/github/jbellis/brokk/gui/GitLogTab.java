@@ -67,6 +67,14 @@ public class GitLogTab extends JPanel {
     private JTextArea searchField;
 
     private JMenuItem captureDiffVsBranchItem;
+    private JMenuItem addToContextItem;
+    private JMenuItem softResetItem;
+    private JMenuItem revertCommitItem;
+    private JMenuItem viewChangesItem;
+    private JMenuItem compareAllToLocalItem;
+    private JMenuItem popStashCommitItem;
+    private JMenuItem applyStashCommitItem;
+    private JMenuItem dropStashCommitItem;
 
     /**
      * Constructor. Builds and arranges the UI components for the Log tab.
@@ -334,16 +342,18 @@ public class GitLogTab extends JPanel {
                 }
             });
         }
-        JMenuItem addToContextItem = new JMenuItem("Capture Diff");
-        JMenuItem softResetItem = new JMenuItem("Soft Reset to Here");
-        JMenuItem revertCommitItem = new JMenuItem("Revert Commit");
-        JMenuItem viewChangesItem = new JMenuItem("View Diff");
-        JMenuItem popStashCommitItem = new JMenuItem("Apply and Remove");
-        JMenuItem applyStashCommitItem = new JMenuItem("Apply Stash");
-        JMenuItem dropStashCommitItem = new JMenuItem("Drop Stash");
+        addToContextItem = new JMenuItem("Capture Diff");
+        softResetItem = new JMenuItem("Soft Reset to Here");
+        revertCommitItem = new JMenuItem("Revert Commit");
+        viewChangesItem = new JMenuItem("View Diff");
+        compareAllToLocalItem = new JMenuItem("Compare All to Local");
+        popStashCommitItem = new JMenuItem("Apply and Remove");
+        applyStashCommitItem = new JMenuItem("Apply Stash");
+        dropStashCommitItem = new JMenuItem("Drop Stash");
 
         commitsContextMenu.add(addToContextItem);
         commitsContextMenu.add(viewChangesItem);
+        commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
         commitsContextMenu.add(revertCommitItem);
         commitsContextMenu.add(popStashCommitItem);
@@ -402,6 +412,7 @@ public class GitLogTab extends JPanel {
                 if (selectedRows.length == 0) { // No rows selected
                     addToContextItem.setVisible(false);
                     viewChangesItem.setVisible(false);
+                    compareAllToLocalItem.setVisible(false);
                     softResetItem.setVisible(false);
                     revertCommitItem.setVisible(false);
                     popStashCommitItem.setVisible(false);
@@ -417,6 +428,8 @@ public class GitLogTab extends JPanel {
                 addToContextItem.setVisible(true); // Always visible if any commit selected
                 viewChangesItem.setVisible(true);
                 viewChangesItem.setEnabled(selectedRows.length == 1); // only single commit
+                compareAllToLocalItem.setVisible(true);
+                compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash); // only single non-stash commit
 
                 softResetItem.setVisible(!isStash);
                 softResetItem.setEnabled(selectedRows.length == 1 && !isStash); // Only for single, non-stash selection
@@ -559,6 +572,13 @@ public class GitLogTab extends JPanel {
                      logger.warn("Drop Stash action triggered on a non-stash commit: {}", commitInfo.id());
                  }
             }
+        });
+        compareAllToLocalItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow();
+            if (row == -1) return;
+            
+            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
+            GitUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
         });
 
         // The duplicated old mouse listener and action listener code has been removed.
