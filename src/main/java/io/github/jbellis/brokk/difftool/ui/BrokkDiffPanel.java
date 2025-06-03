@@ -181,6 +181,8 @@ public class BrokkDiffPanel extends JPanel {
     private JButton captureDiffButton;
     private JButton btnNext;
     private JButton btnPrevious;
+    private JButton btnPreviousFile;
+    private JButton btnNextFile;
     private BufferDiffPanel bufferDiffPanel;
 
     public void setBufferDiffPanel(BufferDiffPanel bufferDiffPanel) {
@@ -194,19 +196,19 @@ public class BrokkDiffPanel extends JPanel {
     // Multi-file navigation methods
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        if (fileComparisons.size() <= 1) {
+        if (fileComparisons.size() <= 1 || currentFileIndex >= fileComparisons.size() - 1) {
             return;
         }
-        currentFileIndex = (currentFileIndex + 1) % fileComparisons.size();
+        currentFileIndex++;
         switchToFile(currentFileIndex);
     }
     
     public void previousFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        if (fileComparisons.size() <= 1) {
+        if (fileComparisons.size() <= 1 || currentFileIndex <= 0) {
             return;
         }
-        currentFileIndex = (currentFileIndex - 1 + fileComparisons.size()) % fileComparisons.size();
+        currentFileIndex--;
         switchToFile(currentFileIndex);
     }
     
@@ -223,31 +225,23 @@ public class BrokkDiffPanel extends JPanel {
     private void updateFileDisplay() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         
-        var currentComparison = fileComparisons.get(currentFileIndex);
-        
-        // Update the file indicator label
-        if (fileIndicatorLabel != null) {
-            var text = String.format("File %d of %d: %s",
-                                     currentFileIndex + 1,
-                                     fileComparisons.size(),
-                                     currentComparison.getDisplayName());
-            fileIndicatorLabel.setText(text);
-        }
-        
-        // Switch to the appropriate BufferDiffPanel
-        if (currentComparison.diffPanel != null) {
-            // Remove all tabs and add the current one
-            tabbedPane.removeAll();
-            tabbedPane.addTab(currentComparison.diffPanel.getTitle(), currentComparison.diffPanel);
-            this.bufferDiffPanel = currentComparison.diffPanel;
-            updateNavigationButtons();
-        }
+        // Load the file on demand when switching to it
+        loadFileOnDemand(currentFileIndex);
     }
     
     private void updateNavigationButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         updateUndoRedoButtons();
-        // Could also enable/disable file navigation buttons here if needed
+        updateFileNavigationButtons();
+    }
+    
+    private void updateFileNavigationButtons() {
+        if (btnPreviousFile != null) {
+            btnPreviousFile.setEnabled(currentFileIndex > 0);
+        }
+        if (btnNextFile != null) {
+            btnNextFile.setEnabled(currentFileIndex < fileComparisons.size() - 1);
+        }
     }
     
     public int getCurrentFileIndex() {
@@ -270,8 +264,8 @@ public class BrokkDiffPanel extends JPanel {
         captureDiffButton = new JButton("Capture Diff");
         
         // Multi-file navigation buttons
-        JButton btnPreviousFile = new JButton("Previous File");
-        JButton btnNextFile = new JButton("Next File");
+        btnPreviousFile = new JButton("Previous File");
+        btnNextFile = new JButton("Next File");
         fileIndicatorLabel = new JLabel("");
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
@@ -420,16 +414,7 @@ public class BrokkDiffPanel extends JPanel {
     }
 
     public void launchComparison() {
-        loadingLabel.setFont(loadingLabel.getFont().deriveFont(Font.BOLD));
-        add(loadingLabel, BorderLayout.SOUTH);
-        revalidate();
-        repaint();
-        
-        compareAllFiles();
-    }
-    
-    private void compareAllFiles() {
-        logger.info("Starting multi-file comparison for {} files", fileComparisons.size());
+        logger.info("Starting lazy multi-file comparison for {} files", fileComparisons.size());
         
         // Log all file comparisons
         IntStream.range(0, fileComparisons.size()).forEach(idx -> {
@@ -441,44 +426,133 @@ public class BrokkDiffPanel extends JPanel {
                          comp.rightSource.title());
         });
         
-        IntStream.range(0, fileComparisons.size())
-                 .forEach(i -> {
-                     var compInfo = fileComparisons.get(i);
-                     var fileComparison = new FileComparison.FileComparisonBuilder(this,
-                                                                                    theme,
-                                                                                    this.contextManager)
-                             .withSources(compInfo.leftSource, compInfo.rightSource)
-                             .build();
-                     
-                     fileComparison.addPropertyChangeListener(evt -> {
-                         if (STATE_PROPERTY.equals(evt.getPropertyName()) &&
-                                 SwingWorker.StateValue.DONE.equals(evt.getNewValue())) {
-                             try {
-                                 var result = (String) ((SwingWorker<?, ?>) evt.getSource()).get();
-                                 if (result == null) {
-                                     // Success - store the BufferDiffPanel
-                                     var comp = (FileComparison) evt.getSource();
-                                     fileComparisons.get(i).diffPanel = comp.getPanel();
-                                     
-                                     // If this is the first file, display it
-                                     if (i == 0) {
-                                         SwingUtilities.invokeLater(() -> {
-                                             currentFileIndex = 0;
-                                             updateFileDisplay();
-                                             remove(loadingLabel);
-                                             revalidate();
-                                             repaint();
-                                         });
-                                     }
-                                 }
-                             } catch (InterruptedException | ExecutionException e) {
-                                 throw new RuntimeException(e);
-                             }
-                         }
-                     });
-                     
-                     fileComparison.execute();
-                 });
+        // Show the first file immediately
+        currentFileIndex = 0;
+        loadFileOnDemand(currentFileIndex);
+    }
+    
+    private void loadFileOnDemand(int fileIndex) {
+        if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
+            logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
+            return;
+        }
+        
+        var compInfo = fileComparisons.get(fileIndex);
+        logger.debug("Loading file on demand: {} (index {})", compInfo.getDisplayName(), fileIndex);
+        
+        // Check if this file is already loaded
+        if (compInfo.diffPanel != null) {
+            logger.debug("File already loaded: {}", compInfo.getDisplayName());
+            displayExistingFile(fileIndex);
+            return;
+        }
+        
+        // Show loading indicator for this file
+        showLoadingForFile(fileIndex);
+        
+        // Create and execute the file comparison
+        var fileComparison = new FileComparison.FileComparisonBuilder(this, theme, contextManager)
+                .withSources(compInfo.leftSource, compInfo.rightSource)
+                .build();
+        
+        fileComparison.addPropertyChangeListener(evt -> {
+            if (STATE_PROPERTY.equals(evt.getPropertyName()) &&
+                    SwingWorker.StateValue.DONE.equals(evt.getNewValue())) {
+                try {
+                    var result = (String) ((SwingWorker<?, ?>) evt.getSource()).get();
+                    if (result == null) {
+                        // Success - store the BufferDiffPanel
+                        var comp = (FileComparison) evt.getSource();
+                        compInfo.diffPanel = comp.getPanel();
+                        
+                        SwingUtilities.invokeLater(() -> {
+                            logger.debug("File loaded successfully: {}", compInfo.getDisplayName());
+                            displayExistingFile(fileIndex);
+                        });
+                    } else {
+                        SwingUtilities.invokeLater(() -> {
+                            logger.error("Failed to load file: {} - {}", compInfo.getDisplayName(), result);
+                            showErrorForFile(fileIndex, result);
+                        });
+                    }
+                } catch (InterruptedException | ExecutionException e) {
+                    SwingUtilities.invokeLater(() -> {
+                        logger.error("Exception loading file: {}", compInfo.getDisplayName(), e);
+                        showErrorForFile(fileIndex, e.getMessage());
+                    });
+                }
+            }
+        });
+        
+        fileComparison.execute();
+    }
+    
+    private void showLoadingForFile(int fileIndex) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        
+        var compInfo = fileComparisons.get(fileIndex);
+        logger.trace("Showing loading indicator for file: {}", compInfo.getDisplayName());
+        
+        // Clear existing tabs and show loading label
+        tabbedPane.removeAll();
+        add(loadingLabel, BorderLayout.CENTER);
+        
+        // Update file indicator
+        if (fileIndicatorLabel != null) {
+            fileIndicatorLabel.setText("Loading: " + compInfo.getDisplayName());
+        }
+        
+        revalidate();
+        repaint();
+    }
+    
+    private void displayExistingFile(int fileIndex) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        
+        var compInfo = fileComparisons.get(fileIndex);
+        if (compInfo.diffPanel == null) {
+            logger.warn("displayExistingFile called but diffPanel is null for: {}", compInfo.getDisplayName());
+            return;
+        }
+        
+        logger.trace("Displaying existing file: {}", compInfo.getDisplayName());
+        
+        // Remove loading label if present
+        remove(loadingLabel);
+        
+        // Clear tabs and add the loaded panel
+        tabbedPane.removeAll();
+        tabbedPane.addTab(compInfo.diffPanel.getTitle(), compInfo.diffPanel);
+        this.bufferDiffPanel = compInfo.diffPanel;
+        
+        // Update file indicator
+        if (fileIndicatorLabel != null) {
+            fileIndicatorLabel.setText(compInfo.getDisplayName());
+        }
+        
+        updateNavigationButtons();
+        revalidate();
+        repaint();
+    }
+    
+    private void showErrorForFile(int fileIndex, String errorMessage) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        
+        var compInfo = fileComparisons.get(fileIndex);
+        logger.error("Error loading file: {} - {}", compInfo.getDisplayName(), errorMessage);
+        
+        // Show error dialog
+        JOptionPane.showMessageDialog(
+            this,
+            "Error loading file '" + compInfo.getDisplayName() + "':\n" + errorMessage,
+            "File Load Error",
+            JOptionPane.ERROR_MESSAGE
+        );
+        
+        // Remove loading indicator
+        remove(loadingLabel);
+        revalidate();
+        repaint();
     }
 
 
