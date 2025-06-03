@@ -79,7 +79,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private final List<String> systemMessages = new ArrayList<>();
     private JPanel bottomPanel;
 
-    private JSplitPane topSplitPane;
     private JSplitPane verticalSplitPane;
     private JSplitPane contextGitSplitPane;
     private HistoryOutputPanel historyOutputPanel;
@@ -316,14 +315,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         gbc.gridx = 0;
         gbc.insets = new Insets(2, 2, 2, 2);
 
-        // Top Area: Instructions + History/Output
+        // Create instructions panel and history/output panel
         instructionsPanel = new InstructionsPanel(this);
-        historyOutputPanel = new HistoryOutputPanel(this, contextManager);
-
-        topSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        topSplitPane.setResizeWeight(0.4); // Instructions panel gets less space initially
-        topSplitPane.setTopComponent(instructionsPanel);
-        topSplitPane.setBottomComponent(historyOutputPanel);
+        historyOutputPanel = new HistoryOutputPanel(this, contextManager, instructionsPanel);
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
@@ -332,10 +326,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         bottomPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
 
-        // Main Vertical Split: Top Area / Bottom Area
+        // Main Vertical Split: History/Output Area / Bottom Area
         verticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        verticalSplitPane.setResizeWeight(0.3); // Give top area (instructions/history) 30% initially
-        verticalSplitPane.setTopComponent(topSplitPane);
+        verticalSplitPane.setResizeWeight(0.5); // Give history/output area 50% initially
+        verticalSplitPane.setTopComponent(historyOutputPanel);
         verticalSplitPane.setBottomComponent(bottomPanel);
 
         gbc.weighty = 1.0;
@@ -1030,26 +1024,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         SwingUtilities.invokeLater(() -> {
-            int topSplitPos = project.getTopSplitPosition();
-            if (topSplitPos > 0) {
-                topSplitPane.setDividerLocation(topSplitPos);
-            } else {
-                topSplitPane.setDividerLocation(0.4); // Sensible default: 40% for instructions panel
-            }
-            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (topSplitPane.isShowing()) {
-                    var newPos = topSplitPane.getDividerLocation();
-                    if (newPos > 0) {
-                        project.saveTopSplitPosition(newPos);
-                    }
-                }
-            });
-
             int verticalPos = project.getVerticalSplitPosition();
             if (verticalPos > 0) {
                 verticalSplitPane.setDividerLocation(verticalPos);
             } else {
-                verticalSplitPane.setDividerLocation(0.3);
+                verticalSplitPane.setDividerLocation(0.5);
             }
             verticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
                 if (verticalSplitPane.isShowing()) {

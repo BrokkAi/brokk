@@ -71,7 +71,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
                                                    
-                                                   More tips are available in the Getting Started section on the right -->
+                                                   More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
     private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels

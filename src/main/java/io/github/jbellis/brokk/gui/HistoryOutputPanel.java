@@ -47,21 +47,25 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
     private JButton copyButton;
 
+    private InstructionsPanel instructionsPanel;
+
     /**
      * Constructs a new HistoryOutputPane.
      *
      * @param chrome The parent Chrome instance
      * @param contextManager The context manager
+     * @param instructionsPanel The instructions panel to include below output
      */
-    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager) {
+    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager, InstructionsPanel instructionsPanel) {
         super(new BorderLayout()); // Use BorderLayout
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.instructionsPanel = instructionsPanel;
 
         // commandResultLabel initialization removed
 
-        // Build Output components (Center)
-        var centerPanel = buildCenterOutputPanel();
+        // Build combined Output + Instructions panel (Center)
+        var centerPanel = buildCombinedOutputInstructionsPanel();
         add(centerPanel, BorderLayout.CENTER);
 
         // Build session controls and activity panel (East)
@@ -86,15 +90,12 @@ public class HistoryOutputPanel extends JPanel {
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
     }
 
-    private JPanel buildCenterOutputPanel() {
+    private JPanel buildCombinedOutputInstructionsPanel() {
         // Build LLM streaming area
         llmScrollPane = buildLLMStreamScrollPane();
 
         // Build capture output panel
         var capturePanel = buildCaptureOutputPanel();
-
-        // systemScrollPane removed
-        // topInfoPanel removed
 
         // Output panel with LLM stream
         var outputPanel = new JPanel(new BorderLayout());
@@ -108,11 +109,16 @@ public class HistoryOutputPanel extends JPanel {
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Container for the center section (just the outputPanel now)
+        // Create vertical split pane with Output above and Instructions below
+        var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
+        outputInstructionsSplit.setTopComponent(outputPanel);
+        outputInstructionsSplit.setBottomComponent(instructionsPanel);
+
+        // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
-        // Removed topInfoPanel
-        centerContainer.add(outputPanel, BorderLayout.CENTER); // Output takes the entire space
-        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for output area
+        centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
+        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
         return centerContainer;
     }
@@ -633,8 +639,8 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(openWindowButton);
 
 
-        // Add buttons panel to the right
-        panel.add(buttonsPanel, BorderLayout.EAST);
+        // Add buttons panel to the left
+        panel.add(buttonsPanel, BorderLayout.WEST);
 
         return panel;
     }
