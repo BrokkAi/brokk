@@ -753,6 +753,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
         return fileSet.stream()
                       .filter(path -> !"/dev/null".equals(path))
+                      .sorted() // Sort paths alphabetically for consistent ordering
                       .map(this::toProjectFile)
                       .collect(Collectors.toList());
     }

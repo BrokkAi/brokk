@@ -1306,9 +1306,14 @@ public class GitLogTab extends JPanel {
                         filesByDir.computeIfAbsent(file.getParent(), k -> new ArrayList<>()).add(file.getFileName());
                     }
 
-                    for (var entry : filesByDir.entrySet()) {
-                        var dirPath = entry.getKey();
-                        var files = entry.getValue();
+                    // Sort directories and create nodes
+                    var sortedDirs = new ArrayList<>(filesByDir.keySet());
+                    sortedDirs.sort(Comparator.comparing(Path::toString));
+                    
+                    for (var dirPath : sortedDirs) {
+                        var files = filesByDir.get(dirPath);
+                        // Sort files within each directory
+                        files.sort(String::compareTo);
 
                         DefaultMutableTreeNode dirNode;
                         if (dirPath.equals(Path.of(""))) {

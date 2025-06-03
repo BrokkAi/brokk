@@ -430,6 +430,17 @@ public class BrokkDiffPanel extends JPanel {
     
     private void compareAllFiles() {
         logger.info("Starting multi-file comparison for {} files", fileComparisons.size());
+        
+        // Log all file comparisons
+        for (int idx = 0; idx < fileComparisons.size(); idx++) {
+            var comp = fileComparisons.get(idx);
+            logger.info("File {}: {} (comparing '{}' vs '{}')", 
+                idx + 1, 
+                comp.getDisplayName(),
+                comp.leftSource.title(), 
+                comp.rightSource.title());
+        }
+        
         IntStream.range(0, fileComparisons.size())
                  .forEach(i -> {
                      var compInfo = fileComparisons.get(i);
