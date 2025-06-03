@@ -32,8 +32,8 @@ import java.util.function.Predicate;
  * A JTree component specialized for displaying file hierarchies, either from a Git repository
  * or the local file system, with support for lazy loading.
  */
-public class FileTree extends JTree {
-    private static final Logger logger = LogManager.getLogger(FileTree.class);
+public class FileSelectionTree extends JTree {
+    private static final Logger logger = LogManager.getLogger(FileSelectionTree.class);
 
     private final Project project;
     private final boolean allowExternalFiles;
@@ -46,7 +46,7 @@ public class FileTree extends JTree {
      * @param allowExternalFiles If true, shows the full file system; otherwise, shows project repo files.
      * @param fileFilter         Optional predicate to filter files shown in the tree (external mode only).
      */
-    public FileTree(Project project, boolean allowExternalFiles, Predicate<File> fileFilter) {
+    public FileSelectionTree(Project project, boolean allowExternalFiles, Predicate<File> fileFilter) {
         this.project = project;
         this.allowExternalFiles = allowExternalFiles;
         this.fileFilter = fileFilter;
@@ -180,8 +180,8 @@ public class FileTree extends JTree {
 
                     // Clear any listeners that might have been associated with the old model
                     // or any prematurely added listeners, before setting the new model and potentially new listeners.
-                    for (TreeWillExpandListener listener : FileTree.this.getTreeWillExpandListeners()) {
-                        FileTree.this.removeTreeWillExpandListener(listener);
+                    for (TreeWillExpandListener listener : FileSelectionTree.this.getTreeWillExpandListeners()) {
+                        FileSelectionTree.this.removeTreeWillExpandListener(listener);
                     }
 
                     setModel(newModel); // Update the model on the EDT
@@ -296,9 +296,9 @@ public class FileTree extends JTree {
     private static class ExpansionWorker extends SwingWorker<TreePath, Void> {
         private final LazyLoadingTreeModel model;
         private final Path targetPath;
-        private final FileTree tree;
+        private final FileSelectionTree tree;
 
-        ExpansionWorker(LazyLoadingTreeModel model, Path targetPath, FileTree tree)
+        ExpansionWorker(LazyLoadingTreeModel model, Path targetPath, FileSelectionTree tree)
         {
             this.model = model;
             this.targetPath = targetPath;
@@ -327,7 +327,7 @@ public class FileTree extends JTree {
             }
 
             // 3. Relativize targetPath against the drive node's absolute path
-            var drivePath = ((FileTree.FileTreeNode) driveNode.getUserObject()).getFile().toPath().toAbsolutePath();
+            var drivePath = ((FileSelectionTree.FileTreeNode) driveNode.getUserObject()).getFile().toPath().toAbsolutePath();
             Path relativePath;
             try {
                 relativePath = drivePath.relativize(targetPath);
@@ -381,7 +381,7 @@ public class FileTree extends JTree {
         {
             for (int i = 0; i < rootNode.getChildCount(); i++) {
                 var child = (DefaultMutableTreeNode) rootNode.getChildAt(i);
-                if (child.getUserObject() instanceof FileTree.FileTreeNode fileNode) {
+                if (child.getUserObject() instanceof FileSelectionTree.FileTreeNode fileNode) {
                     var childPath = fileNode.getFile().toPath().toAbsolutePath();
                     try {
                         if (target.startsWith(childPath)) {
@@ -400,7 +400,7 @@ public class FileTree extends JTree {
             var segmentName = segment.getFileName().toString();
             for (int i = 0; i < parent.getChildCount(); i++) {
                 var child = (DefaultMutableTreeNode) parent.getChildAt(i);
-                if (child.getUserObject() instanceof FileTree.FileTreeNode fileNode) {
+                if (child.getUserObject() instanceof FileSelectionTree.FileTreeNode fileNode) {
                     if (fileNode.getFile().getName().equals(segmentName)) {
                         return child;
                     }
