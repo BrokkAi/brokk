@@ -173,6 +173,7 @@ public class DtoMapper {
                     mgr,
                     originalType,
                     frozenDto.description(),
+                    frozenDto.shortDescription(),
                     frozenDto.textContent(),
                     imageBytes,
                     frozenDto.isTextFragment(),
@@ -189,7 +190,7 @@ public class DtoMapper {
                 var messages = searchDto.messages().stream()
                         .map(DtoMapper::fromChatMessageDto)
                         .toList();
-                yield new ContextFragment.SearchFragment(mgr, searchDto.query(), messages, sources);
+                yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
             case TaskFragmentDto taskDto ->
                 // Ensure TaskFragments from the virtual list also use the caching mechanism
@@ -229,6 +230,7 @@ public class DtoMapper {
                     ff.id(),
                     ff.getType().name(), // Assuming FrozenFragment.getType() returns the original fragment's type
                     ff.description(),
+                    ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
                     ff.isText(),
                     ff.syntaxStyle(),
@@ -290,7 +292,7 @@ public class DtoMapper {
                 var files = ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet());
                 var originalType = ContextFragment.FragmentType.valueOf(ffd.originalType());
                 yield FrozenFragment.fromDto(
-                    ffd.id(), mgr, originalType, ffd.description(), ffd.textContent(), imageBytes,
+                    ffd.id(), mgr, originalType, ffd.description(), ffd.shortDescription(), ffd.textContent(), imageBytes,
                     ffd.isTextFragment(), ffd.syntaxStyle(), files, ffd.originalClassName(), ffd.meta()
                 );
             }
@@ -381,6 +383,7 @@ public class DtoMapper {
                     ff.id(),
                     ff.getType().name(),
                     ff.description(),
+                    ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
                     ff.isText(),
                     ff.syntaxStyle(),

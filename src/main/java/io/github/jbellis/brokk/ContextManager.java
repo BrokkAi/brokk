@@ -235,8 +235,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onTrackedFileChange() {
                 project.getRepo().refresh();
+                if (liveContext != null) {
+                    var fr = liveContext.freeze();
+                    liveContext = fr.liveContext();
+                    contextHistory.updateTopContext(fr.frozenContext());
+                    // analyzer refresh will call this too, but it will be delayed
+                    io.updateWorkspace();
+                }
                 io.updateCommitPanel();
-                // let analyzer rebuild refresh the Workspace
             }
 
             @Override
@@ -270,7 +276,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     contextHistory.addFrozenContextAndClearRedo(loadedCH.getHistory().get(i));
                 }
                 // Create the liveContext by unfreezing the top of the history
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
             }
             notifyContextListeners(topContext()); // Notify with the live context
             io.updateContextHistoryTable(liveContext); // Update UI with the live context
@@ -657,11 +663,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Drop fragments by their IDs.
      */
-    public void drop(Collection<Integer> fragmentIds) {
+    public void drop(Collection<? extends ContextFragment> fragments) {
         // The pushContext method now returns the new liveContext
-        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(fragmentIds));
+        var ids = fragments.stream().map(ContextFragment::id).toList();
+        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         if (newLiveContext != null) { // Check if a change actually occurred
-            io.systemOutput(newLiveContext.getAction());
+            io.systemOutput("Dropped " + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
         }
     }
 
@@ -691,7 +698,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             UndoResult result = contextHistory.undo(1, io);
             if (result.wasUndone()) {
                 // Update liveContext by unfreezing the new top of history
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
                 notifyContextListeners(topContext());
                 project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
                 io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
@@ -708,7 +715,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitUserTask("Undoing", () -> {
             UndoResult result = contextHistory.undoUntil(targetFrozenContext, io);
             if (result.wasUndone()) {
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
                 notifyContextListeners(topContext());
                 project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
@@ -725,7 +732,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitUserTask("Redoing", () -> {
             boolean wasRedone = contextHistory.redo(io);
             if (wasRedone) {
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
                 notifyContextListeners(topContext());
                 project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Redo!");
@@ -932,7 +939,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                           .collect(Collectors.toList());
             var fileSummaryFragment = new ContextFragment.SkeletonFragment(this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
             addVirtualFragment(fileSummaryFragment);
-            io.systemOutput("Added dynamic summaries for files: " + joinFilesForOutput(files));
+            io.systemOutput("Summarized " + joinFilesForOutput(files));
             summariesAdded = true;
         }
 
@@ -942,7 +949,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                             .collect(Collectors.toList());
             var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CLASS_SKELETON); // Pass IContextManager
             addVirtualFragment(classSummaryFragment);
-            io.systemOutput("Added dynamic summaries for classes: " + classFqns.stream().collect(Collectors.joining(", ")));
+            io.systemOutput("Summarized " + String.join(", ", classFqns));
             summariesAdded = true;
         }
         if (!summariesAdded) {
@@ -1224,6 +1231,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
     public Context pushContext(Function<Context, Context> contextGenerator) {
+        Instant start = Instant.now();
+        while (liveContext == null && java.time.Duration.between(start, Instant.now()).getSeconds() < 5) {
+            Thread.onSpinWait();
+        }
+        if (liveContext == null) {
+            logger.error("Timeout waiting for liveContext after 5 seconds");
+            liveContext = new Context(this, "Placeholder Workspace");
+        }
+
         var updatedLiveContext = contextGenerator.apply(liveContext);
         if (updatedLiveContext == liveContext) {
             // No change occurred
@@ -1678,7 +1694,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 for (int i = 1; i < loadedCh.getHistory().size(); i++) {
                     contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                 }
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
             }
             project.saveHistory(contextHistory, currentSessionId);
             notifyContextListeners(topContext());
@@ -1720,7 +1736,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 for (int i = 1; i < loadedCh.getHistory().size(); i++) {
                     contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                 }
-                liveContext = contextHistory.unfreezeContextFragments(topContext());
+                liveContext = Context.unfreeze(topContext());
             }
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(liveContext);
@@ -1795,7 +1811,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         for (int i = 1; i < loadedCh.getHistory().size(); i++) {
                             contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                         }
-                        liveContext = contextHistory.unfreezeContextFragments(topContext());
+                        liveContext = Context.unfreeze(topContext());
                     }
                 }
                 notifyContextListeners(topContext());
@@ -1835,7 +1851,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     for (int i = 1; i < loadedCh.getHistory().size(); i++) {
                         contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                     }
-                    liveContext = contextHistory.unfreezeContextFragments(topContext());
+                    liveContext = Context.unfreeze(topContext());
                 }
                 notifyContextListeners(topContext());
                 io.updateContextHistoryTable(liveContext);

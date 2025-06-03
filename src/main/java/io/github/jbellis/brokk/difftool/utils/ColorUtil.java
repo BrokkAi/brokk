@@ -6,6 +6,16 @@ import java.awt.*;
 
 public class ColorUtil {
 
+    /**
+     * Converts a Color to a hex string suitable for use in HTML/CSS.
+     */
+    public static String toHex(Color color) {
+        return String.format("#%02x%02x%02x", 
+                           color.getRed(), 
+                           color.getGreen(), 
+                           color.getBlue());
+    }
+
     public static Color brighter(Color color) {
         return brighter(color, 0.05f);
     }

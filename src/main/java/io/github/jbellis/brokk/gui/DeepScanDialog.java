@@ -134,7 +134,21 @@ class DeepScanDialog {
                     }
                 } else {
                     chrome.systemOutput("Deep Scan complete: Found %d relevant fragments".formatted(allSuggestedFragments.size()));
-                    SwingUtil.runOnEdt(() -> showDialog(chrome, allSuggestedFragments, reasoning));
+                    // Split allSuggestedFragments into test and project code fragments
+                    var testFilesSet = new HashSet<>(validationFiles);
+                    List<ContextFragment> projectCodeFragments = new ArrayList<>();
+                    List<ContextFragment> testCodeFragments = new ArrayList<>();
+                    for (ContextFragment fragment : allSuggestedFragments) {
+                        ProjectFile pf = fragment.files().stream()
+                                .findFirst()
+                                .orElseThrow();
+                        if (testFilesSet.contains(pf)) {
+                            testCodeFragments.add(fragment);
+                        } else {
+                            projectCodeFragments.add(fragment);
+                        }
+                    }
+                    SwingUtil.runOnEdt(() -> showDialog(chrome, projectCodeFragments, testCodeFragments, reasoning));
                 }
             } catch (InterruptedException ie) {
                 // Handle interruption of the user task thread (e.g., while waiting on future.get())
@@ -146,7 +160,6 @@ class DeepScanDialog {
         });
     }
 
-
     /**
      * Shows a modal dialog for the user to select files suggested by Deep Scan.
      * Files can be added as read-only, editable, or summarized.
@@ -156,37 +169,12 @@ class DeepScanDialog {
      * @param suggestedFragments List of unique ContextFragments suggested by ContextAgent and ValidationAgent, grouped by file.
      * @param reasoning          The reasoning provided by the ContextAgent for the suggestions.
      */
-    private static void showDialog(Chrome chrome, List<ContextFragment> suggestedFragments, String reasoning) {
+    private static void showDialog(Chrome chrome, List<ContextFragment> projectCodeFragments, List<ContextFragment> testCodeFragments, String reasoning) {
         assert SwingUtilities.isEventDispatchThread(); // Ensure called on EDT
 
         var contextManager = chrome.getContextManager();
         Project project = contextManager.getProject(); // Keep project reference
-        var testFilesSet = new HashSet<>(contextManager.getTestFiles()); // Set for quick lookups
         boolean hasGit = project != null && project.hasGit();
-
-        // Separate fragments into code and tests based on their primary file
-        List<ContextFragment> projectCodeFragments = new ArrayList<>();
-        List<ContextFragment> testCodeFragments = new ArrayList<>();
-
-        for (ContextFragment fragment : suggestedFragments) {
-            // Determine the primary ProjectFile associated with the fragment
-            ProjectFile pf = fragment.files().stream()
-                    .findFirst()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .orElse(null); // Get the ProjectFile or null
-
-            if (pf != null) {
-                if (testFilesSet.contains(pf)) {
-                    testCodeFragments.add(fragment);
-                } else {
-                    projectCodeFragments.add(fragment);
-                }
-            } else {
-                // Log fragments that don't map to a single ProjectFile (shouldn't happen with current agents)
-                logger.warn("Deep Scan Dialog: Skipping fragment without a clear ProjectFile: {}", fragment.shortDescription());
-            }
-        }
 
         JDialog dialog = new JDialog(chrome.getFrame(), "Deep Scan Results", true); // Modal dialog
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -250,9 +238,8 @@ class DeepScanDialog {
             if (fragment.getType() == ContextFragment.FragmentType.SKELETON && Arrays.asList(options).contains(SUMMARIZE)) {
                 comboBox.setSelectedItem(SUMMARIZE);
             } else if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
-                var ppf = (ContextFragment.ProjectPathFragment) fragment;
                 // EDIT if the file is in git, otherwise READ
-                var edit = hasGit && contextManager.getRepo().getTrackedFiles().contains(ppf.file()); // Use ppf.file()
+                var edit = hasGit && contextManager.getRepo().getTrackedFiles().containsAll(fragment.files());
                 comboBox.setSelectedItem(edit ? EDIT : READ_ONLY);
             } else {
                 logger.error("Unexpected fragment {} returned to DeepScanDialog", fragment);

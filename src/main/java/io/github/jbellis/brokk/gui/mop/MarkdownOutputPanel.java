@@ -8,10 +8,11 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
+import io.github.jbellis.brokk.gui.mop.stream.TextNodeMarkerCustomizer;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.mop.stream.HtmlCustomizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import java.awt.*;
@@ -62,6 +63,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     private boolean isDarkTheme = false;
     private boolean blockClearAndReset = false;
     private final ExecutorService compactExec;
+
+    // Global HtmlCustomizer applied to every renderer
+    private HtmlCustomizer htmlCustomizer = HtmlCustomizer.DEFAULT;
 
     public MarkdownOutputPanel() {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -282,7 +286,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         // Create a new renderer for this message - disable edit blocks for user messages
         boolean enableEditBlocks = message.type() != ChatMessageType.USER;
         var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks);
-        
+        renderer.setHtmlCustomizer(htmlCustomizer);
+
         // Create a new worker for this message
         var worker = new StreamingWorker(renderer);
         
@@ -402,6 +407,33 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         textChangeListeners.add(listener);
     }
 
+    /**
+     * Sets or clears a global HtmlCustomizer for all renderers.
+     */
+    public void setHtmlCustomizer(HtmlCustomizer customizer) {
+        this.htmlCustomizer = customizer == null ? HtmlCustomizer.DEFAULT : customizer;
+        renderers().forEach(r -> {
+            r.setHtmlCustomizer(this.htmlCustomizer);
+            r.reprocessForCustomizer();           // Refresh already rendered content
+        });
+    }
+    
+    /**
+     * Sets or clears a global HtmlCustomizer for all renderers and executes a callback
+     * after the customizer has been applied and rendered.
+     */
+    public void setHtmlCustomizerWithCallback(HtmlCustomizer customizer, Runnable callback) {
+        this.htmlCustomizer = customizer == null ? HtmlCustomizer.DEFAULT : customizer;
+        var renderersList = renderers().toList();
+        renderersList.forEach(r -> {
+            r.setHtmlCustomizer(this.htmlCustomizer);
+            r.reprocessForCustomizer();           // Refresh already rendered content
+        });
+        
+        // Execute callback on EDT after all customizers have been processed
+        SwingUtilities.invokeLater(callback);
+    }
+
 
     // --- Spinner Logic ---
 
@@ -464,7 +496,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         return bubbles.stream().map(Bubble::worker);
     }
 
-    private Stream<IncrementalBlockRenderer> renderers() {
+    public Stream<IncrementalBlockRenderer> renderers() {
         return bubbles.stream().map(Bubble::renderer);
     }
 
@@ -714,6 +746,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     public boolean getScrollableTracksViewportHeight() {
         return false;
     }
+
 
     /**
      * Cleans up resources used by this panel, particularly shutting down background thread pools.

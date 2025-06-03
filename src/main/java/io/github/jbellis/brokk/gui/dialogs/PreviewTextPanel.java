@@ -366,7 +366,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 }
 
                 private void populateDynamicMenuItems() {
-                    System.out.println();
                     // Add "Capture usages" items if it's a project file and declarations are available
                     if (file == null) {
                         return;

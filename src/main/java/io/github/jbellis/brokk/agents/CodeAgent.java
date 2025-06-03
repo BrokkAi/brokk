@@ -247,7 +247,6 @@ public class CodeAgent {
                 var parseRetryPrompt = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(),
                                                                           parser,
                                                                           succeededCount,
-                                                                          io,
                                                                           contextManager);
                 if (!parseRetryPrompt.isEmpty()) {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {
@@ -571,7 +570,7 @@ public class CodeAgent {
             verificationCommand = verificationCommandFuture.get(5, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             logger.warn("Failed to get verification command", e);
-            var bd = contextManager.getProject().getBuildDetails();
+            var bd = contextManager.getProject().loadBuildDetails();
             verificationCommand = (bd.equals(BuildDetails.EMPTY) ? null : bd.buildLintCommand());
         }
 

@@ -5,11 +5,8 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import com.google.common.collect.Streams;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
@@ -21,7 +18,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -203,7 +199,6 @@ public abstract class CodePrompts {
     public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks,
                                                 EditBlockParser parser,
                                                 int succeededCount,
-                                                IConsoleIO io,
                                                 IContextManager cm)
     {
         if (failedBlocks.isEmpty()) {
@@ -218,6 +213,21 @@ public abstract class CodePrompts {
         int totalFailCount = failedBlocks.size();
         boolean singularFail = (totalFailCount == 1);
         var pluralizeFail = singularFail ? "" : "s";
+
+        // Instructions for the LLM
+        String instructions = """
+                      <instructions>
+                      # %d SEARCH/REPLACE block%s failed to match in %d files!
+                      
+                      Take a look at the CURRENT state of the relevant file%s provided below in the `<current_content>` tags.
+                      If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
+                      Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
+                      I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
+                      If the SEARCH text looks correct, double-check the filename too.
+                      
+                      Provide corrected SEARCH/REPLACE blocks for the failed edits only.
+                      </instructions>
+                      """.formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail).stripIndent();
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
@@ -268,21 +278,6 @@ public abstract class CodePrompts {
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining("\n\n"));
-
-        // Instructions for the LLM
-        String instructions = """
-                      <instructions>
-                      # %d SEARCH/REPLACE block%s failed to match in %d files!
-                      
-                      Take a look at the CURRENT state of the relevant file%s provided above in the `<current_content>` tags.
-                      If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                      Remember that the SEARCH text within a `<block>` must match EXACTLY the lines in the file -- but
-                      I can accommodate whitespace differences, so if you think the only problem is whitespace, you need to look closer.
-                      If the SEARCH text looks correct, double-check the filename too.
-                      
-                      Provide corrected SEARCH/REPLACE blocks for the failed edits only.
-                      </instructions>
-                      """.formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail).stripIndent();
 
         // Add info about successful blocks, if any
         String successNote = "";

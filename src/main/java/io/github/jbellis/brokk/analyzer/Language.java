@@ -65,7 +65,7 @@ public interface Language {
         @Override public String internalName() { return "C_SHARP"; }
         @Override public String toString() { return name(); } // For compatibility
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new CSharpAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
     };
@@ -77,7 +77,7 @@ public interface Language {
         @Override public String internalName() { return "JAVA"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            var analyzer = new JavaAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
+            var analyzer = new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
             analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
@@ -189,7 +189,7 @@ public interface Language {
         @Override public String internalName() { return "JAVASCRIPT"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new JavascriptAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
 
@@ -254,7 +254,7 @@ public interface Language {
         @Override public String internalName() { return "PYTHON"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new PythonAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
 
@@ -388,7 +388,7 @@ public interface Language {
         @Override public String internalName() { return "C_CPP"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            var analyzer = new CppAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
+            var analyzer = new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
             analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
@@ -407,7 +407,7 @@ public interface Language {
         @Override public String internalName() { return "GO"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new GoAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
         // TODO
@@ -421,7 +421,7 @@ public interface Language {
         @Override public String internalName() { return "RUST"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new RustAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
@@ -471,7 +471,7 @@ public interface Language {
         @Override public String internalName() { return "PHP"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            return new PhpAnalyzer(project, project.getBuildDetails().excludedDirectories());
+            return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(Project project) { return createAnalyzer(project); }
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
@@ -505,7 +505,7 @@ public interface Language {
         @Override public String internalName() { return "SQL"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(Project project) {
-            var excludedDirStrings = project.getBuildDetails().excludedDirectories();
+            var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
             var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }

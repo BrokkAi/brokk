@@ -112,6 +112,77 @@ public class Context {
     }
 
     /**
+     * Produces a *live* context whose fragments are un-frozen versions of those
+     * in {@code frozen}.  Used by the UI when the user selects an old snapshot.
+     */
+    public static Context unfreeze(Context frozen) {
+        var cm = frozen.getContextManager();
+
+        var editable  = new ArrayList<ContextFragment>(); // Use general ContextFragment
+        var readonly  = new ArrayList<ContextFragment>(); // Use general ContextFragment
+        var virtuals  = new ArrayList<ContextFragment.VirtualFragment>();
+
+        // Iterate over frozen.editableFiles() and unfreeze any FrozenFragment found
+        frozen.editableFiles().forEach(f -> {
+            if (f instanceof FrozenFragment ff) {
+                try {
+                    editable.add(ff.unfreeze(cm));
+                } catch (IOException e) {
+                    logger.warn("Unable to unfreeze editable fragment {}: {}", ff.description(), e.getMessage());
+                    editable.add(ff); // fall back to frozen
+                }
+            } else {
+                editable.add(f); // Already live or non-dynamic
+            }
+        });
+
+        // Iterate over frozen.readonlyFiles() and unfreeze any FrozenFragment found
+        frozen.readonlyFiles().forEach(f -> {
+            if (f instanceof FrozenFragment ff) {
+                try {
+                    readonly.add(ff.unfreeze(cm));
+                } catch (IOException e) {
+                    logger.warn("Unable to unfreeze readonly fragment {}: {}", ff.description(), e.getMessage());
+                    readonly.add(ff); // fall back to frozen
+                }
+            } else {
+                readonly.add(f); // Already live or non-dynamic
+            }
+        });
+
+        // Iterate over frozen.virtualFragments() and unfreeze any FrozenFragment found
+        frozen.virtualFragments().forEach(vf -> { // vf is a VirtualFragment (could be a FrozenFragment of one)
+            if (vf instanceof FrozenFragment ff) {
+                try {
+                    var liveUnfrozen = ff.unfreeze(cm);
+                    // Ensure only VirtualFragments are added to virtuals list
+                    if (liveUnfrozen instanceof ContextFragment.VirtualFragment liveVf) {
+                        virtuals.add(liveVf);
+                    } else {
+                        // This case should be rare if Context.freeze() is correct.
+                        logger.warn("FrozenFragment from virtuals un-froze to non-VirtualFragment: {}. Retaining frozen.", ff.description());
+                        virtuals.add(ff); // fall back to frozen
+                    }
+                } catch (IOException e) {
+                    logger.warn("Unable to unfreeze virtual fragment {}: {}", ff.description(), e.getMessage());
+                    virtuals.add(ff); // fall back to frozen
+                }
+            } else {
+                virtuals.add(vf); // Already a live VirtualFragment
+            }
+        });
+
+        return new Context(frozen.getId(),
+                           cm,
+                           List.copyOf(editable),
+                           List.copyOf(readonly),
+                           List.copyOf(virtuals),
+                           frozen.getTaskHistory(),
+                           frozen.getParsedOutput(),
+                           frozen.action);
+    }
+
+    /**
      * Creates a new Context with an additional set of editable files. Rebuilds autoContext if toggled on.
      */
     public Context addEditableFiles(Collection<ContextFragment.ProjectPathFragment> paths) { // IContextManager is already member
@@ -810,28 +881,32 @@ public class Context {
         return maxId;
     }
 
-    public record FreezeResult(Context liveContext, Context frozenContext) { }
+    public record FreezeResult(Context liveContext, Context frozenContext) {
+        public FreezeResult {
+            assert liveContext != null;
+            assert frozenContext != null;
+        }
+    }
 
+    /**
+     * @return a FreezeResult with the (potentially modified to exclude invalid Fragments)
+     *         liveContext + frozenContext
+     */
     public FreezeResult freeze() {
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
         var badFragments = new ArrayList<ContextFragment>();
 
         for (var fragment : this.editableFiles) {
-            if (fragment.isDynamic()) {
-                try {
-                    var frozen = FrozenFragment.freeze(fragment, contextManager);
-                    liveEditableFiles.add(fragment);
-                    frozenEditableFiles.add(frozen);
-                } catch (IOException e) {
-                    logger.warn("Failed to freeze editable fragment {}: {}", fragment.description(), e.getMessage());
-                    badFragments.add(fragment);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e); // we should not be interrupted here
-                }
-            } else {
+            try {
+                var frozen = FrozenFragment.freeze(fragment, contextManager);
                 liveEditableFiles.add(fragment);
-                frozenEditableFiles.add(fragment); // Non-dynamic or already frozen
+                frozenEditableFiles.add(frozen);
+            } catch (IOException e) {
+                logger.warn("Failed to freeze editable fragment {}: {}", fragment.description(), e.getMessage());
+                badFragments.add(fragment);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e); // we should not be interrupted here
             }
         }
 
@@ -839,20 +914,15 @@ public class Context {
         var frozenReadonlyFiles = new ArrayList<ContextFragment>();
 
         for (var fragment : this.readonlyFiles) {
-            if (fragment.isDynamic()) {
-                try {
-                    var frozen = FrozenFragment.freeze(fragment, contextManager);
-                    liveReadonlyFiles.add(fragment);
-                    frozenReadonlyFiles.add(frozen);
-                } catch (IOException e) {
-                    logger.warn("Failed to freeze readonly fragment {}: {}", fragment.description(), e.getMessage());
-                    badFragments.add(fragment);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e); // we should not be interrupted here
-                }
-            } else {
+            try {
+                var frozen = FrozenFragment.freeze(fragment, contextManager);
                 liveReadonlyFiles.add(fragment);
-                frozenReadonlyFiles.add(fragment); // Non-dynamic or already frozen
+                frozenReadonlyFiles.add(frozen);
+            } catch (IOException e) {
+                logger.warn("Failed to freeze readonly fragment {}: {}", fragment.description(), e.getMessage());
+                badFragments.add(fragment);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e); // we should not be interrupted here
             }
         }
 
@@ -860,20 +930,15 @@ public class Context {
         var frozenVirtualFragments = new ArrayList<ContextFragment.VirtualFragment>();
 
         for (var fragment : this.virtualFragments) {
-            if (fragment.isDynamic() && !(fragment instanceof FrozenFragment)) {
-                try {
-                    var frozen = FrozenFragment.freeze(fragment, contextManager);
-                    liveVirtualFragments.add(fragment);
-                    frozenVirtualFragments.add(frozen);
-                } catch (IOException e) {
-                    logger.warn("Failed to freeze virtual fragment {}: {}", fragment.description(), e.getMessage());
-                    badFragments.add(fragment);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e); // we should not be interrupted here
-                }
-            } else {
+            try {
+                var frozen = FrozenFragment.freeze(fragment, contextManager);
                 liveVirtualFragments.add(fragment);
-                frozenVirtualFragments.add(fragment); // Non-dynamic or already frozen
+                frozenVirtualFragments.add((ContextFragment.VirtualFragment) frozen);
+            } catch (IOException e) {
+                logger.warn("Failed to freeze virtual fragment {}: {}", fragment.description(), e.getMessage());
+                badFragments.add(fragment);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e); // we should not be interrupted here
             }
         }
 

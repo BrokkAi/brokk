@@ -147,6 +147,10 @@ public interface ContextFragment {
 
     String syntaxStyle();
 
+    default ContextFragment unfreeze(IContextManager cm) throws IOException {
+        return this;
+    }
+
     /**
      * If false, the classes returned by sources() will be pruned from AutoContext suggestions.
      * (Corollary: if sources() always returns empty, this doesn't matter.)
@@ -234,7 +238,6 @@ public interface ContextFragment {
     }
 
     record ProjectPathFragment(ProjectFile file, int id, IContextManager contextManager) implements PathFragment {
-
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
             this(file, nextId.getAndIncrement(), contextManager);
         }
@@ -695,6 +698,12 @@ public interface ContextFragment {
             this.sources = sources;
         }
 
+        public SearchFragment(int existingId, IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
+            super(existingId, contextManager, EditBlockParser.instance, messages, sessionName); // Pass to appropriate TaskFragment constructor
+            assert sources != null;
+            this.sources = sources;
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.SEARCH;
@@ -732,12 +741,9 @@ public interface ContextFragment {
 
         @Override
         public boolean isDynamic() {
-            // PasteFragments depend on a Future for their description, which might not be
-            // complete at the time of freezing. Also, image content could be considered dynamic
-            // if it's from a mutable source, though PasteImageFragment usually implies clipboard.
-            // Treating them as dynamic ensures their state (description, image bytes) is
-            // captured point-in-time by FrozenFragment.
-            return true;
+            // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the corner case
+            // of the Future timing out in rare error scenarios
+            return false;
         }
 
         @Override
@@ -1120,7 +1126,7 @@ public interface ContextFragment {
             }
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
             switch (summaryType) {
-                case CLASS_SKELETON:
+                case CLASS_SKELETON -> {
                     for (String className : targetIdentifiers) {
                         analyzer.getDefinition(className).ifPresent(cu -> {
                             if (cu.isClass()) { // Ensure it's a class for getSkeleton
@@ -1128,8 +1134,8 @@ public interface ContextFragment {
                             }
                         });
                     }
-                    break;
-                case FILE_SKELETONS:
+                }
+                case FILE_SKELETONS -> {
                     // This assumes targetIdentifiers are file paths. Expansion of globs should happen before fragment creation.
                     for (String filePath : targetIdentifiers) {
                         IContextManager cm = getContextManager();
@@ -1138,7 +1144,7 @@ public interface ContextFragment {
                             skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
                         }
                     }
-                    break;
+                }
             }
             return skeletonsMap;
         }
@@ -1185,7 +1191,10 @@ public interface ContextFragment {
 
         @Override
         public Set<ProjectFile> files() {
-            return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+            return switch (summaryType) {
+                case CLASS_SKELETON -> sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+                case FILE_SKELETONS -> targetIdentifiers.stream().map(contextManager::toFile).collect(Collectors.toSet());
+            };
         }
 
         @Override
@@ -1271,7 +1280,7 @@ public interface ContextFragment {
 
         @Override
         public boolean isText() {
-            return false;
+            return true;
         }
 
         @Override
@@ -1361,7 +1370,7 @@ public interface ContextFragment {
 
         @Override
         public boolean isText() {
-            return false;
+            return true;
         }
 
         @Override

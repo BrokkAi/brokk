@@ -143,7 +143,7 @@ public class Project implements IProject, AutoCloseable {
                     projectProps.load(reader); // Attempt to load properties
                 }
 
-                var bd = getBuildDetails();
+                var bd = loadBuildDetails();
                 if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
                     this.detailsFuture.complete(bd);
                 }
@@ -315,7 +315,7 @@ public class Project implements IProject, AutoCloseable {
     }
 
     @Override
-    public BuildAgent.BuildDetails getBuildDetails() {
+    public BuildAgent.BuildDetails loadBuildDetails() {
         // Build details are project-specific, not workspace-specific
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
@@ -348,6 +348,16 @@ public class Project implements IProject, AutoCloseable {
         } else {
             detailsFuture.complete(details);
         }
+    }
+
+    /**
+     * Returns the CompletableFuture that will complete with the BuildDetails.
+     * This allows for non-blocking asynchronous handling of build detail determination.
+     *
+     * @return The {@link CompletableFuture} for {@link BuildAgent.BuildDetails}.
+     */
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
     }
 
     /**
@@ -838,36 +848,6 @@ public class Project implements IProject, AutoCloseable {
             }
         } catch (IOException e) {
             logger.error("Error saving context history for session {}: {}", sessionId, e.getMessage());
-        }
-    }
-
-    /**
-     * Loads a ContextHistory object from a ZIP file using HistoryIo (legacy single history)
-     *
-     * @return The loaded ContextHistory, or a new empty history if loading fails
-     */
-    public ContextHistory loadLegacyHistory(IContextManager contextManager) {
-        try {
-            ContextHistory ch = HistoryIo.readZip(historyZipFile, contextManager);
-            if (ch != null && !ch.getHistory().isEmpty()) {
-                int maxId = 0;
-                for (Context ctx : ch.getHistory()) {
-                    for (ContextFragment fragment : ctx.allFragments().toList()) {
-                        maxId = Math.max(maxId, fragment.id());
-                    }
-                    for (TaskEntry taskEntry : ctx.getTaskHistory()) {
-                        if (taskEntry.log() != null) {
-                            maxId = Math.max(maxId, taskEntry.log().id());
-                        }
-                    }
-                }
-                ContextFragment.setNextId(maxId + 1);
-                logger.debug("Restored fragment ID counter to {}", maxId + 1);
-            }
-            return ch;
-        } catch (IOException e) {
-            logger.error("Error loading context history: {}", e.getMessage());
-            return new ContextHistory();
         }
     }
 
@@ -1365,8 +1345,7 @@ public class Project implements IProject, AutoCloseable {
                 // For now, assuming ObjectMapper can handle the record directly
                 var typeFactory = objectMapper.getTypeFactory();
                 var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
-                // Explicit cast needed as readValue with JavaType returns Object
-                @SuppressWarnings("unchecked") // Cast is safe due to the type factory construction
+                // Cast is safe due to the type factory construction
                 List<Service.FavoriteModel> loadedList = objectMapper.readValue(json, listType);
                 logger.debug("Loaded {} favorite models from global properties.", loadedList.size());
                 return loadedList;

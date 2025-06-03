@@ -737,11 +737,10 @@ object CppAnalyzer {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    val scalaExcluded = excludedFiles.asScala.map(_.toString).toSeq
-
     val cfg = CConfig()
       .withInputPath(absPath.toString)
-      .withIgnoredFiles(scalaExcluded.toList)
+      .withDefaultIgnoredFilesRegex(Nil)
+      .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
       // Other CConfig options can be set here by chaining .withXyz methods, e.g.
       // .withIncludePathsAutoDiscovery(true)

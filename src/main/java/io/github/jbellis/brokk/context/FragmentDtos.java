@@ -284,6 +284,7 @@ public class FragmentDtos {
     public record FrozenFragmentDto(int id,
                                     String originalType,
                                     String description,
+                                    String shortDescription,
                                     String textContent,
                                     boolean isTextFragment,
                                     String syntaxStyle,
@@ -298,6 +299,9 @@ public class FragmentDtos {
             }
             if (description == null) {
                 throw new IllegalArgumentException("description cannot be null");
+            }
+            if (shortDescription == null) {
+                shortDescription = description;
             }
             if (syntaxStyle == null) {
                 throw new IllegalArgumentException("syntaxStyle cannot be null");
