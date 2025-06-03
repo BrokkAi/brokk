@@ -353,11 +353,11 @@ object JavaAnalyzer {
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
     // Build the CPG
-    val scalaExcludedFiles = excludedFiles.asScala.toSeq
     val config = Config()
       .withInputPath(absPath.toString)
       .withEnableTypeRecovery(true)
-      .withIgnoredFiles(scalaExcludedFiles)
+      .withDefaultIgnoredFilesRegex(Nil)
+      .withIgnoredFiles(excludedFiles.asScala.toSeq)
 
     val newCpg = JavaSrc2Cpg().createCpg(config).getOrElse {
       throw new IOException("Failed to create Java CPG")

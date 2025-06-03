@@ -8,9 +8,12 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -29,13 +32,47 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * An agent that iteratively explores a codebase using specific tools
- * to extract information relevant to the *development* build process.
+ * An intelligent agent that autonomously explores a software project to gather essential
+ * build configuration details for development environments.
+ * 
+ * <p>The BuildAgent uses an iterative approach powered by an LLM to examine project files,
+ * build configurations, and directory structures to determine:
+ * <ul>
+ *   <li><strong>Build/Lint Command:</strong> How to compile or lint the project incrementally</li>
+ *   <li><strong>Test All Command:</strong> How to run the complete test suite</li>
+ *   <li><strong>Test Some Command:</strong> A Mustache template for running specific tests</li>
+ *   <li><strong>Excluded Directories:</strong> Directories to exclude from code intelligence</li>
+ * </ul>
+ * 
+ * <p>The agent automatically detects the build system (Maven, Gradle, SBT, etc.) and applies
+ * appropriate conventions while also parsing .gitignore files to establish baseline exclusions.
+ * It focuses exclusively on development build configurations, explicitly avoiding production-specific
+ * settings unless they are the only available options.
+ * 
+ * <p><strong>Usage:</strong>
+ * <pre>{@code
+ * BuildAgent agent = new BuildAgent(project, llm, toolRegistry);
+ * BuildDetails details = agent.execute();
+ * if (!details.equals(BuildDetails.EMPTY)) {
+ *     // Use the gathered build information
+ *     System.out.println("Build command: " + details.buildLintCommand());
+ *     System.out.println("Test command: " + details.testAllCommand());
+ * }
+ * }</pre>
+ * 
+ * <p>The agent employs a tool-based exploration strategy, using file listing, content examination,
+ * and pattern searching to understand the project structure. The process continues until either
+ * sufficient information is gathered (via {@code reportBuildDetails}) or the agent determines
+ * the project structure is unsupported (via {@code abortBuildDetails}).
+ * 
+ * @see BuildDetails
+ * @see ToolRegistry
  */
 public class BuildAgent {
     private static final Logger logger = LogManager.getLogger(BuildAgent.class);
@@ -410,11 +447,11 @@ public class BuildAgent {
 
             // Determine if template is files-based or classes-based
             String testSomeTemplate = details.testSomeCommand();
-            boolean isFilesBased = testSomeTemplate.contains("{{files}}");
-            boolean isClassesBased = testSomeTemplate.contains("{{classes}}");
-            
+            boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
+            boolean isClassesBased = testSomeTemplate.contains("{{#classes}}");
+
             if (!isFilesBased && !isClassesBased) {
-                logger.debug("Test template doesn't use {{files}} or {{classes}}, using build/lint command: {}", details.buildLintCommand());
+                logger.debug("Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}", details.buildLintCommand());
                 return details.buildLintCommand();
             }
 
@@ -422,61 +459,43 @@ public class BuildAgent {
             if (isFilesBased) {
                 // Use file paths directly
                 targetItems = workspaceTestFiles.stream()
-                    .map(ProjectFile::toString)
-                    .toList();
+                                                .map(ProjectFile::toString)
+                                                .toList();
                 logger.debug("Using files-based template with {} files", targetItems.size());
-            } else {
-                // For classes-based templates, fall back to LLM approach for now
-                logger.debug("Classes-based template detected, falling back to LLM approach");
-                var prompt = """
-                             Given the build details and the list of test files modified or relevant to the recent changes,
-                             give the shell command to run *only* these specific tests. (You may chain multiple
-                             commands with &&, if necessary.)
-                             
-                             Build Details:
-                             Test All Command: %s
-                             Build/Lint Command: %s
-                             Test Some Command Template: %s
-                             
-                             Test Files to execute:
-                             %s
-                             
-                             Provide *only* the command line string to execute these specific tests.
-                             Do not include any explanation or formatting.
-                             If you cannot determine a more specific command, respond with an empty string.
-                             """.formatted(details.testAllCommand(),
-                                           details.buildLintCommand(),
-                                           details.testSomeCommand(),
-                                           workspaceTestFiles.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"))).stripIndent();
-                // Need a coder instance specifically for this task
-                var inferTestCoder = cm.getLlm(cm.getService().quickModel(), "Infer tests");
-                // Ask the LLM
-                Llm.StreamingResult llmResult;
+            } else { // isClassesBased
+                IAnalyzer analyzer;
                 try {
-                    llmResult = inferTestCoder.sendRequest(List.of(new UserMessage(prompt)));
+                    analyzer = cm.getAnalyzer();
                 } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
+                    Thread.currentThread().interrupt();
+                    throw new CancellationException("Interrupted while retrieving analyzer");
                 }
-                if (llmResult.chatResponse() == null || llmResult.chatResponse().aiMessage() == null) {
-                    logger.warn("No reply from LLM; falling back to default: {}", details.buildLintCommand());
+
+                if (analyzer.isEmpty()) {
+                    logger.warn("Analyzer is not available or empty; falling back to build/lint command: {}", details.buildLintCommand());
                     return details.buildLintCommand();
                 }
 
-                // remove potential markdown syntax
-                String rawCommandFromLlm = llmResult.chatResponse().aiMessage().text();
-                var suggestedCommand = unmarkdown(rawCommandFromLlm);
+                var classUnitsInTestFiles = workspaceTestFiles.stream()
+                    .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
+                    .filter(CodeUnit::isClass)
+                    .collect(Collectors.toSet());
 
-                // Use the suggested command if valid, otherwise fallback
-                if (suggestedCommand.isBlank()) {
-                    logger.warn("Blank reply from LLM; falling back to default: {}", details.buildLintCommand());
+                var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
+
+                targetItems = coalescedClasses.stream()
+                                              .map(CodeUnit::fqName)
+                                              .sorted() // for consistent test command generation
+                                              .toList();
+
+                if (targetItems.isEmpty()) {
+                    logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
                     return details.buildLintCommand();
                 }
-
-                logger.debug("LLM suggested specific test command: '{}'", suggestedCommand);
-                return suggestedCommand;
+                logger.debug("Using classes-based template with {} classes", targetItems.size());
             }
 
-            // Perform simple template interpolation for files-based templates
+            // Perform simple template interpolation
             String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, isFilesBased);
             logger.debug("Interpolated test command: '{}'", interpolatedCommand);
             return interpolatedCommand;
