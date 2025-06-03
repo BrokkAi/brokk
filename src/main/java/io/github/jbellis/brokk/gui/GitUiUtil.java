@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -161,8 +162,8 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
-                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(commitContent, commitId, file.toString()))
+                            .leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
+                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -381,8 +382,8 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString()))
-                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(file.absPath().toFile(), file.toString()))
+                            .leftSource(new BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString()))
+                            .rightSource(new BufferSource.FileSource(file.absPath().toFile(), file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
@@ -462,6 +463,60 @@ public final class GitUiUtil
      * @param baseBranchName   The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
      * @param compareBranchName The name of the branch to compare against the base.
      */
+    /**
+     * Open a BrokkDiffPanel showing all file changes in the specified commit.
+     */
+    public static void openCommitDiffPanel(
+            ContextManager cm,
+            Chrome chrome,
+            io.github.jbellis.brokk.git.ICommitInfo commitInfo
+    ) {
+        var repo = cm.getProject().getRepo();
+        if (repo == null) {
+            chrome.toolError("Git repository not available.");
+            return;
+        }
+
+        cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
+            try {
+                var files = commitInfo.changedFiles();
+                if (files == null || files.isEmpty()) {
+                    chrome.systemOutput("No files changed in this commit.");
+                    return;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, cm);
+                var parentId = commitInfo.id() + "^";
+
+                for (var file : files) {
+                    var oldContent = getFileContentOrEmpty(repo, parentId, file);
+                    var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+
+                    builder.addComparison(
+                        new BufferSource.StringSource(oldContent, parentId, file.toString()),
+                        new BufferSource.StringSource(newContent, commitInfo.id(), file.toString())
+                    );
+                }
+
+                var title = "Commit Diff: %s (%s)".formatted(
+                        commitInfo.message().lines().findFirst().orElse(""),
+                        commitInfo.id().substring(0, 7)
+                );
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+            } catch (Exception ex) {
+                chrome.toolErrorRaw("Error opening commit diff: " + ex.getMessage());
+            }
+        });
+    }
+
+    private static String getFileContentOrEmpty(io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
+        try {
+            return repo.getFileContent(commitId, file);
+        } catch (Exception e) {
+            return ""; // File may be new or deleted
+        }
+    }
+
     public static void captureDiffBetweenBranches
     (
             ContextManager cm,

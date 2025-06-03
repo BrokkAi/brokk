@@ -337,11 +337,13 @@ public class GitLogTab extends JPanel {
         JMenuItem addToContextItem = new JMenuItem("Capture Diff");
         JMenuItem softResetItem = new JMenuItem("Soft Reset to Here");
         JMenuItem revertCommitItem = new JMenuItem("Revert Commit");
+        JMenuItem viewChangesItem = new JMenuItem("View Diff");
         JMenuItem popStashCommitItem = new JMenuItem("Apply and Remove");
         JMenuItem applyStashCommitItem = new JMenuItem("Apply Stash");
         JMenuItem dropStashCommitItem = new JMenuItem("Drop Stash");
 
         commitsContextMenu.add(addToContextItem);
+        commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(softResetItem);
         commitsContextMenu.add(revertCommitItem);
         commitsContextMenu.add(popStashCommitItem);
@@ -399,6 +401,7 @@ public class GitLogTab extends JPanel {
                 int[] selectedRows = commitsTable.getSelectedRows(); // Use all selected rows
                 if (selectedRows.length == 0) { // No rows selected
                     addToContextItem.setVisible(false);
+                    viewChangesItem.setVisible(false);
                     softResetItem.setVisible(false);
                     revertCommitItem.setVisible(false);
                     popStashCommitItem.setVisible(false);
@@ -412,6 +415,8 @@ public class GitLogTab extends JPanel {
                 boolean isStash = firstCommitInfo.stashIndex().isPresent();
 
                 addToContextItem.setVisible(true); // Always visible if any commit selected
+                viewChangesItem.setVisible(true);
+                viewChangesItem.setEnabled(selectedRows.length == 1); // only single commit
 
                 softResetItem.setVisible(!isStash);
                 softResetItem.setEnabled(selectedRows.length == 1 && !isStash); // Only for single, non-stash selection
@@ -500,6 +505,13 @@ public class GitLogTab extends JPanel {
                                    ? commitMessage.substring(0, commitMessage.indexOf('\n'))
                                    : commitMessage;
                 softResetToCommit(commitId, firstLine);
+            }
+        });
+        viewChangesItem.addActionListener(e -> {
+            int[] rows = commitsTable.getSelectedRows();
+            if (rows.length == 1) {
+                ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(rows[0], 5);
+                GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
             }
         });
         revertCommitItem.addActionListener(e -> {
