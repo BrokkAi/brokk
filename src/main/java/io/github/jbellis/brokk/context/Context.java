@@ -247,45 +247,12 @@ public class Context {
         return getWithFragments(editableFiles, newReadOnly, virtualFragments, action);
     }
 
-    public Context removeVirtualFragments(List<? extends ContextFragment.VirtualFragment> fragments) { // IContextManager is already member
-        var newFragments = new ArrayList<>(virtualFragments);
-        newFragments.removeAll(fragments);
-        if (newFragments.equals(virtualFragments)) {
-            return this;
-        }
-
-        String actionDetails = fragments.stream()
-                .map(ContextFragment::shortDescription)
-                .collect(Collectors.joining(", "));
-        String action = "Removed " + actionDetails;
-        return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
-    }
-
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) { // IContextManager is already member
         var newFragments = new ArrayList<>(virtualFragments);
         newFragments.add(fragment);
 
         String action = "Added " + fragment.shortDescription();
         return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
-    }
-
-    /**
-     * Adds a virtual fragment and uses the same future for both fragment description and action
-     */
-    public Context addPasteFragment(ContextFragment.PasteTextFragment fragment, Future<String> summaryFuture) { // IContextManager is already member
-        var newFragments = new ArrayList<>(virtualFragments);
-        newFragments.add(fragment);
-
-        // Create a future that prepends "Added " to the summary
-        Future<String> actionFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                return "Added paste of " + summaryFuture.get();
-            } catch (Exception e) {
-                return "Added paste";
-            }
-        });
-
-        return withFragments(editableFiles, readonlyFiles, newFragments, actionFuture);
     }
 
     public Context removeBadFragment(ContextFragment f) { // IContextManager is already member
@@ -543,11 +510,6 @@ public class Context {
 
     public Context removeAll() {
         String action = "Dropped all context";
-        // editable
-        // readonly
-        // virtual
-        // task history
-        // parsed output
         return new Context(newId(),
                            contextManager,
                            List.of(), // editable
@@ -586,7 +548,6 @@ public class Context {
      */
     public Context addHistoryEntry(TaskEntry taskEntry, ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory = Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        // new task history list
         return new Context(newId(),
                            contextManager,
                            editableFiles,
@@ -608,7 +569,6 @@ public class Context {
                            null,
                            CompletableFuture.completedFuture("Cleared task history"));
     }
-
 
     /**
      * @return an immutable copy of the task history.
