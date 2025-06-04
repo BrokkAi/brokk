@@ -535,7 +535,6 @@ public class WorkspacePanel extends JPanel {
     // Column dimensions
     private static final int LOC_COLUMN_WIDTH = 55;
     private static final int LOC_COLUMN_RIGHT_PADDING = 2;
-    private static final int LOC_COLUMN_TOP_PADDING = 1;
     private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
@@ -622,12 +621,27 @@ public class WorkspacePanel extends JPanel {
         // Add custom cell renderer for the "Description" column that includes badges
         contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
         
-        // Set right alignment for LOC column numbers with exact baseline alignment
-        var locRenderer = new javax.swing.table.DefaultTableCellRenderer();
+        // Set right alignment for LOC column numbers with font metrics-based baseline alignment
+        var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                                                          boolean isSelected, boolean hasFocus,
+                                                          int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                
+                // Calculate baseline-aligned padding using font metrics - match TableUtils calculation
+                var tableFont = table.getFont();
+                var fontMetrics = table.getFontMetrics(tableFont);
+                
+                // Use a small offset to align with description text baseline (similar to TableUtils approach)
+                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                
+                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
+                return c;
+            }
+        };
         locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
         locRenderer.setVerticalAlignment(SwingConstants.TOP);
-        // Match the exact padding used by the description column - add small top padding for baseline alignment
-        locRenderer.setBorder(BorderFactory.createEmptyBorder(LOC_COLUMN_TOP_PADDING, 0, 0, LOC_COLUMN_RIGHT_PADDING));
         contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
         // Remove file references column setup - badges will be in description column
