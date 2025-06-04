@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,6 +18,7 @@ import java.util.Set;
  * Utility class for creating and displaying context menus for file references.
  */
 public final class ContextMenuUtils {
+    private static final Logger logger = LogManager.getLogger(ContextMenuUtils.class);
     
     /**
      * Handles mouse clicks on file reference badges in a table.
@@ -40,7 +43,11 @@ public final class ContextMenuUtils {
      * @param onRefreshSuggestions Runnable to call when "Refresh Suggestions" is selected
      * @param columnIndex The column index containing the file references
      */
-    public static void handleFileReferenceClick(MouseEvent e, JTable table, Chrome chrome, Runnable onRefreshSuggestions, int columnIndex) {
+    public static void handleFileReferenceClick(MouseEvent e,
+                                                JTable table,
+                                                Chrome chrome,
+                                                Runnable onRefreshSuggestions,
+                                                int columnIndex) {
         assert SwingUtilities.isEventDispatchThread();
         
         Point p = e.getPoint();
@@ -83,7 +90,13 @@ public final class ContextMenuUtils {
             // InstructionsPanel case - direct AdaptiveFileReferenceList
             visibleFiles = afl.getVisibleFiles();
             hasOverflow = afl.hasOverflow();
-            if (hasOverflow) {
+            
+            // BUGFIX: If renderer reports no overflow but we have more files than visible,
+            // recalculate overflow state. This handles cases where renderer wasn't properly laid out.
+            if (!hasOverflow && fileRefs.size() > visibleFiles.size()) {
+                hasOverflow = true;
+                hiddenFiles = fileRefs.subList(visibleFiles.size(), fileRefs.size());
+            } else if (hasOverflow) {
                 hiddenFiles = afl.getHiddenFiles();
             }
         } else if (renderer instanceof javax.swing.JPanel panel) {
@@ -99,7 +112,12 @@ public final class ContextMenuUtils {
             if (foundAfl != null) {
                 visibleFiles = foundAfl.getVisibleFiles();
                 hasOverflow = foundAfl.hasOverflow();
-                if (hasOverflow) {
+                
+                // BUGFIX: Apply same overflow detection fix for WorkspacePanel
+                if (!hasOverflow && fileRefs.size() > visibleFiles.size()) {
+                    hasOverflow = true;
+                    hiddenFiles = fileRefs.subList(visibleFiles.size(), fileRefs.size());
+                } else if (hasOverflow) {
                     hiddenFiles = foundAfl.getHiddenFiles();
                 }
             } else {
@@ -141,12 +159,20 @@ public final class ContextMenuUtils {
         } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
             // Left-click
             var targetRef = TableUtils.findClickedReference(p, row, columnIndex, table, visibleFiles);
+            logger.debug("Left-click on file badges - targetRef={}, hasOverflow={}, visibleFiles={}, totalFiles={}", 
+                         targetRef != null ? targetRef.getFileName() : "null", hasOverflow, visibleFiles.size(), fileRefs.size());
             
-            // If no visible badge was clicked AND we have overflow
+            // If no visible badge was clicked, check if it was an overflow badge click
             if (targetRef == null && hasOverflow) {
-                // Show the overflow popup with only the hidden files
-                TableUtils.showOverflowPopup(chrome, table, row, columnIndex, hiddenFiles);
-                e.consume(); // Prevent further listeners from acting on this event
+                // Check if the click is actually on the overflow badge area
+                boolean isOverflowClick = TableUtils.isClickOnOverflowBadge(p, row, columnIndex, table, visibleFiles, hasOverflow);
+                logger.debug("Overflow badge click check - isOverflowClick={}", isOverflowClick);
+                if (isOverflowClick) {
+                    // Show the overflow popup with only the hidden files
+                    logger.debug("Showing overflow popup with {} hidden files", hiddenFiles.size());
+                    TableUtils.showOverflowPopup(chrome, table, row, columnIndex, hiddenFiles);
+                    e.consume(); // Prevent further listeners from acting on this event
+                }
             }
         }
     }
@@ -178,7 +204,12 @@ public final class ContextMenuUtils {
      * @param chrome The Chrome instance for UI integration
      * @param onRefreshSuggestions Runnable to call when "Refresh Suggestions" is selected
      */
-    public static void showFileRefMenu(Component owner, int x, int y, Object fileRefData, Chrome chrome, Runnable onRefreshSuggestions) {
+    public static void showFileRefMenu(Component owner,
+                                        int x,
+                                        int y,
+                                        Object fileRefData,
+                                        Chrome chrome,
+                                        Runnable onRefreshSuggestions) {
         // Convert to our FileReferenceData - we know it's always this type from all callers
         TableUtils.FileReferenceList.FileReferenceData targetRef = 
             (TableUtils.FileReferenceList.FileReferenceData) fileRefData;
@@ -254,7 +285,10 @@ public final class ContextMenuUtils {
     /**
      * Helper method to detach context listener temporarily while performing operations.
      */
-    private static void withTemporaryListenerDetachment(Chrome chrome, ContextManager cm, Runnable action, String taskDescription) {
+    private static void withTemporaryListenerDetachment(Chrome chrome,
+                                                         ContextManager cm,
+                                                         Runnable action,
+                                                         String taskDescription) {
         // Access the contextManager from Chrome and call submitContextTask on it
         chrome.getContextManager().submitContextTask(taskDescription, action);
     }

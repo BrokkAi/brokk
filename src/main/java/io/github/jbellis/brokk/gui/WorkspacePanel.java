@@ -445,13 +445,6 @@ public class WorkspacePanel extends JPanel {
             descLabel.setForeground(panel.getForeground());
             descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
             
-            // Apply italic font for editable items (those with ✏️ prefix)
-            if (description.startsWith("✏️")) {
-                descLabel.setFont(descLabel.getFont().deriveFont(Font.ITALIC));
-            } else {
-                descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN));
-            }
-            
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             panel.add(descLabel);
@@ -658,7 +651,6 @@ public class WorkspacePanel extends JPanel {
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMaxWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
-        // Column widths - now only 3 columns
         // LOC column: precise width so right-aligned numbers align with description text start
         contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(LOC_COLUMN_WIDTH);
         contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(LOC_COLUMN_WIDTH);
@@ -679,8 +671,6 @@ public class WorkspacePanel extends JPanel {
 
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
-                // The main handler will build the menu based on the row selection state,
-                // which is the desired "unified" behavior.
                 if (!e.isPopupTrigger()) {
                     // Handle badge clicks in the new description column layout
                     int col = contextTable.columnAtPoint(e.getPoint());
@@ -1010,13 +1000,10 @@ public class WorkspacePanel extends JPanel {
      */
     public List<ContextFragment> getSelectedFragments() {
         return SwingUtil.runOnEdt(() -> {
-            var fragments = new ArrayList<ContextFragment>();
-            int[] selectedRows = contextTable.getSelectedRows();
             var tableModel = (DefaultTableModel) contextTable.getModel();
-            for (int row : selectedRows) {
-                fragments.add((ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN));
-            }
-            return fragments;
+            return Arrays.stream(contextTable.getSelectedRows())
+                    .mapToObj(row -> (ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN))
+                    .collect(Collectors.toList());
         }, List.of());
     }
 
@@ -1257,9 +1244,7 @@ public class WorkspacePanel extends JPanel {
                         .collect(Collectors.toList());
                 
                 if (!fileReferences.isEmpty()) {
-                    // For now, we'll need to implement more sophisticated click detection
-                    // to determine if the click was specifically on a badge
-                    // This is a simplified approach that assumes badge area click
+                    // We need to determine if the click was specifically on a badge
                     Rectangle cellRect = contextTable.getCellRect(row, col, false);
                     int yInCell = e.getPoint().y - cellRect.y;
                     
@@ -1466,11 +1451,10 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Edit files from selected fragments
-            var files = new HashSet<ProjectFile>();
-            selectedFragments.stream()
-                             .flatMap(fragment -> fragment.files().stream()) // Corrected: No analyzer
-                             .filter(Objects::nonNull)
-                             .forEach(files::add);
+            var files = selectedFragments.stream()
+                                        .flatMap(fragment -> fragment.files().stream())
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toSet());
             contextManager.editFiles(files); 
         }
     }
@@ -1493,10 +1477,9 @@ public class WorkspacePanel extends JPanel {
             contextManager.addReadOnlyFiles(selection.files());
         } else {
             // Add files from selected fragments
-            var files = new HashSet<BrokkFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files()); // No analyzer
-            }
+            var files = selectedFragments.stream()
+                               .flatMap(frag -> frag.files().stream())
+                               .collect(Collectors.toSet());
             contextManager.addReadOnlyFiles(files);
         }
     }
@@ -1741,9 +1724,9 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Fragment case: Extract files and classes from selected fragments
-            for (var frag : selectedFragments) {
-                selectedFiles.addAll(frag.files());
-            }
+            selectedFragments.stream()
+                    .flatMap(frag -> frag.files().stream())
+                    .forEach(selectedFiles::add);
         }
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
@@ -1763,13 +1746,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        if (files == null) return List.of();
-        return files.stream().map(f -> {
-            if (f instanceof ProjectFile pf) {
-                return pf;
-            }
-            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-        }).toList();
+        return files == null ? List.of() : files.stream()
+                .map(f -> {
+                    if (f instanceof ProjectFile pf) {
+                        return pf;
+                    }
+                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                })
+                .toList();
     }
 
     /**
