@@ -47,13 +47,26 @@ public final class ContextMenuUtils {
         int row = table.rowAtPoint(p);
         if (row < 0) return;
 
-        // Always select the row for visual feedback
+        // Request focus and select the row containing the badge
         table.requestFocusInWindow();
         table.setRowSelectionInterval(row, row);
         
-        @SuppressWarnings("unchecked")
-        var fileRefs = (List<FileReferenceData>)
-                table.getValueAt(row, columnIndex);
+        // Extract file references - handle both List<FileReferenceData> and DescriptionWithReferences
+        List<FileReferenceData> fileRefs;
+        Object cellValue = table.getValueAt(row, columnIndex);
+        
+        if (cellValue instanceof List) {
+            // InstructionsPanel case - direct list of file references
+            @SuppressWarnings("unchecked")
+            var directList = (List<FileReferenceData>) cellValue;
+            fileRefs = directList;
+        } else if (cellValue instanceof io.github.jbellis.brokk.gui.WorkspacePanel.DescriptionWithReferences descWithRefs) {
+            // WorkspacePanel case - extract from DescriptionWithReferences record
+            fileRefs = descWithRefs.fileReferences();
+        } else {
+            // Unsupported cell value type
+            return;
+        }
 
         if (fileRefs == null || fileRefs.isEmpty()) return;
         
@@ -67,11 +80,31 @@ public final class ContextMenuUtils {
         boolean hasOverflow = false;
         
         if (renderer instanceof TableUtils.FileReferenceList.AdaptiveFileReferenceList afl) {
-            // Direct method calls on the casted object
+            // InstructionsPanel case - direct AdaptiveFileReferenceList
             visibleFiles = afl.getVisibleFiles();
             hasOverflow = afl.hasOverflow();
             if (hasOverflow) {
                 hiddenFiles = afl.getHiddenFiles();
+            }
+        } else if (renderer instanceof javax.swing.JPanel panel) {
+            // WorkspacePanel case - AdaptiveFileReferenceList is inside a JPanel
+            TableUtils.FileReferenceList.AdaptiveFileReferenceList foundAfl = null;
+            for (java.awt.Component c : panel.getComponents()) {
+                if (c instanceof TableUtils.FileReferenceList.AdaptiveFileReferenceList afl) {
+                    foundAfl = afl;
+                    break;
+                }
+            }
+            
+            if (foundAfl != null) {
+                visibleFiles = foundAfl.getVisibleFiles();
+                hasOverflow = foundAfl.hasOverflow();
+                if (hasOverflow) {
+                    hiddenFiles = foundAfl.getHiddenFiles();
+                }
+            } else {
+                // JPanel doesn't contain AdaptiveFileReferenceList
+                visibleFiles = fileRefs;
             }
         } else {
             // Fallback if not the expected renderer type
