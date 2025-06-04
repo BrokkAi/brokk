@@ -1100,4 +1100,57 @@ public class ContextSerializationTest {
         assertEquals(1, loadedFragment.sources().size());
         assertEquals(codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
     }
+
+    @Test
+    void testVirtualFragmentDeduplicationAfterSerialization() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+
+        // Create an initial context
+        var context = new Context(mockContextManager, "Test Deduplication");
+
+        // Add virtual fragments, some with duplicate text content
+        // The IDs will be 3, 4, 5, 6, 7 based on current setup
+        var vf1 = new ContextFragment.StringFragment(mockContextManager, "uniqueText1", "Description for uniqueText1 (first)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf2 = new ContextFragment.StringFragment(mockContextManager, "duplicateText", "Description for duplicateText (first)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf3 = new ContextFragment.StringFragment(mockContextManager, "uniqueText2", "Description for uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf4_duplicate_of_vf2 = new ContextFragment.StringFragment(mockContextManager, "duplicateText", "Description for duplicateText (second, different desc)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf5_duplicate_of_vf1 = new ContextFragment.StringFragment(mockContextManager, "uniqueText1", "Description for uniqueText1 (second, different desc)", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        context = context.addVirtualFragment(vf1);
+        context = context.addVirtualFragment(vf2);
+        context = context.addVirtualFragment(vf3);
+        context = context.addVirtualFragment(vf4_duplicate_of_vf2);
+        context = context.addVirtualFragment(vf5_duplicate_of_vf1);
+
+        originalHistory.setInitialContext(context.freezeForTesting());
+
+        // Serialize and deserialize
+        Path zipFile = tempDir.resolve("deduplication_test_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertNotNull(loadedHistory);
+        assertEquals(1, loadedHistory.getHistory().size());
+        Context deserializedContext = loadedHistory.getHistory().get(0);
+
+        // Verify deduplication behavior of virtualFragments()
+        List<ContextFragment.VirtualFragment> deduplicatedFragments = deserializedContext.virtualFragments().collect(Collectors.toList());
+
+        // Expected: 3 unique fragments based on text content.
+        // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
+        assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
+
+        Set<String> actualTexts = deduplicatedFragments.stream()
+                .map(ContextFragment.VirtualFragment::text)
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("uniqueText1", "duplicateText", "uniqueText2"), actualTexts, "Texts of deduplicated fragments do not match expected unique texts.");
+
+        // Verify that the specific fragments kept are the first ones encountered
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "uniqueText1".equals(f.text()) && "Description for uniqueText1 (first)".equals(f.description())),
+                   "Expected first instance of 'uniqueText1' to be present.");
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "duplicateText".equals(f.text()) && "Description for duplicateText (first)".equals(f.description())),
+                   "Expected first instance of 'duplicateText' to be present.");
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "uniqueText2".equals(f.text()) && "Description for uniqueText2".equals(f.description())),
+                   "Expected 'uniqueText2' to be present.");
+    }
 }
