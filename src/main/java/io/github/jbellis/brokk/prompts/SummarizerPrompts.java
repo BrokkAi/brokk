@@ -43,7 +43,7 @@ public class SummarizerPrompts {
         """;
         var exampleRequest = getRequest(example, wordBudget);
         var exampleResponse = wordBudget == WORD_BUDGET_12
-                ? "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration."
+                ? "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration"
                 : "Brokk: context management, agentic search";
 
         var request = getRequest(actionTxt, wordBudget);

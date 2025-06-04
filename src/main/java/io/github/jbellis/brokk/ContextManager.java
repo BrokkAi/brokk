@@ -1978,7 +1978,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return "Summarization failed.";
             }
             var summary = result.chatResponse().aiMessage().text().trim();
-            if (words == SummarizerPrompts.WORD_BUDGET_5 && summary.endsWith(".")) {
+            if (summary.endsWith(".")) {
                 return summary.substring(0, summary.length() - 1);
             }
             return summary;
