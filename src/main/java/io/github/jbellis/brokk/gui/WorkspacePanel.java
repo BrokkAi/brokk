@@ -389,6 +389,105 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
+     * Immutable record containing description text and associated file references
+     */
+    public static record DescriptionWithReferences(
+        String description,
+        List<TableUtils.FileReferenceList.FileReferenceData> fileReferences,
+        ContextFragment fragment
+    ) {
+        public DescriptionWithReferences {
+            // Defensive copy for immutability
+            fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
+        }
+        
+        @Override
+        public String toString() {
+            return description; // For backward compatibility with existing code that expects String
+        }
+    }
+
+    /**
+     * Custom table cell renderer for the Description column that displays
+     * description text on top and file reference badges below.
+     */
+    private static class DescriptionWithBadgesRenderer implements javax.swing.table.TableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                                                      boolean isSelected, boolean hasFocus,
+                                                      int row, int column) {
+            // Create main panel with vertical layout
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(true);
+            
+            // Set colors based on selection
+            if (isSelected) {
+                panel.setBackground(table.getSelectionBackground());
+                panel.setForeground(table.getSelectionForeground());
+            } else {
+                panel.setBackground(table.getBackground());
+                panel.setForeground(table.getForeground());
+            }
+            
+            // Extract data from the DescriptionWithReferences record
+            DescriptionWithReferences data = (DescriptionWithReferences) value;
+            if (data == null) {
+                return panel; // Return empty panel if no data
+            }
+            
+            String description = data.description();
+            List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
+            
+            // Create description label
+            JLabel descLabel = new JLabel(description);
+            descLabel.setOpaque(false);
+            descLabel.setForeground(panel.getForeground());
+            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
+            
+            // Add description to panel
+            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(descLabel);
+            
+            // Add file badges if there are any
+            if (!fileReferences.isEmpty()) {
+                // Add small vertical gap
+                panel.add(Box.createVerticalStrut(3));
+                
+                // Calculate available width for badges (table column width minus padding)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                
+                // Create adaptive file reference list
+                var badgeList = new TableUtils.FileReferenceList.AdaptiveFileReferenceList(
+                        fileReferences, availableWidth, 4);
+                badgeList.setOpaque(false);
+                badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                
+                // Set badge colors based on selection
+                badgeList.setSelected(isSelected);
+                
+                panel.add(badgeList);
+            }
+            
+            // Calculate preferred height
+            int preferredHeight = calculatePreferredHeight(panel);
+            
+            // Set row height if different from current
+            if (table.getRowHeight(row) != preferredHeight) {
+                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
+            }
+            
+            return panel;
+        }
+        
+        private int calculatePreferredHeight(JPanel panel) {
+            // Force layout to get accurate measurements
+            panel.doLayout();
+            return panel.getPreferredSize().height + 4; // Add small padding
+        }
+    }
+
+    /**
      * Helper for building popup menus consistently
      */
     public static class PopupBuilder {
@@ -429,8 +528,14 @@ public class WorkspacePanel extends JPanel {
     }
 
     // Columns
-    private final int FILES_REFERENCED_COLUMN = 2;
-    private final int FRAGMENT_COLUMN = 3;
+    public static final int LOC_COLUMN = 0;
+    public static final int DESCRIPTION_COLUMN = 1;
+    private final int FRAGMENT_COLUMN = 2;
+    
+    // Column dimensions
+    private static final int LOC_COLUMN_WIDTH = 55;
+    private static final int LOC_COLUMN_RIGHT_PADDING = 6;
+    private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
     private final Chrome chrome;
@@ -485,7 +590,7 @@ public class WorkspacePanel extends JPanel {
      * Build the context panel (unified table + action buttons).
      */
     private void buildContextPanel() {
-        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Fragment"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -494,10 +599,9 @@ public class WorkspacePanel extends JPanel {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return switch (columnIndex) {
-                    case 0 -> Integer.class;
-                    case 1 -> String.class;
-                    case 2 -> List.class; // Our references column
-                    case 3 -> ContextFragment.class;
+                    case LOC_COLUMN -> Integer.class;
+                    case DESCRIPTION_COLUMN -> DescriptionWithReferences.class;
+                    case FRAGMENT_COLUMN -> ContextFragment.class;
                     default -> Object.class;
                 };
             }
@@ -514,37 +618,44 @@ public class WorkspacePanel extends JPanel {
             }
         };
 
-        // Add custom cell renderer for the "Description" column
-        contextTable.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+        // Add custom cell renderer for the "Description" column that includes badges
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
+        
+        // Set right alignment for LOC column numbers with font metrics-based baseline alignment
+        var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                var c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (value != null && value.toString().startsWith("✏️")) {
-                    setFont(getFont().deriveFont(Font.ITALIC));
-                } else {
-                    setFont(getFont().deriveFont(Font.PLAIN));
-                }
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                                                          boolean isSelected, boolean hasFocus,
+                                                          int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                
+                // Calculate baseline-aligned padding using font metrics - match TableUtils calculation
+                var tableFont = table.getFont();
+                var fontMetrics = table.getFontMetrics(tableFont);
+                
+                // Use a small offset to align with description text baseline (similar to TableUtils approach)
+                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                
+                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
-        });
+        };
+        locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
-        // Files Referenced column: use our FileReferencesTableCellRenderer
-        var fileRenderer = new TableUtils.FileReferencesTableCellRenderer();
-        contextTable.getColumnModel().getColumn(FILES_REFERENCED_COLUMN).setCellRenderer(fileRenderer);
-
-        // Dynamically set row height based on renderer's preferred size
-        contextTable.setRowHeight(TableUtils.measuredBadgeRowHeight(contextTable));
+        // Remove file references column setup - badges will be in description column
 
         // Hide the FRAGMENT_COLUMN from view
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMinWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMaxWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
-        // Column widths
-        contextTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        contextTable.getColumnModel().getColumn(0).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(1).setPreferredWidth(230);
-        contextTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+        // LOC column: precise width so right-aligned numbers align with description text start
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMinWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(DESCRIPTION_COLUMN_WIDTH);
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
@@ -560,23 +671,31 @@ public class WorkspacePanel extends JPanel {
 
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
-                // The main handler will build the menu based on the row selection state,
-                // which is the desired "unified" behavior.
-                if (e.isPopupTrigger()) {
-                    return;
-                }
-
-                // For non-popup triggers (e.g., left clicks), proceed with badge-specific actions
-                // like opening the overflow popup.
-                int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == FILES_REFERENCED_COLUMN) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e,
-                            contextTable,
-                            chrome,
-                            () -> {}, // Workspace doesn't need to refresh suggestions
-                            FILES_REFERENCED_COLUMN
-                    );
+                if (!e.isPopupTrigger()) {
+                    // Handle badge clicks in the new description column layout
+                    int col = contextTable.columnAtPoint(e.getPoint());
+                    if (col == DESCRIPTION_COLUMN) { // Description column
+                        int row = contextTable.rowAtPoint(e.getPoint());
+                        if (row >= 0) {
+                            // Check if the cell contains file references
+                            var descriptionData = (DescriptionWithReferences) contextTable.getModel().getValueAt(row, DESCRIPTION_COLUMN);
+                            if (descriptionData != null && !descriptionData.fileReferences().isEmpty()) {
+                                // Check if the click actually hit a badge (not just anywhere in the cell)
+                                var clickedRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, descriptionData.fileReferences());
+                                
+                                if (clickedRef != null) {
+                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                    ContextMenuUtils.handleFileReferenceClick(
+                                            e,
+                                            contextTable,
+                                            chrome,
+                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            DESCRIPTION_COLUMN
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -587,23 +706,8 @@ public class WorkspacePanel extends JPanel {
             public void mouseMoved(MouseEvent e) {
                 int row = contextTable.rowAtPoint(e.getPoint());
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col == FILES_REFERENCED_COLUMN) {
-                    var value = contextTable.getValueAt(row, col);
-                    if (value != null) {
-                        // Show file references in a multiline tooltip
-                        @SuppressWarnings("unchecked") List<TableUtils.FileReferenceList.FileReferenceData> refs = (List<TableUtils.FileReferenceList.FileReferenceData>) value;
-                        if (!refs.isEmpty()) {
-                            var sb = new StringBuilder("<html>");
-                            for (TableUtils.FileReferenceList.FileReferenceData r : refs) {
-                                sb.append(r.getFullPath()).append("<br>");
-                            }
-                            sb.append("</html>");
-                            contextTable.setToolTipText(sb.toString());
-                            return;
-                        }
-                    }
-                } else if (row >= 0 && col == 1) {
-                    // Show full description
+                if (row >= 0 && col == DESCRIPTION_COLUMN) {
+                    // Show full description - badge tooltips will be handled by new renderer
                     var value = contextTable.getValueAt(row, col);
                     if (value != null) {
                         contextTable.setToolTipText(value.toString());
@@ -896,13 +1000,10 @@ public class WorkspacePanel extends JPanel {
      */
     public List<ContextFragment> getSelectedFragments() {
         return SwingUtil.runOnEdt(() -> {
-            var fragments = new ArrayList<ContextFragment>();
-            int[] selectedRows = contextTable.getSelectedRows();
             var tableModel = (DefaultTableModel) contextTable.getModel();
-            for (int row : selectedRows) {
-                fragments.add((ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN));
-            }
-            return fragments;
+            return Arrays.stream(contextTable.getSelectedRows())
+                    .mapToObj(row -> (ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN))
+                    .collect(Collectors.toList());
         }, List.of());
     }
 
@@ -944,7 +1045,7 @@ public class WorkspacePanel extends JPanel {
                 desc = "✏️ " + desc;
             }
 
-            // Build file references
+            // Build file references for the record
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
                 fileReferences = frag.files()
@@ -955,7 +1056,9 @@ public class WorkspacePanel extends JPanel {
                         .collect(Collectors.toList());
             }
 
-            tableModel.addRow(new Object[]{locText, desc, fileReferences, frag});
+            // Create rich description object
+            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            tableModel.addRow(new Object[]{locText, descriptionWithRefs, frag});
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
@@ -1129,18 +1232,32 @@ public class WorkspacePanel extends JPanel {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
-        // Handle file badge clicks
-        if (col == FILES_REFERENCED_COLUMN && row >= 0) {
-            @SuppressWarnings("unchecked")
-            List<TableUtils.FileReferenceList.FileReferenceData> fileRefsInCell =
-                    (List<TableUtils.FileReferenceList.FileReferenceData>) contextTable.getValueAt(row, FILES_REFERENCED_COLUMN);
-
-            if (fileRefsInCell != null && !fileRefsInCell.isEmpty()) {
-                TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                        TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileRefsInCell);
-
-                if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
-                    return new FileBadge(clickedFileRef);
+        // Handle file badge clicks in new description column layout
+        if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
+            ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+            if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                var fileReferences = fragment.files()
+                        .stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .collect(Collectors.toList());
+                
+                if (!fileReferences.isEmpty()) {
+                    // We need to determine if the click was specifically on a badge
+                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                    int yInCell = e.getPoint().y - cellRect.y;
+                    
+                    // Estimate if click is in lower half of cell (where badges are)
+                    if (yInCell > cellRect.height / 2) {
+                        // Try to find which specific badge was clicked
+                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                        
+                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                            return new FileBadge(clickedFileRef);
+                        }
+                    }
                 }
             }
         }
@@ -1334,11 +1451,10 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Edit files from selected fragments
-            var files = new HashSet<ProjectFile>();
-            selectedFragments.stream()
-                             .flatMap(fragment -> fragment.files().stream()) // Corrected: No analyzer
-                             .filter(Objects::nonNull)
-                             .forEach(files::add);
+            var files = selectedFragments.stream()
+                                        .flatMap(fragment -> fragment.files().stream())
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toSet());
             contextManager.editFiles(files); 
         }
     }
@@ -1361,10 +1477,9 @@ public class WorkspacePanel extends JPanel {
             contextManager.addReadOnlyFiles(selection.files());
         } else {
             // Add files from selected fragments
-            var files = new HashSet<BrokkFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files()); // No analyzer
-            }
+            var files = selectedFragments.stream()
+                               .flatMap(frag -> frag.files().stream())
+                               .collect(Collectors.toSet());
             contextManager.addReadOnlyFiles(files);
         }
     }
@@ -1609,9 +1724,9 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Fragment case: Extract files and classes from selected fragments
-            for (var frag : selectedFragments) {
-                selectedFiles.addAll(frag.files());
-            }
+            selectedFragments.stream()
+                    .flatMap(frag -> frag.files().stream())
+                    .forEach(selectedFiles::add);
         }
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
@@ -1631,13 +1746,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        if (files == null) return List.of();
-        return files.stream().map(f -> {
-            if (f instanceof ProjectFile pf) {
-                return pf;
-            }
-            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-        }).toList();
+        return files == null ? List.of() : files.stream()
+                .map(f -> {
+                    if (f instanceof ProjectFile pf) {
+                        return pf;
+                    }
+                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                })
+                .toList();
     }
 
     /**
@@ -1749,6 +1865,7 @@ public class WorkspacePanel extends JPanel {
         
         return costEstimates;
     }
+
 
     /**
      * Sets the editable state of the workspace panel.
