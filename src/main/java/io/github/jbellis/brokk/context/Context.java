@@ -106,7 +106,14 @@ public class Context {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null in private constructor");
         this.editableFiles = List.copyOf(editableFiles);
         this.readonlyFiles = List.copyOf(readonlyFiles);
-        this.virtualFragments = List.copyOf(virtualFragments);
+        if (virtualFragments.isEmpty()) {
+            this.virtualFragments = List.of();
+        } else {
+            final Set<String> seenTexts = new HashSet<>();
+            this.virtualFragments = virtualFragments.stream()
+                                                    .filter(fragment -> seenTexts.add(fragment.text()))
+                                                    .toList();
+        }
         this.taskHistory = List.copyOf(taskHistory); // Ensure immutability
         this.parsedOutput = parsedOutput;
         this.action = action;
@@ -434,12 +441,8 @@ public class Context {
     }
 
     public Stream<ContextFragment.VirtualFragment> virtualFragments() {
-        if (this.virtualFragments == null || this.virtualFragments.isEmpty()) {
-            return Stream.empty();
-        }
-        final Set<String> seenTexts = new HashSet<>();
-        return this.virtualFragments.stream()
-                                    .filter(fragment -> seenTexts.add(fragment.text()));
+        // this.virtualFragments is guaranteed to be non-null and deduplicated by the constructor.
+        return this.virtualFragments.stream();
     }
 
     /**
