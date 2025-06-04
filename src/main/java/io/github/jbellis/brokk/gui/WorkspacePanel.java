@@ -429,8 +429,7 @@ public class WorkspacePanel extends JPanel {
     }
 
     // Columns
-    private final int FILES_REFERENCED_COLUMN = 2;
-    private final int FRAGMENT_COLUMN = 3;
+    private final int FRAGMENT_COLUMN = 2;
 
     // Parent references
     private final Chrome chrome;
@@ -485,7 +484,7 @@ public class WorkspacePanel extends JPanel {
      * Build the context panel (unified table + action buttons).
      */
     private void buildContextPanel() {
-        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Fragment"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -496,8 +495,7 @@ public class WorkspacePanel extends JPanel {
                 return switch (columnIndex) {
                     case 0 -> Integer.class;
                     case 1 -> String.class;
-                    case 2 -> List.class; // Our references column
-                    case 3 -> ContextFragment.class;
+                    case 2 -> ContextFragment.class;
                     default -> Object.class;
                 };
             }
@@ -528,23 +526,17 @@ public class WorkspacePanel extends JPanel {
             }
         });
 
-        // Files Referenced column: use our FileReferencesTableCellRenderer
-        var fileRenderer = new TableUtils.FileReferencesTableCellRenderer();
-        contextTable.getColumnModel().getColumn(FILES_REFERENCED_COLUMN).setCellRenderer(fileRenderer);
-
-        // Dynamically set row height based on renderer's preferred size
-        contextTable.setRowHeight(TableUtils.measuredBadgeRowHeight(contextTable));
+        // Remove file references column setup - badges will be in description column
 
         // Hide the FRAGMENT_COLUMN from view
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMinWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMaxWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
-        // Column widths
+        // Column widths - now only 3 columns
         contextTable.getColumnModel().getColumn(0).setPreferredWidth(50);
         contextTable.getColumnModel().getColumn(0).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(1).setPreferredWidth(230);
-        contextTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+        contextTable.getColumnModel().getColumn(1).setPreferredWidth(480); // Wider description column to fit badges
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
@@ -566,18 +558,8 @@ public class WorkspacePanel extends JPanel {
                     return;
                 }
 
-                // For non-popup triggers (e.g., left clicks), proceed with badge-specific actions
-                // like opening the overflow popup.
-                int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == FILES_REFERENCED_COLUMN) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e,
-                            contextTable,
-                            chrome,
-                            () -> {}, // Workspace doesn't need to refresh suggestions
-                            FILES_REFERENCED_COLUMN
-                    );
-                }
+                // Badge handling will be updated when new renderer is implemented
+                // TODO: Update for new badge location in description column
             }
         });
 
@@ -587,23 +569,8 @@ public class WorkspacePanel extends JPanel {
             public void mouseMoved(MouseEvent e) {
                 int row = contextTable.rowAtPoint(e.getPoint());
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col == FILES_REFERENCED_COLUMN) {
-                    var value = contextTable.getValueAt(row, col);
-                    if (value != null) {
-                        // Show file references in a multiline tooltip
-                        @SuppressWarnings("unchecked") List<TableUtils.FileReferenceList.FileReferenceData> refs = (List<TableUtils.FileReferenceList.FileReferenceData>) value;
-                        if (!refs.isEmpty()) {
-                            var sb = new StringBuilder("<html>");
-                            for (TableUtils.FileReferenceList.FileReferenceData r : refs) {
-                                sb.append(r.getFullPath()).append("<br>");
-                            }
-                            sb.append("</html>");
-                            contextTable.setToolTipText(sb.toString());
-                            return;
-                        }
-                    }
-                } else if (row >= 0 && col == 1) {
-                    // Show full description
+                if (row >= 0 && col == 1) {
+                    // Show full description - badge tooltips will be handled by new renderer
                     var value = contextTable.getValueAt(row, col);
                     if (value != null) {
                         contextTable.setToolTipText(value.toString());
@@ -944,18 +911,8 @@ public class WorkspacePanel extends JPanel {
                 desc = "✏️ " + desc;
             }
 
-            // Build file references
-            List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
-            if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                fileReferences = frag.files()
-                        .stream()
-                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
-                        .distinct()
-                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                        .collect(Collectors.toList());
-            }
-
-            tableModel.addRow(new Object[]{locText, desc, fileReferences, frag});
+            // File references will be handled in the description renderer
+            tableModel.addRow(new Object[]{locText, desc, frag});
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
@@ -1129,21 +1086,8 @@ public class WorkspacePanel extends JPanel {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
-        // Handle file badge clicks
-        if (col == FILES_REFERENCED_COLUMN && row >= 0) {
-            @SuppressWarnings("unchecked")
-            List<TableUtils.FileReferenceList.FileReferenceData> fileRefsInCell =
-                    (List<TableUtils.FileReferenceList.FileReferenceData>) contextTable.getValueAt(row, FILES_REFERENCED_COLUMN);
-
-            if (fileRefsInCell != null && !fileRefsInCell.isEmpty()) {
-                TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                        TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileRefsInCell);
-
-                if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
-                    return new FileBadge(clickedFileRef);
-                }
-            }
-        }
+        // TODO: Handle file badge clicks in new description column layout
+        // This will be implemented when the new renderer is created
 
         // Handle selection-based scenarios
         if (selectedFragments.isEmpty()) {
