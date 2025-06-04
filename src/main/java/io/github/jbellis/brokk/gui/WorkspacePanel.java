@@ -418,6 +418,7 @@ public class WorkspacePanel extends JPanel {
             JLabel descLabel = new JLabel(description);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
+            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
             
             // Apply italic font for editable items (those with ✏️ prefix)
             if (description.startsWith("✏️")) {
@@ -530,6 +531,12 @@ public class WorkspacePanel extends JPanel {
     public static final int LOC_COLUMN = 0;
     public static final int DESCRIPTION_COLUMN = 1;
     private final int FRAGMENT_COLUMN = 2;
+    
+    // Column dimensions
+    private static final int LOC_COLUMN_WIDTH = 55;
+    private static final int LOC_COLUMN_RIGHT_PADDING = 2;
+    private static final int LOC_COLUMN_TOP_PADDING = 1;
+    private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
     private final Chrome chrome;
@@ -614,6 +621,14 @@ public class WorkspacePanel extends JPanel {
 
         // Add custom cell renderer for the "Description" column that includes badges
         contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
+        
+        // Set right alignment for LOC column numbers with exact baseline alignment
+        var locRenderer = new javax.swing.table.DefaultTableCellRenderer();
+        locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        // Match the exact padding used by the description column - add small top padding for baseline alignment
+        locRenderer.setBorder(BorderFactory.createEmptyBorder(LOC_COLUMN_TOP_PADDING, 0, 0, LOC_COLUMN_RIGHT_PADDING));
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
         // Remove file references column setup - badges will be in description column
 
@@ -623,9 +638,11 @@ public class WorkspacePanel extends JPanel {
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
         // Column widths - now only 3 columns
-        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(50);
-        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(480); // Wider description column to fit badges
+        // LOC column: precise width so right-aligned numbers align with description text start
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMinWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(DESCRIPTION_COLUMN_WIDTH);
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
