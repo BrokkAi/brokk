@@ -687,6 +687,22 @@ public final class TableUtils {
         int yInCell = pointInTableCoords.y - cellRect.y;
         if (xInCell < 0 || yInCell < 0) return null;
 
+        // For the new layout where badges are below description text,
+        // we need to account for the description text height
+        if (column == 1) { // Description column with badges below
+            // Estimate description text height (single line)
+            var baseFont = table.getFont();
+            var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3; // +3 for vertical strut
+            
+            // Check if click is in the badge area (below description)
+            if (yInCell < descriptionHeight) {
+                return null; // Click was in description area, not badges
+            }
+            
+            // Adjust Y coordinate to be relative to badge area
+            yInCell -= descriptionHeight;
+        }
+
         // Badge layout parameters – keep in sync with FileReferenceList
         final int hgap = 4;     // FlowLayout hgap in FileReferenceList
 

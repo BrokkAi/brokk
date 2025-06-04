@@ -389,6 +389,104 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
+     * Custom table cell renderer for the Description column that displays
+     * description text on top and file reference badges below.
+     */
+    private static class DescriptionWithBadgesRenderer implements javax.swing.table.TableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                                                      boolean isSelected, boolean hasFocus,
+                                                      int row, int column) {
+            // Create main panel with vertical layout
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(true);
+            
+            // Set colors based on selection
+            if (isSelected) {
+                panel.setBackground(table.getSelectionBackground());
+                panel.setForeground(table.getSelectionForeground());
+            } else {
+                panel.setBackground(table.getBackground());
+                panel.setForeground(table.getForeground());
+            }
+            
+            // Get the description text
+            String description = value != null ? value.toString() : "";
+            
+            // Create description label
+            JLabel descLabel = new JLabel(description);
+            descLabel.setOpaque(false);
+            descLabel.setForeground(panel.getForeground());
+            
+            // Apply italic font for editable items (those with ✏️ prefix)
+            if (description.startsWith("✏️")) {
+                descLabel.setFont(descLabel.getFont().deriveFont(Font.ITALIC));
+            } else {
+                descLabel.setFont(descLabel.getFont().deriveFont(Font.PLAIN));
+            }
+            
+            // Add description to panel
+            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(descLabel);
+            
+            // Get the fragment to extract file references
+            ContextFragment fragment = (ContextFragment) table.getModel().getValueAt(row, 2); // FRAGMENT_COLUMN = 2
+            
+            // Build file references if fragment exists and has files
+            if (fragment != null) {
+                List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
+                
+                // Only show file references for non-PROJECT_PATH fragments
+                if (fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                    fileReferences = fragment.files()
+                            .stream()
+                            .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                            .distinct()
+                            .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                            .collect(Collectors.toList());
+                }
+                
+                // Add file badges if there are any
+                if (!fileReferences.isEmpty()) {
+                    // Add small vertical gap
+                    panel.add(Box.createVerticalStrut(3));
+                    
+                    // Calculate available width for badges (table column width minus padding)
+                    int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                    
+                    // Create adaptive file reference list
+                    var badgeList = new TableUtils.FileReferenceList.AdaptiveFileReferenceList(
+                            fileReferences, availableWidth, 4);
+                    badgeList.setOpaque(false);
+                    badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                    
+                    // Set badge colors based on selection
+                    badgeList.setSelected(isSelected);
+                    
+                    panel.add(badgeList);
+                }
+            }
+            
+            // Calculate preferred height
+            int preferredHeight = calculatePreferredHeight(panel);
+            
+            // Set row height if different from current
+            if (table.getRowHeight(row) != preferredHeight) {
+                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
+            }
+            
+            return panel;
+        }
+        
+        private int calculatePreferredHeight(JPanel panel) {
+            // Force layout to get accurate measurements
+            panel.doLayout();
+            return panel.getPreferredSize().height + 4; // Add small padding
+        }
+    }
+
+    /**
      * Helper for building popup menus consistently
      */
     public static class PopupBuilder {
@@ -512,19 +610,8 @@ public class WorkspacePanel extends JPanel {
             }
         };
 
-        // Add custom cell renderer for the "Description" column
-        contextTable.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                var c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (value != null && value.toString().startsWith("✏️")) {
-                    setFont(getFont().deriveFont(Font.ITALIC));
-                } else {
-                    setFont(getFont().deriveFont(Font.PLAIN));
-                }
-                return c;
-            }
-        });
+        // Add custom cell renderer for the "Description" column that includes badges
+        contextTable.getColumnModel().getColumn(1).setCellRenderer(new DescriptionWithBadgesRenderer());
 
         // Remove file references column setup - badges will be in description column
 
@@ -558,8 +645,33 @@ public class WorkspacePanel extends JPanel {
                     return;
                 }
 
-                // Badge handling will be updated when new renderer is implemented
-                // TODO: Update for new badge location in description column
+                // Handle badge clicks in the new description column layout
+                int col = contextTable.columnAtPoint(e.getPoint());
+                if (col == 1) { // Description column
+                    // Check if click is in the badge area (lower part of the cell)
+                    int row = contextTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+                        if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                            var fileReferences = fragment.files()
+                                    .stream()
+                                    .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                                    .distinct()
+                                    .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                                    .collect(Collectors.toList());
+                            
+                            if (!fileReferences.isEmpty()) {
+                                ContextMenuUtils.handleFileReferenceClick(
+                                        e,
+                                        contextTable,
+                                        chrome,
+                                        () -> {}, // Workspace doesn't need to refresh suggestions
+                                        1 // Description column
+                                );
+                            }
+                        }
+                    }
+                }
             }
         });
 
@@ -1086,8 +1198,37 @@ public class WorkspacePanel extends JPanel {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
-        // TODO: Handle file badge clicks in new description column layout
-        // This will be implemented when the new renderer is created
+        // Handle file badge clicks in new description column layout
+        if (col == 1 && row >= 0) { // Description column
+            ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+            if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                var fileReferences = fragment.files()
+                        .stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .collect(Collectors.toList());
+                
+                if (!fileReferences.isEmpty()) {
+                    // For now, we'll need to implement more sophisticated click detection
+                    // to determine if the click was specifically on a badge
+                    // This is a simplified approach that assumes badge area click
+                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                    int yInCell = e.getPoint().y - cellRect.y;
+                    
+                    // Estimate if click is in lower half of cell (where badges are)
+                    if (yInCell > cellRect.height / 2) {
+                        // Try to find which specific badge was clicked
+                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                        
+                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                            return new FileBadge(clickedFileRef);
+                        }
+                    }
+                }
+            }
+        }
 
         // Handle selection-based scenarios
         if (selectedFragments.isEmpty()) {
