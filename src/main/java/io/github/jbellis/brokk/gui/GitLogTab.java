@@ -64,7 +64,7 @@ public class GitLogTab extends JPanel {
     private JTextArea revisionIdTextArea; // For the actual commit ID(s)
 
     // Search
-    private JTextArea searchField;
+    private JTextField commitSearchTextField;
 
     private JMenuItem captureDiffVsBranchItem;
 
@@ -184,6 +184,31 @@ public class GitLogTab extends JPanel {
 
         JPanel commitsPanel = new JPanel(new BorderLayout());
         commitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
+
+        JPanel commitSearchInputPanel = new JPanel(new BorderLayout(5, 0));
+        commitSearchInputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+        commitSearchTextField = new JTextField();
+        commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
+
+        JButton commitSearchButton = new JButton("Search");
+        Runnable searchOrResetAction = () -> {
+            String query = commitSearchTextField.getText().trim();
+            if (!query.isEmpty()) {
+                searchCommits(query);
+            } else {
+                int sel = branchTable.getSelectedRow();
+                if (sel != -1) {
+                    String branchDisplay = (String) branchTableModel.getValueAt(sel, 1);
+                    updateCommitsForBranch(branchDisplay);
+                }
+            }
+        };
+
+        commitSearchButton.addActionListener(e -> searchOrResetAction.run());
+        commitSearchTextField.addActionListener(e -> searchOrResetAction.run());
+
+        commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
+        commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
 
         // Add hidden column 5 for ICommitInfo object
         commitsTableModel = new DefaultTableModel(
@@ -779,49 +804,6 @@ public class GitLogTab extends JPanel {
             }
         });
 
-        // ============ Search Panel (rightmost ~10%) ============
-
-        JPanel searchPanel = new JPanel(new BorderLayout());
-        searchPanel.setBorder(BorderFactory.createTitledBorder("Search"));
-        searchField = new JTextArea(3, 10);
-        searchField.setLineWrap(true);
-        searchField.setWrapStyleWord(true);
-        searchPanel.add(new JScrollPane(searchField), BorderLayout.CENTER);
-
-        JPanel searchButtonPanel = new JPanel();
-        searchButtonPanel.setLayout(new BoxLayout(searchButtonPanel, BoxLayout.Y_AXIS));
-
-        JButton textSearchButton = new JButton("Text Search");
-        textSearchButton.addActionListener(e -> {
-            String query = searchField.getText().trim();
-            if (!query.isEmpty()) {
-                searchCommits(query);
-            }
-        });
-        textSearchButton.setMaximumSize(
-                new Dimension(Integer.MAX_VALUE, textSearchButton.getPreferredSize().height)
-        );
-
-        JButton resetButton = new JButton("Reset");
-        resetButton.addActionListener(e -> {
-            searchField.setText("");
-            int sel = branchTable.getSelectedRow();
-            if (sel != -1) {
-                String branchDisplay = (String) branchTableModel.getValueAt(sel, 1);
-                updateCommitsForBranch(branchDisplay);
-            }
-        });
-        resetButton.setMaximumSize(
-                new Dimension(Integer.MAX_VALUE, resetButton.getPreferredSize().height)
-        );
-
-        searchButtonPanel.add(Box.createVerticalStrut(5));
-        searchButtonPanel.add(textSearchButton);
-        searchButtonPanel.add(Box.createVerticalStrut(5));
-        searchButtonPanel.add(resetButton);
-        searchButtonPanel.add(Box.createVerticalStrut(5));
-        searchPanel.add(searchButtonPanel, BorderLayout.SOUTH);
-
         // ============ Add sub-panels to logPanel with GridBag ============
 
         // Set a nominal preferred size for direct children of logPanel
@@ -830,23 +812,18 @@ public class GitLogTab extends JPanel {
         branchesPanel.setPreferredSize(nominalPreferredSize);
         commitsPanel.setPreferredSize(nominalPreferredSize);
         changesPanel.setPreferredSize(nominalPreferredSize);
-        searchPanel.setPreferredSize(nominalPreferredSize);
 
         constraints.gridx = 0; // branches
-        constraints.weightx = 0.15;
+        constraints.weightx = 0.20;
         logPanel.add(branchesPanel, constraints);
 
         constraints.gridx = 1; // commits
-        constraints.weightx = 0.50;
+        constraints.weightx = 0.55;
         logPanel.add(commitsPanel, constraints);
 
         constraints.gridx = 2; // changes
         constraints.weightx = 0.25;
         logPanel.add(changesPanel, constraints);
-
-        constraints.gridx = 3; // search
-        constraints.weightx = 0.10;
-        logPanel.add(searchPanel, constraints);
 
         // Listeners for branch table
         branchTable.getSelectionModel().addListSelectionListener(e -> {
@@ -1097,6 +1074,9 @@ public class GitLogTab extends JPanel {
                 final String finalSelectedBranchName = targetBranchToSelect; // The branch name we actually selected/targeted
 
                 SwingUtilities.invokeLater(() -> {
+                    if (commitSearchTextField != null) {
+                        commitSearchTextField.setText("");
+                    }
                     branchTableModel.setRowCount(0);
                     remoteBranchTableModel.setRowCount(0);
 
