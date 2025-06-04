@@ -6,11 +6,13 @@ import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
 import java.util.List;
 
 public class MenuBar {
@@ -254,6 +256,23 @@ public class MenuBar {
 
         // Help menu
         var helpMenu = new JMenu("Help");
+
+        var sendFeedbackItem = new JMenuItem("Send Feedback...");
+        sendFeedbackItem.addActionListener(e -> {
+            try {
+                io.github.jbellis.brokk.Service.validateKey(io.github.jbellis.brokk.Project.getBrokkKey());
+            } catch (IOException ex) {
+                JOptionPane.showMessageDialog(chrome.getFrame(),
+                                              "Please configure a valid Brokk API key in Settings before sending feedback.\n\nError: " + ex.getMessage(),
+                                              "Invalid API Key",
+                                              JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            var dialog = new FeedbackDialog(chrome.getFrame(), chrome);
+            dialog.setVisible(true);
+        });
+        helpMenu.add(sendFeedbackItem);
 
         var aboutItem = new JMenuItem("About");
         aboutItem.addActionListener(e -> {
