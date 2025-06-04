@@ -168,7 +168,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionButton.setMinimumSize(newSessionSize);
         newSessionButton.setMaximumSize(newSessionSize);
         newSessionButton.addActionListener(e -> {
-            contextManager.createNewSessionAsync("New Session").thenRun(() ->
+            contextManager.createNewSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
                 SwingUtilities.invokeLater(this::updateSessionComboBox)
             );
         });

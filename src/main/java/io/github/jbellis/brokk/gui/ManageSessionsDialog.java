@@ -189,19 +189,19 @@ public class ManageSessionsDialog extends JDialog {
         mopPanel.setBorder(BorderFactory.createTitledBorder("Output"));
         mopPanel.add(markdownScrollPane, BorderLayout.CENTER);
 
-        // Create top row with Sessions (20%), Activity (40%), and MOP (40%) horizontal space
+        // Create top row with Sessions (30%), Activity (30%), and MOP (40%) horizontal space
         JSplitPane topFirstSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
-        topFirstSplit.setResizeWeight(1.0/3.0); // Sessions gets 20%, Activity gets 40%, so 20/(20+40) = 1/3
+        topFirstSplit.setResizeWeight(0.5); // Sessions gets 30%, Activity gets 30%, so 30/(30+30) = 0.5
 
         JSplitPane topSecondSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, topFirstSplit, mopPanel);
         topSecondSplit.setResizeWeight(0.6); // Sessions+Activity get 60%, MOP gets 40%
 
-        // Set divider locations after the dialog is shown to achieve 20%/40%/40% split
+        // Set divider locations after the dialog is shown to achieve 30%/30%/40% split
         SwingUtilities.invokeLater(() -> {
             int totalWidth = topSecondSplit.getWidth();
             if (totalWidth > 0) {
-                // Set first divider at 20% of the way (between Sessions and Activity)
-                topFirstSplit.setDividerLocation(totalWidth / 5);
+                // Set first divider at 30% of the way (between Sessions and Activity)
+                topFirstSplit.setDividerLocation((3 * totalWidth) / 10);
                 // Set second divider at 60% of the way (between Activity and MOP)
                 topSecondSplit.setDividerLocation((3 * totalWidth) / 5);
             }
