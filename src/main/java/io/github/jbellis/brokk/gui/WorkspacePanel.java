@@ -534,7 +534,7 @@ public class WorkspacePanel extends JPanel {
     
     // Column dimensions
     private static final int LOC_COLUMN_WIDTH = 55;
-    private static final int LOC_COLUMN_RIGHT_PADDING = 2;
+    private static final int LOC_COLUMN_RIGHT_PADDING = 6;
     private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
@@ -674,33 +674,26 @@ public class WorkspacePanel extends JPanel {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
                 // The main handler will build the menu based on the row selection state,
                 // which is the desired "unified" behavior.
-                if (e.isPopupTrigger()) {
-                    return;
-                }
+                if (!e.isPopupTrigger()) {// Handle badge clicks in the new description column layout
+                    int col = contextTable.columnAtPoint(e.getPoint());
+                    if (col == DESCRIPTION_COLUMN) { // Description column
+                        // Check if click is in the badge area (lower part of the cell)
+                        int row = contextTable.rowAtPoint(e.getPoint());
+                        if (row >= 0) {
+                            ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+                            System.out.println(fragment);
+                            if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                                var fileReferences = fragment.files()
+                                        .stream()
+                                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                                        .distinct()
+                                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                                        .toList();
 
-                // Handle badge clicks in the new description column layout
-                int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == DESCRIPTION_COLUMN) { // Description column
-                    // Check if click is in the badge area (lower part of the cell)
-                    int row = contextTable.rowAtPoint(e.getPoint());
-                    if (row >= 0) {
-                        ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
-                        if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
-                            var fileReferences = fragment.files()
-                                    .stream()
-                                    .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
-                                    .distinct()
-                                    .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
-                                    .collect(Collectors.toList());
-                            
-                            if (!fileReferences.isEmpty()) {
-                                ContextMenuUtils.handleFileReferenceClick(
-                                        e,
-                                        contextTable,
-                                        chrome,
-                                        () -> {}, // Workspace doesn't need to refresh suggestions
-                                        DESCRIPTION_COLUMN
-                                );
+                                if (!fileReferences.isEmpty()) {
+                                    // Handle badge clicks directly since we have the file references data
+                                    handleBadgeClick(e, row, fileReferences);
+                                }
                             }
                         }
                     }
@@ -1866,6 +1859,71 @@ public class WorkspacePanel extends JPanel {
         }
         
         return costEstimates;
+    }
+
+    /**
+     * Handles badge clicks in the new description column layout
+     */
+    private void handleBadgeClick(MouseEvent e, int row, List<TableUtils.FileReferenceList.FileReferenceData> fileReferences) {
+        // Get the renderer to extract visible/hidden files info
+        Component renderer = contextTable.prepareRenderer(
+            contextTable.getCellRenderer(row, DESCRIPTION_COLUMN), row, DESCRIPTION_COLUMN);
+        
+        // Extract visible files from the renderer
+        List<TableUtils.FileReferenceList.FileReferenceData> visibleFiles = fileReferences;
+        List<TableUtils.FileReferenceList.FileReferenceData> hiddenFiles = List.of();
+        boolean hasOverflow = false;
+        
+        // Try to get overflow information from AdaptiveFileReferenceList if possible
+        if (renderer instanceof JPanel panel) {
+            for (Component c : panel.getComponents()) {
+                if (c instanceof TableUtils.FileReferenceList.AdaptiveFileReferenceList afl) {
+                    visibleFiles = afl.getVisibleFiles();
+                    hasOverflow = afl.hasOverflow();
+                    if (hasOverflow) {
+                        hiddenFiles = afl.getHiddenFiles();
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Check what kind of mouse event we're handling
+        if (e.isPopupTrigger()) {
+            // Right-click (context menu)
+            var targetRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, visibleFiles);
+            
+            // Right-click on overflow badge?
+            if (targetRef == null && hasOverflow) {
+                TableUtils.showOverflowPopup(chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
+                e.consume();
+                return;
+            }
+            
+            // Default to first file if click wasn't on a specific badge
+            if (targetRef == null) targetRef = fileReferences.get(0);
+            
+            // Show the context menu
+            ContextMenuUtils.showFileRefMenu(
+                contextTable,
+                e.getX(),
+                e.getY(),
+                targetRef,
+                chrome,
+                () -> {} // Workspace doesn't need to refresh suggestions
+            );
+            e.consume();
+        } else if (SwingUtilities.isLeftMouseButton(e) && e.getClickCount() == 1) {
+            // Left-click
+            var targetRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, visibleFiles);
+            
+            // If no visible badge was clicked AND we have overflow
+            if (targetRef == null && hasOverflow) {
+                // Show the overflow popup with only the hidden files
+                TableUtils.showOverflowPopup(chrome, contextTable, row, DESCRIPTION_COLUMN, hiddenFiles);
+                e.consume();
+            }
+        }
     }
 
     /**
