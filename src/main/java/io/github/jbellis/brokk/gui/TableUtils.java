@@ -689,7 +689,7 @@ public final class TableUtils {
 
         // For the new layout where badges are below description text,
         // we need to account for the description text height
-        if (column == 1) { // Description column with badges below
+        if (column == 1) { // Description column with badges below (WorkspacePanel.DESCRIPTION_COLUMN)
             // Estimate description text height (single line)
             var baseFont = table.getFont();
             var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3; // +3 for vertical strut

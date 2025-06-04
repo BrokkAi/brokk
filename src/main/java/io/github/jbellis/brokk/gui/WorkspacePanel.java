@@ -527,6 +527,8 @@ public class WorkspacePanel extends JPanel {
     }
 
     // Columns
+    public static final int LOC_COLUMN = 0;
+    public static final int DESCRIPTION_COLUMN = 1;
     private final int FRAGMENT_COLUMN = 2;
 
     // Parent references
@@ -591,9 +593,9 @@ public class WorkspacePanel extends JPanel {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return switch (columnIndex) {
-                    case 0 -> Integer.class;
-                    case 1 -> String.class;
-                    case 2 -> ContextFragment.class;
+                    case LOC_COLUMN -> Integer.class;
+                    case DESCRIPTION_COLUMN -> String.class;
+                    case FRAGMENT_COLUMN -> ContextFragment.class;
                     default -> Object.class;
                 };
             }
@@ -611,7 +613,7 @@ public class WorkspacePanel extends JPanel {
         };
 
         // Add custom cell renderer for the "Description" column that includes badges
-        contextTable.getColumnModel().getColumn(1).setCellRenderer(new DescriptionWithBadgesRenderer());
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
 
         // Remove file references column setup - badges will be in description column
 
@@ -621,9 +623,9 @@ public class WorkspacePanel extends JPanel {
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
         // Column widths - now only 3 columns
-        contextTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        contextTable.getColumnModel().getColumn(0).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(1).setPreferredWidth(480); // Wider description column to fit badges
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(50);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(100);
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(480); // Wider description column to fit badges
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
@@ -647,7 +649,7 @@ public class WorkspacePanel extends JPanel {
 
                 // Handle badge clicks in the new description column layout
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == 1) { // Description column
+                if (col == DESCRIPTION_COLUMN) { // Description column
                     // Check if click is in the badge area (lower part of the cell)
                     int row = contextTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
@@ -666,7 +668,7 @@ public class WorkspacePanel extends JPanel {
                                         contextTable,
                                         chrome,
                                         () -> {}, // Workspace doesn't need to refresh suggestions
-                                        1 // Description column
+                                        DESCRIPTION_COLUMN
                                 );
                             }
                         }
@@ -681,7 +683,7 @@ public class WorkspacePanel extends JPanel {
             public void mouseMoved(MouseEvent e) {
                 int row = contextTable.rowAtPoint(e.getPoint());
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col == 1) {
+                if (row >= 0 && col == DESCRIPTION_COLUMN) {
                     // Show full description - badge tooltips will be handled by new renderer
                     var value = contextTable.getValueAt(row, col);
                     if (value != null) {
@@ -1199,7 +1201,7 @@ public class WorkspacePanel extends JPanel {
         int col = contextTable.columnAtPoint(e.getPoint());
 
         // Handle file badge clicks in new description column layout
-        if (col == 1 && row >= 0) { // Description column
+        if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
             ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
             if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
                 var fileReferences = fragment.files()
