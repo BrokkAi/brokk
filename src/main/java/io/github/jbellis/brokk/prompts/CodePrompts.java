@@ -373,7 +373,7 @@ public abstract class CodePrompts {
      * Does not include editable content or related classes.
      */
     public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(IContextManager cm) throws InterruptedException {
-        var c = cm.topContext();
+        var c = cm.liveContext();
         var allContents = new ArrayList<Content>();
 
         // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
@@ -439,7 +439,7 @@ public abstract class CodePrompts {
      * Does not include read-only content or related classes.
      */
     public final Collection<ChatMessage> getWorkspaceEditableMessages(IContextManager cm) throws InterruptedException {
-        var c = cm.topContext();
+        var c = cm.liveContext();
 
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();

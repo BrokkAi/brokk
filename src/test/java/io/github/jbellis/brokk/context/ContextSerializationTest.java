@@ -545,6 +545,37 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testProjectPathFragmentWithDifferentIdsInternToDifferentFrozenFragments() throws Exception {
+        // Create a shared file
+        var sharedFile = new ProjectFile(tempDir, "shared.txt");
+        Files.writeString(sharedFile.absPath(), "shared content");
+
+        // Create two ProjectPathFragments with the same file but different IDs
+        var fragment1 = new ContextFragment.ProjectPathFragment(sharedFile, mockContextManager);
+        var fragment2 = new ContextFragment.ProjectPathFragment(sharedFile, mockContextManager);
+        
+        // Verify they have different IDs
+        assertNotEquals(fragment1.id(), fragment2.id(), "Fragments should have different IDs");
+        
+        // Freeze both fragments
+        var frozen1 = FrozenFragment.freeze(fragment1, mockContextManager);
+        var frozen2 = FrozenFragment.freeze(fragment2, mockContextManager);
+        
+        // Verify they result in different FrozenFragment instances despite same content
+        assertNotSame(frozen1, frozen2, "ProjectPathFragments with different IDs should intern to different FrozenFragment instances");
+        
+        // Verify they have the same content hash but different IDs
+        if (frozen1 instanceof FrozenFragment ff1 && frozen2 instanceof FrozenFragment ff2) {
+            assertEquals(ff1.getContentHash(), ff2.getContentHash(), "Content hashes should be the same");
+            assertNotEquals(ff1.id(), ff2.id(), "Frozen fragment IDs should be different");
+        }
+        
+        // Verify both have the same description and text content
+        assertEquals(frozen1.description(), frozen2.description());
+        assertEquals(frozen1.text(), frozen2.text());
+    }
+
+    @Test
     void testFragmentInterningDuringDeserialization() throws IOException {
         var history = new ContextHistory();
         var projectFile = new ProjectFile(tempDir, "shared.txt");
