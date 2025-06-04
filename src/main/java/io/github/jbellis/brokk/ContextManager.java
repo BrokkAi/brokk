@@ -63,6 +63,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final Pattern TEST_FILE_PATTERN = Pattern.compile(
             "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
     );
+
+    public static final String DEFAULT_SESSION_NAME = "New Session";
     
     public static boolean isTestFile(ProjectFile file) {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
@@ -145,7 +147,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Initialize session management
         var sessions = project.listSessions();
         if (sessions.isEmpty()) {
-            var newSessionInfo = project.newSession("New Session");
+            var newSessionInfo = project.newSession(DEFAULT_SESSION_NAME);
             this.currentSessionId = newSessionInfo.id();
             logger.info("Created and loaded new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
         } else {
@@ -1641,11 +1643,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Future<String> actionFuture = submitSummarizeTaskForConversation(action);
 
         // pushContext will apply addHistoryEntry to the current liveContext,
-        // then liveContext will be updated, and a frozen version added to history.
-        var newLiveContext = pushContext(currentLiveCtx ->
-            currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
-        );
-        return newLiveContext.getTaskHistory().getLast();
+    // then liveContext will be updated, and a frozen version added to history.
+    var newLiveContext = pushContext(currentLiveCtx ->
+        currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
+    );
+    
+    // Auto-rename session if this is the first task and session has default name
+    if (newEntry.sequence() == 1) {
+        var sessions = project.listSessions();
+        var currentSession = sessions.stream()
+                .filter(s -> s.id().equals(currentSessionId))
+                .findFirst();
+        
+        if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+            try {
+                var summary = actionFuture.get();
+                renameSessionAsync(currentSessionId, summary).thenRun(() -> {
+                    SwingUtilities.invokeLater(() -> {
+                        if (io instanceof Chrome chrome) {
+                            chrome.getHistoryOutputPanel().updateSessionComboBox();
+                        }
+                    });
+                });
+            } catch (Exception e) {
+                logger.warn("Error renaming Session", e);
+            }
+        }
+    }
+    
+    return newLiveContext.getTaskHistory().getLast();
     }
 
     public List<Context> getContextHistoryList() {
@@ -1687,7 +1713,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
             ContextHistory loadedCh = project.loadHistory(currentSessionId, this);
             if (loadedCh.getHistory().isEmpty()) {
-                liveContext = new Context(this, "Welcome to session: " + newSessionInfo.name());
+                liveContext = new Context(this, "Welcome to the new session!");
                 contextHistory.setInitialContext(liveContext.freeze().frozenContext());
             } else {
                 contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
@@ -1790,7 +1816,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (sessionIdToDelete.equals(currentActiveSessionId)) {
                 List<Project.SessionInfo> remainingSessions = project.listSessions();
                 if (remainingSessions.isEmpty()) {
-                    Project.SessionInfo newDefaultSession = project.newSession("New Session");
+                    Project.SessionInfo newDefaultSession = project.newSession(DEFAULT_SESSION_NAME);
                     this.currentSessionId = newDefaultSession.id();
                     logger.info("Current session was deleted. Created and switched to new default session: {} ({})", newDefaultSession.name(), newDefaultSession.id());
                     liveContext = new Context(this, "Welcome to session: " + newDefaultSession.name());
@@ -1951,7 +1977,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.warn("Summarization failed or was cancelled.");
                 return "Summarization failed.";
             }
-            return result.chatResponse().aiMessage().text().trim();
+            var summary = result.chatResponse().aiMessage().text().trim();
+            if (summary.endsWith(".")) {
+                return summary.substring(0, summary.length() - 1);
+            }
+            return summary;
         }
     }
 }

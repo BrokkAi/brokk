@@ -11,12 +11,15 @@ import java.util.List;
 public class SummarizerPrompts {
     public static final SummarizerPrompts instance = new SummarizerPrompts() {};
     
+    public static final int WORD_BUDGET_5 = 5; 
+    public static final int WORD_BUDGET_12 = 12; 
+    
     private SummarizerPrompts() {}
 
     public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
         assert actionTxt != null;
         assert !actionTxt.isBlank();
-        assert wordBudget == 5 || wordBudget == 12 : wordBudget;
+        assert wordBudget == WORD_BUDGET_5 || wordBudget == WORD_BUDGET_12 : wordBudget;
 
         var example = """
         # What Brokk can do
@@ -39,8 +42,8 @@ public class SummarizerPrompts {
         - "Here are the usages of Foo.bar.  Is parameter zep always loaded from cache?"
         """;
         var exampleRequest = getRequest(example, wordBudget);
-        var exampleResponse = wordBudget == 12
-                ? "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration."
+        var exampleResponse = wordBudget == WORD_BUDGET_12
+                ? "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration"
                 : "Brokk: context management, agentic search";
 
         var request = getRequest(actionTxt, wordBudget);
