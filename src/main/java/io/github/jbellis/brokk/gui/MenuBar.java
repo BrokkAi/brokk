@@ -37,7 +37,8 @@ public class MenuBar {
             int result = chooser.showOpenDialog(chrome.frame);
             if (result == JFileChooser.APPROVE_OPTION) {
                 var dir = chooser.getSelectedFile().toPath();
-                io.github.jbellis.brokk.Brokk.openProject(dir);
+                // Opening from menu is a user action, not internal, and has no explicit parent.
+                io.github.jbellis.brokk.Brokk.openProject(dir, null);
             }
         });
         fileMenu.add(openProjectItem);
@@ -334,7 +335,8 @@ public class MenuBar {
                 if (Brokk.isProjectOpen(projectPath)) {
                     Brokk.focusProjectWindow(projectPath);
                 } else {
-                    Brokk.openProject(projectPath);
+                    // Reopening from recent menu is a user action, not internal, no explicit parent.
+                    Brokk.openProject(projectPath, null);
                 }
             });
             recentMenu.add(item);

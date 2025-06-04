@@ -78,7 +78,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
         // General Tab (formerly Other)
-        var generalPanel = createGeneralPanel(project);
+        var generalPanel = createGeneralPanel();
         projectSubTabbedPane.addTab("General", null, generalPanel, "General project settings");
 
         // Build Tab
@@ -135,12 +135,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
         }
     }
-    
+
     public JTabbedPane getProjectSubTabbedPane() {
         return projectSubTabbedPane;
     }
 
-    private JPanel createGeneralPanel(Project project) {
+    private JPanel createGeneralPanel() {
         var generalPanel = new JPanel(new GridBagLayout());
         generalPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         var gbc = new GridBagConstraints();

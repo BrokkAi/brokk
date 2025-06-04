@@ -18,11 +18,15 @@ import io.github.jbellis.brokk.util.AtomicWrites;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -31,8 +35,9 @@ import java.util.stream.Collectors;
 public class Project implements IProject, AutoCloseable {
     private final Path propertiesFile;
     private final Path workspacePropertiesFile;
-    private final Path historyZipFile;
     private final Path root;
+    private final Project parentProjectInstance;
+    private final Path masterRootPathForConfig; // True top-level git repo path, or this.root if not git/worktree
     private final Properties projectProps;
     private final Properties workspaceProps;
     private final Path styleGuidePath;
@@ -48,22 +53,25 @@ public class Project implements IProject, AutoCloseable {
 
     // Helper structure for managing model type configurations
     // Includes old keys for migration purposes.
-    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig, String oldModelNameKey, String oldReasoningKey) {}
+    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig, String oldModelNameKey,
+                                 String oldReasoningKey)
+    {
+    }
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-        "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH), "architectModel", "architectReasoning"),
-        "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "codeModel", "codeReasoning"),
-        "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "askModel", "askReasoning"),
-        "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "searchModel", "searchReasoning")
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH), "architectModel", "architectReasoning"),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "codeModel", "codeReasoning"),
+            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "askModel", "askReasoning"),
+            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "searchModel", "searchReasoning")
     );
 
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
 
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT = """
-            The commit message should be structured as follows: <type>: <description>
-            Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
-            """.stripIndent();
+                                                               The commit message should be structured as follows: <type>: <description>
+                                                               Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
+                                                               """.stripIndent();
 
     // Cache for organization-level data sharing policy
     private static volatile Boolean isDataShareAllowedCache = null;
@@ -71,7 +79,8 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Record representing session metadata for the sessions management system.
      */
-    public record SessionInfo(UUID id, String name, long created, long modified) {}
+    public record SessionInfo(UUID id, String name, long created, long modified) {
+    }
 
     // --- Static paths for global config ---
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
@@ -80,7 +89,7 @@ public class Project implements IProject, AutoCloseable {
 
     // --- Instance paths for project-specific sessions ---
     private final Path sessionsDir;
-    private final Path sessionsIndexPath;
+    private final Path legacySessionsIndexPath; // For sessions.jsonl backward compatibility
 
     /**
      * Returns the path to the history zip file for the given session.
@@ -88,6 +97,34 @@ public class Project implements IProject, AutoCloseable {
     private Path getSessionHistoryPath(UUID sessionId) {
         return sessionsDir.resolve(sessionId.toString() + ".zip");
     }
+
+    // Helper to read SessionInfo from manifest.json within a zip file
+    private Optional<SessionInfo> readSessionInfoFromZip(Path zipPath) {
+        if (!Files.exists(zipPath)) return Optional.empty();
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path manifestPath = fs.getPath("manifest.json");
+            if (Files.exists(manifestPath)) {
+                String json = Files.readString(manifestPath);
+                return Optional.of(objectMapper.readValue(json, SessionInfo.class));
+            }
+        } catch (IOException e) {
+            logger.warn("Error reading manifest.json from {}: {}", zipPath.getFileName(), e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    // Helper to write SessionInfo to manifest.json within a zip file
+    private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
+            Path manifestPath = fs.getPath("manifest.json");
+            String json = objectMapper.writeValueAsString(sessionInfo);
+            Files.writeString(manifestPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (IOException e) {
+            logger.error("Error writing manifest.json to {}: {}", zipPath.getFileName(), e.getMessage());
+            throw e;
+        }
+    }
+
 
     // New enum to represent just which proxy to use
     public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
@@ -121,47 +158,74 @@ public class Project implements IProject, AutoCloseable {
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
 
-    public Project(Path root) {
+    public Project(Path root, @Nullable Project parent) {
         assert root.isAbsolute() : root;
-        root = root.normalize();
-        this.repo = GitRepo.hasGitRepo(root) ? new GitRepo(root) : new LocalFileRepo(root);
-        this.root = root;
-        this.propertiesFile = root.resolve(".brokk").resolve("project.properties");
-        this.workspacePropertiesFile = root.resolve(".brokk").resolve("workspace.properties");
-        this.historyZipFile = this.workspacePropertiesFile.getParent().resolve("history.zip");
-        this.styleGuidePath = root.resolve(".brokk").resolve("style.md");
-        this.sessionsDir = root.resolve(".brokk").resolve("sessions");
-        this.sessionsIndexPath = sessionsDir.resolve("sessions.jsonl");
+        this.root = root.toAbsolutePath().normalize();
+        this.repo = GitRepo.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
+        assert !(parent == null && this.repo.isWorktree()) : "Top-level project cannot be a worktree: " + this.root;
+
+        if (parent == null) {
+            if (this.repo instanceof GitRepo gitRepoInstance && gitRepoInstance.isWorktree()) {
+                Path topLevel = gitRepoInstance.getGitTopLevel().toAbsolutePath().normalize();
+                this.masterRootPathForConfig = topLevel;
+                Project openParent = Brokk.findOpenProjectByPath(topLevel);
+                this.parentProjectInstance = (openParent != null) ? openParent : this;
+            } else { // Not a worktree, or not Git
+                this.parentProjectInstance = this;
+                this.masterRootPathForConfig = this.root;
+            }
+        } else {
+            this.parentProjectInstance = parent;
+            this.masterRootPathForConfig = parent.getRoot().toAbsolutePath().normalize();
+        }
+        logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
+
+        // Shared configuration files are relative to masterRootPathForConfig
+        this.propertiesFile = this.masterRootPathForConfig.resolve(".brokk").resolve("project.properties");
+        this.styleGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("style.md");
+        this.sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
+
+        // Workspace-specific files are relative to this.root
+        this.workspacePropertiesFile = this.root.resolve(".brokk").resolve("workspace.properties");
+        this.legacySessionsIndexPath = this.sessionsDir.resolve("sessions.jsonl"); // For backward compatibility, uses new sessionsDir
+
         this.projectProps = new Properties();
         this.workspaceProps = new Properties();
-        this.dependencyFiles = loadDependencyFiles();
+        this.dependencyFiles = loadDependencyFiles(); // Uses masterRootPathForConfig internally now
 
-        // Load project properties and attempt to initialize build details future
+        // Load project properties (from shared location)
         try {
             if (Files.exists(propertiesFile)) {
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
-                    projectProps.load(reader); // Attempt to load properties
+                    projectProps.load(reader);
                 }
-
-                var bd = loadBuildDetails();
+                var bd = loadBuildDetails(); // buildDetailsJson is in projectProps
                 if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
                     this.detailsFuture.complete(bd);
                 }
             }
-        } catch (IOException e) { // Catches IOException from Files.newBufferedReader or projectProps.load()
+        } catch (IOException e) {
             logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
-            projectProps.clear(); // Ensure props are in a clean state (empty) after a load failure
+            projectProps.clear();
         }
 
-        // Load workspace properties
+        // Load workspace properties (from local location)
         if (Files.exists(workspacePropertiesFile)) {
             try (var reader = Files.newBufferedReader(workspacePropertiesFile)) {
                 workspaceProps.load(reader);
             } catch (Exception e) {
-                logger.error("Error loading workspace properties: {}", e.getMessage());
+                logger.error("Error loading workspace properties from {}: {}", workspacePropertiesFile, e.getMessage());
                 workspaceProps.clear();
             }
         }
+    }
+
+    public Project getParent() {
+        return this.parentProjectInstance;
+    }
+
+    public Path getMasterRootPathForConfig() {
+        return this.masterRootPathForConfig;
     }
 
     // --- Static methods for global properties ---
@@ -210,8 +274,8 @@ public class Project implements IProject, AutoCloseable {
                 String modelName = props.getProperty(typeInfo.oldModelNameKey());
                 // Old reasoning might be missing, default to preferred in that case
                 Service.ReasoningLevel reasoningLevel = Service.ReasoningLevel.fromString(
-                    props.getProperty(typeInfo.oldReasoningKey()),
-                    typeInfo.preferredConfig().reasoning()
+                        props.getProperty(typeInfo.oldReasoningKey()),
+                        typeInfo.preferredConfig().reasoning()
                 );
 
                 if (modelName == null || modelName.isBlank()) {
@@ -228,7 +292,7 @@ public class Project implements IProject, AutoCloseable {
                     // oldReasoningKey might be null in ModelTypeInfo if it wasn't used historically,
                     // but for current models, it should exist.
                     if (typeInfo.oldReasoningKey() != null) {
-                         props.remove(typeInfo.oldReasoningKey());
+                        props.remove(typeInfo.oldReasoningKey());
                     }
                     changed = true;
                     logger.info("Migrated model config for {} from old keys ('{}', '{}') to new key '{}'.",
@@ -281,12 +345,12 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Loads all files from the .brokk/dependencies directory
+     * Loads all files from the .brokk/dependencies directory located in the masterRootPathForConfig.
      *
-     * @return Set of RepoFile objects for all dependency files
+     * @return Set of ProjectFile objects for all dependency files
      */
     private Set<ProjectFile> loadDependencyFiles() {
-        var dependenciesPath = root.resolve(".brokk").resolve("dependencies");
+        var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
@@ -295,12 +359,14 @@ public class Project implements IProject, AutoCloseable {
             return pathStream
                     .filter(Files::isRegularFile)
                     .map(path -> {
-                        var relPath = root.relativize(path);
-                        return new ProjectFile(root, relPath);
+                        // ProjectFile needs the root of the project it belongs to.
+                        // For dependencies, this should be masterRootPathForConfig.
+                        var relPath = masterRootPathForConfig.relativize(path);
+                        return new ProjectFile(masterRootPathForConfig, relPath);
                     })
                     .collect(Collectors.toSet());
         } catch (IOException e) {
-            logger.error("Error loading dependency files", e);
+            logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
             return Set.of();
         }
     }
@@ -479,6 +545,7 @@ public class Project implements IProject, AutoCloseable {
 
     /**
      * Gets the configured commit message format instruction string.
+     *
      * @return The format string, or the default if not set.
      */
     public String getCommitMessageFormat() {
@@ -509,18 +576,18 @@ public class Project implements IProject, AutoCloseable {
         if (langsProp != null && !langsProp.isBlank()) {
             // User has explicitly set languages, use those.
             return Arrays.stream(langsProp.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(langName -> {
-                    try {
-                        return Language.valueOf(langName.toUpperCase());
-                    } catch (IllegalArgumentException e) {
-                        logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(langName -> {
+                        try {
+                            return Language.valueOf(langName.toUpperCase());
+                        } catch (IllegalArgumentException e) {
+                            logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
         }
 
         // Auto-detect languages:
@@ -530,9 +597,9 @@ public class Project implements IProject, AutoCloseable {
         // This is the runtime default if no specific languages are set in projectProps.
         // This detected default is NOT written back to projectProps automatically.
         Map<Language, Long> languageCounts = repo.getTrackedFiles().stream()
-            .map(ProjectFile::getLanguage)
-            .filter(l -> l != Language.NONE) // Ignore files with no specific language or unclassifiable extensions
-            .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
+                .map(ProjectFile::getLanguage)
+                .filter(l -> l != Language.NONE) // Ignore files with no specific language or unclassifiable extensions
+                .collect(Collectors.groupingBy(l -> l, Collectors.counting()));
 
         if (languageCounts.isEmpty()) {
             logger.debug("No files with recognized (non-NONE) languages found for {}. Defaulting to Language.NONE.", root);
@@ -546,16 +613,16 @@ public class Project implements IProject, AutoCloseable {
 
         // 1. Include all languages with >= 10% of recognized (non-NONE) files.
         languageCounts.entrySet().stream()
-            .filter(entry -> (double) entry.getValue() / totalRecognizedFiles >= 0.10)
-            .forEach(entry -> detectedLanguages.add(entry.getKey()));
+                .filter(entry -> (double) entry.getValue() / totalRecognizedFiles >= 0.10)
+                .forEach(entry -> detectedLanguages.add(entry.getKey()));
 
         // 2. If #1 results in an empty set (and languageCounts is not empty),
         //    include the most common recognized language.
         if (detectedLanguages.isEmpty()) {
             // languageCounts is guaranteed non-empty here.
             var mostCommonEntry = languageCounts.entrySet().stream()
-                .max(Map.Entry.comparingByValue())
-                .orElseThrow(); // Should not happen as languageCounts is not empty
+                    .max(Map.Entry.comparingByValue())
+                    .orElseThrow(); // Should not happen as languageCounts is not empty
             detectedLanguages.add(mostCommonEntry.getKey());
             logger.debug("No language met 10% threshold for {}. Adding most common: {}", root, mostCommonEntry.getKey().name());
         }
@@ -576,6 +643,7 @@ public class Project implements IProject, AutoCloseable {
 
     /**
      * Sets the primary languages for code intelligence.
+     *
      * @param languages The set of languages to set.
      */
     public void setAnalyzerLanguages(Set<Language> languages) {
@@ -583,8 +651,8 @@ public class Project implements IProject, AutoCloseable {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
             String langsString = languages.stream()
-                .map(Language::name)
-                .collect(Collectors.joining(","));
+                    .map(Language::name)
+                    .collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         saveProjectProperties();
@@ -720,7 +788,7 @@ public class Project implements IProject, AutoCloseable {
      * Checks if the project's Git repository is hosted on GitHub by inspecting the "origin" remote URL.
      *
      * @return {@code true} if the "origin" remote URL contains "github.com", {@code false} otherwise,
-     *         or if the remote URL is not set or the project doesn't use Git.
+     * or if the remote URL is not set or the project doesn't use Git.
      */
     public boolean isGitHubRepo() {
         if (!hasGit()) {
@@ -759,13 +827,15 @@ public class Project implements IProject, AutoCloseable {
      */
     public boolean isGitIgnoreSet() {
         try {
-            var gitignorePath = repo.getGitTopLevel().resolve(".gitignore");
+            // .gitignore is always at the true top level of the repository
+            var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
             if (Files.exists(gitignorePath)) {
                 var content = Files.readString(gitignorePath);
+                // These .brokk paths are relative to the .gitignore file itself.
                 return content.contains(".brokk/") || content.contains(".brokk/**");
             }
         } catch (IOException e) {
-            logger.error("Error checking .gitignore: {}", e.getMessage());
+            logger.error("Error checking .gitignore at {}: {}", getMasterRootPathForConfig().resolve(".gitignore"), e.getMessage());
         }
         return false;
     }
@@ -809,45 +879,40 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Saves a ContextHistory object to a ZIP file using HistoryIo (legacy single history)
-     */
-    public void saveLegacyHistory(ContextHistory ch) {
-        try {
-            HistoryIo.writeZip(ch, historyZipFile);
-        } catch (IOException e) {
-            logger.error("Error saving context history: {}", e.getMessage());
-        }
-    }
-
-    /**
      * Saves a ContextHistory object to a session-specific ZIP file using HistoryIo
      */
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         try {
             var sessionHistoryPath = getSessionHistoryPath(sessionId);
-            HistoryIo.writeZip(ch, sessionHistoryPath);
-            
-            // Update modified timestamp in sessions index
-            var sessions = listSessions();
-            SessionInfo currentInfo = null;
-            int index = -1;
-            for (int i = 0; i < sessions.size(); i++) {
-                if (sessions.get(i).id().equals(sessionId)) {
-                    currentInfo = sessions.get(i);
-                    index = i;
-                    break;
+            HistoryIo.writeZip(ch, sessionHistoryPath); // Writes context entries
+
+            // Update modified timestamp in manifest.json
+            Optional<SessionInfo> currentInfoOpt = readSessionInfoFromZip(sessionHistoryPath);
+            if (currentInfoOpt.isPresent()) {
+                SessionInfo currentInfo = currentInfoOpt.get();
+                var updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+            } else {
+                // This case implies the manifest was missing, which is unusual if we just wrote history.
+                // It might happen if newSession didn't complete fully or if it's a very old session zip.
+                // We should try to create it if possible, or log a clear warning.
+                // For now, let's assume newSession ensures manifest.json existence.
+                // If this session was from legacy sessions.jsonl, we'd need its info.
+                // Let's fetch it from listSessions, which has backward compat.
+                SessionInfo sessionToUpdate = listSessions().stream()
+                        .filter(s -> s.id().equals(sessionId))
+                        .findFirst()
+                        .orElse(null);
+                if (sessionToUpdate != null) {
+                    var updatedInfo = new SessionInfo(sessionToUpdate.id(), sessionToUpdate.name(), sessionToUpdate.created(), System.currentTimeMillis());
+                    writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                    logger.info("Wrote manifest.json for session {} during history save (was likely a legacy session).", sessionId);
+                } else {
+                    logger.warn("Session ID {} not found via manifest or legacy listSessions while trying to update modified timestamp. History zip was saved, but manifest.json not updated.", sessionId);
                 }
             }
-            
-            if (currentInfo != null) {
-                var updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
-                sessions.set(index, updatedInfo);
-                saveSessions(sessions);
-            } else {
-                logger.warn("Session ID {} not found in index while trying to update modified timestamp. History zip was saved, but index not updated.", sessionId);
-            }
         } catch (IOException e) {
-            logger.error("Error saving context history for session {}: {}", sessionId, e.getMessage());
+            logger.error("Error saving context history or updating manifest for session {}: {}", sessionId, e.getMessage());
         }
     }
 
@@ -1017,6 +1082,7 @@ public class Project implements IProject, AutoCloseable {
 
     /**
      * Gets the saved main window bounds
+     *
      * @return Optional containing the saved bounds if valid, or empty if no valid bounds are saved
      */
     public java.util.Optional<java.awt.Rectangle> getMainWindowBounds() {
@@ -1194,6 +1260,108 @@ public class Project implements IProject, AutoCloseable {
     public static String getTheme() {
         var props = loadGlobalProperties();
         return props.getProperty("theme", "dark"); // Default to light
+    }
+
+    /**
+     * Gets the last active session UUID for this worktree from workspace.properties.
+     * 
+     * @return The last active session UUID, or null if not set or invalid
+     */
+    public Optional<UUID> getLastActiveSession() {
+        String sessionIdStr = workspaceProps.getProperty("lastActiveSession");
+        if (sessionIdStr != null && !sessionIdStr.isBlank()) {
+            try {
+                return Optional.of(UUID.fromString(sessionIdStr));
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid last active session UUID '{}' in workspace properties for {}", sessionIdStr, root);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Reads the active session title for a given worktree path without creating a full Project instance.
+     * This is a lightweight operation that only reads the necessary files.
+     * 
+     * @param worktreeRoot The root path of the worktree
+     * @return The active session title, or empty if no session is active or title can't be read
+     */
+    public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
+        var wsPropsPath = worktreeRoot.resolve(".brokk").resolve("workspace.properties");
+        if (!Files.exists(wsPropsPath)) {
+            return Optional.empty();
+        }
+
+        // Read workspace properties to get lastActiveSession
+        var props = new Properties();
+        try (var reader = Files.newBufferedReader(wsPropsPath)) {
+            props.load(reader);
+        } catch (IOException e) {
+            logger.warn("Error reading workspace properties at {}: {}", wsPropsPath, e.getMessage());
+            return Optional.empty();
+        }
+
+        String sessionIdStr = props.getProperty("lastActiveSession");
+        if (sessionIdStr == null || sessionIdStr.isBlank()) {
+            return Optional.empty();
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(sessionIdStr.trim());
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid session UUID '{}' in workspace properties at {}", sessionIdStr, wsPropsPath);
+            return Optional.empty();
+        }
+
+        // Determine the master root path for session storage (same logic as constructor)
+        Path masterRootPath;
+        if (GitRepo.hasGitRepo(worktreeRoot)) {
+            try (var tempRepo = new GitRepo(worktreeRoot)) { // Ensure GitRepo is closed
+                masterRootPath = tempRepo.getGitTopLevel();
+            } catch (Exception e) { // Catch broader exceptions if GitRepo constructor or getGitTopLevel fails
+                logger.warn("Error determining git top level for {}: {}", worktreeRoot, e.getMessage());
+                return Optional.empty();
+            }
+        } else {
+            masterRootPath = worktreeRoot;
+        }
+
+        // Read session info from the session zip
+        Path sessionZip = masterRootPath.resolve(".brokk").resolve("sessions").resolve(sessionId + ".zip");
+        if (!Files.exists(sessionZip)) {
+            logger.debug("Session zip not found at {} for session ID {}", sessionZip, sessionId);
+            return Optional.empty();
+        }
+
+        try (var fs = FileSystems.newFileSystem(sessionZip, Map.of())) {
+            Path manifestPath = fs.getPath("manifest.json");
+            if (Files.exists(manifestPath)) {
+                String json = Files.readString(manifestPath);
+                var sessionInfo = objectMapper.readValue(json, SessionInfo.class);
+                return Optional.of(sessionInfo.name());
+            }
+        } catch (IOException e) {
+            logger.warn("Error reading session manifest from {}: {}", sessionZip.getFileName(), e.getMessage());
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Sets the last active session UUID for this worktree in workspace.properties.
+     * 
+     * @param sessionId The session UUID to remember, or null to clear
+     */
+    public void setLastActiveSession(UUID sessionId) {
+        if (sessionId == null) {
+            if (workspaceProps.remove("lastActiveSession") != null) {
+                saveWorkspaceProperties();
+            }
+        } else {
+            workspaceProps.setProperty("lastActiveSession", sessionId.toString());
+            saveWorkspaceProperties();
+        }
     }
 
     /**
@@ -1449,8 +1617,11 @@ public class Project implements IProject, AutoCloseable {
         var props = loadProjectsProperties();
 
         for (String key : props.stringPropertyNames()) {
-            // Only process keys that look like paths (simple heuristic) and ignore the open list
-            if (key.contains(java.io.File.separator) && !key.equals("openProjectsList")) {
+            // Only process keys that look like paths (simple heuristic)
+            // and ignore 'openProjectsList' and new '_activeSession' keys.
+            if (key.contains(java.io.File.separator) &&
+                    !key.equals("openProjectsList") &&
+                    !key.endsWith("_activeSession")) {
                 try {
                     var value = Long.parseLong(props.getProperty(key));
                     result.put(key, value);
@@ -1468,23 +1639,27 @@ public class Project implements IProject, AutoCloseable {
      * Preserves the existing 'openProjectsList' property.
      */
     public static void saveRecentProjects(Map<String, Long> projects) {
-        // Load existing properties to preserve the open projects list
-        var existingProps = loadProjectsProperties();
-        var openProjectsList = existingProps.getProperty("openProjectsList", ""); // Default to empty if not found
+        var props = loadProjectsProperties(); // Load all existing properties
 
-        // Sort recent projects entries by lastOpened descending
+        // Clear out old recent project entries (timestamped paths)
+        // while preserving openProjectsList and _activeSession entries.
+        List<String> keysToRemove = props.stringPropertyNames().stream()
+                .filter(key -> key.contains(java.io.File.separator) &&
+                        !key.endsWith("_activeSession")) // Is a path, not an active session key
+                .toList();
+        keysToRemove.forEach(props::remove);
+
+        // Sort and limit new recent projects
         var sorted = projects.entrySet().stream()
                 .sorted((a, b) -> Long.compare(b.getValue(), a.getValue()))
                 .limit(10)
                 .toList();
 
-        var props = new Properties();
-        // Add sorted recent projects
+        // Add new recent projects
         for (var e : sorted) {
             props.setProperty(e.getKey(), Long.toString(e.getValue()));
         }
-        // Add the (potentially preserved) open projects list
-        props.setProperty("openProjectsList", openProjectsList);
+        // openProjectsList and _activeSession entries are already in props from loadProjectsProperties()
 
         saveProjectsProperties(props);
     }
@@ -1492,48 +1667,76 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Updates the projects.properties with a single entry for the given directory path,
      * setting last opened to the current time, and adds it to the list of open projects.
+     * Also ensures the active session for this project is cleared if it's newly opened or reopened.
      */
     public static void updateRecentProject(Path projectDir) {
-        var abs = projectDir.toAbsolutePath().toString();
+        var absPathStr = projectDir.toAbsolutePath().toString();
         var currentMap = loadRecentProjects();
-        currentMap.put(abs, System.currentTimeMillis());
-        saveRecentProjects(currentMap); // saveRecentProjects preserves the open list now
 
-        // Also add to open projects list within the same properties file
-        addToOpenProjects(projectDir);
+        // Only add to "Recent Projects" map if it's not a worktree.
+        // Worktrees are managed via their parent repo's UI.
+        boolean isWorktree = false;
+        if (GitRepo.hasGitRepo(projectDir)) {
+            try (var tempRepo = new GitRepo(projectDir)) {
+                isWorktree = tempRepo.isWorktree();
+            } catch (Exception e) {
+                // Log and assume not a worktree if check fails, to be safe.
+                logger.warn("Could not determine if {} is a worktree during updateRecentProject: {}", projectDir, e.getMessage());
+            }
+        }
+
+        if (!isWorktree) {
+            currentMap.put(absPathStr, System.currentTimeMillis());
+            saveRecentProjects(currentMap);
+        }
+
+        // All projects (main and worktrees) should be added to the open list for re-opening.
+        addToOpenProjectsList(projectDir);
     }
 
     /**
-     * Adds a project to the 'openProjectsList' property in projects.properties
+     * Adds a project to the 'openProjectsList' property in projects.properties.
+     * This list includes main projects and worktrees to be reopened on startup.
      */
-    private static void addToOpenProjects(Path projectDir) {
-        var abs = projectDir.toAbsolutePath().toString();
-        var props = loadProjectsProperties(); // Load current properties
+    private static void addToOpenProjectsList(Path projectDir) {
+        var absPathStr = projectDir.toAbsolutePath().toString();
+        var props = loadProjectsProperties();
 
         var openListStr = props.getProperty("openProjectsList", "");
-        var openSet = new java.util.HashSet<>(List.of(openListStr.split(";")));
-        openSet.remove(""); // Remove empty string artifact if list was empty
+        var openSet = new LinkedHashSet<>(List.of(openListStr.split(";"))); // Use LinkedHashSet to preserve order somewhat
+        openSet.remove(""); // Remove empty string artifact
 
-        if (openSet.add(abs)) { // Add returns true if the set was modified
+        if (openSet.add(absPathStr)) {
             props.setProperty("openProjectsList", String.join(";", openSet));
-            saveProjectsProperties(props); // Save updated properties
+            saveProjectsProperties(props);
         }
     }
 
     /**
-     * Removes a project from the 'openProjectsList' property in projects.properties
+     * Removes a project from the 'openProjectsList' property and its associated '_activeSession'
+     * property in projects.properties.
      */
-    public static void removeFromOpenProjects(Path projectDir) {
-        var abs = projectDir.toAbsolutePath().toString();
-        var props = loadProjectsProperties(); // Load current properties
+    public static void removeFromOpenProjectsListAndClearActiveSession(Path projectDir) {
+        var absPathStr = projectDir.toAbsolutePath().toString();
+        var props = loadProjectsProperties();
+        boolean changed = false;
 
         var openListStr = props.getProperty("openProjectsList", "");
-        var openSet = new java.util.HashSet<>(List.of(openListStr.split(";")));
-        openSet.remove(""); // Remove empty string artifact
+        var openSet = new LinkedHashSet<>(List.of(openListStr.split(";")));
+        openSet.remove("");
 
-        if (openSet.remove(abs)) { // remove returns true if the set was modified
+        if (openSet.remove(absPathStr)) {
             props.setProperty("openProjectsList", String.join(";", openSet));
-            saveProjectsProperties(props); // Save updated properties
+            changed = true;
+        }
+
+        // Also remove its active session tracking
+        if (props.remove(absPathStr + "_activeSession") != null) {
+            changed = true;
+        }
+
+        if (changed) {
+            saveProjectsProperties(props);
         }
     }
 
@@ -1592,49 +1795,55 @@ public class Project implements IProject, AutoCloseable {
      * @return List of SessionInfo objects, or empty list if no sessions exist or error occurs
      */
     public List<SessionInfo> listSessions() {
-        if (!Files.exists(sessionsIndexPath)) {
-            return Collections.emptyList();
-        }
+        var sessions = new ArrayList<SessionInfo>();
+        var sessionIdsFromManifests = new HashSet<UUID>();
 
         try {
-            var lines = Files.readAllLines(sessionsIndexPath);
-            var sessions = new ArrayList<SessionInfo>();
-            for (String line : lines) {
-                if (!line.trim().isEmpty()) {
-                    try {
-                        var sessionInfo = objectMapper.readValue(line, SessionInfo.class);
-                        sessions.add(sessionInfo);
-                    } catch (JsonProcessingException e) {
-                        logger.error("Failed to parse SessionInfo from line: {}", line, e);
+            Files.createDirectories(sessionsDir); // Ensure sessions directory exists
+            try (var stream = Files.list(sessionsDir)) {
+                stream.filter(path -> path.toString().endsWith(".zip"))
+                        .forEach(zipPath -> {
+                            readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
+                                sessions.add(sessionInfo);
+                                sessionIdsFromManifests.add(sessionInfo.id());
+                            });
+                        });
+            }
+        } catch (IOException e) {
+            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
+            // Proceed to try legacy, but this is a problem.
+        }
+
+        // Backward compatibility: Read from legacy sessions.jsonl
+        if (Files.exists(legacySessionsIndexPath)) {
+            logger.debug("Attempting to read legacy sessions from {}", legacySessionsIndexPath);
+            try {
+                var lines = Files.readAllLines(legacySessionsIndexPath);
+                for (String line : lines) {
+                    if (!line.trim().isEmpty()) {
+                        try {
+                            var legacySessionInfo = objectMapper.readValue(line, SessionInfo.class);
+                            // Only add if not already found via manifest and corresponding zip exists
+                            if (!sessionIdsFromManifests.contains(legacySessionInfo.id())) {
+                                Path correspondingZip = getSessionHistoryPath(legacySessionInfo.id());
+                                if (Files.exists(correspondingZip)) {
+                                    sessions.add(legacySessionInfo);
+                                    logger.info("Loaded session {} info from legacy sessions.jsonl (manifest missing)", legacySessionInfo.id());
+                                } else {
+                                    logger.warn("Orphaned session {} in legacy sessions.jsonl (no zip found), skipping.", legacySessionInfo.id());
+                                }
+                            }
+                        } catch (JsonProcessingException e) {
+                            logger.error("Failed to parse legacy SessionInfo from line: {}", line, e);
+                        }
                     }
                 }
+            } catch (IOException e) {
+                logger.error("Error reading legacy sessions index {}: {}", legacySessionsIndexPath, e.getMessage());
             }
-            return sessions;
-        } catch (IOException e) {
-            logger.error("Error reading sessions index: {}", e.getMessage());
-            return Collections.emptyList();
         }
-    }
-
-    /**
-     * Saves the list of sessions to the sessions index file.
-     *
-     * @param sessions List of SessionInfo objects to save
-     */
-    private void saveSessions(List<SessionInfo> sessions) {
-        try {
-            Files.createDirectories(sessionsDir);
-            
-            var jsonlContent = new StringBuilder();
-            for (var session : sessions) {
-                String json = objectMapper.writeValueAsString(session);
-                jsonlContent.append(json).append('\n');
-            }
-            
-            AtomicWrites.atomicOverwrite(sessionsIndexPath, jsonlContent.toString());
-        } catch (IOException e) {
-            logger.error("Error saving sessions index: {}", e.getMessage());
-        }
+        sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
+        return sessions;
     }
 
     /**
@@ -1646,50 +1855,52 @@ public class Project implements IProject, AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = UUID.randomUUID();
         var currentTime = System.currentTimeMillis();
-        var newSession = new SessionInfo(sessionId, name, currentTime, currentTime);
-        
-        // Add to existing sessions list
-        var sessions = new ArrayList<>(listSessions());
-        sessions.add(newSession);
-        saveSessions(sessions);
-        
-        // Create empty history for the new session
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime);
+
+        Path sessionHistoryPath = getSessionHistoryPath(sessionId);
         try {
+            Files.createDirectories(sessionHistoryPath.getParent()); // Ensure parent dir exists
+            // Write manifest.json to the new (empty) zip
+            writeSessionInfoToZip(sessionHistoryPath, newSessionInfo);
+
+            // Create empty history content in the zip
             var emptyHistory = new ContextHistory();
-            var sessionHistoryPath = getSessionHistoryPath(sessionId);
+            // HistoryIo.writeZip will create the zip if it doesn't exist,
+            // or add to it if it does.
             HistoryIo.writeZip(emptyHistory, sessionHistoryPath);
+            logger.info("Created new session {} ({}) with manifest and empty history.", name, sessionId);
         } catch (IOException e) {
-            logger.error("Error creating empty history for new session {}: {}", sessionId, e.getMessage());
+            logger.error("Error creating new session files for {} ({}): {}", name, sessionId, e.getMessage());
+            // If creation fails, we might have a partial zip. It's complex to clean up robustly here.
+            // listSessions will simply not list it if manifest.json is unreadable or zip is broken.
+            throw new UncheckedIOException("Failed to create new session " + name, e);
         }
-        
-        return newSession;
+        return newSessionInfo;
     }
 
     /**
      * Renames an existing session.
      *
      * @param sessionId The UUID of the session to rename
-     * @param newName The new name for the session
+     * @param newName   The new name for the session
      */
     public void renameSession(UUID sessionId, String newName) {
-        List<SessionInfo> sessions = listSessions();
-        int index = -1;
-        SessionInfo oldInfo = null;
-        
-        for (int i = 0; i < sessions.size(); i++) {
-            if (sessions.get(i).id().equals(sessionId)) {
-                oldInfo = sessions.get(i);
-                index = i;
-                break;
+        Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+        Optional<SessionInfo> oldInfoOpt = readSessionInfoFromZip(sessionHistoryPath);
+
+        if (oldInfoOpt.isPresent()) {
+            SessionInfo oldInfo = oldInfoOpt.get();
+            // Create new info with updated name and modified time, keeping original created time
+            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            try {
+                writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                logger.info("Renamed session {} to '{}'", sessionId, newName);
+            } catch (IOException e) {
+                logger.error("Error writing updated manifest for renamed session {}: {}", sessionId, e.getMessage());
             }
-        }
-        
-        if (oldInfo != null) {
-            SessionInfo updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), oldInfo.modified());
-            sessions.set(index, updatedInfo);
-            saveSessions(sessions);
         } else {
-            logger.warn("Session ID {} not found, cannot rename.", sessionId);
+            logger.warn("Session ID {} not found (manifest missing in zip {}), cannot rename.", sessionId, sessionHistoryPath.getFileName());
+            // No need to check legacy sessions.jsonl for rename, as we only operate on zips now.
         }
     }
 
@@ -1699,55 +1910,154 @@ public class Project implements IProject, AutoCloseable {
      * @param sessionId The UUID of the session to delete
      */
     public void deleteSession(UUID sessionId) {
-        List<SessionInfo> sessions = new ArrayList<>(listSessions()); // Make a mutable copy
-        boolean removed = sessions.removeIf(s -> s.id().equals(sessionId));
-        if (removed) {
-            saveSessions(sessions);
-            Path historyZipPath = getSessionHistoryPath(sessionId);
-            try {
-                Files.deleteIfExists(historyZipPath);
-            } catch (IOException e) {
-                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+        Path historyZipPath = getSessionHistoryPath(sessionId);
+        try {
+            boolean deleted = Files.deleteIfExists(historyZipPath);
+            if (deleted) {
+                logger.info("Deleted session zip: {}", historyZipPath.getFileName());
+            } else {
+                // This could happen if called twice, or if zip never existed.
+                // listSessions() handles missing zips, so this is not a critical error.
+                logger.warn("Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
             }
-        } else {
-            logger.warn("Session ID {} not found, cannot delete.", sessionId);
+        } catch (IOException e) {
+            logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
         }
+        // No sessions.jsonl to update.
     }
 
     /**
      * Copies an existing session with a new name.
      *
      * @param originalSessionId The UUID of the session to copy
-     * @param newSessionName The name for the new session
+     * @param newSessionName    The name for the new session
      * @return The new SessionInfo object, or null if copying failed
      */
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) {
-        SessionInfo originalInfo = listSessions().stream().filter(s -> s.id().equals(originalSessionId)).findFirst().orElse(null);
-        if (originalInfo == null) {
-            logger.error("Session {} not found, cannot copy.", originalSessionId);
-            return null;
-        }
-        UUID newSessionId = UUID.randomUUID();
         Path originalHistoryPath = getSessionHistoryPath(originalSessionId);
-        Path newHistoryPath = getSessionHistoryPath(newSessionId);
-        try {
-            if (Files.exists(originalHistoryPath)) {
-                Files.copy(originalHistoryPath, newHistoryPath);
-            }
-        } catch (IOException e) {
-            logger.error("Error copying history zip from {} to {}: {}", originalHistoryPath, newHistoryPath, e.getMessage());
+
+        if (!Files.exists(originalHistoryPath)) {
+            logger.error("Original session zip {} not found, cannot copy.", originalHistoryPath.getFileName());
             return null;
         }
+
+        UUID newSessionId = UUID.randomUUID();
+        Path newHistoryPath = getSessionHistoryPath(newSessionId);
         long currentTime = System.currentTimeMillis();
-        SessionInfo newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
-        List<SessionInfo> sessions = new ArrayList<>(listSessions());
-        sessions.add(newSessionInfo);
-        saveSessions(sessions);
+        // Tentative new SessionInfo. 'created' time from original is lost here,
+        // as we don't have originalInfo yet. We'll use currentTime for 'created' for the new copy.
+        var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+
+        try {
+            Files.createDirectories(newHistoryPath.getParent()); // Ensure sessionsDir exists
+            Files.copy(originalHistoryPath, newHistoryPath); // Copy the entire zip
+            logger.info("Copied session zip {} to {}", originalHistoryPath.getFileName(), newHistoryPath.getFileName());
+
+            // Now, update manifest.json in the *new* zip with new ID, name, and timestamps
+            writeSessionInfoToZip(newHistoryPath, newSessionInfo);
+            logger.info("Updated manifest.json in new session zip {} for session ID {}", newHistoryPath.getFileName(), newSessionId);
+
+        } catch (IOException e) {
+            logger.error("Error copying session zip from {} to {} or updating its manifest: {}",
+                         originalHistoryPath.getFileName(), newHistoryPath.getFileName(), e.getMessage());
+            // Attempt to clean up partially copied file if it exists
+            try {
+                Files.deleteIfExists(newHistoryPath);
+            } catch (IOException ignored) {
+            }
+            return null;
+        }
         return newSessionInfo;
     }
 
     @Override
     public void close() {
-        // analyzerWrapper is now closed by ContextManager
+        // When a project instance is closed, release its session from the static registry
+        SessionRegistry.release(this.root);
+    }
+
+    /**
+     * Claims the active session for the current project instance in the static registry.
+     * Also saves it as the last active session in workspace.properties.
+     * (Called by ContextManager after successful load/switch)
+     */
+    public boolean claimActiveSession(UUID sessionId) {
+        boolean claimed = SessionRegistry.claim(this.root, sessionId);
+        if (claimed) {
+            setLastActiveSession(sessionId);
+        }
+        return claimed;
+    }
+
+    /**
+     * Updates the active session for the current project instance.
+     * Used when switching sessions - assumes the session was already checked for availability.
+     * Also saves it as the last active session in workspace.properties.
+     */
+    public void updateActiveSession(UUID sessionId) {
+        SessionRegistry.update(this.root, sessionId);
+        setLastActiveSession(sessionId);
+    }
+
+    /**
+     * Releases the active session for the current project instance.
+     * (Called by this.close() or when explicitly logging out of a session without closing project)
+     */
+    public void releaseActiveSession() {
+        SessionRegistry.release(this.root);
+    }
+
+    /**
+     * Gets the storage path for worktree-related data.
+     * 
+     * @return Path to the worktree storage directory for this project
+     */
+    public Path getWorktreeStoragePath() {
+        // This should use the master root's name for the directory, to group all worktrees of a repo together.
+        return Path.of(System.getProperty("user.home"), ".brokk", "worktrees", getMasterRootPathForConfig().getFileName().toString());
+    }
+
+    /**
+     * For a main repository project, this method lists its Git worktrees and attempts to claim their
+     * last active sessions in the SessionRegistry if those worktree windows are not already open.
+     * This helps prevent session conflicts.
+     */
+    public void reserveSessionsForKnownWorktrees() {
+        if (this.getRepo().isWorktree() || !(this.getRepo() instanceof GitRepo gitRepo) || !gitRepo.supportsWorktrees()) {
+            return; // Only main repositories with Git and worktree support should do this
+        }
+
+        logger.debug("Main project {} reserving sessions for its known worktrees.", this.root.getFileName());
+        try {
+            var worktrees = gitRepo.listWorktrees();
+            for (var wtInfo : worktrees) {
+                Path wtPath = wtInfo.path().toAbsolutePath().normalize();
+                if (wtPath.equals(this.root)) continue; // Skip the main worktree itself
+
+                if (!Brokk.isProjectOpen(wtPath)) {
+                    // Read lastActiveSession from the worktree's workspace.properties
+                    var wsPropsPath = wtPath.resolve(".brokk").resolve("workspace.properties");
+                    if (Files.exists(wsPropsPath)) {
+                        var props = new Properties();
+                        try (var reader = Files.newBufferedReader(wsPropsPath)) {
+                            props.load(reader);
+                            String sessionIdStr = props.getProperty("lastActiveSession");
+                            if (sessionIdStr != null && !sessionIdStr.isBlank()) {
+                                UUID sessionId = UUID.fromString(sessionIdStr.trim());
+                                if (SessionRegistry.claim(wtPath, sessionId)) {
+                                    logger.info("Reserved session {} for non-open worktree {}", sessionId, wtPath.getFileName());
+                                } else {
+                                    logger.warn("Failed to reserve session {} for worktree {} (already claimed elsewhere or error).", sessionId, wtPath.getFileName());
+                                }
+                            }
+                        } catch (IOException | IllegalArgumentException e) {
+                            logger.warn("Error reading last active session for worktree {} or claiming it: {}", wtPath.getFileName(), e.getMessage());
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error listing worktrees or reserving their sessions for main project {}: {}", this.root.getFileName(), e.getMessage(), e);
+        }
     }
 }

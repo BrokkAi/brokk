@@ -36,6 +36,9 @@ public class GitPanel extends JPanel
     // The "Issues" tab - conditionally added
     private GitIssuesTab issuesTab;
 
+    // Worktrees tab
+    private GitWorktreeTab gitWorktreeTab;
+
     // Tracks open file-history tabs by file path
     private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
 
@@ -91,13 +94,19 @@ public class GitPanel extends JPanel
         // Get project for GitHub specific tabs
         var project = contextManager.getProject();
 
-        // 3) Pull Requests tab (conditionally added)
+        // 3) Worktrees tab (always added for Git repositories)
+        if (project != null && project.hasGit()) {
+            gitWorktreeTab = new GitWorktreeTab(chrome, contextManager, this);
+            tabbedPane.addTab("Worktrees", gitWorktreeTab);
+        }
+
+        // 4) Pull Requests tab (conditionally added)
         if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab")) {
             pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
             tabbedPane.addTab("Pull Requests", pullRequestsTab);
         }
 
-        // 4) Issues tab (conditionally added)
+        // 5) Issues tab (conditionally added)
         // Ensure this property ("brokk.issuetab") is set if you want this tab to appear.
         if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.issuetab")) {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
@@ -116,6 +125,11 @@ public class GitPanel extends JPanel
 
         // Refresh log UI (branches, commits, stashes)
         gitLogTab.update();
+
+        // Refresh worktrees if the tab exists
+        if (gitWorktreeTab != null) {
+            gitWorktreeTab.refresh();
+        }
     }
 
     /**
