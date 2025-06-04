@@ -22,20 +22,25 @@ import java.io.Writer;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Optional;
+import java.util.logging.Logger;
 
 public class FileDocument
         extends AbstractBufferDocument {
+    private static final Logger logger = Logger.getLogger(FileDocument.class.getName());
+    private static final int CHARSET_DETECTION_CONFIDENCE_THRESHOLD = 50;
+    private static final int DETECTION_BUFFER_SIZE = 1024 * 1024;
+    private static final int DEFAULT_BUFFER_SIZE = 1024;
+    
     // instance variables:
     private final File file;
-    private Charset charset;
-    private final Map<String, Charset> charsetMap;
+    private volatile Charset charset;
     private boolean readOnly;
 
     public FileDocument(File file, String name) {
         super(); // Call AbstractBufferDocument constructor
         this.file = file;
         this.readOnly = !file.canWrite();
-        charsetMap = Charset.availableCharsets();
         setName(name); // Set names before reading
         setShortName(file.getName());
         initializeAndRead(); // Read content during construction
@@ -49,14 +54,14 @@ public class FileDocument
     @Override
     public int getBufferSize() {
         // Return a reasonable default buffer size if file doesn't exist or is empty
-        return (file != null && file.exists()) ? (int) Math.max(file.length(), 1024) : 1024;
+        return (file != null && file.exists()) ? (int) Math.max(file.length(), DEFAULT_BUFFER_SIZE) : DEFAULT_BUFFER_SIZE;
     }
 
     @Override
     public Reader getReader() {
         try {
             if (!file.exists() || !file.canRead()) {
-                System.err.println("Warning: File does not exist or cannot be read: " + file.getAbsolutePath());
+                logger.warning("File does not exist or cannot be read: " + file.getAbsolutePath());
                 // Return a reader for an empty string if file is inaccessible
                 return new BufferedReader(new InputStreamReader(new ByteArrayInputStream("".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8));
             }
@@ -67,19 +72,14 @@ public class FileDocument
 
                 // Detect charset *without* consuming the stream if possible,
                 // or reset it if necessary and supported.
-                bis.mark(1024 * 1024); // Mark a large enough buffer for detection
-                this.charset = detectCharset(bis);
+                bis.mark(DETECTION_BUFFER_SIZE); // Mark a large enough buffer for detection
+                this.charset = detectCharsetSafely(bis);
                 bis.reset(); // Reset stream to the beginning
-
-                if (this.charset == null) {
-                    System.err.println("Warning: Could not detect charset for " + file.getName() + ", using default UTF-8.");
-                    this.charset = StandardCharsets.UTF_8;
-                    // No need to reset again if detection failed, already at start
-                }
 
                 // MUST return a NEW InputStreamReader each time, as the underlying stream (bis)
                 // might be closed by the caller (e.g., DefaultEditorKit.read).
                 // We re-open the file here to ensure a fresh stream.
+                logger.fine("Reading file '" + file.getName() + "' using charset: " + this.charset.name());
                 return new BufferedReader(new InputStreamReader(new FileInputStream(file), this.charset));
             }
         } catch (IOException ex) {
@@ -87,28 +87,29 @@ public class FileDocument
         }
     }
 
-    private Charset detectCharset(BufferedInputStream bis) {
+    private Charset detectCharsetSafely(BufferedInputStream bis) {
         try {
-            CharsetDetector detector = new CharsetDetector();
-            // Provide the stream directly if supported, or read bytes if needed.
-            // The detector might consume part of the stream, hence the mark/reset in getReader.
-            detector.setText(bis);
-            CharsetMatch match = detector.detect();
-            if (match != null) {
-                String charsetName = match.getName();
-                // Ensure the detected charset is supported by Java
-                if (Charset.isSupported(charsetName)) {
-                    return Charset.forName(charsetName);
-                } else {
-                    System.err.println("Detected charset '" + charsetName + "' is not supported by Java runtime.");
-                }
-            }
-        } catch (IOException ex) {
-            // Log error during detection
-            System.err.println("IOException during charset detection for " + file.getName() + ": " + ex.getMessage());
+            return detectCharset(bis);
+        } catch (Exception ex) {
+            logger.warning("Charset detection failed for " + file.getName() + ", using UTF-8: " + ex.getMessage());
+            return StandardCharsets.UTF_8;
         }
-        // Return null if detection fails or charset is unsupported
-        return null;
+    }
+
+    private Charset detectCharset(BufferedInputStream bis) throws IOException {
+        var detector = new CharsetDetector();
+        detector.setText(bis);
+        return Optional.ofNullable(detector.detect())
+                .filter(match -> {
+                    return match.getConfidence() >= CHARSET_DETECTION_CONFIDENCE_THRESHOLD;
+                })
+                .map(CharsetMatch::getName)
+                .filter(Charset::isSupported)
+                .map(Charset::forName)
+                .orElseGet(() -> {
+                    logger.info("Using UTF-8 fallback for file: " + file.getName() + " (low confidence or detection failed)");
+                    return StandardCharsets.UTF_8;
+                });
     }
 
     @Override
@@ -117,8 +118,8 @@ public class FileDocument
              throw new IOException("Cannot get writer for read-only file: " + file.getName());
          }
         try {
-             // Ensure the detected or default charset is used for writing
-             Charset effectiveCharset = (this.charset != null) ? this.charset : StandardCharsets.UTF_8;
+            // Ensure the detected or default charset is used for writing
+            Charset effectiveCharset = (this.charset != null) ? this.charset : StandardCharsets.UTF_8;
             // Use try-with-resources for the output streams
             FileOutputStream fos = new FileOutputStream(file); // Opens the file for writing (truncates by default)
             BufferedOutputStream bos = new BufferedOutputStream(fos);
