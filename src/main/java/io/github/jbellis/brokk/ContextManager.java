@@ -1200,12 +1200,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        // If not a PathFragment, it's a VirtualFragment.
         // Handle UsageFragment specially.
         if (cf.getType() == ContextFragment.FragmentType.USAGE) {
-            var uf = (ContextFragment.UsageFragment) cf;
-            var files = uf.files().stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-            return "[%s] (%s)".formatted(files, uf.description());
+            var files = cf.files().stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+            return "[%s] (%s)".formatted(files, cf.description());
         }
 
         // Default for other editable VirtualFragments
