@@ -107,6 +107,10 @@ public class Project implements IProject, AutoCloseable {
         }
     }
 
+    public CompletableFuture<BuildAgent.BuildDetails> getDetailsFuture() {
+        return this.detailsFuture;
+    }
+
     /**
      * Sets the global LLM proxy setting (BROKK or LOCALHOST).
      */

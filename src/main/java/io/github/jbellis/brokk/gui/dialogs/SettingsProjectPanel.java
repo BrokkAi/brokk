@@ -15,12 +15,18 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
     private static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
+
+    // Action command constants for build details inference button
+    private static final String ACTION_INFER = "infer";
+    private static final String ACTION_CANCEL = "cancel";
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog;
@@ -45,8 +51,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JRadioButton runAllTestsRadio;
     private JRadioButton runTestsInWorkspaceRadio;
     private JProgressBar buildProgressBar;
-    private JButton rerunBuildButton; // Added to manage state during build agent run
-
+    private JButton inferBuildDetailsButton;
+    private Future<?> manualInferBuildTaskFuture;
     // Buttons from parent dialog that might need to be disabled/enabled by build agent
     private final JButton okButtonParent;
     private final JButton cancelButtonParent;
@@ -97,8 +103,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (buildProgressBar != null) {
                 buildProgressBar.setVisible(true);
             }
-            if (rerunBuildButton != null) {
-                rerunBuildButton.setEnabled(false);
+            if (inferBuildDetailsButton != null) {
+                inferBuildDetailsButton.setEnabled(false);
             }
 
             project.getBuildDetailsFuture().whenCompleteAsync((detailsResult, ex) -> {
@@ -107,8 +113,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     if (buildProgressBar != null) {
                         buildProgressBar.setVisible(false);
                     }
-                    if (rerunBuildButton != null) {
-                        rerunBuildButton.setEnabled(true);
+                    if (inferBuildDetailsButton != null) {
+                        inferBuildDetailsButton.setEnabled(true);
                     }
 
                     if (ex != null) {
@@ -130,8 +136,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             if (buildProgressBar != null) {
                 buildProgressBar.setVisible(false);
             }
-            if (rerunBuildButton != null) {
-                rerunBuildButton.setEnabled(true);
+            if (inferBuildDetailsButton != null) {
+                inferBuildDetailsButton.setEnabled(true);
             }
         }
     }
@@ -296,14 +302,44 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.0; gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE; gbc.anchor = GridBagConstraints.EAST;
-        rerunBuildButton = new JButton("Run Build Agent"); // Assign to field
-        buildPanel.add(rerunBuildButton, gbc);
+        inferBuildDetailsButton = new JButton("Infer Build Details");
+        inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
+        buildPanel.add(inferBuildDetailsButton, gbc);
 
-        buildProgressBar = new JProgressBar(); buildProgressBar.setIndeterminate(true); buildProgressBar.setVisible(false);
-        gbc.gridx = 1; gbc.gridy = row++; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.EAST;
-        buildPanel.add(buildProgressBar, gbc);
+        // Check if initial build details inference is running
+        CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getDetailsFuture();
+        boolean initialAgentRunning = detailsFuture != null && !detailsFuture.isDone();
 
-        rerunBuildButton.addActionListener(e -> runBuildAgent());
+        // --- Progress Bar for Build Agent ---
+        buildProgressBar = new JProgressBar();
+
+        // Create a wrapper panel with fixed height to reserve space
+        JPanel progressWrapper = new JPanel(new BorderLayout());
+        progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
+        progressWrapper.add(buildProgressBar, BorderLayout.CENTER);
+        buildProgressBar.setIndeterminate(true);
+
+        buildProgressBar.setVisible(initialAgentRunning); // Show progress bar if initial agent is running
+        gbc.gridx = 1; // Align with input fields (right column)
+        gbc.gridy = row++; // Next available row
+        gbc.fill = GridBagConstraints.HORIZONTAL; // Let progress bar fill width
+        gbc.anchor = GridBagConstraints.EAST;
+        buildPanel.add(progressWrapper, gbc);
+        // Initialize button based on the state of the initial build agent
+        if (initialAgentRunning) {
+            setButtonToInferenceInProgress(false); // false = don't set Cancel text (initial agent)
+
+            // Add a listener to reset the button when the initial agent completes
+            detailsFuture.whenCompleteAsync((result, ex) -> {
+                SwingUtilities.invokeLater(() -> {
+                    if (inferBuildDetailsButton != null && manualInferBuildTaskFuture == null) {
+                        setButtonToReadyState();
+                    }
+                });
+            });
+        }
+
+        inferBuildDetailsButton.addActionListener(e -> runBuildAgent());
         
         // Vertical glue to push all build panel content up
         gbc.gridx = 0; gbc.gridy = row; gbc.gridwidth = 2;
@@ -314,7 +350,41 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return buildPanel;
     }
 
+     private void setButtonToInferenceInProgress(boolean showCancelButton) {
+         inferBuildDetailsButton.setToolTipText("build inference in progress");
+         buildProgressBar.setVisible(true);
+
+         if (showCancelButton) {
+             inferBuildDetailsButton.setText("Cancel");
+             inferBuildDetailsButton.setActionCommand(ACTION_CANCEL);
+             inferBuildDetailsButton.setEnabled(true);
+         } else {
+             // Initial agent running - disable the button
+             inferBuildDetailsButton.setEnabled(false);
+         }
+     }
+
+     private void setButtonToReadyState() {
+         inferBuildDetailsButton.setText("Infer Build Details");
+         inferBuildDetailsButton.setActionCommand(ACTION_INFER);
+         inferBuildDetailsButton.setEnabled(true);
+         inferBuildDetailsButton.setToolTipText(null);
+         buildProgressBar.setVisible(false);
+     }
+
     private void runBuildAgent() {
+        String action = inferBuildDetailsButton.getActionCommand();
+
+        if (ACTION_CANCEL.equals(action)) {
+            // We're in cancel mode - cancel the running task
+            if (manualInferBuildTaskFuture != null && !manualInferBuildTaskFuture.isDone()) {
+                boolean cancelled = manualInferBuildTaskFuture.cancel(true);
+                logger.debug("Build agent cancellation requested, result: {}", cancelled);
+                // Button state will be reset in the finally block of the task
+            }
+            return;
+        }
+
         var cm = chrome.getContextManager();
         var proj = chrome.getProject();
         if (proj == null) {
@@ -323,9 +393,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         setBuildControlsEnabled(false); // Disable controls in this panel
-        rerunBuildButton.setEnabled(false);
+        setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
 
-        cm.submitUserTask("Running Build Agent", () -> {
+        manualInferBuildTaskFuture = cm.submitUserTask("Running Build Agent", () -> {
             try {
                 chrome.systemOutput("Starting Build Agent...");
                 var agent = new BuildAgent(proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
@@ -333,10 +403,25 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
                 if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
                     logger.warn("Build Agent returned empty details, considering it an error.");
+                    // When cancel button is pressed, we need to show a different kind of message
+                    boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
+
                     SwingUtilities.invokeLater(() -> {
-                        String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
-                        chrome.toolErrorRaw(errorMessage);
-                        JOptionPane.showMessageDialog(parentDialog, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                        if (isCancellation) {
+                            logger.info("Build Agent execution cancelled by user");
+                            chrome.systemOutput("Build Inference Agent cancelled.");
+                            JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                                          "Build Inference Agent cancelled.",
+                                                          "Build Cancelled",
+                                                          JOptionPane.INFORMATION_MESSAGE);
+                        } else {
+                            SwingUtilities.invokeLater(() -> {
+                                String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
+                                chrome.toolErrorRaw(errorMessage);
+                                JOptionPane.showMessageDialog(SettingsProjectPanel.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                                // Do not save or update UI with empty details
+                            });
+                        }
                     });
                 } else {
                     // Do not save here, only update UI fields. applySettings will save.
@@ -354,8 +439,9 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 });
             } finally {
                 SwingUtilities.invokeLater(() -> {
-                    setBuildControlsEnabled(true); // Re-enable controls in this panel
-                    rerunBuildButton.setEnabled(true);
+                    setBuildControlsEnabled(true);
+                    setButtonToReadyState();
+                    manualInferBuildTaskFuture = null;
                 });
             }
         });
