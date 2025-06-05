@@ -22,7 +22,9 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 public class BrokkDiffPanel extends JPanel {
@@ -33,14 +35,30 @@ public class BrokkDiffPanel extends JPanel {
     private boolean started;
     private final JLabel loadingLabel = new JLabel("Processing... Please wait.");
     private final GuiTheme theme;
-    
-    // All file comparisons
+
+    // All file comparisons with lazy loading cache
     private final List<FileComparisonInfo> fileComparisons;
     private int currentFileIndex = 0;
     private JLabel fileIndicatorLabel;
-    
+
+    // LRU cache for loaded diff panels - keeps max 3 panels in memory
+    private static final int MAX_CACHED_PANELS = 5;
+    private final Map<Integer, BufferDiffPanel> panelCache = new LinkedHashMap<>(MAX_CACHED_PANELS + 1, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<Integer, BufferDiffPanel> eldest) {
+            if (size() > MAX_CACHED_PANELS) {
+                logger.debug("Evicting panel from cache: index {}", eldest.getKey());
+                // Dispose UI resources of evicted panel
+                eldest.getValue().removeAll();
+                return true;
+            }
+            return false;
+        }
+    };
+
     /**
-     * Inner class to hold a single file comparison
+     * Inner class to hold a single file comparison metadata
+     * Note: No longer holds the diffPanel directly - that's managed by the cache
      */
     static class FileComparisonInfo {
         final BufferSource leftSource;
@@ -361,10 +379,12 @@ public class BrokkDiffPanel extends JPanel {
         
         var compInfo = fileComparisons.get(fileIndex);
         logger.debug("Loading file on demand: {} (index {})", compInfo.getDisplayName(), fileIndex);
-        
-        if (compInfo.diffPanel != null) {
-            logger.debug("File already loaded: {}", compInfo.getDisplayName());
-            displayExistingFile(fileIndex);
+
+        // Check if panel is already cached
+        var cachedPanel = panelCache.get(fileIndex);
+        if (cachedPanel != null) {
+            logger.debug("File panel found in cache: {}", compInfo.getDisplayName());
+            displayCachedFile(fileIndex, cachedPanel);
             return;
         }
         
@@ -373,8 +393,8 @@ public class BrokkDiffPanel extends JPanel {
         var fileComparison = new FileComparison.FileComparisonBuilder(this, theme, contextManager)
                 .withSources(compInfo.leftSource, compInfo.rightSource)
                 .build();
-        
-        fileComparison.addPropertyChangeListener(evt -> handleFileComparisonResult(evt, compInfo, fileIndex));
+
+        fileComparison.addPropertyChangeListener(evt -> handleFileComparisonResult(evt, fileIndex));
         fileComparison.execute();
     }
     
@@ -393,26 +413,21 @@ public class BrokkDiffPanel extends JPanel {
         revalidate();
         repaint();
     }
-    
-    private void displayExistingFile(int fileIndex) {
+
+    private void displayCachedFile(int fileIndex, BufferDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         
         var compInfo = fileComparisons.get(fileIndex);
-        if (compInfo.diffPanel == null) {
-            logger.warn("displayExistingFile called but diffPanel is null for: {}", compInfo.getDisplayName());
-            return;
-        }
-        
-        logger.trace("Displaying existing file: {}", compInfo.getDisplayName());
-        
+        logger.trace("Displaying cached file: {}", compInfo.getDisplayName());
+
         // Remove loading label if present
         remove(loadingLabel);
-        
-        // Clear tabs and add the loaded panel
+
+        // Clear tabs and add the cached panel
         tabbedPane.removeAll();
-        tabbedPane.addTab(compInfo.diffPanel.getTitle(), compInfo.diffPanel);
-        this.bufferDiffPanel = compInfo.diffPanel;
-        
+        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel);
+        this.bufferDiffPanel = cachedPanel;
+
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
         
@@ -504,25 +519,30 @@ public class BrokkDiffPanel extends JPanel {
         }
         refreshAfterNavigation();
     }
-    
+
     private boolean canNavigateToNextFile() {
         return fileComparisons.size() > 1 && currentFileIndex < fileComparisons.size() - 1;
     }
-    
+
     private boolean canNavigateToPreviousFile() {
         return fileComparisons.size() > 1 && currentFileIndex > 0;
     }
-    
-    private void handleFileComparisonResult(java.beans.PropertyChangeEvent evt, FileComparisonInfo compInfo, int fileIndex) {
+
+    private void handleFileComparisonResult(java.beans.PropertyChangeEvent evt, int fileIndex) {
         if (STATE_PROPERTY.equals(evt.getPropertyName()) && SwingWorker.StateValue.DONE.equals(evt.getNewValue())) {
+            var compInfo = fileComparisons.get(fileIndex);
             try {
                 var result = (String) ((SwingWorker<?, ?>) evt.getSource()).get();
                 if (result == null) {
                     var comp = (FileComparison) evt.getSource();
-                    compInfo.diffPanel = comp.getPanel();
+                    var loadedPanel = comp.getPanel();
+
+                    // Cache the loaded panel
+                    panelCache.put(fileIndex, loadedPanel);
+
                     invokeLater(() -> {
-                        logger.debug("File loaded successfully: {}", compInfo.getDisplayName());
-                        displayExistingFile(fileIndex);
+                        logger.debug("File loaded successfully and cached: {}", compInfo.getDisplayName());
+                        displayCachedFile(fileIndex, loadedPanel);
                     });
                 } else {
                     invokeLater(() -> {
@@ -571,15 +591,35 @@ public class BrokkDiffPanel extends JPanel {
             }
         }
     }
-    
+
     private void refreshAfterNavigation() {
         repaint();
         updateUndoRedoButtons();
     }
-    
+
     private void refreshUI() {
         updateNavigationButtons();
         revalidate();
         repaint();
+    }
+
+    /**
+     * Clean up resources when the panel is disposed.
+     * This ensures cached panels are properly disposed of to free memory.
+     */
+    public void dispose() {
+        logger.debug("Disposing BrokkDiffPanel and clearing panel cache");
+
+        // Clear all cached panels and dispose their resources
+        for (var panel : panelCache.values()) {
+            panel.removeAll();
+        }
+        panelCache.clear();
+
+        // Clear current panel reference
+        this.bufferDiffPanel = null;
+
+        // Remove all components
+        removeAll();
     }
 }
