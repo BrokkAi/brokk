@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
-import java.io.Serializable;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -8,10 +9,13 @@ import java.util.Optional;
  * Represents a named code element (class, function, field, or module).
  */
 public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String shortName)
-        implements Comparable<CodeUnit>, Serializable {
-    private static final long serialVersionUID = 4L; // Increment serialVersionUID due to new MODULE type and logic changes
+        implements Comparable<CodeUnit> {
 
-    public CodeUnit {
+    @JsonCreator
+    public CodeUnit(@JsonProperty("source") ProjectFile source,
+                    @JsonProperty("kind") CodeUnitType kind,
+                    @JsonProperty("packageName") String packageName,
+                    @JsonProperty("shortName") String shortName) {
         Objects.requireNonNull(source, "source must not be null");
         Objects.requireNonNull(kind, "kind must not be null");
         Objects.requireNonNull(packageName, "packageName must not be null"); // Allow empty, but not null
@@ -19,6 +23,10 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
+        this.source = source;
+        this.kind = kind;
+        this.packageName = packageName;
+        this.shortName = shortName;
     }
 
     /**

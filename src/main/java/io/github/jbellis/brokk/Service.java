@@ -14,8 +14,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
@@ -23,6 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPOutputStream;
 
 import static java.lang.Math.min;
 
@@ -843,6 +848,72 @@ public final class Service {
      * Stubbed Streaming model for when LLM is unavailable.
      * Can remain static as it has no dependency on Models instance state.
      */
+    /**
+     * Sends feedback supplied by the GUI dialog to Brokk’s backend.
+     * Files are attached with the multipart field name "attachment".
+     */
+    public void sendFeedback(String category,
+                             String feedbackText,
+                             boolean includeDebugLog,
+                             File screenshotFile) throws IOException
+    {
+        Objects.requireNonNull(category, "category must not be null");
+        Objects.requireNonNull(feedbackText, "feedbackText must not be null");
+
+        // Get user ID from Brokk key
+        var kp = parseKey(Project.getBrokkKey());
+        
+        var bodyBuilder = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("category", category)
+                .addFormDataPart("feedback_text", feedbackText)
+                .addFormDataPart("user_id", kp.userId().toString());
+
+        if (includeDebugLog) {
+            var debugLogPath = Path.of(System.getProperty("user.home"), ".brokk", "debug.log");
+            var debugFile = debugLogPath.toFile();
+            if (debugFile.exists()) {
+                try {
+                    // Create a temporary gzipped version of the debug log
+                    var gzippedFile = Files.createTempFile("debug", ".log.gz").toFile();
+                    gzippedFile.deleteOnExit();
+                    
+                    try (var fis = new FileInputStream(debugFile);
+                         var fos = new FileOutputStream(gzippedFile);
+                         var gzos = new GZIPOutputStream(fos)) {
+                        fis.transferTo(gzos);
+                    }
+                    
+                    bodyBuilder.addFormDataPart("attachments",
+                                                "debug.log.gz",
+                                                RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
+                } catch (IOException e) {
+                    logger.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
+                }
+            } else {
+                logger.debug("Debug log not found at {}", debugLogPath);
+            }
+        }
+
+        if (screenshotFile != null && screenshotFile.exists()) {
+            bodyBuilder.addFormDataPart("attachments",
+                                        screenshotFile.getName(),
+                                        RequestBody.create(screenshotFile, MediaType.parse("image/png")));
+        }
+
+        var requestBuilder = new Request.Builder()
+                .url("https://app.brokk.ai/api/events/feedback")
+                .post(bodyBuilder.build());
+
+        try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Failed to send feedback: " + response.code() + " - "
+                                      + (response.body() != null ? response.body().string() : "(no body)"));
+            }
+            logger.debug("Feedback sent successfully");
+        }
+    }
+
     public static class UnavailableStreamingModel implements StreamingChatLanguageModel {
         public UnavailableStreamingModel() {
         }

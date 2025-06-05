@@ -9,8 +9,8 @@ import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
@@ -34,7 +34,7 @@ import java.util.stream.Stream;
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications
  * based on user instructions. It handles parsing LLM responses, applying edits to files,
  * verifying changes through build/test commands, and managing the conversation history.
- * It supports both iterative coding sessions (potentially involving multiple LLM interactions
+ * It supports both iterative coding tasks (potentially involving multiple LLM interactions
  * and build attempts) and quick, single-shot edits.
  */
 public class CodeAgent {
@@ -51,13 +51,13 @@ public class CodeAgent {
     }
 
     /**
-     * Implementation of the LLM session that runs in a separate thread.
+     * Implementation of the LLM task that runs in a separate thread.
      * Uses the provided model for the initial request and potentially switches for fixes.
      *
      * @param userInput The user's goal/instructions.
-     * @return A SessionResult containing the conversation history and original file contents
+     * @return A TaskResult containing the conversation history and original file contents
      */
-    public SessionResult runSession(String userInput, boolean forArchitect) {
+    public TaskResult runTask(String userInput, boolean forArchitect) {
         var io = contextManager.getIo();
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
@@ -78,11 +78,11 @@ public class CodeAgent {
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
         io.systemOutput(msg);
-        SessionResult.StopDetails stopDetails;
+        TaskResult.StopDetails stopDetails;
 
         var parser = contextManager.getParserForWorkspace();
         // We'll collect the conversation as ChatMessages to store in context history.
-        var sessionMessages = new ArrayList<ChatMessage>();
+        var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(userInput.trim(),
                                                                    CodePrompts.reminderForModel(contextManager.getService(), model),
                                                                    parser);
@@ -94,12 +94,12 @@ public class CodeAgent {
                 var allMessages = CodePrompts.instance.collectCodeMessages(contextManager,
                                                                            model,
                                                                            parser,
-                                                                           sessionMessages,
+                                                                           taskMessages,
                                                                            nextRequest);
                 streamingResult = coder.sendRequest(allMessages, true);
             } catch (InterruptedException e) {
                 logger.debug("CodeAgent interrupted during sendRequest");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
             }
 
@@ -110,19 +110,19 @@ public class CodeAgent {
             if (!hasUsableContent) {
                 String message;
                 if (llmError != null) {
-                    message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending session";
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, llmError.getMessage());
+                    message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, llmError.getMessage());
                 } else {
-                    message = "Empty LLM response even after retries. Ending session";
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.EMPTY_RESPONSE, message);
+                    message = "Empty LLM response even after retries. Ending task";
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, message);
                 }
                 io.toolErrorRaw(message);
                 break;
             }
 
-            // Append request/response to session history
-            sessionMessages.add(nextRequest);
-            sessionMessages.add(llmResponse.aiMessage());
+            // Append request/response to task history
+            taskMessages.add(nextRequest);
+            taskMessages.add(llmResponse.aiMessage());
 
             String llmText = llmResponse.aiMessage().text();
             logger.debug("Got response (potentially partial if LLM connection was cut off)");
@@ -142,8 +142,8 @@ public class CodeAgent {
                     // Pure parse failure (no blocks parsed from this segment)
                     parseFailures++;
                     if (parseFailures > MAX_PARSE_ATTEMPTS) {
-                        stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.PARSE_ERROR);
-                        io.systemOutput("Parse error limit reached; ending session");
+                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR);
+                        io.systemOutput("Parse error limit reached; ending task");
                         break; // Exit main loop
                     }
                     messageForRetry = new UserMessage(parseResult.parseError());
@@ -184,12 +184,12 @@ public class CodeAgent {
 
             // If no blocks are pending and we haven't applied anything yet, we're done
             if (blocks.isEmpty() && blocksAppliedWithoutBuild == 0) {
-                io.systemOutput("No edits found in response, and no changes since last build; ending session");
+                io.systemOutput("No edits found in response, and no changes since last build; ending task");
                 if (!buildError.isEmpty()) {
                     // Previous build failed and LLM provided no fixes
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.BUILD_ERROR, buildError);
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, buildError);
                 } else {
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS, llmText);
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, llmText);
                 }
                 break;
             }
@@ -198,7 +198,7 @@ public class CodeAgent {
             var readOnlyFiles = findConflicts(blocks, contextManager);
             if (!readOnlyFiles.isEmpty()) {
                 var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.READ_ONLY_EDIT, filenames);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames);
                 break;
             }
 
@@ -216,7 +216,7 @@ public class CodeAgent {
                 editResult = EditBlock.applyEditBlocks(contextManager, io, blocks);
             } catch (IOException e) {
                 io.toolErrorRaw(e.getMessage());
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.IO_ERROR, e.getMessage());
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, e.getMessage());
                 break;
             }
             if (editResult.hadSuccessfulEdits()) {
@@ -231,7 +231,7 @@ public class CodeAgent {
             // Check for interruption before potentially blocking build verification
             if (Thread.currentThread().isInterrupted()) {
                 logger.debug("CodeAgent interrupted after applying edits.");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
             }
 
@@ -247,12 +247,11 @@ public class CodeAgent {
                 var parseRetryPrompt = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(),
                                                                           parser,
                                                                           succeededCount,
-                                                                          io,
                                                                           contextManager);
                 if (!parseRetryPrompt.isEmpty()) {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {
                         logger.debug("Apply failure limit reached ({}), attempting full file replacement fallback.", applyFailures);
-                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContents, userInput, sessionMessages);
+                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContents, userInput, taskMessages);
                         if (stopDetails != null) {
                             // Full replacement also failed or was interrupted
                             io.systemOutput("Code Agent stopping after failing to apply edits to " + stopDetails.explanation());
@@ -281,12 +280,12 @@ public class CodeAgent {
                 blocksAppliedWithoutBuild = 0; // reset after each build attempt
             } catch (InterruptedException e) {
                 logger.debug("CodeAgent interrupted during build verification.");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
                 break;
             }
 
             if (buildError.isEmpty()) {
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS);
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                 break;
             }
 
@@ -295,19 +294,19 @@ public class CodeAgent {
             nextRequest = new UserMessage(formatBuildErrorsForLLM(buildError));
         }
 
-        // Conclude session
+        // Conclude task
         assert stopDetails != null; // Ensure a stop reason was set before exiting the loop
         // create the Result for history
-        String finalActionDescription = (stopDetails.reason() == SessionResult.StopReason.SUCCESS)
+        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                                         ? userInput
                                         : userInput + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
         var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
-        return new SessionResult("Code: " + finalActionDescription,
-                                 new ContextFragment.TaskFragment(finalMessages, userInput),
-                                 originalContents,
-                                 stopDetails);
+        return new TaskResult("Code: " + finalActionDescription,
+                              new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
+                              originalContents,
+                              stopDetails);
     }
 
     /**
@@ -362,13 +361,13 @@ public class CodeAgent {
      * @param failedBlocks      The list of blocks that failed to apply.
      * @param originalContents  Map to record original content before replacement.
      * @param originalUserInput The initial user goal for context.
-     * @param sessionMessages
+     * @param taskMessages
      * @return StopDetails if the fallback fails or is interrupted, null otherwise.
      */
-    private SessionResult.StopDetails attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
-                                                                  Map<ProjectFile, String> originalContents,
-                                                                  String originalUserInput,
-                                                                  ArrayList<ChatMessage> sessionMessages)
+    private TaskResult.StopDetails attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
+                                                               Map<ProjectFile, String> originalContents,
+                                                               String originalUserInput,
+                                                               ArrayList<ChatMessage> taskMessages)
     {
         var failuresByFile = failedBlocks.stream()
                 .map(fb -> fb.block().filename())
@@ -379,7 +378,7 @@ public class CodeAgent {
 
         if (failuresByFile.isEmpty()) {
             logger.debug("Fatal: no filenames present in failed blocks");
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks");
+            return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks");
         }
 
         io.systemOutput("Attempting full file replacement for: " + failuresByFile.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
@@ -404,7 +403,7 @@ public class CodeAgent {
         if (filesToProcess.isEmpty()) {
             logger.debug("No files eligible for full file replacement after checking/reading content.");
             // Return error indicating failure, as the initial failures couldn't be addressed by fallback
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement.");
+            return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement.");
         }
 
         var succeededCount = new AtomicInteger(0);
@@ -416,7 +415,7 @@ public class CodeAgent {
 
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, sessionMessages);
+                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
                  var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
                  var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
@@ -467,7 +466,7 @@ public class CodeAgent {
         if (Thread.currentThread().isInterrupted()) {
             logger.debug("Interrupted during or after waiting for full file replacement tasks. Cancelling pending tasks.");
             futures.forEach(f -> f.cancel(true)); // Attempt to cancel ongoing tasks
-            return new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
+            return new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
         // Not cancelled -- collect results
@@ -497,7 +496,7 @@ public class CodeAgent {
                 combinedError = "%d/%d files succeeded.\n".formatted(succeededCount.get(), failuresByFile.size()) + combinedError;
             }
             logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(failuresByFile.size() - succeededCount.get()));
+            return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(failuresByFile.size() - succeededCount.get()));
         }
     }
 
@@ -571,7 +570,7 @@ public class CodeAgent {
             verificationCommand = verificationCommandFuture.get(5, TimeUnit.SECONDS);
         } catch (InterruptedException | ExecutionException | TimeoutException e) {
             logger.warn("Failed to get verification command", e);
-            var bd = contextManager.getProject().getBuildDetails();
+            var bd = contextManager.getProject().loadBuildDetails();
             verificationCommand = (bd.equals(BuildDetails.EMPTY) ? null : bd.buildLintCommand());
         }
 
@@ -579,25 +578,22 @@ public class CodeAgent {
     }
 
     /**
-     * Runs a quick-edit session where we:
+     * Runs a quick-edit task where we:
      * 1) Gather the entire file content plus related context (buildAutoContext)
      * 2) Use QuickEditPrompts to ask for a single fenced code snippet
      * 3) Replace the old text with the new snippet in the file
      *
-     * @return A SessionResult containing the conversation and original content.
+     * @return A TaskResult containing the conversation and original content.
      */
-    public SessionResult runQuickSession(ProjectFile file,
-                                         String oldText,
-                                         String instructions) throws InterruptedException
+    public TaskResult runQuickTask(ProjectFile file,
+                                   String oldText,
+                                   String instructions) throws InterruptedException
     {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
-        var analyzer = contextManager.getAnalyzer();
 
         // Use up to 5 related classes as context
-        var seeds = analyzer.getDeclarationsInFile(file).stream()
-                .filter(CodeUnit::isClass)
-                .collect(Collectors.toMap(CodeUnit::fqName, cls -> 1.0));
-        var relatedCode = Context.buildAutoContext(analyzer, seeds, Set.of(), 5);
+        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment directly
+        var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents;
         try {
@@ -626,25 +622,25 @@ public class CodeAgent {
         var result = coder.sendRequest(messages, false);
 
         // Determine stop reason based on LLM response
-        SessionResult.StopDetails stopDetails;
+        TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, result.error().getMessage());
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, result.error().getMessage());
             io.toolErrorRaw("Quick edit failed: " + result.error().getMessage());
         } else if (result.chatResponse() == null || result.chatResponse().aiMessage() == null || result.chatResponse().aiMessage().text() == null || result.chatResponse().aiMessage().text().isBlank()) {
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.EMPTY_RESPONSE);
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
             io.toolErrorRaw("LLM returned empty response for quick edit.");
         } else {
             // Success from LLM perspective
             String responseText = result.chatResponse().aiMessage().text();
             pendingHistory.add(new AiMessage(responseText));
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS);
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
 
-        // Return SessionResult containing conversation and original content
-        return new SessionResult("Quick Edit: " + file.getFileName(),
-                                 pendingHistory,
-                                 originalContents,
-                                 stopDetails);
+        // Return TaskResult containing conversation and original content
+        return new TaskResult("Quick Edit: " + file.getFileName(),
+                              new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
+                              originalContents,
+                              stopDetails);
     }
 
     /**

@@ -2,6 +2,8 @@ package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.util.Messages;
 
@@ -108,7 +110,7 @@ public interface IConsoleIO {
         // pass
     }
 
-    default void updateContextTable() {
+    default void updateWorkspace() {
         // pass
     }
 

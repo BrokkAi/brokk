@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,6 +18,9 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -30,6 +35,9 @@ public class HistoryOutputPanel extends JPanel {
     private DefaultTableModel historyModel;
     private JButton undoButton;
     private JButton redoButton;
+    private JComboBox<Project.SessionInfo> sessionComboBox;
+    private JButton newSessionButton;
+    private JButton manageSessionsButton;
 
     // Output components
     private MarkdownOutputPanel llmStreamArea;
@@ -38,40 +46,58 @@ public class HistoryOutputPanel extends JPanel {
     private JTextArea captureDescriptionArea;
     private JButton copyButton;
 
+    private InstructionsPanel instructionsPanel;
+    private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
+    
+    private String lastSpinnerMessage;
+
     /**
      * Constructs a new HistoryOutputPane.
      *
      * @param chrome The parent Chrome instance
      * @param contextManager The context manager
+     * @param instructionsPanel The instructions panel to include below output
      */
-    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager) {
+    public HistoryOutputPanel(Chrome chrome, ContextManager contextManager, InstructionsPanel instructionsPanel) {
         super(new BorderLayout()); // Use BorderLayout
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.instructionsPanel = instructionsPanel;
 
         // commandResultLabel initialization removed
 
-        // Build Output components (Center)
-        var centerPanel = buildCenterOutputPanel();
+        // Build combined Output + Instructions panel (Center)
+        var centerPanel = buildCombinedOutputInstructionsPanel();
         add(centerPanel, BorderLayout.CENTER);
 
-        // Build History panel (East)
-        var historyPanel = buildContextHistoryPanel();
+        // Build session controls and activity panel (East)
+        var sessionControlsPanel = buildSessionControlsPanel();
+        var activityPanel = buildActivityPanel();
+
+        // Create main history panel with session controls above activity
+        var historyPanel = new JPanel(new BorderLayout());
+        historyPanel.add(sessionControlsPanel, BorderLayout.NORTH);
+        historyPanel.add(activityPanel, BorderLayout.CENTER);
+
+        // Calculate preferred width to match old panel size
+        int preferredWidth = 230;
+        var preferredSize = new Dimension(preferredWidth, historyPanel.getPreferredSize().height);
+        historyPanel.setPreferredSize(preferredSize);
+        historyPanel.setMinimumSize(preferredSize);
+        historyPanel.setMaximumSize(new Dimension(preferredWidth, Integer.MAX_VALUE));
+
         add(historyPanel, BorderLayout.EAST);
 
         // Set minimum sizes for the main panel
         setMinimumSize(new Dimension(300, 200)); // Example minimum size
     }
 
-    private JPanel buildCenterOutputPanel() {
+    private JPanel buildCombinedOutputInstructionsPanel() {
         // Build LLM streaming area
         llmScrollPane = buildLLMStreamScrollPane();
 
         // Build capture output panel
         var capturePanel = buildCaptureOutputPanel();
-
-        // systemScrollPane removed
-        // topInfoPanel removed
 
         // Output panel with LLM stream
         var outputPanel = new JPanel(new BorderLayout());
@@ -85,26 +111,146 @@ public class HistoryOutputPanel extends JPanel {
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Container for the center section (just the outputPanel now)
+        // Create vertical split pane with Output above and Instructions below
+        var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
+        outputInstructionsSplit.setTopComponent(outputPanel);
+        outputInstructionsSplit.setBottomComponent(instructionsPanel);
+
+        // Container for the combined section
         var centerContainer = new JPanel(new BorderLayout());
-        // Removed topInfoPanel
-        centerContainer.add(outputPanel, BorderLayout.CENTER); // Output takes the entire space
-        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for output area
+        centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
+        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
         return centerContainer;
     }
 
     /**
-     * Builds the Context History panel that shows past contexts
+     * Builds the session controls panel with combo box and buttons
      */
-    private JPanel buildContextHistoryPanel() {
+    private JPanel buildSessionControlsPanel() {
+        var panel = new JPanel(new BorderLayout(5, 5));
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Sessions",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)
+        ));
+
+        // Session combo box
+        sessionComboBox = new JComboBox<>();
+        sessionComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                         boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof Project.SessionInfo sessionInfo) {
+                    setText(sessionInfo.name());
+                }
+                return this;
+            }
+        });
+        
+        // Add selection listener for session switching
+        sessionComboBox.addActionListener(e -> {
+            var selectedSession = (Project.SessionInfo) sessionComboBox.getSelectedItem();
+            if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
+                contextManager.switchSessionAsync(selectedSession.id());
+            }
+        });
+
+        // Buttons panel
+        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        
+        newSessionButton = new JButton("New");
+        newSessionButton.setToolTipText("Create a new session");
+        var newSessionSize = new Dimension(100, newSessionButton.getPreferredSize().height);
+        newSessionButton.setPreferredSize(newSessionSize);
+        newSessionButton.setMinimumSize(newSessionSize);
+        newSessionButton.setMaximumSize(newSessionSize);
+        newSessionButton.addActionListener(e -> {
+            contextManager.createNewSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
+                SwingUtilities.invokeLater(this::updateSessionComboBox)
+            );
+        });
+
+        manageSessionsButton = new JButton("Manage");
+        manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
+        var manageSessionSize = new Dimension(100, manageSessionsButton.getPreferredSize().height);
+        manageSessionsButton.setPreferredSize(manageSessionSize);
+        manageSessionsButton.setMinimumSize(manageSessionSize);
+        manageSessionsButton.setMaximumSize(manageSessionSize);
+        manageSessionsButton.addActionListener(e -> {
+            var dialog = new ManageSessionsDialog(this, chrome, contextManager);
+            dialog.setVisible(true);
+        });
+
+        buttonsPanel.add(newSessionButton);
+        buttonsPanel.add(manageSessionsButton);
+
+        panel.add(sessionComboBox, BorderLayout.CENTER);
+        panel.add(buttonsPanel, BorderLayout.SOUTH);
+
+        // Initialize with current sessions
+        updateSessionComboBox();
+
+        return panel;
+    }
+
+    /**
+     * Updates the session combo box with current sessions and selects the active one
+     */
+    public void updateSessionComboBox() {
+        SwingUtilities.invokeLater(() -> {
+            // Store current selection to avoid triggering change events
+            var currentSelection = sessionComboBox.getSelectedItem();
+            
+            // Remove action listener temporarily
+            var listeners = sessionComboBox.getActionListeners();
+            for (var listener : listeners) {
+                sessionComboBox.removeActionListener(listener);
+            }
+            
+            // Clear and repopulate
+            sessionComboBox.removeAllItems();
+            var sessions = contextManager.getProject().listSessions();
+            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed()); // Most recent first
+            
+            for (var session : sessions) {
+                sessionComboBox.addItem(session);
+            }
+            
+            // Select current session
+            var currentSessionId = contextManager.getCurrentSessionId();
+            for (int i = 0; i < sessionComboBox.getItemCount(); i++) {
+                var sessionInfo = sessionComboBox.getItemAt(i);
+                if (sessionInfo.id().equals(currentSessionId)) {
+                    sessionComboBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+            
+            // Restore action listeners
+            for (var listener : listeners) {
+                sessionComboBox.addActionListener(listener);
+            }
+        });
+    }
+
+    /**
+     * Builds the Activity history panel that shows past contexts
+     */
+    private JPanel buildActivityPanel() {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
-        panel.setBorder(BorderFactory.createTitledBorder(BorderFactory.createEtchedBorder(),
-                                                         "Activity",
-                                                         TitledBorder.DEFAULT_JUSTIFICATION,
-                                                         TitledBorder.DEFAULT_POSITION,
-                                                         new Font(Font.DIALOG, Font.BOLD, 12)));
+        panel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createEtchedBorder(),
+                "Activity",
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
+                new Font(Font.DIALOG, Font.BOLD, 12)
+        ));
 
         // Create table model with columns - first two columns are visible, third is hidden
         historyModel = new DefaultTableModel(
@@ -181,7 +327,7 @@ public class HistoryOutputPanel extends JPanel {
                          if (output != null) {
                              // Open in new window
                              new OutputWindow(HistoryOutputPanel.this, output,
-                                              chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+                                              chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
                          }
                      }
                  }
@@ -385,11 +531,19 @@ public class HistoryOutputPanel extends JPanel {
                 currentRow++;
             }
 
-            // Set selection if we found the context
+            // Set selection - if no specific context to select, select the most recent (last) item
             if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
                 historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
+            } else if (historyModel.getRowCount() > 0) {
+                // Select the most recent item (last row)
+                int lastRow = historyModel.getRowCount() - 1;
+                historyTable.setRowSelectionInterval(lastRow, lastRow);
+                historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
             }
+
+            // Update session combo box after table update
+            updateSessionComboBox();
         });
     }
 
@@ -477,9 +631,25 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
-            var output = contextManager.selectedContext().getParsedOutput();
-            if (output != null) {
-                new OutputWindow(this, output, chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+            if (llmStreamArea.isBlocking()) {
+                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
+                var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), true);
+                if (lastSpinnerMessage != null) {
+                    newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
+                }
+                activeStreamingWindows.add(newStreamingWindow);
+                newStreamingWindow.addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent evt) {
+                        activeStreamingWindows.remove(newStreamingWindow);
+                    }
+                });
+            } else {
+                var output = contextManager.selectedContext().getParsedOutput();
+                if (output != null) {
+                    new OutputWindow(this, output, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
+                }
             }
         });
         // Set minimum size
@@ -487,8 +657,8 @@ public class HistoryOutputPanel extends JPanel {
         buttonsPanel.add(openWindowButton);
 
 
-        // Add buttons panel to the right
-        panel.add(buttonsPanel, BorderLayout.EAST);
+        // Add buttons panel to the left
+        panel.add(buttonsPanel, BorderLayout.WEST);
 
         return panel;
     }
@@ -533,6 +703,7 @@ public class HistoryOutputPanel extends JPanel {
      */
     public void appendLlmOutput(String text, ChatMessageType type) {
         llmStreamArea.append(text, type);
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().append(text, type));
     }
 
     /**
@@ -549,6 +720,8 @@ public class HistoryOutputPanel extends JPanel {
         if (llmStreamArea != null) {
             llmStreamArea.showSpinner(message);
         }
+        lastSpinnerMessage = message;
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
 
     /**
@@ -558,6 +731,8 @@ public class HistoryOutputPanel extends JPanel {
         if (llmStreamArea != null) {
             llmStreamArea.hideSpinner();
         }
+        lastSpinnerMessage = null;
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
 
     /**
@@ -583,6 +758,10 @@ public class HistoryOutputPanel extends JPanel {
     public void setMarkdownOutputPanelBlocking(boolean blocked) {
         if (llmStreamArea != null) {
             llmStreamArea.setBlocking(blocked);
+            if (!blocked) {
+                activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setBlocking(false));
+                activeStreamingWindows.clear();
+            }
         } else {
             logger.warn("Attempted to set blocking state on null llmStreamArea");
         }
@@ -593,6 +772,8 @@ public class HistoryOutputPanel extends JPanel {
      */
     private static class OutputWindow extends JFrame {
         private final Project project;
+        private final MarkdownOutputPanel outputPanel;
+
         /**
          * Creates a new output window with the given text content
          *
@@ -600,7 +781,7 @@ public class HistoryOutputPanel extends JPanel {
          * @param output The messages (ai, user, ...) to display
          * @param isDark Whether to use dark theme
          */
-        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, boolean isDark) {
+        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, boolean isDark, boolean isBlockingMode) {
             super("Output"); // Call superclass constructor first
                 
                 // Set icon from Chrome.newFrame
@@ -618,17 +799,21 @@ public class HistoryOutputPanel extends JPanel {
                 setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
             // Create markdown panel with the text
-            var outputPanel = new MarkdownOutputPanel();
-            var scrollPane = new JScrollPane(outputPanel);
+            outputPanel = new MarkdownOutputPanel();
             outputPanel.updateTheme(isDark);
             outputPanel.setText(output);
-            outputPanel.scheduleCompaction().thenRun(() -> SwingUtilities.invokeLater(() -> scrollPane.getViewport().setViewPosition(new Point(0, 0))));;
-
-            // Add to a scroll pane
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            // Add the scroll pane to the frame
-            add(scrollPane);
+            
+            // Use shared utility method to create searchable content panel (without navigation for detached window)
+            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), false);
+            
+            // Add the content panel to the frame
+            add(contentPanel);
+            
+            if (!isBlockingMode) {
+                // Schedule compaction after everything is set up
+                outputPanel.scheduleCompaction();
+            }
+            outputPanel.setBlocking(isBlockingMode);
 
             // Load saved size and position, or use defaults
             var bounds = project.getOutputWindowBounds();
@@ -672,6 +857,30 @@ public class HistoryOutputPanel extends JPanel {
 
             // Make window visible
             setVisible(true);
+        }
+
+        /**
+         * Gets the MarkdownOutputPanel used by this window.
+         */
+        public MarkdownOutputPanel getMarkdownOutputPanel() {
+            return outputPanel;
+        }
+
+        /**
+         * Helper method to find JScrollPane component within a container
+         */
+        private Component findScrollPane(Container container) {
+            for (Component comp : container.getComponents()) {
+                if (comp instanceof JScrollPane) {
+                    return comp;
+                } else if (comp instanceof Container subContainer) {
+                    Component found = findScrollPane(subContainer);
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+            return null;
         }
     }
 

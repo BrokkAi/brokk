@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -231,12 +233,20 @@ public final class CSharpAnalyzerTest {
                      "getSkeleton for IAssetRegistrySA FQ name mismatch.");
 
         // Create SkeletonFragment and assert its properties
-        var skeletonFragment = new ContextFragment.SkeletonFragment(skels);
-        assertTrue(skeletonFragment.skeletons().containsKey(ifaceCU),
-                   "SkeletonFragment should contain the interface CodeUnit as a key.");
-        assertTrue(skeletonFragment.format().contains(ifaceCU.fqName()),
-                   "SkeletonFragment.format() output should contain the FQDN of the interface. Got: " + skeletonFragment.format());
-        assertEquals("Summary of " + ifaceCU.identifier(), skeletonFragment.description(),
+        // We pass null for IContextManager as it's not used by the description() method,
+        // and we want to avoid complex mocking for this CSharpAnalyzer test.
+        var skeletonFragment = new ContextFragment.SkeletonFragment(null,
+                                                                    List.of(ifaceCU.fqName()),
+                                                                    ContextFragment.SummaryType.CLASS_SKELETON);
+        
+        // Assert that the skels map (directly from analyzer) contains the interface
+        assertTrue(skels.containsKey(ifaceCU),
+                   "The skeletons map from analyzer should contain the interface CodeUnit as a key.");
+
+        // Assert the description of the SkeletonFragment
+        // The format() method is not asserted here as it would require a non-null IContextManager
+        // and would re-fetch skeletons, which is beyond the scope of this analyzer unit test.
+        assertEquals("Summary of " + ifaceCU.fqName(), skeletonFragment.description(),
                      "SkeletonFragment.description() mismatch.");
 
         // Method source extraction for interface methods

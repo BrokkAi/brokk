@@ -1,27 +1,22 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.Serial;
-import java.io.Serializable;
 import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * Represents a single task interaction for the Task History, including the user request ("description") and the full LLM message log.
  * The log can be compressed to save context space while retaining the most relevant information.
- * This record is serializable, using langchain4j's JSON serialization for ChatMessage lists.
  *
  * @param sequence A unique sequence number for ordering tasks.
  * @param log      The uncompressed list of chat messages for this task. Null if compressed.
  * @param summary  The compressed representation of the chat messages (summary). Null if uncompressed.
  */
-public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String summary) implements Serializable {
-    @Serial
-    private static final long serialVersionUID = 2L;
-
+public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String summary) {
     private static final System.Logger logger = System.getLogger(TaskEntry.class.getName());
 
     /** Enforce that exactly one of log or summary is non-null */
@@ -37,12 +32,14 @@ public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String s
      * The remaining messages (AI responses, tool calls/results) are stored in the `log`.
      * The TaskEntry starts uncompressed.
      */
-    public static TaskEntry fromSession(int sequence, SessionResult result) {
+    // IContextManager is not needed here, TaskFragment itself will get it via SessionResult.output()
+    // which is created with a contextManager in the agents
+    public static TaskEntry fromSession(int sequence, TaskResult result) {
         assert result != null;
         return new TaskEntry(sequence, result.output(), null);
     }
 
-    public static TaskEntry fromCompressed(int sequence, String compressedLog) {
+    public static TaskEntry fromCompressed(int sequence, String compressedLog) { // IContextManager not needed for compressed
         return new TaskEntry(sequence, null, compressedLog);
     }
 

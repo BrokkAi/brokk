@@ -7,6 +7,10 @@ import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.LocalFileRepo;
@@ -27,6 +31,7 @@ import java.util.stream.Collectors;
 public class Project implements IProject, AutoCloseable {
     private final Path propertiesFile;
     private final Path workspacePropertiesFile;
+    private final Path historyZipFile;
     private final Path root;
     private final Properties projectProps;
     private final Properties workspaceProps;
@@ -63,11 +68,26 @@ public class Project implements IProject, AutoCloseable {
     // Cache for organization-level data sharing policy
     private static volatile Boolean isDataShareAllowedCache = null;
 
+    /**
+     * Record representing session metadata for the sessions management system.
+     */
+    public record SessionInfo(UUID id, String name, long created, long modified) {}
 
-    // --- Static paths ---
+    // --- Static paths for global config ---
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
+
+    // --- Instance paths for project-specific sessions ---
+    private final Path sessionsDir;
+    private final Path sessionsIndexPath;
+
+    /**
+     * Returns the path to the history zip file for the given session.
+     */
+    private Path getSessionHistoryPath(UUID sessionId) {
+        return sessionsDir.resolve(sessionId.toString() + ".zip");
+    }
 
     // New enum to represent just which proxy to use
     public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
@@ -112,7 +132,10 @@ public class Project implements IProject, AutoCloseable {
         this.root = root;
         this.propertiesFile = root.resolve(".brokk").resolve("project.properties");
         this.workspacePropertiesFile = root.resolve(".brokk").resolve("workspace.properties");
+        this.historyZipFile = this.workspacePropertiesFile.getParent().resolve("history.zip");
         this.styleGuidePath = root.resolve(".brokk").resolve("style.md");
+        this.sessionsDir = root.resolve(".brokk").resolve("sessions");
+        this.sessionsIndexPath = sessionsDir.resolve("sessions.jsonl");
         this.projectProps = new Properties();
         this.workspaceProps = new Properties();
         this.dependencyFiles = loadDependencyFiles();
@@ -124,7 +147,7 @@ public class Project implements IProject, AutoCloseable {
                     projectProps.load(reader); // Attempt to load properties
                 }
 
-                var bd = getBuildDetails();
+                var bd = loadBuildDetails();
                 if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
                     this.detailsFuture.complete(bd);
                 }
@@ -296,7 +319,7 @@ public class Project implements IProject, AutoCloseable {
     }
 
     @Override
-    public BuildAgent.BuildDetails getBuildDetails() {
+    public BuildAgent.BuildDetails loadBuildDetails() {
         // Build details are project-specific, not workspace-specific
         String json = projectProps.getProperty(BUILD_DETAILS_KEY);
         if (json != null && !json.isEmpty()) {
@@ -329,6 +352,16 @@ public class Project implements IProject, AutoCloseable {
         } else {
             detailsFuture.complete(details);
         }
+    }
+
+    /**
+     * Returns the CompletableFuture that will complete with the BuildDetails.
+     * This allows for non-blocking asynchronous handling of build detail determination.
+     *
+     * @return The {@link CompletableFuture} for {@link BuildAgent.BuildDetails}.
+     */
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
     }
 
     /**
@@ -780,64 +813,77 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Saves a serialized Context object to the workspace properties
+     * Saves a ContextHistory object to a ZIP file using HistoryIo (legacy single history)
      */
-    public void saveContext(Context context) {
+    public void saveLegacyHistory(ContextHistory ch) {
         try {
-            // Save the context
-            byte[] serialized = Context.serialize(context);
-            String encoded = java.util.Base64.getEncoder().encodeToString(serialized);
-            workspaceProps.setProperty("context", encoded);
-
-            // Save the current fragment ID counter
-            int currentMaxId = ContextFragment.getCurrentMaxId();
-            workspaceProps.setProperty("contextFragmentNextId", String.valueOf(currentMaxId));
-
-            saveWorkspaceProperties();
-        } catch (Exception e) {
-            logger.error("Error saving context: {}", e.getMessage());
+            HistoryIo.writeZip(ch, historyZipFile);
+        } catch (IOException e) {
+            logger.error("Error saving context history: {}", e.getMessage());
         }
     }
 
     /**
-     * Loads a serialized Context object from the workspace properties
-     *
-     * @return The loaded Context, or null if none exists
+     * Saves a ContextHistory object to a session-specific ZIP file using HistoryIo
      */
-    public Context loadContext(IContextManager contextManager, String welcomeMessage) {
+    public void saveHistory(ContextHistory ch, UUID sessionId) {
         try {
-            // Restore the fragment ID counter first
-            String nextIdStr = workspaceProps.getProperty("contextFragmentNextId");
-            if (nextIdStr != null && !nextIdStr.isEmpty()) {
-                try {
-                    int nextId = Integer.parseInt(nextIdStr);
-                    ContextFragment.setNextId(nextId);
-                    logger.debug("Restored fragment ID counter to {}", nextId);
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid fragment ID counter value: {}", nextIdStr);
+            var sessionHistoryPath = getSessionHistoryPath(sessionId);
+            HistoryIo.writeZip(ch, sessionHistoryPath);
+            
+            // Update modified timestamp in sessions index
+            var sessions = listSessions();
+            SessionInfo currentInfo = null;
+            int index = -1;
+            for (int i = 0; i < sessions.size(); i++) {
+                if (sessions.get(i).id().equals(sessionId)) {
+                    currentInfo = sessions.get(i);
+                    index = i;
+                    break;
                 }
             }
-
-            // Then load the context
-            String encoded = workspaceProps.getProperty("context");
-            if (encoded != null && !encoded.isEmpty()) {
-                byte[] serialized = java.util.Base64.getDecoder().decode(encoded);
-                var context = Context.deserialize(serialized, welcomeMessage).withContextManager(contextManager);
-                logger.debug("Deserialized context with {} fragments", context.allFragments().count());
-                return context;
+            
+            if (currentInfo != null) {
+                var updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                sessions.set(index, updatedInfo);
+                saveSessions(sessions);
+            } else {
+                logger.warn("Session ID {} not found in index while trying to update modified timestamp. History zip was saved, but index not updated.", sessionId);
             }
-        } catch (Throwable e) {
-            logger.error("Error loading context: {}", e.getMessage());
-            clearSavedContext();
+        } catch (IOException e) {
+            logger.error("Error saving context history for session {}: {}", sessionId, e.getMessage());
         }
-        return null;
     }
 
-    private void clearSavedContext() {
-        workspaceProps.remove("context");
-        workspaceProps.remove("contextFragmentNextId");
-        saveWorkspaceProperties();
-        logger.debug("Cleared saved context from workspace properties");
+    /**
+     * Loads a ContextHistory object from a session-specific ZIP file using HistoryIo
+     *
+     * @return The loaded ContextHistory, or a new empty history if loading fails
+     */
+    public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+        try {
+            var sessionHistoryPath = getSessionHistoryPath(sessionId);
+            ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
+            if (ch != null && !ch.getHistory().isEmpty()) {
+                int maxId = 0;
+                for (Context ctx : ch.getHistory()) {
+                    for (ContextFragment fragment : ctx.allFragments().toList()) {
+                        maxId = Math.max(maxId, fragment.id());
+                    }
+                    for (TaskEntry taskEntry : ctx.getTaskHistory()) {
+                        if (taskEntry.log() != null) {
+                            maxId = Math.max(maxId, taskEntry.log().id());
+                        }
+                    }
+                }
+                ContextFragment.setNextId(maxId + 1);
+                logger.debug("Restored fragment ID counter to {}", maxId + 1);
+            }
+            return ch;
+        } catch (IOException e) {
+            logger.error("Error loading context history for session {}: {}", sessionId, e.getMessage());
+            return new ContextHistory();
+        }
     }
 
     /**
@@ -1056,21 +1102,65 @@ public class Project implements IProject, AutoCloseable {
     }
 
     /**
-     * Save vertical split pane position
+     * Save horizontal split pane position (workspace on left, content on right)
      */
-    public void saveVerticalSplitPosition(int position) {
+    public void saveHorizontalSplitPosition(int position) {
         if (position > 0) {
-            workspaceProps.setProperty("verticalSplitPosition", String.valueOf(position));
+            workspaceProps.setProperty("horizontalSplitPosition", String.valueOf(position));
             saveWorkspaceProperties();
         }
     }
 
     /**
-     * Get vertical split pane position
+     * Get horizontal split pane position
      */
-    public int getVerticalSplitPosition() {
+    public int getHorizontalSplitPosition() {
         try {
-            String posStr = workspaceProps.getProperty("verticalSplitPosition");
+            String posStr = workspaceProps.getProperty("horizontalSplitPosition");
+            return posStr != null ? Integer.parseInt(posStr) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Save right vertical split pane position (history on top, git on bottom)
+     */
+    public void saveRightVerticalSplitPosition(int position) {
+        if (position > 0) {
+            workspaceProps.setProperty("rightVerticalSplitPosition", String.valueOf(position));
+            saveWorkspaceProperties();
+        }
+    }
+
+    /**
+     * Get right vertical split pane position
+     */
+    public int getRightVerticalSplitPosition() {
+        try {
+            String posStr = workspaceProps.getProperty("rightVerticalSplitPosition");
+            return posStr != null ? Integer.parseInt(posStr) : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Save left vertical split pane position (project files on top, workspace on bottom)
+     */
+    public void saveLeftVerticalSplitPosition(int position) {
+        if (position > 0) {
+            workspaceProps.setProperty("leftVerticalSplitPosition", String.valueOf(position));
+            saveWorkspaceProperties();
+        }
+    }
+
+    /**
+     * Get left vertical split pane position
+     */
+    public int getLeftVerticalSplitPosition() {
+        try {
+            String posStr = workspaceProps.getProperty("leftVerticalSplitPosition");
             return posStr != null ? Integer.parseInt(posStr) : -1;
         } catch (NumberFormatException e) {
             return -1;
@@ -1099,27 +1189,6 @@ public class Project implements IProject, AutoCloseable {
         }
     }
 
-    /**
-     * Save context/git split pane position
-     */
-    public void saveContextGitSplitPosition(int position) {
-        if (position > 0) {
-            workspaceProps.setProperty("contextGitSplitPosition", String.valueOf(position));
-            saveWorkspaceProperties();
-        }
-    }
-
-    /**
-     * Get context/git split pane position
-     */
-    public int getContextGitSplitPosition() {
-        try {
-            String posStr = workspaceProps.getProperty("contextGitSplitPosition");
-            return posStr != null ? Integer.parseInt(posStr) : -1;
-        } catch (NumberFormatException e) {
-            return -1;
-        }
-    }
 
     /**
      * Gets the current global UI theme (dark or light)
@@ -1303,8 +1372,7 @@ public class Project implements IProject, AutoCloseable {
                 // For now, assuming ObjectMapper can handle the record directly
                 var typeFactory = objectMapper.getTypeFactory();
                 var listType = typeFactory.constructCollectionType(List.class, Service.FavoriteModel.class);
-                // Explicit cast needed as readValue with JavaType returns Object
-                @SuppressWarnings("unchecked") // Cast is safe due to the type factory construction
+                // Cast is safe due to the type factory construction
                 List<Service.FavoriteModel> loadedList = objectMapper.readValue(json, listType);
                 logger.debug("Loaded {} favorite models from global properties.", loadedList.size());
                 return loadedList;
@@ -1520,6 +1588,166 @@ public class Project implements IProject, AutoCloseable {
         }
 
         return result;
+    }
+
+    /**
+     * Lists all existing sessions from the sessions index.
+     *
+     * @return List of SessionInfo objects, or empty list if no sessions exist or error occurs
+     */
+    public List<SessionInfo> listSessions() {
+        if (!Files.exists(sessionsIndexPath)) {
+            return Collections.emptyList();
+        }
+
+        try {
+            var lines = Files.readAllLines(sessionsIndexPath);
+            var sessions = new ArrayList<SessionInfo>();
+            for (String line : lines) {
+                if (!line.trim().isEmpty()) {
+                    try {
+                        var sessionInfo = objectMapper.readValue(line, SessionInfo.class);
+                        sessions.add(sessionInfo);
+                    } catch (JsonProcessingException e) {
+                        logger.error("Failed to parse SessionInfo from line: {}", line, e);
+                    }
+                }
+            }
+            return sessions;
+        } catch (IOException e) {
+            logger.error("Error reading sessions index: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Saves the list of sessions to the sessions index file.
+     *
+     * @param sessions List of SessionInfo objects to save
+     */
+    private void saveSessions(List<SessionInfo> sessions) {
+        try {
+            Files.createDirectories(sessionsDir);
+            
+            var jsonlContent = new StringBuilder();
+            for (var session : sessions) {
+                String json = objectMapper.writeValueAsString(session);
+                jsonlContent.append(json).append('\n');
+            }
+            
+            AtomicWrites.atomicOverwrite(sessionsIndexPath, jsonlContent.toString());
+        } catch (IOException e) {
+            logger.error("Error saving sessions index: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Creates a new session with the given name.
+     *
+     * @param name The name for the new session
+     * @return The new SessionInfo object
+     */
+    public SessionInfo newSession(String name) {
+        var sessionId = UUID.randomUUID();
+        var currentTime = System.currentTimeMillis();
+        var newSession = new SessionInfo(sessionId, name, currentTime, currentTime);
+        
+        // Add to existing sessions list
+        var sessions = new ArrayList<>(listSessions());
+        sessions.add(newSession);
+        saveSessions(sessions);
+        
+        // Create empty history for the new session
+        try {
+            var emptyHistory = new ContextHistory();
+            var sessionHistoryPath = getSessionHistoryPath(sessionId);
+            HistoryIo.writeZip(emptyHistory, sessionHistoryPath);
+        } catch (IOException e) {
+            logger.error("Error creating empty history for new session {}: {}", sessionId, e.getMessage());
+        }
+        
+        return newSession;
+    }
+
+    /**
+     * Renames an existing session.
+     *
+     * @param sessionId The UUID of the session to rename
+     * @param newName The new name for the session
+     */
+    public void renameSession(UUID sessionId, String newName) {
+        List<SessionInfo> sessions = listSessions();
+        int index = -1;
+        SessionInfo oldInfo = null;
+        
+        for (int i = 0; i < sessions.size(); i++) {
+            if (sessions.get(i).id().equals(sessionId)) {
+                oldInfo = sessions.get(i);
+                index = i;
+                break;
+            }
+        }
+        
+        if (oldInfo != null) {
+            SessionInfo updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), oldInfo.modified());
+            sessions.set(index, updatedInfo);
+            saveSessions(sessions);
+        } else {
+            logger.warn("Session ID {} not found, cannot rename.", sessionId);
+        }
+    }
+
+    /**
+     * Deletes an existing session.
+     *
+     * @param sessionId The UUID of the session to delete
+     */
+    public void deleteSession(UUID sessionId) {
+        List<SessionInfo> sessions = new ArrayList<>(listSessions()); // Make a mutable copy
+        boolean removed = sessions.removeIf(s -> s.id().equals(sessionId));
+        if (removed) {
+            saveSessions(sessions);
+            Path historyZipPath = getSessionHistoryPath(sessionId);
+            try {
+                Files.deleteIfExists(historyZipPath);
+            } catch (IOException e) {
+                logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
+            }
+        } else {
+            logger.warn("Session ID {} not found, cannot delete.", sessionId);
+        }
+    }
+
+    /**
+     * Copies an existing session with a new name.
+     *
+     * @param originalSessionId The UUID of the session to copy
+     * @param newSessionName The name for the new session
+     * @return The new SessionInfo object, or null if copying failed
+     */
+    public SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+        SessionInfo originalInfo = listSessions().stream().filter(s -> s.id().equals(originalSessionId)).findFirst().orElse(null);
+        if (originalInfo == null) {
+            logger.error("Session {} not found, cannot copy.", originalSessionId);
+            return null;
+        }
+        UUID newSessionId = UUID.randomUUID();
+        Path originalHistoryPath = getSessionHistoryPath(originalSessionId);
+        Path newHistoryPath = getSessionHistoryPath(newSessionId);
+        try {
+            if (Files.exists(originalHistoryPath)) {
+                Files.copy(originalHistoryPath, newHistoryPath);
+            }
+        } catch (IOException e) {
+            logger.error("Error copying history zip from {} to {}: {}", originalHistoryPath, newHistoryPath, e.getMessage());
+            return null;
+        }
+        long currentTime = System.currentTimeMillis();
+        SessionInfo newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+        List<SessionInfo> sessions = new ArrayList<>(listSessions());
+        sessions.add(newSessionInfo);
+        saveSessions(sessions);
+        return newSessionInfo;
     }
 
     @Override

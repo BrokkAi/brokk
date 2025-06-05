@@ -54,8 +54,6 @@ public class LlmTest {
             public Path getRoot() {
                 return tempDir;
             }
-
-
         };
         var models = new Service(project);
         contextManager = new IContextManager() {

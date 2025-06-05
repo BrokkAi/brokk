@@ -1,23 +1,16 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.analyzer.CallSite;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects; // Added import
-import java.util.Optional; // Added import
-import java.util.Set;
+import java.io.IOException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AnalyzerUtil {
@@ -125,6 +118,50 @@ public class AnalyzerUtil {
                 .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().get()));
     }
 
+    public static List<String> testFilesToFQCNs(IAnalyzer analyzer, Collection<ProjectFile> files) {
+        if (analyzer instanceof JavaAnalyzer) {
+            // TODO remove this hack when we can get Joern to process the damn test files
+            return files.stream()
+                    .map(file -> {
+                        // Extract class name from filename (without extension)
+                        var fileName = file.getRelPath().getFileName().toString();
+                        var className = fileName.contains(".") 
+                                ? fileName.substring(0, fileName.lastIndexOf('.'))
+                                : fileName;
+                        
+                        // Read file content and extract package declaration
+                        try {
+                            var content = file.read();
+                            var packageName = extractPackageName(content);
+                            
+                            // Build FQCN: package.classname or just classname if no package
+                            return packageName.isEmpty() 
+                                    ? className 
+                                    : packageName + "." + className;
+                        } catch (IOException e) {
+                            // If we can't read the file, just use the simple class name
+                            logger.warn("Could not read file {}", file, e);
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .toList();
+        }
+
+        var classUnitsInTestFiles = files.stream()
+                .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toSet());
+
+        var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
+
+        return coalescedClasses.stream()
+                .map(CodeUnit::fqName)
+                .sorted() // for consistent test command generation
+                .toList();
+    }
+
     private record StackEntry(String method, int depth) {
     }
 
@@ -222,6 +259,24 @@ public class AnalyzerUtil {
         }
         // Return the map containing sources for all found methods
         return sources;
+    }
+
+    private static final Pattern PACKAGE_PATTERN = Pattern.compile("^\\s*package\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\s*;");
+
+    /**
+     * Extracts the package name from Java source code content.
+     * @param content The source code content
+     * @return The package name, or empty string if no package declaration found
+     */
+    private static String extractPackageName(String content) {
+        return content.lines()
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("//") && !line.startsWith("/*"))
+                .map(PACKAGE_PATTERN::matcher)
+                .filter(Matcher::matches)
+                .findFirst()
+                .map(matcher -> matcher.group(1))
+                .orElse("");
     }
 
     /**

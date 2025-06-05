@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
@@ -55,9 +55,9 @@ public final class GitUiUtil
                                 .map(ProjectFile::getFileName)
                                 .collect(Collectors.joining(", "))
                 );
-                var syntaxStyle = selectedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : 
+                var syntaxStyle = selectedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
                                  SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added uncommitted diff for " + selectedFiles.size() + " file(s) to context");
             } catch (Exception ex) {
@@ -127,7 +127,7 @@ public final class GitUiUtil
                 var shortHash = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
-                var fragment = new ContextFragment.StringFragment(diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for " + file.getFileName() + " to context");
             } catch (Exception e) {
@@ -262,7 +262,7 @@ public final class GitUiUtil
 
                 var syntaxStyle = changedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
                                  SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(diff, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for commit range to context");
             } catch (Exception ex) {
@@ -322,7 +322,7 @@ public final class GitUiUtil
 
                 var syntaxStyle = files.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
                                  SyntaxDetector.fromExtension(files.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(diffs, description, syntaxStyle);
+                var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for selected files in commit range to context");
             } catch (Exception ex) {
@@ -484,7 +484,7 @@ public final class GitUiUtil
                     return;
                 }
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
-                var fragment = new ContextFragment.StringFragment(diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
+                var fragment = new ContextFragment.StringFragment(cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE);
                 cm.addVirtualFragment(fragment);
                 chrome.systemOutput(String.format("Added diff of %s vs %s to context",
                                                   compareBranchName, baseBranchName));

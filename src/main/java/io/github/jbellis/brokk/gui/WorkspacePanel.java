@@ -2,16 +2,14 @@ package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import io.github.jbellis.brokk.Context;
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.ContextFragment.PathFragment;
-import io.github.jbellis.brokk.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.CallGraphDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMode;
@@ -21,19 +19,20 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
+import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
@@ -42,7 +41,6 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.charset.CharacterCodingException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
@@ -70,30 +68,503 @@ public class WorkspacePanel extends JPanel {
         EDIT, READ, SUMMARIZE, DROP, COPY, PASTE
     }
 
+    public enum PopupMenuMode { FULL, COPY_ONLY }
+
+    /**
+     * Sealed interface representing different popup menu scenarios
+     */
+    public sealed interface PopupScenario permits NoSelection, FileBadge, SingleFragment, MultiFragment {
+        List<Action> getActions(WorkspacePanel panel);
+    }
+
+    public static final class NoSelection implements PopupScenario {
+        @Override
+        public List<Action> getActions(WorkspacePanel panel) {
+            return List.of(
+                WorkspaceAction.DROP_ALL.createAction(panel),
+                WorkspaceAction.COPY_ALL.createAction(panel),
+                WorkspaceAction.PASTE.createAction(panel)
+            );
+        }
+    }
+
+    public static final class FileBadge implements PopupScenario {
+        private final TableUtils.FileReferenceList.FileReferenceData fileRef;
+
+        public FileBadge(TableUtils.FileReferenceList.FileReferenceData fileRef) {
+            this.fileRef = fileRef;
+        }
+
+        @Override
+        public List<Action> getActions(WorkspacePanel panel) {
+            var actions = new ArrayList<Action>();
+            
+            if (fileRef.getRepoFile() != null) {
+                actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, fileRef.getRepoFile()));
+                actions.add(WorkspaceAction.VIEW_FILE.createFileAction(panel, fileRef.getRepoFile()));
+                
+                if (panel.hasGit()) {
+                    actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, fileRef.getRepoFile()));
+                } else {
+                    actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
+                }
+                
+                actions.add(null); // Separator
+                actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
+                actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
+                actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
+            }
+            
+            return actions;
+        }
+    }
+
+    public static final class SingleFragment implements PopupScenario {
+        private final ContextFragment fragment;
+
+        public SingleFragment(ContextFragment fragment) {
+            this.fragment = fragment;
+        }
+
+        @Override
+        public List<Action> getActions(WorkspacePanel panel) {
+            var actions = new ArrayList<Action>();
+            
+            // Show in Project (for PROJECT_PATH fragments)
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                fragment.files().stream()
+                    .findFirst()
+                    .ifPresent(projectFile -> actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, projectFile)));
+            }
+            
+            // View File/Contents
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                actions.add(WorkspaceAction.VIEW_FILE.createFragmentAction(panel, fragment));
+            } else {
+                actions.add(WorkspaceAction.SHOW_CONTENTS.createFragmentAction(panel, fragment));
+            }
+            
+            // View History/Compress History
+            if (panel.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                fragment.files().stream()
+                    .findFirst()
+                    .ifPresent(projectFile -> actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, projectFile)));
+            } else if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
+                var cf = (ContextFragment.HistoryFragment) fragment;
+                var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
+                if (uncompressedExists) {
+                    actions.add(WorkspaceAction.COMPRESS_HISTORY.createAction(panel));
+                } else {
+                    actions.add(WorkspaceAction.COMPRESS_HISTORY.createDisabledAction("No uncompressed history to compress"));
+                }
+            } else {
+                actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("View History is available only for single project files."));
+            }
+            
+            actions.add(null); // Separator
+            
+            // Edit/Read/Summarize
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
+                fragment.files().stream()
+                    .findFirst()
+                    .ifPresent(projectFile -> {
+                        var fileData = new TableUtils.FileReferenceList.FileReferenceData(
+                            projectFile.getFileName(),
+                            projectFile.toString(),
+                            projectFile
+                        );
+                        actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileData));
+                        actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileData));
+                        actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileData));
+                    });
+            } else {
+                var selectedFragments = List.of(fragment);
+                actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+                actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
+            }
+            
+            actions.add(null); // Separator
+            actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
+            
+            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
+            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+                dropAction.setEnabled(false);
+            }
+            actions.add(dropAction);
+            
+            return actions;
+        }
+    }
+
+    public static final class MultiFragment implements PopupScenario {
+        private final List<ContextFragment> fragments;
+
+        public MultiFragment(List<ContextFragment> fragments) {
+            this.fragments = fragments;
+        }
+
+        @Override
+        public List<Action> getActions(WorkspacePanel panel) {
+            var actions = new ArrayList<Action>();
+            
+            actions.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction("Cannot view contents of multiple items at once."));
+            actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
+            
+            actions.add(null); // Separator
+            
+            actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
+            actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, fragments));
+            actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
+            
+            actions.add(null); // Separator
+            actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
+            
+            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
+            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+                dropAction.setEnabled(false);
+            }
+            actions.add(dropAction);
+            
+            return actions;
+        }
+    }
+
+    /**
+     * Enum of reusable workspace actions
+     */
+    public enum WorkspaceAction {
+        SHOW_IN_PROJECT("Show in Project"),
+        VIEW_FILE("View File"),
+        SHOW_CONTENTS("Show Contents"),
+        VIEW_HISTORY("View History"),
+        COMPRESS_HISTORY("Compress History"),
+        EDIT_FILE("Edit File"),
+        READ_FILE("Read File"),
+        SUMMARIZE_FILE("Summarize File"),
+        EDIT_ALL_REFS("Edit all References"),
+        READ_ALL_REFS("Read all References"),
+        SUMMARIZE_ALL_REFS("Summarize all References"),
+        COPY("Copy"),
+        DROP("Drop"),
+        DROP_ALL("Drop All"),
+        COPY_ALL("Copy All"),
+        PASTE("Paste text, images, urls");
+
+        private final String label;
+
+        WorkspaceAction(String label) {
+            this.label = label;
+        }
+
+        public AbstractAction createAction(WorkspacePanel panel) {
+            return new AbstractAction(label) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    switch (WorkspaceAction.this) {
+                        case DROP_ALL -> panel.performContextActionAsync(ContextAction.DROP, List.of());
+                        case COPY_ALL -> panel.performContextActionAsync(ContextAction.COPY, List.of());
+                        case PASTE -> panel.performContextActionAsync(ContextAction.PASTE, List.of());
+                        case COMPRESS_HISTORY -> panel.contextManager.compressHistoryAsync();
+                        default -> throw new UnsupportedOperationException("Action not implemented: " + WorkspaceAction.this);
+                    }
+                }
+            };
+        }
+
+        public AbstractAction createDisabledAction(String tooltip) {
+            var action = new AbstractAction(label) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    // Disabled actions do nothing
+                }
+            };
+            action.setEnabled(false);
+            action.putValue(Action.SHORT_DESCRIPTION, tooltip);
+            return action;
+        }
+
+        public AbstractAction createFileAction(WorkspacePanel panel, ProjectFile file) {
+            return new AbstractAction(label) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    switch (WorkspaceAction.this) {
+                        case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
+                        case VIEW_FILE -> {
+                            var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
+                            panel.showFragmentPreview(fragment);
+                        }
+                        case VIEW_HISTORY -> panel.chrome.getGitPanel().addFileHistoryTab(file);
+                        default -> throw new UnsupportedOperationException("File action not implemented: " + WorkspaceAction.this);
+                    }
+                }
+            };
+        }
+
+        public AbstractAction createFileRefAction(WorkspacePanel panel, TableUtils.FileReferenceList.FileReferenceData fileRef) {
+            var baseName = this == EDIT_FILE ? "Edit " : this == READ_FILE ? "Read " : "Summarize ";
+            return new AbstractAction(baseName + fileRef.getFullPath()) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (fileRef.getRepoFile() != null) {
+                        var contextAction = switch (WorkspaceAction.this) {
+                            case EDIT_FILE -> ContextAction.EDIT;
+                            case READ_FILE -> ContextAction.READ;
+                            case SUMMARIZE_FILE -> ContextAction.SUMMARIZE;
+                            default -> throw new UnsupportedOperationException("File ref action not implemented: " + WorkspaceAction.this);
+                        };
+                        var fragment = new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
+                        panel.performContextActionAsync(contextAction, List.of(fragment));
+                    } else {
+                        panel.chrome.toolErrorRaw("Cannot " + label.toLowerCase() + ": " + fileRef.getFullPath() + " - no ProjectFile available");
+                    }
+                    
+                    // Apply edit restrictions
+                    if (WorkspaceAction.this == EDIT_FILE) {
+                        var project = panel.contextManager.getProject();
+                        var repoFile = fileRef.getRepoFile();
+                        if (!panel.hasGit()) {
+                            setEnabled(false);
+                            putValue(Action.SHORT_DESCRIPTION, "Editing not available without Git");
+                        } else if (repoFile == null) {
+                            setEnabled(false);
+                            putValue(Action.SHORT_DESCRIPTION, "Editing not available for external files");
+                        } else if (!project.getRepo().getTrackedFiles().contains(repoFile)) {
+                            setEnabled(false);
+                            putValue(Action.SHORT_DESCRIPTION, "Cannot edit untracked file: " + fileRef.getFullPath());
+                        }
+                    }
+                }
+            };
+        }
+
+        public AbstractAction createFragmentAction(WorkspacePanel panel, ContextFragment fragment) {
+            return new AbstractAction(label) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    switch (WorkspaceAction.this) {
+                        case VIEW_FILE, SHOW_CONTENTS -> panel.showFragmentPreview(fragment);
+                        default -> throw new UnsupportedOperationException("Fragment action not implemented: " + WorkspaceAction.this);
+                    }
+                }
+            };
+        }
+
+        public AbstractAction createFragmentsAction(WorkspacePanel panel, List<ContextFragment> fragments) {
+            return new AbstractAction(label) {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    var contextAction = switch (WorkspaceAction.this) {
+                        case EDIT_ALL_REFS -> ContextAction.EDIT;
+                        case READ_ALL_REFS -> ContextAction.READ;
+                        case SUMMARIZE_ALL_REFS -> ContextAction.SUMMARIZE;
+                        case COPY -> ContextAction.COPY;
+                        case DROP -> ContextAction.DROP;
+                        default -> throw new UnsupportedOperationException("Fragments action not implemented: " + WorkspaceAction.this);
+                    };
+                    panel.performContextActionAsync(contextAction, fragments);
+                    
+                    // Apply enable/disable logic for specific actions
+                    if (WorkspaceAction.this == EDIT_ALL_REFS) {
+                        if (!panel.allTrackedProjectFiles(fragments)) {
+                            var hasFiles = panel.hasFiles(fragments);
+                            setEnabled(false);
+                            if (!hasFiles) {
+                                putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to edit.");
+                            } else {
+                                putValue(Action.SHORT_DESCRIPTION, "Cannot edit because selection includes untracked or external files.");
+                            }
+                        }
+                    } else if (WorkspaceAction.this == READ_ALL_REFS || WorkspaceAction.this == SUMMARIZE_ALL_REFS) {
+                        if (!panel.hasFiles(fragments)) {
+                            setEnabled(false);
+                            var actionName = WorkspaceAction.this == READ_ALL_REFS ? "read" : "summarize";
+                            putValue(Action.SHORT_DESCRIPTION, "No files associated with the selection to " + actionName + ".");
+                        }
+                    }
+                }
+            };
+        }
+    }
+
+    /**
+     * Immutable record containing description text and associated file references
+     */
+    public static record DescriptionWithReferences(
+        String description,
+        List<TableUtils.FileReferenceList.FileReferenceData> fileReferences,
+        ContextFragment fragment
+    ) {
+        public DescriptionWithReferences {
+            // Defensive copy for immutability
+            fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
+        }
+        
+        @Override
+        public String toString() {
+            return description; // For backward compatibility with existing code that expects String
+        }
+    }
+
+    /**
+     * Custom table cell renderer for the Description column that displays
+     * description text on top and file reference badges below.
+     */
+    private static class DescriptionWithBadgesRenderer implements javax.swing.table.TableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                                                      boolean isSelected, boolean hasFocus,
+                                                      int row, int column) {
+            // Create main panel with vertical layout
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(true);
+            
+            // Set colors based on selection
+            if (isSelected) {
+                panel.setBackground(table.getSelectionBackground());
+                panel.setForeground(table.getSelectionForeground());
+            } else {
+                panel.setBackground(table.getBackground());
+                panel.setForeground(table.getForeground());
+            }
+            
+            // Extract data from the DescriptionWithReferences record
+            DescriptionWithReferences data = (DescriptionWithReferences) value;
+            if (data == null) {
+                return panel; // Return empty panel if no data
+            }
+            
+            String description = data.description();
+            List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
+            
+            // Create description label
+            JLabel descLabel = new JLabel(description);
+            descLabel.setOpaque(false);
+            descLabel.setForeground(panel.getForeground());
+            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
+            
+            // Add description to panel
+            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(descLabel);
+            
+            // Add file badges if there are any
+            if (!fileReferences.isEmpty()) {
+                // Add small vertical gap
+                panel.add(Box.createVerticalStrut(3));
+                
+                // Calculate available width for badges (table column width minus padding)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                
+                // Create adaptive file reference list
+                var badgeList = new TableUtils.FileReferenceList.AdaptiveFileReferenceList(
+                        fileReferences, availableWidth, 4);
+                badgeList.setOpaque(false);
+                badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                
+                // Set badge colors based on selection
+                badgeList.setSelected(isSelected);
+                
+                panel.add(badgeList);
+            }
+            
+            // Calculate preferred height
+            int preferredHeight = calculatePreferredHeight(panel);
+            
+            // Set row height if different from current
+            if (table.getRowHeight(row) != preferredHeight) {
+                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
+            }
+            
+            return panel;
+        }
+        
+        private int calculatePreferredHeight(JPanel panel) {
+            // Force layout to get accurate measurements
+            panel.doLayout();
+            return panel.getPreferredSize().height + 4; // Add small padding
+        }
+    }
+
+    /**
+     * Helper for building popup menus consistently
+     */
+    public static class PopupBuilder {
+        private final JPopupMenu popup;
+        private final Chrome chrome;
+
+        private PopupBuilder(Chrome chrome) {
+            this.popup = new JPopupMenu();
+            this.chrome = chrome;
+        }
+
+        public static PopupBuilder create(Chrome chrome) {
+            return new PopupBuilder(chrome);
+        }
+
+        public PopupBuilder add(List<Action> actions) {
+            for (var action : actions) {
+                if (action == null) {
+                    popup.addSeparator();
+                } else {
+                    popup.add(new JMenuItem(action));
+                }
+            }
+            return this;
+        }
+
+        public PopupBuilder addSeparator() {
+            popup.addSeparator();
+            return this;
+        }
+
+        public void show(Component invoker, int x, int y) {
+            if (chrome.themeManager != null) {
+                chrome.themeManager.registerPopupMenu(popup);
+            }
+            popup.show(invoker, x, y);
+        }
+    }
+
     // Columns
-    private final int FILES_REFERENCED_COLUMN = 2;
-    private final int FRAGMENT_COLUMN = 3;
+    public static final int LOC_COLUMN = 0;
+    public static final int DESCRIPTION_COLUMN = 1;
+    private final int FRAGMENT_COLUMN = 2;
+    
+    // Column dimensions
+    private static final int LOC_COLUMN_WIDTH = 55;
+    private static final int LOC_COLUMN_RIGHT_PADDING = 6;
+    private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
     private final Chrome chrome;
     private final ContextManager contextManager;
 
     private JTable contextTable;
+
+    private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
     private JPanel warningPanel; // Panel for warning messages
     private boolean workspaceCurrentlyEditable = true;
+    private Context currentContext;
 
     // Buttons
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
 
     /**
-     * Constructor for the context panel
+     * Primary constructor allowing menu-mode selection
      */
-    public WorkspacePanel(Chrome chrome, ContextManager contextManager) {
+    public WorkspacePanel(Chrome chrome,
+                          ContextManager contextManager,
+                          PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
+        assert chrome != null;
+        assert contextManager != null;
+
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.popupMenuMode = popupMenuMode;
 
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -109,11 +580,16 @@ public class WorkspacePanel extends JPanel {
         setWorkspaceEditable(true); // Set initial state
     }
 
+    /** Convenience constructor – defaults to FULL popup menu */
+    public WorkspacePanel(Chrome chrome, ContextManager contextManager) {
+        this(chrome, contextManager, PopupMenuMode.FULL);
+    }
+
     /**
      * Build the context panel (unified table + action buttons).
      */
     private void buildContextPanel() {
-        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Fragment"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -122,10 +598,9 @@ public class WorkspacePanel extends JPanel {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return switch (columnIndex) {
-                    case 0 -> Integer.class;
-                    case 1 -> String.class;
-                    case 2 -> List.class; // Our references column
-                    case 3 -> ContextFragment.class;
+                    case LOC_COLUMN -> Integer.class;
+                    case DESCRIPTION_COLUMN -> DescriptionWithReferences.class;
+                    case FRAGMENT_COLUMN -> ContextFragment.class;
                     default -> Object.class;
                 };
             }
@@ -142,37 +617,44 @@ public class WorkspacePanel extends JPanel {
             }
         };
 
-        // Add custom cell renderer for the "Description" column
-        contextTable.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+        // Add custom cell renderer for the "Description" column that includes badges
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
+        
+        // Set right alignment for LOC column numbers with font metrics-based baseline alignment
+        var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                var c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (value != null && value.toString().startsWith("✏️")) {
-                    setFont(getFont().deriveFont(Font.ITALIC));
-                } else {
-                    setFont(getFont().deriveFont(Font.PLAIN));
-                }
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                                                          boolean isSelected, boolean hasFocus,
+                                                          int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                
+                // Calculate baseline-aligned padding using font metrics - match TableUtils calculation
+                var tableFont = table.getFont();
+                var fontMetrics = table.getFontMetrics(tableFont);
+                
+                // Use a small offset to align with description text baseline (similar to TableUtils approach)
+                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                
+                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
-        });
+        };
+        locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
-        // Files Referenced column: use our FileReferencesTableCellRenderer
-        var fileRenderer = new TableUtils.FileReferencesTableCellRenderer();
-        contextTable.getColumnModel().getColumn(FILES_REFERENCED_COLUMN).setCellRenderer(fileRenderer);
-
-        // Dynamically set row height based on renderer's preferred size
-        contextTable.setRowHeight(TableUtils.measuredBadgeRowHeight(contextTable));
+        // Remove file references column setup - badges will be in description column
 
         // Hide the FRAGMENT_COLUMN from view
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMinWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMaxWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
-        // Column widths
-        contextTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        contextTable.getColumnModel().getColumn(0).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(1).setPreferredWidth(230);
-        contextTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+        // LOC column: precise width so right-aligned numbers align with description text start
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMinWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(DESCRIPTION_COLUMN_WIDTH);
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
@@ -180,49 +662,51 @@ public class WorkspacePanel extends JPanel {
             public void mousePressed(MouseEvent e) {
                 maybeHandleFileRefClick(e);
             }
-            
+
             @Override
             public void mouseReleased(MouseEvent e) {
                 maybeHandleFileRefClick(e);
             }
-            
+
             private void maybeHandleFileRefClick(MouseEvent e) {
-                int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == FILES_REFERENCED_COLUMN) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e,
-                            contextTable,
-                            chrome,
-                            () -> {}, // Workspace doesn't need to refresh suggestions
-                            FILES_REFERENCED_COLUMN
-                    );
+                // If it's a popup trigger, let the table's main popup handler deal with it.
+                if (!e.isPopupTrigger()) {
+                    // Handle badge clicks in the new description column layout
+                    int col = contextTable.columnAtPoint(e.getPoint());
+                    if (col == DESCRIPTION_COLUMN) { // Description column
+                        int row = contextTable.rowAtPoint(e.getPoint());
+                        if (row >= 0) {
+                            // Check if the cell contains file references
+                            var descriptionData = (DescriptionWithReferences) contextTable.getModel().getValueAt(row, DESCRIPTION_COLUMN);
+                            if (descriptionData != null && !descriptionData.fileReferences().isEmpty()) {
+                                // Check if the click actually hit a badge (not just anywhere in the cell)
+                                var clickedRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, descriptionData.fileReferences());
+                                
+                                if (clickedRef != null) {
+                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                    ContextMenuUtils.handleFileReferenceClick(
+                                            e,
+                                            contextTable,
+                                            chrome,
+                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            DESCRIPTION_COLUMN
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
-        
+
         // Add mouse motion for tooltips
         contextTable.addMouseMotionListener(new MouseAdapter() {
             @Override
             public void mouseMoved(MouseEvent e) {
                 int row = contextTable.rowAtPoint(e.getPoint());
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col == FILES_REFERENCED_COLUMN) {
-                    var value = contextTable.getValueAt(row, col);
-                    if (value != null) {
-                        // Show file references in a multiline tooltip
-                        @SuppressWarnings("unchecked") List<TableUtils.FileReferenceList.FileReferenceData> refs = (List<TableUtils.FileReferenceList.FileReferenceData>) value;
-                        if (!refs.isEmpty()) {
-                            var sb = new StringBuilder("<html>");
-                            for (TableUtils.FileReferenceList.FileReferenceData r : refs) {
-                                sb.append(r.getFullPath()).append("<br>");
-                            }
-                            sb.append("</html>");
-                            contextTable.setToolTipText(sb.toString());
-                            return;
-                        }
-                    }
-                } else if (row >= 0 && col == 1) {
-                    // Show full description
+                if (row >= 0 && col == DESCRIPTION_COLUMN) {
+                    // Show full description - badge tooltips will be handled by new renderer
                     var value = contextTable.getValueAt(row, col);
                     if (value != null) {
                         contextTable.setToolTipText(value.toString());
@@ -275,146 +759,61 @@ public class WorkspacePanel extends JPanel {
             }
 
             private void handlePopup(MouseEvent e) {
-                if (e.isConsumed()) return; // Respect if event was already handled
-                if (e.isPopupTrigger()) {
-                    int row = contextTable.rowAtPoint(e.getPoint());
-                    int col = contextTable.columnAtPoint(e.getPoint());
+                if (e.isConsumed()) return;
+                if (!e.isPopupTrigger()) return;
 
-                    // Clear the menu and rebuild according to row/column
-                    contextMenu.removeAll();
-
-                    ContextFragment selected = null;
+                int row = contextTable.rowAtPoint(e.getPoint());
+                
+                // Handle COPY_ONLY mode
+                if (popupMenuMode == PopupMenuMode.COPY_ONLY) {
                     if (row >= 0) {
-                        // Select the row only if:
-                        // 1. No rows are currently selected, or
-                        // 2. Only one row is selected and it's not the row we clicked on
-                        if (contextTable.getSelectedRowCount() == 0 || (contextTable.getSelectedRowCount() == 1 && contextTable.getSelectedRow() != row)) {
+                        if (contextTable.getSelectedRowCount() == 0
+                                || !Arrays.stream(contextTable.getSelectedRows()).anyMatch(r -> r == row)) {
                             contextTable.setRowSelectionInterval(row, row);
                         }
-                        selected = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
-                    }
-
-                    // Assign to effectively final variable for use in lambdas
-                    final ContextFragment fragmentToShow = selected;
-
-                    if (row >= 0) {
-                        // Show Contents as the first action
-                        JMenuItem showContentsItem = new JMenuItem("Show Contents");
-                        // Use the effectively final variable in the lambda
-                        showContentsItem.addActionListener(e1 -> showFragmentPreview(fragmentToShow));
-                        contextMenu.add(showContentsItem);
-                        contextMenu.addSeparator();
-
-                        // show "View History" only if it's a ProjectPathFragment and Git is available
-                        boolean hasGit = contextManager != null && contextManager.getProject() != null
-                                && contextManager.getProject().hasGit();
-                        if (hasGit && fragmentToShow instanceof ContextFragment.ProjectPathFragment ppf) {
-                            JMenuItem viewHistoryItem = new JMenuItem("View History");
-                            viewHistoryItem.addActionListener(ev -> {
-                                // Already know it's a ProjectPathFragment here, use ppf captured by the outer if
-                                chrome.getGitPanel().addFileHistoryTab(ppf.file());
-                            });
-                            contextMenu.add(viewHistoryItem);
-                        } else if (fragmentToShow instanceof ContextFragment.HistoryFragment cf) {
-                            // Add Compress History option for conversation fragment
-                            JMenuItem compressHistoryItem = new JMenuItem("Compress History");
-                            compressHistoryItem.addActionListener(e1 -> {
-                                // Call ContextManager to compress history
-                                contextManager.compressHistoryAsync();
-                            });
-                            contextMenu.add(compressHistoryItem);
-                            // Only enable if uncompressed entries exist
-                            var uncompressedExists = cf.entries().stream().anyMatch(entry -> !entry.isCompressed());
-                            compressHistoryItem.setEnabled(uncompressedExists);
-                        }
-
-                        // Row popup options
-                        {
-                            contextMenu.addSeparator();
-                            var selectedFragments = getSelectedFragments(); // Get selected fragments once
-
-                            // Special case: Single ProjectPathFragment selected -> show specific actions for it
-                            if (selectedFragments.size() == 1 && selectedFragments.getFirst() instanceof ContextFragment.ProjectPathFragment ppf) {
-                                // Create FileReferenceData for this fragment's file
-                                var fileData = new TableUtils.FileReferenceList.FileReferenceData(
-                                        ppf.file().getFileName(),
-                                        ppf.file().toString(),
-                                        ppf.file()
-                                );
-                                // Add specific actions using existing helpers
-                                contextMenu.add(buildAddMenuItem(fileData)); // Handles edit for single tracked file
-                                contextMenu.add(buildReadMenuItem(fileData));
-                                contextMenu.add(buildSummarizeMenuItem(fileData));
-                            } else {
-                                // Default: Show "All References" actions, enabled based on file presence and track status
-                                var project = contextManager.getProject();
-                                Set<BrokkFile> allFiles = selectedFragments.stream()
-                                        .flatMap(frag -> frag.files(project).stream())
-                                        .collect(Collectors.toSet());
-
-                                boolean allFilesAreTrackedProjectFiles = !allFiles.isEmpty() && allFiles.stream().allMatch(f ->
-                                        f instanceof ProjectFile pf &&
-                                        project.getRepo().getTrackedFiles().contains(pf)
-                                );
-                                boolean hasFiles = !allFiles.isEmpty(); // Re-introduce hasFiles
-
-                                JMenuItem editAllRefsItem = new JMenuItem("Edit all References");
-                                editAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.EDIT, selectedFragments);
-                                });
-                                editAllRefsItem.setEnabled(allFilesAreTrackedProjectFiles);
-                                if (!allFilesAreTrackedProjectFiles && !allFiles.isEmpty()) {
-                                    editAllRefsItem.setToolTipText("Cannot edit because selection includes untracked or external files.");
-                                } else if (allFiles.isEmpty()) {
-                                    editAllRefsItem.setToolTipText("No files associated with the selection to edit.");
-                                }
-
-                                JMenuItem readAllRefsItem = new JMenuItem("Read all References");
-                                readAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.READ, selectedFragments);
-                                });
-                                readAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
-
-                                JMenuItem summarizeAllRefsItem = new JMenuItem("Summarize all References");
-                                summarizeAllRefsItem.addActionListener(e1 -> {
-                                    performContextActionAsync(ContextAction.SUMMARIZE, selectedFragments);
-                                });
-                                summarizeAllRefsItem.setEnabled(hasFiles); // Disable if no files associated
-
-                                contextMenu.add(editAllRefsItem);
-                                contextMenu.add(readAllRefsItem);
-                                contextMenu.add(summarizeAllRefsItem);
-                            }
-                        }
-
-                        // Add Copy and Drop actions with a separator
-                        contextMenu.addSeparator();
-                        JMenuItem copySelectionItem = new JMenuItem("Copy");
-                        copySelectionItem.addActionListener(ev -> {
-                            var selectedFragments = getSelectedFragments();
-                            performContextActionAsync(ContextAction.COPY, selectedFragments);
+                        JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
+                        copyItem.addActionListener(ev -> {
+                            var fragsToCopy = getSelectedFragments();
+                            contextManager.addFilteredToContextAsync(currentContext, fragsToCopy);
                         });
-                        contextMenu.add(copySelectionItem);
-
-                        JMenuItem dropSelectionItem = new JMenuItem("Drop");
-                        dropSelectionItem.addActionListener(ev -> {
-                            var selectedFragments = getSelectedFragments();
-                            performContextActionAsync(ContextAction.DROP, selectedFragments);
-                        });
-                        contextMenu.add(dropSelectionItem);
-
-                        dropSelectionItem.setEnabled(contextManager.selectedContext().equals(contextManager.topContext()));
-                    } else {
-                        // No row selected - show the popup with all options
-                        tablePopupMenu.show(contextTable, e.getX(), e.getY());
+                        contextMenu.removeAll();
+                        contextMenu.add(copyItem);
+                        if (chrome.themeManager != null) {
+                            chrome.themeManager.registerPopupMenu(contextMenu);
+                        }
+                        contextMenu.show(contextTable, e.getX(), e.getY());
                     }
-
-                    // Final theme registration before showing
-                    if (chrome.themeManager != null) {
-                        chrome.themeManager.registerPopupMenu(contextMenu);
-                    }
-                    contextMenu.show(contextTable, e.getX(), e.getY());
+                    return;
                 }
+
+                // Ensure row selection
+                if (row >= 0) {
+                    boolean rowIsSelected = Arrays.stream(contextTable.getSelectedRows()).anyMatch(r -> r == row);
+                    if (!rowIsSelected) {
+                        contextTable.setRowSelectionInterval(row, row);
+                    }
+                }
+
+                List<ContextFragment> selectedFragments = getSelectedFragments();
+
+                // Show empty table menu if no selection
+                if (row < 0 || selectedFragments.isEmpty()) {
+                    tablePopupMenu.show(contextTable, e.getX(), e.getY());
+                    if (chrome.themeManager != null) {
+                        chrome.themeManager.registerPopupMenu(tablePopupMenu);
+                    }
+                    return;
+                }
+
+                // Classify scenario and build menu
+                PopupScenario scenario = classifyScenario(e, selectedFragments);
+                List<Action> actions = scenario.getActions(WorkspacePanel.this);
+                
+                PopupBuilder.create(chrome)
+                    .add(actions)
+                    .show(contextTable, e.getX(), e.getY());
+                
+                e.consume();
             }
         });
 
@@ -431,7 +830,7 @@ public class WorkspacePanel extends JPanel {
             @Override
             protected Transferable createTransferable(JComponent c) {
                 String contentToCopy = getSelectedContent(getSelectedFragments());
-                if (contentToCopy != null && !contentToCopy.isEmpty()) {
+                if (!contentToCopy.isEmpty()) {
                     return new StringSelection(contentToCopy);
                 }
                 return null;
@@ -460,21 +859,18 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.addSeparator();
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-        dropAllMenuItem.addActionListener(e -> {
-
-            performContextActionAsync(ContextAction.DROP, List.<ContextFragment>of());
-        });
+        dropAllMenuItem.addActionListener(e -> performContextActionAsync(ContextAction.DROP, List.of()));
         tablePopupMenu.add(dropAllMenuItem);
 
         JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
         copyAllMenuItem.addActionListener(e -> {
-            performContextActionAsync(ContextAction.COPY, List.<ContextFragment>of());
+            performContextActionAsync(ContextAction.COPY, List.of());
         });
         tablePopupMenu.add(copyAllMenuItem);
 
         JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
         pasteMenuItem.addActionListener(e -> {
-            performContextActionAsync(ContextAction.PASTE, List.<ContextFragment>of());
+            performContextActionAsync(ContextAction.PASTE, List.of());
         });
         tablePopupMenu.add(pasteMenuItem);
 
@@ -491,10 +887,14 @@ public class WorkspacePanel extends JPanel {
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
-        locSummaryPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        locSummaryPanel = new JPanel();
+        locSummaryPanel.setLayout(new BoxLayout(locSummaryPanel, BoxLayout.Y_AXIS));
         JLabel innerLabel = new JLabel(" ");
-        innerLabel.setBorder(new EmptyBorder(5, 5, 5, 5));
+        innerLabel.setBorder(new EmptyBorder(5, 5, 2, 5));
+        JLabel costLabel = new JLabel(" ");
+        costLabel.setBorder(new EmptyBorder(0, 5, 5, 5));
         locSummaryPanel.add(innerLabel);
+        locSummaryPanel.add(costLabel);
         locSummaryPanel.setBorder(BorderFactory.createEmptyBorder());
         contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
 
@@ -587,7 +987,7 @@ public class WorkspacePanel extends JPanel {
         };
 
         // Add the listener to the panel itself
-        this.addMouseListener(panelPopupAndFocusListener);
+        WorkspacePanel.this.addMouseListener(panelPopupAndFocusListener);
         // Add the listener to the summary panel and its sub-panels to ensure consistent popup behavior
         contextSummaryPanel.addMouseListener(panelPopupAndFocusListener);
         locSummaryPanel.addMouseListener(panelPopupAndFocusListener);
@@ -599,13 +999,10 @@ public class WorkspacePanel extends JPanel {
      */
     public List<ContextFragment> getSelectedFragments() {
         return SwingUtil.runOnEdt(() -> {
-            var fragments = new ArrayList<ContextFragment>();
-            int[] selectedRows = contextTable.getSelectedRows();
             var tableModel = (DefaultTableModel) contextTable.getModel();
-            for (int row : selectedRows) {
-                fragments.add((ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN));
-            }
-            return fragments;
+            return Arrays.stream(contextTable.getSelectedRows())
+                    .mapToObj(row -> (ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN))
+                    .collect(Collectors.toList());
         }, List.of());
     }
 
@@ -614,6 +1011,7 @@ public class WorkspacePanel extends JPanel {
      */
     public void populateContextTable(Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
+        this.currentContext = ctx;
         var tableModel = (DefaultTableModel) contextTable.getModel();
         tableModel.setRowCount(0);
 
@@ -629,8 +1027,8 @@ public class WorkspacePanel extends JPanel {
         StringBuilder fullText = new StringBuilder();
         for (var frag : allFragments) {
             String locText;
-            if (frag.isText() || frag instanceof ContextFragment.OutputFragment) {
-                var text = getTextSafe(frag);
+            if (frag.isText() || frag.getType().isOutputFragment()) {
+                var text = frag.text();
                 fullText.append(text).append("\n");
                 int loc = text.split("\\r?\\n", -1).length;
                 totalLines += loc;
@@ -646,10 +1044,10 @@ public class WorkspacePanel extends JPanel {
                 desc = "✏️ " + desc;
             }
 
-            // Build file references
+            // Build file references for the record
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
-            if (!(frag instanceof ContextFragment.ProjectPathFragment)) {
-                fileReferences = frag.files(contextManager.getProject())
+            if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                fileReferences = frag.files()
                         .stream()
                         .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
                         .distinct()
@@ -657,11 +1055,14 @@ public class WorkspacePanel extends JPanel {
                         .collect(Collectors.toList());
             }
 
-            tableModel.addRow(new Object[]{locText, desc, fileReferences, frag});
+            // Create rich description object
+            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            tableModel.addRow(new Object[]{locText, descriptionWithRefs, frag});
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
         var innerLabel = (JLabel) locSummaryPanel.getComponent(0);
+        var costLabel = (JLabel) locSummaryPanel.getComponent(1);
 
         // Check for context size warnings against configured models
         var models = contextManager.getService();
@@ -716,9 +1117,16 @@ public class WorkspacePanel extends JPanel {
         // Always set the standard summary text on innerLabel
         innerLabel.setForeground(UIManager.getColor("Label.foreground")); // Reset to default color
         var costEstimates = calculateCostEstimates(approxTokens, models);
-        String costText = costEstimates.isEmpty() ? "" : " Estimated cost/request is " + String.join(", ", costEstimates);
-        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.%s".formatted(totalLines, approxTokens / 1000, costText));
+        innerLabel.setText("Total: %,d LOC, or about %,dk tokens.".formatted(totalLines, approxTokens / 1000));
         innerLabel.setToolTipText(null); // Clear tooltip
+
+        if (costEstimates.isEmpty()) {
+            costLabel.setText(" ");
+            costLabel.setVisible(false);
+        } else {
+            costLabel.setText("Estimated cost/request is " + String.join(", ", costEstimates));
+            costLabel.setVisible(true);
+        }
 
         // Remove any existing warning labels from the warningPanel
         warningPanel.removeAll();
@@ -751,83 +1159,10 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
-     * Get the fragment text or remove it if it errors out
-     */
-    private String getTextSafe(ContextFragment fragment) {
-        try {
-            return fragment.text();
-        } catch (IOException e) {
-            String msg;
-            if (e instanceof CharacterCodingException) {
-                msg = "Unable to read fragment `%s` (probable non-text data)".formatted(fragment.description());
-            } else {
-                msg = "Unable to read fragment `%s`".formatted(fragment.description());
-            }
-            logger.debug(msg, e);
-            chrome.systemOutput(msg);
-            contextManager.removeBadFragment(fragment, e);
-            return "";
-        }
-    }
-
-// No longer needed as edit button is now in the menu
-
-    /**
      * Called by Chrome to refresh the table if context changes
      */
     public void updateContextTable() {
-        SwingUtilities.invokeLater(() -> {
-            populateContextTable(contextManager.selectedContext());
-        });
-    }
-
-    /**
-     * Build "Add file" menu item for a single file reference
-     */
-    private JMenuItem buildAddMenuItem(TableUtils.FileReferenceList.FileReferenceData fileRef) {
-        JMenuItem editItem = new JMenuItem("Edit " + fileRef.getFullPath());
-        editItem.addActionListener(e -> {
-            if (fileRef.getRepoFile() != null) {
-                performContextActionAsync(
-                        ContextAction.EDIT,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
-                );
-            } else {
-                chrome.toolErrorRaw("Cannot edit file: " + fileRef.getFullPath() + " - no ProjectFile available"); // Corrected message
-            }
-        });
-        // Disable if no git, file isn't a ProjectFile, or file isn't tracked
-        var project = contextManager.getProject();
-        var repoFile = fileRef.getRepoFile(); // Cache the result
-        if (project == null || !project.hasGit()) {
-            editItem.setEnabled(false);
-            editItem.setToolTipText("Editing not available without Git");
-        } else if (repoFile == null) {
-            editItem.setEnabled(false);
-            editItem.setToolTipText("Editing not available for external files"); // Should generally not happen if repoFile is null
-        } else if (!project.getRepo().getTrackedFiles().contains(repoFile)) {
-            editItem.setEnabled(false);
-            editItem.setToolTipText("Cannot edit untracked file: " + fileRef.getFullPath());
-        }
-        return editItem;
-    }
-
-    /**
-     * Build "Read file" menu item for a single file reference
-     */
-    private JMenuItem buildReadMenuItem(TableUtils.FileReferenceList.FileReferenceData fileRef) {
-        JMenuItem readItem = new JMenuItem("Read " + fileRef.getFullPath());
-        readItem.addActionListener(e -> {
-            if (fileRef.getRepoFile() != null) {
-                performContextActionAsync(
-                        ContextAction.READ,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
-                );
-            } else {
-                chrome.toolErrorRaw("Cannot read file: " + fileRef.getFullPath() + " - no ProjectFile available"); // Corrected message
-            }
-        });
-        return readItem;
+        SwingUtilities.invokeLater(() -> populateContextTable(contextManager.selectedContext()));
     }
 
     /**
@@ -835,24 +1170,6 @@ public class WorkspacePanel extends JPanel {
      */
     private void showFragmentPreview(ContextFragment fragment) {
         chrome.openFragmentPreview(fragment);
-    }
-
-    /**
-     * Build "Summarize file" menu item for a single file reference
-     */
-    private JMenuItem buildSummarizeMenuItem(TableUtils.FileReferenceList.FileReferenceData fileRef) {
-        JMenuItem summarizeItem = new JMenuItem("Summarize " + fileRef.getFullPath());
-        summarizeItem.addActionListener(e -> {
-            if (fileRef.getRepoFile() != null) {
-                performContextActionAsync(
-                        ContextAction.SUMMARIZE,
-                        List.of(new ContextFragment.ProjectPathFragment(fileRef.getRepoFile()))
-                );
-            } else {
-                chrome.toolErrorRaw("Cannot summarize: " + fileRef.getFullPath() + " - ProjectFile information not available"); // Corrected message
-            }
-        });
-        return summarizeItem;
     }
 
     // ------------------------------------------------------------------
@@ -874,6 +1191,84 @@ public class WorkspacePanel extends JPanel {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Returns true if the project has Git support
+     */
+    private boolean hasGit() {
+        return contextManager.getProject().hasGit();
+    }
+
+    /**
+     * Returns true if the fragments have associated files
+     */
+    private boolean hasFiles(List<ContextFragment> fragments) {
+        return fragments.stream()
+                .flatMap(frag -> frag.files().stream())
+                .findAny()
+                .isPresent();
+    }
+
+    /**
+     * Returns true if all files from the fragments are tracked project files
+     */
+    private boolean allTrackedProjectFiles(List<ContextFragment> fragments) {
+        var project = contextManager.getProject();
+        var allFiles = fragments.stream()
+                .flatMap(frag -> frag.files().stream())
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        
+        return !allFiles.isEmpty() && allFiles.stream()
+                .allMatch(f -> f instanceof ProjectFile pf && project.getRepo().getTrackedFiles().contains(pf));
+    }
+
+    /**
+     * Classifies the popup scenario based on the mouse event and table state
+     */
+    private PopupScenario classifyScenario(MouseEvent e, List<ContextFragment> selectedFragments) {
+        int row = contextTable.rowAtPoint(e.getPoint());
+        int col = contextTable.columnAtPoint(e.getPoint());
+
+        // Handle file badge clicks in new description column layout
+        if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
+            ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+            if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                var fileReferences = fragment.files()
+                        .stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .collect(Collectors.toList());
+                
+                if (!fileReferences.isEmpty()) {
+                    // We need to determine if the click was specifically on a badge
+                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                    int yInCell = e.getPoint().y - cellRect.y;
+                    
+                    // Estimate if click is in lower half of cell (where badges are)
+                    if (yInCell > cellRect.height / 2) {
+                        // Try to find which specific badge was clicked
+                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                        
+                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                            return new FileBadge(clickedFileRef);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Handle selection-based scenarios
+        if (selectedFragments.isEmpty()) {
+            return new NoSelection();
+        } else if (selectedFragments.size() == 1) {
+            return new SingleFragment(selectedFragments.get(0));
+        } else {
+            return new MultiFragment(selectedFragments);
+        }
     }
 
     /**
@@ -926,7 +1321,7 @@ public class WorkspacePanel extends JPanel {
                     chrome.systemOutput("No method selected.");
                 } else {
 
-                    contextManager.callersForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
+                    contextManager.addCallersForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput("Method selection canceled.");
@@ -1055,17 +1450,17 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Edit files from selected fragments
-            var files = new HashSet<ProjectFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files(project));
-            }
+            var files = selectedFragments.stream()
+                                        .flatMap(fragment -> fragment.files().stream())
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toSet());
             contextManager.editFiles(files); 
         }
     }
 
     /** Read Action: Allows selecting Files (internal/external) */
     private void doReadAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject(); 
+        var project = contextManager.getProject();
         if (selectedFragments.isEmpty()) {
             // Show dialog allowing ONLY file selection (internal + external)
             // TODO when we can extract a single class from a source file, enable classes as well
@@ -1078,15 +1473,13 @@ public class WorkspacePanel extends JPanel {
                 return;
             }
 
-            contextManager.addReadOnlyFiles(selection.files()); 
-            chrome.systemOutput("Added " + selection.files().size() + " file(s) as read-only context."); 
+            contextManager.addReadOnlyFiles(selection.files());
         } else {
             // Add files from selected fragments
-            var files = new HashSet<BrokkFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files(project));
-            }
-            contextManager.addReadOnlyFiles(files); 
+            var files = selectedFragments.stream()
+                               .flatMap(frag -> frag.files().stream())
+                               .collect(Collectors.toSet());
+            contextManager.addReadOnlyFiles(files);
         }
     }
 
@@ -1102,7 +1495,7 @@ public class WorkspacePanel extends JPanel {
         String content;
         if (selectedFragments.isEmpty()) {
             // gather entire context
-            List<ChatMessage> msgs = null;
+            List<ChatMessage> msgs;
             try {
                 msgs = CopyExternalPrompts.instance.collectMessages(contextManager);
             } catch (InterruptedException e) {
@@ -1123,14 +1516,7 @@ public class WorkspacePanel extends JPanel {
             // copy only selected fragments
             var sb = new StringBuilder();
             for (var frag : selectedFragments) {
-                try {
-                    sb.append(frag.text()).append("\n\n");
-                } catch (IOException e) {
-                    contextManager.removeBadFragment(frag, e);
-                    var msg = "Error reading fragment `%s`".formatted(frag.description());
-                    logger.debug(msg, e);
-                    chrome.toolErrorRaw(msg);
-                }
+                sb.append(frag.text()).append("\n\n"); // No analyzer
             }
             content = sb.toString();
         }
@@ -1148,7 +1534,7 @@ public class WorkspacePanel extends JPanel {
         // Log all available flavors for debugging
         var flavors = contents.getTransferDataFlavors();
         logger.debug("Clipboard flavors available: {}", java.util.Arrays.stream(flavors)
-                .map(f -> f.getMimeType())
+                .map(DataFlavor::getMimeType)
                 .collect(Collectors.joining(", ")));
 
         // Prioritize Image Flavors - check all available flavors for image compatibility
@@ -1160,16 +1546,19 @@ public class WorkspacePanel extends JPanel {
                     Object data = contents.getTransferData(flavor);
                     java.awt.Image image = null;
 
-                    if (data instanceof java.awt.Image) {
-                        image = (java.awt.Image) data;
-                    } else if (data instanceof java.io.InputStream inputStream) {
-                        // Try to read the stream as an image using ImageIO
-                        image = javax.imageio.ImageIO.read(inputStream);
-                    } else if (data instanceof java.util.List<?> fileList && !fileList.isEmpty()) {
-                        // Handle file list (e.g., dragged image file from file manager)
-                        var file = fileList.get(0);
-                        if (file instanceof java.io.File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                            image = javax.imageio.ImageIO.read(f);
+                    switch (data) {
+                        case Image image1 -> image = image1;
+                        case java.io.InputStream inputStream ->
+                            // Try to read the stream as an image using ImageIO
+                                image = javax.imageio.ImageIO.read(inputStream);
+                        case List<?> fileList when !fileList.isEmpty() -> {
+                            // Handle file list (e.g., dragged image file from file manager)
+                            var file = fileList.getFirst();
+                            if (file instanceof java.io.File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                image = javax.imageio.ImageIO.read(f);
+                            }
+                        }
+                        default -> {
                         }
                     }
 
@@ -1219,20 +1608,20 @@ public class WorkspacePanel extends JPanel {
 
                 if (uri != null) { // Only proceed if URI parsing was successful
                     // Try to handle as image URL first
-                    if (isImageUri(uri)) {
+                    if (ImageUtil.isImageUri(uri, httpClient)) {
                         try {
                             chrome.systemOutput("Fetching image from " + clipboardText);
-                            java.awt.Image image = javax.imageio.ImageIO.read(uri.toURL());
+                            java.awt.Image image = ImageUtil.downloadImage(uri, httpClient);
                             if (image != null) {
                                 contextManager.addPastedImageFragment(image);
                                 chrome.systemOutput("Pasted image from URL added to context");
                                 chrome.actionComplete();
                                 return; // Image handled, done with paste action
                             } else {
-                                logger.warn("URL {} identified as image, but ImageIO.read returned null. Falling back to text.", clipboardText);
+                                logger.warn("URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.", clipboardText);
                                 chrome.systemOutput("Could not load image from URL. Trying to fetch as text.");
                             }
-                        } catch (IOException e) {
+                        } catch (Exception e) { // Catching general exception as downloadImage might throw various things indirectly
                             logger.warn("Failed to fetch or decode image from URL {}: {}. Falling back to text.", clipboardText, e.getMessage());
                             chrome.systemOutput("Failed to load image from URL: " + e.getMessage() + ". Trying to fetch as text.");
                             // Fall through to fetching as text
@@ -1263,7 +1652,7 @@ public class WorkspacePanel extends JPanel {
             Future<String> summaryFuture = contextManager.submitSummarizePastedText(content);
             String finalContent = content;
             contextManager.pushContext(ctx -> {
-                var fragment = new ContextFragment.PasteTextFragment(finalContent, summaryFuture);
+                var fragment = new ContextFragment.PasteTextFragment(contextManager, finalContent, summaryFuture); // Pass contextManager
                 return ctx.addVirtualFragment(fragment);
             });
 
@@ -1278,8 +1667,7 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
-    private void doDropAction(List<? extends ContextFragment> selectedFragments) // Use wildcard
-    {
+    private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) { 
                 chrome.toolErrorRaw("No context to drop"); 
@@ -1287,31 +1675,15 @@ public class WorkspacePanel extends JPanel {
             }
             contextManager.dropAll(); 
         } else {
-            var pathFragsToRemove = new ArrayList<PathFragment>();
-            var virtualToRemove = new ArrayList<VirtualFragment>();
-            boolean clearHistory = false;
-
             for (var frag : selectedFragments) {
-                if (frag instanceof ContextFragment.HistoryFragment) {
-                    clearHistory = true;
-                } else if (frag instanceof ContextFragment.PathFragment pf) {
-                    pathFragsToRemove.add(pf);
-                } else {
-                    assert frag instanceof ContextFragment.VirtualFragment : frag;
-                    virtualToRemove.add((VirtualFragment) frag);
+                if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
+                    contextManager.clearHistory();
+                    chrome.systemOutput("Cleared task history");
+                    break;
                 }
             }
 
-            if (clearHistory) {
-                contextManager.clearHistory();
-                chrome.systemOutput("Cleared task history");
-            }
-
-            contextManager.drop(pathFragsToRemove, virtualToRemove); 
-
-            if (!pathFragsToRemove.isEmpty() || !virtualToRemove.isEmpty()) {
-                chrome.systemOutput("Dropped " + (pathFragsToRemove.size() + virtualToRemove.size()) + " items");
-            }
+            contextManager.drop(selectedFragments); // Use the new ID-based method
         }
     }
 
@@ -1338,7 +1710,6 @@ public class WorkspacePanel extends JPanel {
 
             if (selection == null || selection.isEmpty()) {
                 chrome.systemOutput("No files or classes selected for summarization.");
-                chrome.systemOutput("No files or classes selected for summarization.");
                 return;
             }
 
@@ -1350,18 +1721,11 @@ public class WorkspacePanel extends JPanel {
             if (selection.classes() != null) {
                 selectedClasses.addAll(selection.classes());
             }
-        } // End: if (selectedFragments.isEmpty())
-        else {
+        } else {
             // Fragment case: Extract files and classes from selected fragments
-            for (var frag : selectedFragments) {
-                if (frag instanceof ContextFragment.ProjectPathFragment ppf) {
-                    // If it's a file fragment, add the file
-                    selectedFiles.add(ppf.file());
-                } else {
-                    // Otherwise, add the sources (which should be classes/symbols)
-                    selectedClasses.addAll(frag.sources(contextManager.getAnalyzerUninterrupted()));
-                }
-            }
+            selectedFragments.stream()
+                    .flatMap(frag -> frag.files().stream())
+                    .forEach(selectedFiles::add);
         }
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
@@ -1381,13 +1745,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        if (files == null) return List.of();
-        return files.stream().map(f -> {
-            if (f instanceof ProjectFile pf) {
-                return pf;
-            }
-            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-        }).toList();
+        return files == null ? List.of() : files.stream()
+                .map(f -> {
+                    if (f instanceof ProjectFile pf) {
+                        return pf;
+                    }
+                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                })
+                .toList();
     }
 
     /**
@@ -1423,30 +1788,6 @@ public class WorkspacePanel extends JPanel {
 
     private boolean isUrl(String text) {
         return text.matches("^https?://\\S+$");
-    }
-
-    private boolean isImageUri(URI uri) {
-        Request request = new Request.Builder()
-                .url(uri.toString())
-                .head() // Send a HEAD request
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (response.isSuccessful()) {
-                String contentType = response.header("Content-Type");
-                if (contentType != null) {
-                    logger.debug("URL {} Content-Type: {}", uri, contentType);
-                    return contentType.toLowerCase().startsWith("image/");
-                } else {
-                    logger.warn("URL {} did not return a Content-Type header.", uri);
-                }
-            } else {
-                logger.warn("HEAD request to {} failed with code: {}", uri, response.code());
-            }
-        } catch (IOException e) {
-            logger.error("IOException during HEAD request to {}: {}", uri, e.getMessage());
-        }
-        return false;
     }
 
     /**
@@ -1499,6 +1840,7 @@ public class WorkspacePanel extends JPanel {
         
         return costEstimates;
     }
+
 
     /**
      * Sets the editable state of the workspace panel.

@@ -65,7 +65,7 @@ public class Llm {
     public static final String HISTORY_DIR_NAME = "llm-history";
 
     private final IConsoleIO io;
-    private final Path sessionHistoryDir; // Directory for this specific LLM session's history files
+    private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
     private final StreamingChatLanguageModel model;
@@ -81,23 +81,23 @@ public class Llm {
         this.tagRetain = tagRetain;
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
-        // Create session directory name for this specific LLM interaction
+        // Create task directory name for this specific LLM interaction
         var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
-        var sessionDesc = LogDescription.getShortDescription(taskDescription);
-        var sessionDirName = String.format("%s %s", timestamp, sessionDesc);
-        this.sessionHistoryDir = historyBaseDir.resolve(sessionDirName);
+        var taskDesc = LogDescription.getShortDescription(taskDescription);
+        var taskDirName = String.format("%s %s", timestamp, taskDesc);
+        this.taskHistoryDir = historyBaseDir.resolve(taskDirName);
 
-        // Create the specific directory for this session
+        // Create the specific directory for this task
         try {
-            Files.createDirectories(this.sessionHistoryDir);
+            Files.createDirectories(this.taskHistoryDir);
         } catch (IOException e) {
-            logger.error("Failed to create session history directory {}", this.sessionHistoryDir, e);
-            // sessionHistoryDir might be null or unusable, logRequest checks for null
+            logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
+            // taskHistoryDir might be null or unusable, logRequest checks for null
         }
     }
 
     /**
-     * Returns the base directory where all LLM session histories are stored for a project.
+     * Returns the base directory where all LLM task histories are stored for a project.
      * @param projectRoot The root path of the project.
      * @return The Path object representing the base history directory.
      */
@@ -983,10 +983,10 @@ public class Llm {
     }
 
     /**
-     * Writes history information to session-specific files.
+     * Writes history information to task-specific files.
      */
     private synchronized void logRequest(StreamingChatLanguageModel model, ChatRequest request, StreamingResult result) {
-        if (sessionHistoryDir == null) {
+        if (taskHistoryDir == null) {
             // History directory creation failed in constructor, do nothing.
             return;
         }
@@ -1001,7 +1001,7 @@ public class Llm {
                                     : "# Response:\n\n%s".formatted(result.formatted());
             String fileTimestamp = timestamp.format(DateTimeFormatter.ofPattern("HH-mm-ss"));
             String shortDesc = result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath = sessionHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
+            var filePath = taskHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
             var options = new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE};
             logger.trace("Writing history to file {}", filePath);
             // Ensure the filename is unique before writing

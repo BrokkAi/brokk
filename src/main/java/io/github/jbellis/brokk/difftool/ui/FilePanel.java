@@ -8,7 +8,7 @@ import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
 import io.github.jbellis.brokk.difftool.search.SearchBarDialog;
-import io.github.jbellis.brokk.difftool.search.SearchCommand;
+import io.github.jbellis.brokk.gui.search.SearchCommand;
 import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
 

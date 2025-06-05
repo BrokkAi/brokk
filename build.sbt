@@ -3,7 +3,7 @@ import sbt.Keys.*
 import sbtbuildinfo.BuildInfoPlugin
 import sbtbuildinfo.BuildInfoPlugin.autoImport.*
 
-scalaVersion := "3.5.2"
+scalaVersion := "3.6.4"
 version := "0.9.14"
 organization := "io.github.jbellis"
 name := "brokk"
@@ -33,9 +33,6 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  // File watching
-  "io.methvin" % "directory-watcher" % "0.18.0",
-  
   // LangChain4j dependencies
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
@@ -48,12 +45,12 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.20.0",
 
   // Joern dependencies
-  "io.joern" %% "x2cpg" % "4.0.320",
-  "io.joern" %% "c2cpg" % "4.0.320",
-  "io.joern" %% "javasrc2cpg" % "4.0.320",
-  "io.joern" %% "pysrc2cpg" % "4.0.320",
-  "io.joern" %% "joern-cli" % "4.0.320",
-  "io.joern" %% "semanticcpg" % "4.0.320",
+  "io.joern" %% "x2cpg" % "4.0.366",
+  "io.joern" %% "c2cpg" % "4.0.366",
+  "io.joern" %% "javasrc2cpg" % "4.0.366",
+  "io.joern" %% "pysrc2cpg" % "4.0.366",
+  "io.joern" %% "joern-cli" % "4.0.366",
+  "io.joern" %% "semanticcpg" % "4.0.366",
   
   // Utilities
   "com.formdev" % "flatlaf" % "3.6",
@@ -63,12 +60,13 @@ libraryDependencies ++= Seq(
   "org.yaml" % "snakeyaml" % "2.3",
   "org.eclipse.jgit" % "org.eclipse.jgit" % "7.1.0.202411261347-r",
   "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.1.0.202411261347-r",
-  "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.0",
+  "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.3",
   "com.vladsch.flexmark" % "flexmark" % "0.64.8",
   "com.vladsch.flexmark" % "flexmark-html2md-converter" % "0.64.8",
   "org.kohsuke" % "github-api" % "1.327",
   "org.jsoup" % "jsoup" % "1.19.1",
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
+  "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
 
   // TreeSitter Java parser
   "io.github.bonede" % "tree-sitter" % "0.25.3",

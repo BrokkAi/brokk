@@ -1,18 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 

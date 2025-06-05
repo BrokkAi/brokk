@@ -7,24 +7,29 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.*;
-import io.github.jbellis.brokk.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
-import io.github.jbellis.brokk.Service; // Import Models to access FavoriteModel
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.components.SplitButton;
+import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
-import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -42,18 +47,13 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.function.BiConsumer;
-import java.util.Comparator;
-
-import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import org.jetbrains.annotations.Nullable;
-
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
@@ -71,7 +71,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
                                                    
-                                                   More tips are available in the Getting Started section on the right -->
+                                                   More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
     private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels
@@ -87,8 +87,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton runButton;
     private final JButton stopButton;
     private final JButton configureModelsButton;
-    private final JTextArea systemArea;
-    private final JScrollPane systemScrollPane;
     private final JLabel commandResultLabel;
     private final ContextManager contextManager; // Can be null if Chrome is initialized without one
     private JTable referenceFileTable;
@@ -135,8 +133,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             activateCommandInput();
             chrome.actionOutput("Recording");
         }, chrome::toolError);
-        systemArea = new JTextArea();
-        systemScrollPane = buildSystemMessagesArea();
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
         // Initialize Buttons first
@@ -194,7 +190,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         configureModelsButton = new JButton("Configure Models...");
         configureModelsButton.setToolTipText("Open settings to configure AI models");
-        configureModelsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.MODELS_TAB));
+        configureModelsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
 
         // Renamed button and updated action listener
         deepScanButton = new JButton("Deep Scan");
@@ -206,7 +202,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = buildTopBarPanel();
         add(topBarPanel, BorderLayout.NORTH);
 
-        // Center Panel (Command Input + System/Result) (Center)
+        // Center Panel (Command Input + Result) (Center)
         this.centerPanel = buildCenterPanel();
         add(this.centerPanel, BorderLayout.CENTER);
 
@@ -275,8 +271,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             this.contextManager.addContextListener(this);
         }
 
-        // Set initial button states based on CM availability
-        updateButtonStates();
+        // Buttons start disabled and will be enabled by ContextManager when session loading completes
+        disableButtons();
     }
 
     public UndoManager getCommandInputUndoManager() {
@@ -416,11 +412,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
 
-        // System Messages + Command Result
+        // Command Result
         var topInfoPanel = new JPanel();
         topInfoPanel.setLayout(new BoxLayout(topInfoPanel, BoxLayout.PAGE_AXIS));
         topInfoPanel.add(commandResultLabel);
-        topInfoPanel.add(systemScrollPane);
         panel.add(topInfoPanel);
 
         return panel;
@@ -464,15 +459,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e)  { 
-                ContextMenuUtils.handleFileReferenceClick(e,
-                                                         referenceFileTable,
-                                                         chrome,
-                                                         () -> triggerContextSuggestion(null)); 
+                // Only handle popup triggers (right-click) on press
+                if (e.isPopupTrigger()) {
+                    ContextMenuUtils.handleFileReferenceClick(e,
+                                                             referenceFileTable,
+                                                             chrome,
+                                                             () -> triggerContextSuggestion(null)); 
+                }
             }
             
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) { 
-                mousePressed(e); 
+                // Handle both popup triggers and left-clicks on release
+                ContextMenuUtils.handleFileReferenceClick(e,
+                                                         referenceFileTable,
+                                                         chrome,
+                                                         () -> triggerContextSuggestion(null)); 
             }
         });
 
@@ -562,31 +564,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    /**
-     * Builds the system messages area that appears below the command input area.
-     * Moved from HistoryOutputPanel.
-     */
-    private JScrollPane buildSystemMessagesArea() {
-        // Create text area for system messages
-        systemArea.setEditable(false);
-        systemArea.getCaret().setVisible(false); // Hide the edit caret
-        systemArea.setLineWrap(true);
-        systemArea.setWrapStyleWord(true);
-        systemArea.setRows(4);
-
-        // Create scroll pane with border and title
-        var scrollPane = new JScrollPane(systemArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "System Messages",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        AutoScroller.install(scrollPane);
-
-        return scrollPane;
-    }
 
     /**
      * Builds the command result label.
@@ -660,7 +637,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var contextManager = chrome.getContextManager();
         return contextManager.topContext() != null &&
                 contextManager.topContext().allFragments()
-                        .anyMatch(f -> !f.isText() && !(f instanceof ContextFragment.OutputFragment));
+                        .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
     }
 
     /**
@@ -688,7 +665,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         );
 
         if (choice == JOptionPane.YES_OPTION) { // Open Settings
-            SwingUtilities.invokeLater(() -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.MODELS_TAB));
+            SwingUtilities.invokeLater(() -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
         }
         // In either case (Settings opened or Cancel pressed), the original action is aborted by returning from the caller.
     }
@@ -738,26 +715,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> commandResultLabel.setText(" ")); // Set back to space to maintain height
     }
 
-    /**
-     * Appends text to the system output area with timestamp.
-     * Moved from HistoryOutputPanel.
-     */
-    public void appendSystemOutput(String message) {
-        SwingUtilities.invokeLater(() -> {
-            // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-
-            // Add newline if needed
-            if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
-                systemArea.append("\n");
-            }
-
-            // Append timestamped message
-            systemArea.append(timestamp + ": " + message);
-            // Scroll to bottom
-            systemArea.setCaretPosition(systemArea.getDocument().getLength());
-        });
-    }
 
 
     /**
@@ -881,7 +838,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // 4. Compute Embeddings
-        List<String> chunks = Arrays.stream(snapshot.split("[.\\n]"))
+        var chunks = Arrays.stream(snapshot.split("[.\\n]"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .toList();
@@ -927,9 +884,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
 
             var fileRefs = recommendations.fragments().stream()
-                    .flatMap(f -> f.files(contextManager.getProject()).stream())
+                    .flatMap(f -> f.files().stream()) // No analyzer
                     .distinct()
-                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), pf))
+                    .map(pf -> new FileReferenceData(pf.getFileName(), pf.toString(), (ProjectFile) pf)) // Cast to ProjectFile
                     .toList();
             if (fileRefs.isEmpty()) {
                 logger.debug("Task {} found no relevant files.", myGen);
@@ -1150,16 +1107,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         contextManager.getAnalyzerWrapper().pause();
         try {
-            var result = new CodeAgent(contextManager, model).runSession(input, false);
-            if (result.stopDetails().reason() == SessionResult.StopReason.INTERRUPTED) {
+            var result = new CodeAgent(contextManager, model).runTask(input, false);
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                 chrome.systemOutput("Code Agent cancelled!");
                 // Save the partial result (if we didn't interrupt before we got any replies)
                 if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
                     chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(result, false);
                 }
+                repopulateInstructionsArea(input);
             } else {
-                if (result.stopDetails().reason() == SessionResult.StopReason.SUCCESS) {
+                if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                     chrome.systemOutput("Code Agent complete!");
                 }
                 // Code agent has logged error to console already
@@ -1193,10 +1151,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // Check if the response is valid before adding to history
                 if (aiResponse.text() != null && !aiResponse.text().isBlank()) {
                     // Construct SessionResult for 'Ask'
-                    var sessionResult = new SessionResult("Ask: " + question,
-                                                          List.copyOf(chrome.getLlmRawMessages()),
-                                                          Map.of(), // No undo contents for Ask
-                                                          SessionResult.StopReason.SUCCESS);
+                    var sessionResult = new TaskResult(contextManager,
+                                                       "Ask: " + question,
+                                                       List.copyOf(chrome.getLlmRawMessages()),
+                                                       Map.of(), // No undo contents for Ask
+                                                       new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
                     chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(sessionResult, false);
                     chrome.systemOutput("Ask command complete!");
@@ -1209,20 +1168,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } catch (InterruptedException e) {
             chrome.systemOutput("Ask command cancelled!");
             // Check if we have any partial output to save
-            maybeAddInterruptedResult("Ask", question);
+                maybeAddInterruptedResult("Ask", question);
+            }
         }
-    }
 
-    private void maybeAddInterruptedResult(String action, String input) {
-        if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
-            logger.debug(action + " command cancelled with partial results");
-            var sessionResult = new SessionResult("%s (Cancelled): %s".formatted(action, input),
-                                                  new TaskFragment(List.copyOf(chrome.getLlmRawMessages()), input),
-                                                  Map.of(),
-                                                  new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED));
-            chrome.getContextManager().addToHistory(sessionResult, false);
+        private void maybeAddInterruptedResult(String action, String input) {
+            if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
+                logger.debug(action + " command cancelled with partial results");
+                var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
+                                                   new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
+                                                   Map.of(),
+                                                   new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                chrome.getContextManager().addToHistory(sessionResult, false);
+            }
+            repopulateInstructionsArea(input);
         }
-    }
 
     /**
      * Executes the core logic for the "Agent" command.
@@ -1269,6 +1229,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
             chrome.toolErrorRaw("Search agent cancelled without answering");
+            repopulateInstructionsArea(query);
         }
     }
 
@@ -1299,6 +1260,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // It's tricky to know if llmOutput for closing ``` is safe or needed here.
             // For now, just log and return, consistent with previous behavior for interruption.
             chrome.systemOutput("Cancelled!");
+            repopulateInstructionsArea(input);
             // No action needed for context history on cancellation here
             return;
         } finally {
@@ -1308,9 +1270,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Add to context history with the action message (which includes success/failure)
         final String finalActionMessage = actionMessage; // Effectively final for lambda
         contextManager.pushContext(ctx -> {
-            var parsed = new TaskFragment(List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
-            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
-        });
+            var parsed = new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
+                return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
+            });
     }
 
     // --- Action Handlers ---
@@ -1477,7 +1439,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
         String finalAction = (action + " MODE").toUpperCase();
-        chrome.setLlmOutput(new ContextFragment.TaskFragment(cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
+        chrome.setLlmOutput(new ContextFragment.TaskFragment(cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
                 chrome.showOutputSpinner("Executing " + action + " command...");
@@ -1506,7 +1468,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     /**
      * Updates the enabled state of all action buttons based on project load status
-     * and ContextManager availability. Called initially and when actions complete.
+     * and ContextManager availability. Called when actions complete.
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
@@ -1566,6 +1528,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (mainFrame != null && mainFrame.isShowing() && !mainFrame.isActive()) {
                 Environment.instance.sendNotificationAsync("Action '" + actionName + "' completed.");
             }
+        });
+    }
+
+    private void repopulateInstructionsArea(String originalText) {
+        SwingUtilities.invokeLater(() -> {
+            // If placeholder is active or area is disabled, activate input first
+            if (instructionsArea.getText().equals(PLACEHOLDER_TEXT) || !instructionsArea.isEnabled()) {
+                activateCommandInput(); // This enables, clears placeholder, requests focus
+            }
+            instructionsArea.setText(originalText);
+            commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+            instructionsArea.requestFocusInWindow(); // Ensure focus after text set
+            instructionsArea.setCaretPosition(originalText.length()); // Move caret to end
         });
     }
 
@@ -1647,13 +1622,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var modelsInstance = this.contextManager.getService();
-        Map<String, String> availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
+        var availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
-        List<Service.FavoriteModel> favoriteModels = Project.loadFavoriteModels();
+        var favoriteModels = Project.loadFavoriteModels();
 
         // Filter favorite models to show only those that are currently available, and sort by alias
-        List<Service.FavoriteModel> favoriteModelsToShow = favoriteModels.stream()
+        var favoriteModelsToShow = favoriteModels.stream()
                 .filter(fav -> availableModelsMap.containsKey(fav.modelName()))
                 .sorted(Comparator.comparing(Service.FavoriteModel::alias))
                 .toList();
@@ -1664,7 +1639,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             popupMenu.add(item);
             popupMenu.addSeparator();
             var configureItem = new JMenuItem("Configure Favorites...");
-            configureItem.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.MODELS_TAB));
+            configureItem.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
             popupMenu.add(configureItem);
         } else {
             favoriteModelsToShow.forEach(fav -> {

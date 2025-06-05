@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.gui.util;
 
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 
 import javax.swing.*;
