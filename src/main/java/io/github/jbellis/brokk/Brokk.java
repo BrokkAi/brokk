@@ -23,11 +23,14 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 
 public class Brokk {
@@ -35,6 +38,7 @@ public class Brokk {
 
     private static JWindow splashScreen = null;
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
     private static final Set<Path> reOpeningProjects = ConcurrentHashMap.newKeySet();
     public static final CompletableFuture<AbstractModel> embeddingModelFuture;
 
@@ -146,7 +150,7 @@ public class Brokk {
         }
 
         // Determine projects to open
-        java.util.List<Path> projectsToAttemptOpen = new java.util.ArrayList<>();
+        List<Path> projectsToAttemptOpen = new ArrayList<>();
         Path initialDialogPath = null; // For StartupDialog if needed
 
         if (projectPathArg != null) {
@@ -198,8 +202,8 @@ public class Brokk {
             }
             
             // Partition projects into main and worktrees
-            java.util.List<Path> mainRepoPaths = new java.util.ArrayList<>();
-            java.util.List<Path> worktreePaths = new java.util.ArrayList<>();
+            List<Path> mainRepoPaths = new ArrayList<>();
+            List<Path> worktreePaths = new ArrayList<>();
             for (Path p : projectsToAttemptOpen) {
                 if (!isValidDirectory(p)) {
                     logger.warn("Skipping invalid path from open projects list: {}", p);
@@ -467,6 +471,18 @@ public class Brokk {
                 // If policy was already set, or was set and OK'd by the dialog
                 hideSplashScreen(); // Hide splash just before showing the main GUI
                 createAndShowGui(actualProjectPath, contextManager);
+                Chrome chromeInstance = openProjectWindows.get(actualProjectPath); // Get the newly created Chrome instance
+                if (chromeInstance != null) {
+                    if (project.getParent() != project && project.getParent() instanceof MainProject) { // It's a worktree with a MainProject parent
+                        IProject actualParentProject = project.getParent();
+                        mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
+                        logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
+                    } else if (project instanceof MainProject) { // It's a main project
+                        // Ensure an entry exists for this main project, even if it has no worktrees opened *yet*
+                        mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
+                        logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                    }
+                }
                 openCompletionFuture.complete(true);
             }, SwingUtilities::invokeLater)
             .exceptionally(ex -> {
@@ -498,24 +514,40 @@ public class Brokk {
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
         }
 
-        // If the closing project is a main repository, also close its worktree windows
-        if (projectBeingClosed != null && projectBeingClosed.getParent() == projectBeingClosed && projectBeingClosed.hasGit()) {
-            Path closingProjectRoot = projectBeingClosed.getRoot();
-            // Iterate over a copy of keys to avoid ConcurrentModificationException
-            for (Path openWorktreePath : java.util.List.copyOf(openProjectWindows.keySet())) {
-                if (openWorktreePath.equals(projectPath)) continue; // Don't try to close itself
-
-                Chrome worktreeChrome = openProjectWindows.get(openWorktreePath);
-                var worktreeProject = worktreeChrome.getContextManager().getProject();
-                // Check if worktreeProject's parent is the project that is closing
-                if (worktreeProject.getParent() == projectBeingClosed) {
-                    logger.debug("Main project {} closing, also closing its worktree window: {}", closingProjectRoot.getFileName(), worktreeProject.getRoot().getFileName());
-                    SwingUtilities.invokeLater(() -> {
-                        JFrame frame = worktreeChrome.getFrame();
-                        if (frame != null) {
-                            frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
+        if (projectBeingClosed != null) {
+            if (projectBeingClosed instanceof MainProject) { // Closing a main project
+                logger.debug("Main project {} is closing. Closing its associated worktree windows.", projectPath.getFileName());
+                List<Chrome> worktreeChromes = mainToWorktreeChromes.remove(projectBeingClosed);
+                if (worktreeChromes != null) {
+                    for (Chrome worktreeChrome : worktreeChromes) {
+                        Path worktreeChromePath = worktreeChrome.getContextManager().getProject().getRoot();
+                        logger.debug("Closing worktree window: {}", worktreeChromePath.getFileName());
+                        // Standard way to close a window: dispatch event, then it will call performWindowClose for itself.
+                        SwingUtilities.invokeLater(() -> {
+                            JFrame frame = worktreeChrome.getFrame();
+                            if (frame != null) {
+                                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
+                            }
+                        });
+                        // DO NOT remove from openProjectWindows here; the worktree's own performWindowClose will handle that.
+                    }
+                }
+            } else { // Closing a worktree project
+                IProject parentOfWorktree = projectBeingClosed.getParent();
+                if (parentOfWorktree != null) {
+                    List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
+                    if (worktreeListOfMain != null) {
+                        if (worktreeListOfMain.remove(ourChromeInstance)) {
+                             logger.debug("Removed worktree window {} from main project {}'s tracking list.", projectPath.getFileName(), parentOfWorktree.getRoot().getFileName());
                         }
-                    });
+                        // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
+                        // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
+                        // However, for cleanliness:
+                        if (worktreeListOfMain.isEmpty()) {
+                            mainToWorktreeChromes.remove(parentOfWorktree);
+                            logger.debug("Removed main project {} from worktree tracking map as its list of worktrees is now empty.", parentOfWorktree.getRoot().getFileName());
+                        }
+                    }
                 }
             }
         }
@@ -554,7 +586,12 @@ public class Brokk {
             ourChromeInstance.getFrame().dispose();
         }
 
-        boolean appIsExiting = openProjectWindows.isEmpty() && reOpeningProjects.isEmpty();
+        boolean noMainProjectsOpen = openProjectWindows.values().stream()
+            .noneMatch(chrome -> {
+                IProject p = chrome.getContextManager().getProject();
+                return p instanceof MainProject; // Check if it's a main project
+            });
+        boolean appIsExiting = noMainProjectsOpen && reOpeningProjects.isEmpty();
         if (appIsExiting) {
             // We are about to exit the application.
             // Do NOT remove this project from the persistent "open projects" list.

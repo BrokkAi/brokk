@@ -415,12 +415,25 @@ public class GitWorktreeTab extends JPanel {
 
             // Path Generation Logic
             Path worktreeStorageDir = project.getWorktreeStoragePath();
-            String sanitizedBranchName = branchNameToUse.replaceAll("[^a-zA-Z0-9.-]", "_");
-            Path newWorktreePath = worktreeStorageDir.resolve(sanitizedBranchName);
-
-            if (Files.exists(newWorktreePath)) {
-                JOptionPane.showMessageDialog(this, "Worktree path already exists: " + newWorktreePath, "Error", JOptionPane.ERROR_MESSAGE);
+            
+            // Ensure worktree storage directory exists
+            try {
+                Files.createDirectories(worktreeStorageDir);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(this, "Failed to create worktree storage directory: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                 return;
+            }
+            
+            // Determine the next worktree directory name
+            int nextWorktreeNum = 1;
+            Path newWorktreePath;
+            while (true) {
+                Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
+                if (!Files.exists(potentialPath)) {
+                    newWorktreePath = potentialPath;
+                    break;
+                }
+                nextWorktreeNum++;
             }
 
             contextManager.submitUserTask("Adding worktree for branch: " + branchNameToUse, () -> {
@@ -432,7 +445,6 @@ public class GitWorktreeTab extends JPanel {
                         // Branch created but main repo stays on current branch
                     }
 
-                    Files.createDirectories(worktreeStorageDir);
                     gitRepo.addWorktree(branchNameToUse, newWorktreePath);
 
                     Path sourceWorkspaceProps = project.getRoot().resolve(".brokk").resolve("workspace.properties");

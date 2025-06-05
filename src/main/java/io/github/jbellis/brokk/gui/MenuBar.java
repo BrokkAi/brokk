@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
@@ -260,7 +261,7 @@ public class MenuBar {
         var sendFeedbackItem = new JMenuItem("Send Feedback...");
         sendFeedbackItem.addActionListener(e -> {
             try {
-                io.github.jbellis.brokk.Service.validateKey(io.github.jbellis.brokk.Project.getBrokkKey());
+                Service.validateKey(MainProject.getBrokkKey());
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(chrome.getFrame(),
                                               "Please configure a valid Brokk API key in Settings before sending feedback.\n\nError: " + ex.getMessage(),
@@ -322,15 +323,15 @@ public class MenuBar {
         }
 
         var sorted = map.entrySet().stream()
-            .sorted((a,b)-> Long.compare(b.getValue(), a.getValue()))
+            .sorted((a, b) -> Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
             .limit(5)
             .toList();
 
         for (var entry : sorted) {
-            var pathString = entry.getKey();
+            var projectPath = entry.getKey();
+            var pathString = projectPath.toString();
             var item = new JMenuItem(pathString);
             item.addActionListener(e -> {
-                var projectPath = java.nio.file.Path.of(pathString);
                 if (Brokk.isProjectOpen(projectPath)) {
                     Brokk.focusProjectWindow(projectPath);
                 } else {

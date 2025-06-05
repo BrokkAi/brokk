@@ -22,9 +22,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
+import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.LinkedHashSet;
+import java.util.HashSet;
 
 public final class MainProject extends AbstractProject {
     private static final Logger logger = LogManager.getLogger(MainProject.class); // Separate logger from AbstractProject
@@ -75,6 +79,17 @@ public final class MainProject extends AbstractProject {
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
+    public static record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
+        public ProjectPersistentInfo {
+            if (openWorktrees == null) {
+                openWorktrees = List.of();
+            }
+        }
+
+        public static ProjectPersistentInfo fromTimestamp(long lastOpened) {
+            return new ProjectPersistentInfo(lastOpened, List.of());
+        }
+    }
 
     public MainProject(Path root) {
         super(root); // Initializes this.root and this.repo
@@ -793,54 +808,101 @@ public final class MainProject extends AbstractProject {
         }
     }
 
-    public static Map<String, Long> loadRecentProjects() {
-        var result = new HashMap<String, Long>();
+    public static Map<Path, ProjectPersistentInfo> loadRecentProjects() {
+        var result = new HashMap<Path, ProjectPersistentInfo>();
         var props = loadProjectsProperties();
         for (String key : props.stringPropertyNames()) {
-            if (key.contains(java.io.File.separator) && !key.equals("openProjectsList") && !key.endsWith("_activeSession")) {
+            if (!key.contains(java.io.File.separator) || key.endsWith("_activeSession")) {
+                continue;
+            }
+            String propertyValue = props.getProperty(key);
+            try {
+                ProjectPersistentInfo persistentInfo = objectMapper.readValue(propertyValue, ProjectPersistentInfo.class);
+                result.put(Path.of(key), persistentInfo);
+            } catch (JsonProcessingException e) {
+                // Likely old-format timestamp, try to parse as long
                 try {
-                    result.put(key, Long.parseLong(props.getProperty(key)));
+                    long parsedLongValue = Long.parseLong(propertyValue);
+                    ProjectPersistentInfo persistentInfo = ProjectPersistentInfo.fromTimestamp(parsedLongValue);
+                    result.put(Path.of(key), persistentInfo);
                 } catch (NumberFormatException nfe) {
-                    logger.warn("Invalid timestamp for key {} in projects.properties", key);
+                    logger.warn("Could not parse value for key '{}' in projects.properties as JSON or long: {}", key, propertyValue);
                 }
+            } catch (Exception e) {
+                logger.warn("Error processing recent project entry for key '{}': {}", key, e.getMessage());
             }
         }
         return result;
     }
 
-    public static void saveRecentProjects(Map<String, Long> projects) {
+    public static void saveRecentProjects(Map<Path, ProjectPersistentInfo> projects) {
         var props = loadProjectsProperties();
+        
+        var sorted = projects.entrySet().stream()
+                .sorted(Map.Entry.<Path, ProjectPersistentInfo>comparingByValue(Comparator.comparingLong(ProjectPersistentInfo::lastOpened)).reversed())
+                .limit(10)
+                .toList();
+        
+        // Collect current project paths to keep
+        Set<String> pathsToKeep = sorted.stream()
+                .map(entry -> entry.getKey().toAbsolutePath().toString())
+                .collect(Collectors.toSet());
+
         List<String> keysToRemove = props.stringPropertyNames().stream()
                 .filter(key -> key.contains(java.io.File.separator) && !key.endsWith("_activeSession"))
+                .filter(key -> !pathsToKeep.contains(key))
                 .toList();
         keysToRemove.forEach(props::remove);
 
-        var sorted = projects.entrySet().stream()
-                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                .limit(10)
-                .toList();
-        for (var e : sorted) {
-            props.setProperty(e.getKey(), Long.toString(e.getValue()));
+        for (var entry : sorted) {
+            Path projectPath = entry.getKey();
+            ProjectPersistentInfo persistentInfo = entry.getValue();
+            try {
+                String jsonString = objectMapper.writeValueAsString(persistentInfo);
+                props.setProperty(projectPath.toAbsolutePath().toString(), jsonString);
+            } catch (JsonProcessingException e) {
+                logger.error("Error serializing ProjectPersistentInfo for path '{}': {}", projectPath, e.getMessage());
+            }
         }
         saveProjectsProperties(props);
     }
 
     public static void updateRecentProject(Path projectDir) {
-        var absPathStr = projectDir.toAbsolutePath().toString();
-        var currentMap = loadRecentProjects();
+        Path pathForRecentProjectsMap = projectDir;
         boolean isWorktree = false;
+        
         if (GitRepo.hasGitRepo(projectDir)) {
-            try (var tempRepo = new GitRepo(projectDir)) { // Ensure GitRepo is closed
+            try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
+                if (isWorktree) {
+                    pathForRecentProjectsMap = tempRepo.getGitTopLevel();
+                }
             } catch (Exception e) {
                 logger.warn("Could not determine if {} is a worktree during updateRecentProject: {}", projectDir, e.getMessage());
             }
         }
-        if (!isWorktree) {
-            currentMap.put(absPathStr, System.currentTimeMillis());
-            saveRecentProjects(currentMap);
+        
+        var currentMap = loadRecentProjects();
+        ProjectPersistentInfo persistentInfo = currentMap.get(pathForRecentProjectsMap);
+        if (persistentInfo == null) {
+            persistentInfo = ProjectPersistentInfo.fromTimestamp(System.currentTimeMillis());
         }
-        addToOpenProjectsList(projectDir);
+        
+        long newTimestamp = System.currentTimeMillis();
+        List<String> newOpenWorktrees = new ArrayList<>(persistentInfo.openWorktrees());
+        
+        if (isWorktree) {
+            String worktreePathToAdd = projectDir.toAbsolutePath().normalize().toString();
+            String mainProjectPathString = pathForRecentProjectsMap.toAbsolutePath().normalize().toString();
+            if (!newOpenWorktrees.contains(worktreePathToAdd) && !worktreePathToAdd.equals(mainProjectPathString)) {
+                newOpenWorktrees.add(worktreePathToAdd);
+            }
+        } else {
+            addToOpenProjectsList(projectDir);
+        }
+        
+        currentMap.put(pathForRecentProjectsMap, new ProjectPersistentInfo(newTimestamp, newOpenWorktrees));
+        saveRecentProjects(currentMap);
     }
 
     private static void addToOpenProjectsList(Path projectDir) {
@@ -872,22 +934,64 @@ public final class MainProject extends AbstractProject {
         if (changed) {
             saveProjectsProperties(props);
         }
+        
+        // Update ProjectPersistentInfo map
+        var recentProjectsMap = loadRecentProjects();
+        Path mainProjectPathKey = projectDir;
+        boolean isWorktree = false;
+        
+        if (GitRepo.hasGitRepo(projectDir)) {
+            try (var tempRepo = new GitRepo(projectDir)) {
+                isWorktree = tempRepo.isWorktree();
+                if (isWorktree) {
+                    mainProjectPathKey = tempRepo.getGitTopLevel();
+                }
+            } catch (Exception e) {
+                logger.warn("Could not determine if {} is a worktree during removeFromOpenProjectsListAndClearActiveSession: {}", projectDir, e.getMessage());
+            }
+        }
+        
+        boolean recentProjectsMapModified = false;
+        
+        if (isWorktree) {
+            ProjectPersistentInfo mainProjectInfo = recentProjectsMap.get(mainProjectPathKey);
+            if (mainProjectInfo != null) {
+                List<String> openWorktrees = new ArrayList<>(mainProjectInfo.openWorktrees());
+                if (openWorktrees.remove(projectDir.toAbsolutePath().normalize().toString())) {
+                    recentProjectsMap.put(mainProjectPathKey, new ProjectPersistentInfo(mainProjectInfo.lastOpened(), openWorktrees));
+                    recentProjectsMapModified = true;
+                }
+            }
+        } else {
+            if (recentProjectsMap.remove(mainProjectPathKey) != null) {
+                recentProjectsMapModified = true;
+            }
+        }
+        
+        if (recentProjectsMapModified) {
+            saveRecentProjects(recentProjectsMap);
+        }
     }
 
     public static List<Path> getOpenProjects() {
         var result = new ArrayList<Path>();
+        var pathsToRemove = new ArrayList<String>();
         var props = loadProjectsProperties();
         var openListStr = props.getProperty("openProjectsList", "");
         if (openListStr.isEmpty()) return result;
-
-        var pathsToRemove = new ArrayList<String>();
-        var openPaths = Arrays.asList(openListStr.split(";"));
-        for (String pathStr : openPaths) {
+        
+        var openPathsInList = Arrays.asList(openListStr.split(";"));
+        var finalPathsToOpen = new LinkedHashSet<Path>();
+        var validPathsFromOpenList = new HashSet<Path>();
+        
+        // First pass: Process openProjectsList
+        for (String pathStr : openPathsInList) {
             if (pathStr.isEmpty()) continue;
             try {
                 var path = Path.of(pathStr);
                 if (Files.isDirectory(path)) {
-                    result.add(path);
+                    finalPathsToOpen.add(path);
+                    validPathsFromOpenList.add(path);
                 } else {
                     logger.warn("Removing invalid or non-existent project from open list: {}", pathStr);
                     pathsToRemove.add(pathStr);
@@ -897,13 +1001,40 @@ public final class MainProject extends AbstractProject {
                 pathsToRemove.add(pathStr);
             }
         }
+        
+        // Second pass: Add associated open worktrees for main projects found in openProjectsList
+        var recentProjectsMap = loadRecentProjects();
+        for (var entry : recentProjectsMap.entrySet()) {
+            var mainProjectPathKey = entry.getKey();
+            var persistentInfo = entry.getValue();
+            if (validPathsFromOpenList.contains(mainProjectPathKey)) {
+                for (String worktreePathStr : persistentInfo.openWorktrees()) {
+                    if (worktreePathStr != null && !worktreePathStr.isBlank()) {
+                        try {
+                            var worktreePath = Path.of(worktreePathStr);
+                            if (Files.isDirectory(worktreePath)) {
+                                finalPathsToOpen.add(worktreePath);
+                            } else {
+                                logger.warn("Invalid worktree path '{}' found for main project '{}', not adding to open list.", worktreePathStr, mainProjectPathKey);
+                            }
+                        } catch (Exception e) {
+                            logger.warn("Error processing worktree path '{}' for main project '{}': {}", worktreePathStr, mainProjectPathKey, e.getMessage());
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Cleanup openProjectsList property if necessary
         if (!pathsToRemove.isEmpty()) {
-            var openSet = new HashSet<>(openPaths);
-            openSet.removeAll(pathsToRemove);
-            openSet.remove("");
-            props.setProperty("openProjectsList", String.join(";", openSet));
+            var updatedOpenSet = new LinkedHashSet<>(openPathsInList);
+            updatedOpenSet.removeAll(pathsToRemove);
+            updatedOpenSet.remove("");
+            props.setProperty("openProjectsList", String.join(";", updatedOpenSet));
             saveProjectsProperties(props);
         }
+        
+        result.addAll(finalPathsToOpen);
         return result;
     }
     

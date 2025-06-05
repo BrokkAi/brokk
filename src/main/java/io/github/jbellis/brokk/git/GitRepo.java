@@ -87,8 +87,43 @@ public class GitRepo implements Closeable, IGitRepo {
             repository = builder.build();
             git = new Git(repository);
 
-            // gitTopLevel is the parent of the actual .git directory
-            this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+            // For worktrees, we need to find the actual repository root, not the .git/worktrees path
+            if (isWorktree()) {
+                // For worktrees, read the commondir file to find the main repository
+                Path gitDir = repository.getDirectory().toPath();
+                Path commondirFile = gitDir.resolve("commondir");
+                if (Files.exists(commondirFile)) {
+                    String commonDirContent = Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
+                    Path commonDir = gitDir.resolve(commonDirContent).normalize();
+                    this.gitTopLevel = commonDir.getParent().normalize();
+                } else {
+                    // Fallback: try to parse the gitdir file in the working tree
+                    Path gitFile = repository.getWorkTree().toPath().resolve(".git");
+                    if (Files.exists(gitFile)) {
+                        String gitFileContent = Files.readString(gitFile, StandardCharsets.UTF_8).trim();
+                        if (gitFileContent.startsWith("gitdir: ")) {
+                            String gitDirPath = gitFileContent.substring("gitdir: ".length());
+                            Path worktreeGitDir = Path.of(gitDirPath).normalize();
+                            Path commondirFile2 = worktreeGitDir.resolve("commondir");
+                            if (Files.exists(commondirFile2)) {
+                                String commonDirContent2 = Files.readString(commondirFile2, StandardCharsets.UTF_8).trim();
+                                Path commonDir2 = worktreeGitDir.resolve(commonDirContent2).normalize();
+                                this.gitTopLevel = commonDir2.getParent().normalize();
+                            } else {
+                                // Ultimate fallback
+                                this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                            }
+                        } else {
+                            this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                        }
+                    } else {
+                        this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                    }
+                }
+            } else {
+                // For regular repos, gitTopLevel is the parent of the actual .git directory
+                this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+            }
             logger.trace("Git dir for {} is {}, gitTopLevel is {}", projectRoot, repository.getDirectory(), gitTopLevel);
         } catch (IOException e) {
             throw new RuntimeException("Failed to open repository at " + projectRoot, e);

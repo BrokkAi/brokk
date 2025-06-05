@@ -861,7 +861,7 @@ public final class Service {
         Objects.requireNonNull(feedbackText, "feedbackText must not be null");
 
         // Get user ID from Brokk key
-        var kp = parseKey(Project.getBrokkKey());
+        var kp = parseKey(MainProject.getBrokkKey());
         
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
