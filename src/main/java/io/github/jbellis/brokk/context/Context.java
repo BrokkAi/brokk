@@ -106,14 +106,7 @@ public class Context {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null in private constructor");
         this.editableFiles = List.copyOf(editableFiles);
         this.readonlyFiles = List.copyOf(readonlyFiles);
-        if (virtualFragments.isEmpty()) {
-            this.virtualFragments = List.of();
-        } else {
-            final Set<String> seenTexts = new HashSet<>();
-            this.virtualFragments = virtualFragments.stream()
-                                                    .filter(fragment -> seenTexts.add(fragment.text()))
-                                                    .toList();
-        }
+        this.virtualFragments = List.copyOf(virtualFragments);
         this.taskHistory = List.copyOf(taskHistory); // Ensure immutability
         this.parsedOutput = parsedOutput;
         this.action = action;
@@ -270,6 +263,14 @@ public class Context {
     }
 
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) { // IContextManager is already member
+        // Check if a fragment with the same text content already exists
+        boolean duplicateByText = virtualFragments.stream()
+                .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+
+        if (duplicateByText) {
+            return this; // Fragment with same text content already present, no change
+        }
+
         var newFragments = new ArrayList<>(virtualFragments);
         newFragments.add(fragment);
 
