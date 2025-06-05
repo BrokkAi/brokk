@@ -74,7 +74,7 @@ public class ArchitectOptionsDialog {
             validationCb.setSelected(currentOptions.includeValidationAgent());
 
             var analyzerCb = createCheckbox.apply("Code Intelligence Tools", "Allow direct querying of code structure (e.g., find usages, call graphs)");
-            analyzerCb.setSelected(currentOptions.includeAnalyzerTools());
+            analyzerCb.setSelected(currentOptions.includeAnalyzerTools() && codeIntelConfigured);
             analyzerCb.setEnabled(isCpg && codeIntelConfigured); // Disable if not a CPG or if CI is not configured
 
             if (!codeIntelConfigured) {
