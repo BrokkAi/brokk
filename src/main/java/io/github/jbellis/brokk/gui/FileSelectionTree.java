@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,7 +35,7 @@ import java.util.function.Predicate;
 public class FileSelectionTree extends JTree {
     private static final Logger logger = LogManager.getLogger(FileSelectionTree.class);
 
-    private final Project project;
+    private final IProject project;
     private final boolean allowExternalFiles;
     private final Predicate<File> fileFilter;
 
@@ -46,7 +46,7 @@ public class FileSelectionTree extends JTree {
      * @param allowExternalFiles If true, shows the full file system; otherwise, shows project repo files.
      * @param fileFilter         Optional predicate to filter files shown in the tree (external mode only).
      */
-    public FileSelectionTree(Project project, boolean allowExternalFiles, Predicate<File> fileFilter) {
+    public FileSelectionTree(IProject project, boolean allowExternalFiles, Predicate<File> fileFilter) {
         this.project = project;
         this.allowExternalFiles = allowExternalFiles;
         this.fileFilter = fileFilter;

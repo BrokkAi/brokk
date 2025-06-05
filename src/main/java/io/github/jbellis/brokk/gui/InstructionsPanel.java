@@ -1023,7 +1023,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * if the balance is low.
      */
     public void checkBalanceAndNotify() {
-        if (Project.getProxySetting() != Project.LlmProxySetting.BROKK) {
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
             return; // Only check balance when using Brokk proxy
         }
 
@@ -1625,7 +1625,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
-        var favoriteModels = Project.loadFavoriteModels();
+        var favoriteModels = MainProject.loadFavoriteModels();
 
         // Filter favorite models to show only those that are currently available, and sort by alias
         var favoriteModelsToShow = favoriteModels.stream()

@@ -35,7 +35,7 @@ public class HistoryOutputPanel extends JPanel {
     private DefaultTableModel historyModel;
     private JButton undoButton;
     private JButton redoButton;
-    private JComboBox<Project.SessionInfo> sessionComboBox;
+    private JComboBox<MainProject.SessionInfo> sessionComboBox;
     private JButton newSessionButton;
     private JButton manageSessionsButton;
 
@@ -48,7 +48,7 @@ public class HistoryOutputPanel extends JPanel {
 
     private InstructionsPanel instructionsPanel;
     private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
-    
+
     private String lastSpinnerMessage;
 
     /**
@@ -145,7 +145,7 @@ public class HistoryOutputPanel extends JPanel {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                          boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof Project.SessionInfo sessionInfo) {
+                if (value instanceof MainProject.SessionInfo sessionInfo) {
                     setText(sessionInfo.name());
                 }
                 return this;
@@ -154,7 +154,7 @@ public class HistoryOutputPanel extends JPanel {
         
         // Add selection listener for session switching
         sessionComboBox.addActionListener(e -> {
-            var selectedSession = (Project.SessionInfo) sessionComboBox.getSelectedItem();
+            var selectedSession = (MainProject.SessionInfo) sessionComboBox.getSelectedItem();
             if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
                 contextManager.switchSessionAsync(selectedSession.id());
             }
@@ -215,7 +215,7 @@ public class HistoryOutputPanel extends JPanel {
             // Clear and repopulate
             sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().listSessions();
-            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed()); // Most recent first
+            sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed()); // Most recent first
             
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
@@ -771,7 +771,7 @@ public class HistoryOutputPanel extends JPanel {
      * Inner class representing a detached window for viewing output text
      */
     private static class OutputWindow extends JFrame {
-        private final Project project;
+        private final IProject project;
         private final MarkdownOutputPanel outputPanel;
 
         /**
@@ -864,23 +864,6 @@ public class HistoryOutputPanel extends JPanel {
          */
         public MarkdownOutputPanel getMarkdownOutputPanel() {
             return outputPanel;
-        }
-
-        /**
-         * Helper method to find JScrollPane component within a container
-         */
-        private Component findScrollPane(Container container) {
-            for (Component comp : container.getComponents()) {
-                if (comp instanceof JScrollPane) {
-                    return comp;
-                } else if (comp instanceof Container subContainer) {
-                    Component found = findScrollPane(subContainer);
-                    if (found != null) {
-                        return found;
-                    }
-                }
-            }
-            return null;
         }
     }
 

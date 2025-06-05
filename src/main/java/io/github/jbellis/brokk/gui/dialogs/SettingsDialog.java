@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Project;
-import io.github.jbellis.brokk.Project.DataRetentionPolicy;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -113,7 +114,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
 
     private boolean applySettings() {
-        Project.LlmProxySetting oldProxySetting = Project.getProxySetting();
+        MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
 
         if (!globalSettingsPanel.applySettings()) {
             return false; // Global settings failed validation
@@ -125,8 +126,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         }
         
-        Project.LlmProxySetting newProxySetting = Project.getProxySetting();
-        if (oldProxySetting != newProxySetting && newProxySetting != Project.LlmProxySetting.STAGING) { // STAGING is non-interactive
+        MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
+        if (oldProxySetting != newProxySetting && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
             proxySettingsChanged = true;
         }
 
@@ -232,7 +233,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.setVisible(true);
     }
 
-    public static boolean showStandaloneDataRetentionDialog(Project project, Frame owner) {
+    public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {
         assert project.isDataShareAllowed() : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
         var dialog = new JDialog(owner, "Data Retention Policy Required", true);

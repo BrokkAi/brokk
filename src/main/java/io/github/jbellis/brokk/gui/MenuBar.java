@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.BuildInfo;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
@@ -37,7 +39,8 @@ public class MenuBar {
             int result = chooser.showOpenDialog(chrome.frame);
             if (result == JFileChooser.APPROVE_OPTION) {
                 var dir = chooser.getSelectedFile().toPath();
-                io.github.jbellis.brokk.Brokk.openProject(dir);
+                // Opening from menu is a user action, not internal, and has no explicit parent.
+                io.github.jbellis.brokk.Brokk.openProject(dir, null);
             }
         });
         fileMenu.add(openProjectItem);
@@ -183,14 +186,12 @@ public class MenuBar {
                             .toList();
                 });
 
-                FileSelectionDialog dialog = new FileSelectionDialog(
-                        chrome.getFrame(),
-                        project,
-                        "Select File to View",
-                        false, // Don't allow external files
-                        f -> true, // Allow all files/directories in tree
-                        allFilesFuture
-                );
+                FileSelectionDialog dialog = new FileSelectionDialog(chrome.getFrame(),
+                                                                     project,
+                                                                     "Select File to View",
+                                                                     false,
+                                                                     f -> true,
+                                                                     allFilesFuture);
                 dialog.setVisible(true);
 
                 if (dialog.isConfirmed() && dialog.getSelectedFile() != null) {
@@ -260,7 +261,7 @@ public class MenuBar {
         var sendFeedbackItem = new JMenuItem("Send Feedback...");
         sendFeedbackItem.addActionListener(e -> {
             try {
-                io.github.jbellis.brokk.Service.validateKey(io.github.jbellis.brokk.Project.getBrokkKey());
+                Service.validateKey(MainProject.getBrokkKey());
             } catch (IOException ex) {
                 JOptionPane.showMessageDialog(chrome.getFrame(),
                                               "Please configure a valid Brokk API key in Settings before sending feedback.\n\nError: " + ex.getMessage(),
@@ -313,7 +314,7 @@ public class MenuBar {
     private static void rebuildRecentProjectsMenu(JMenu recentMenu) {
         recentMenu.removeAll();
 
-        var map = io.github.jbellis.brokk.Project.loadRecentProjects();
+        var map = MainProject.loadRecentProjects();
         if (map.isEmpty()) {
             var emptyItem = new JMenuItem("(No Recent Projects)");
             emptyItem.setEnabled(false);
@@ -322,19 +323,20 @@ public class MenuBar {
         }
 
         var sorted = map.entrySet().stream()
-            .sorted((a,b)-> Long.compare(b.getValue(), a.getValue()))
+            .sorted((a, b) -> Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
             .limit(5)
             .toList();
 
         for (var entry : sorted) {
-            var pathString = entry.getKey();
+            var projectPath = entry.getKey();
+            var pathString = projectPath.toString();
             var item = new JMenuItem(pathString);
             item.addActionListener(e -> {
-                var projectPath = java.nio.file.Path.of(pathString);
                 if (Brokk.isProjectOpen(projectPath)) {
                     Brokk.focusProjectWindow(projectPath);
                 } else {
-                    Brokk.openProject(projectPath);
+                    // Reopening from recent menu is a user action, not internal, no explicit parent.
+                    Brokk.openProject(projectPath, null);
                 }
             });
             recentMenu.add(item);

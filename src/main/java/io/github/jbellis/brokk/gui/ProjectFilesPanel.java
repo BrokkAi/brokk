@@ -2,6 +2,8 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,7 +29,7 @@ public class ProjectFilesPanel extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final io.github.jbellis.brokk.Project project;
+    private final IProject project;
 
     private JTextField searchField;
     private ProjectTree projectTree;
@@ -192,9 +194,9 @@ public class ProjectFilesPanel extends JPanel {
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
-        private final io.github.jbellis.brokk.Project project;
+        private final IProject project;
 
-        public ProjectFileCompletionProvider(io.github.jbellis.brokk.Project project) {
+        public ProjectFileCompletionProvider(IProject project) {
             this.project = project;
         }
 
@@ -225,11 +227,7 @@ public class ProjectFilesPanel extends JPanel {
                     pf -> 0,
                     this::createProjectFileCompletion);
 
-            List<Completion> result = scoredCompletions.stream().map(c -> (Completion)c).collect(Collectors.toList());
-            // if (!result.isEmpty()) {
-            //     // AutoCompleteUtil.sizePopupGenerally(result, item -> ((ProjectFileCompletion)item).getProjectFile().relativePath());
-            // }
-            return result;
+            return scoredCompletions.stream().map(c -> (Completion)c).collect(Collectors.toList());
         }
 
         private ProjectFileCompletion createProjectFileCompletion(ProjectFile pf) {

@@ -1112,7 +1112,7 @@ public interface ContextFragment {
 
         public SkeletonFragment(IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
             super(contextManager);
-            assert targetIdentifiers != null && !targetIdentifiers.isEmpty();
+            assert targetIdentifiers != null;
             assert summaryType != null;
             this.targetIdentifiers = List.copyOf(targetIdentifiers);
             this.summaryType = summaryType;

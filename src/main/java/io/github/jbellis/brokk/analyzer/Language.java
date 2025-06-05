@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -21,20 +21,20 @@ public interface Language {
     List<String> getExtensions();
     String name(); // Human-friendly
     String internalName(); // Filesystem-safe
-    IAnalyzer createAnalyzer(Project project);
-    IAnalyzer loadAnalyzer(Project project);
+    IAnalyzer createAnalyzer(IProject project);
+    IAnalyzer loadAnalyzer(IProject project);
 
     /**
      * Get the path where the CPG for this language in the given project should be stored.
      * @param project The project.
      * @return The path to the CPG file.
      */
-    default Path getCpgPath(Project project) {
+    default Path getCpgPath(IProject project) {
         // Use oldName for CPG path to ensure stable and filesystem-safe names
         return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase() + ".cpg");
     }
 
-    default List<Path> getDependencyCandidates(Project project) {
+    default List<Path> getDependencyCandidates(IProject project) {
         return List.of();
     }
 
@@ -47,7 +47,7 @@ public interface Language {
      * @param path The absolute path to check.
      * @return {@code true} if the path is considered part of the project's analyzed sources, {@code false} otherwise.
      */
-    default boolean isAnalyzed(Project project, Path path) {
+    default boolean isAnalyzed(IProject project, Path path) {
         assert path.isAbsolute() : "Path must be absolute for isAnalyzed check: " + path;
         return path.normalize().startsWith(project.getRoot());
     }
@@ -64,10 +64,10 @@ public interface Language {
         @Override public String name() { return "C#"; }
         @Override public String internalName() { return "C_SHARP"; }
         @Override public String toString() { return name(); } // For compatibility
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
     };
 
     Language JAVA = new Language() {
@@ -76,18 +76,18 @@ public interface Language {
         @Override public String name() { return "Java"; }
         @Override public String internalName() { return "JAVA"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             var analyzer = new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
             analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        @Override public JavaAnalyzer loadAnalyzer(Project project) {
+        @Override public JavaAnalyzer loadAnalyzer(IProject project) {
             return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
         }
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             long startTime = System.currentTimeMillis();
 
             String userHome = System.getProperty("user.home");
@@ -188,13 +188,13 @@ public interface Language {
         @Override public String name() { return "JavaScript"; }
         @Override public String internalName() { return "JAVASCRIPT"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             logger.debug("Scanning for JavaScript dependency candidates in project: {}", project.getRoot());
             var results = new ArrayList<Path>();
             Path nodeModules = project.getRoot().resolve("node_modules");
@@ -232,7 +232,7 @@ public interface Language {
         }
 
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -253,10 +253,10 @@ public interface Language {
         @Override public String name() { return "Python"; }
         @Override public String internalName() { return "PYTHON"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
         private List<Path> findVirtualEnvs(Path root) {
             List<Path> envs = new ArrayList<>();
@@ -324,7 +324,7 @@ public interface Language {
         }
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             logger.debug("Scanning for Python dependency candidates in project: {}", project.getRoot());
             List<Path> results = new ArrayList<>();
             List<Path> venvs = findVirtualEnvs(project.getRoot());
@@ -357,7 +357,7 @@ public interface Language {
         }
 
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -387,13 +387,13 @@ public interface Language {
         @Override public String name() { return "C/C++"; }
         @Override public String internalName() { return "C_CPP"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             var analyzer = new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
             analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        @Override public CppAnalyzer loadAnalyzer(Project project) {
+        @Override public CppAnalyzer loadAnalyzer(IProject project) {
             return new CppAnalyzer(project.getRoot(), getCpgPath(project));
         }
         @Override
@@ -406,12 +406,12 @@ public interface Language {
         @Override public String name() { return "Go"; }
         @Override public String internalName() { return "GO"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
         // TODO
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
     };
 
     Language RUST = new Language() {
@@ -420,15 +420,15 @@ public interface Language {
         @Override public String name() { return "Rust"; }
         @Override public String internalName() { return "RUST"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
         // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -456,10 +456,10 @@ public interface Language {
         @Override public String name() { return "None"; }
         @Override public String internalName() { return "NONE"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new DisabledAnalyzer();
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
     };
 
     // --- Infrastructure for fromExtension and enum-like static methods ---
@@ -470,15 +470,15 @@ public interface Language {
         @Override public String name() { return "PHP"; }
         @Override public String internalName() { return "PHP"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) { return createAnalyzer(project); }
+        @Override public IAnalyzer loadAnalyzer(IProject project) { return createAnalyzer(project); }
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -504,12 +504,12 @@ public interface Language {
         @Override public String name() { return "SQL"; }
         @Override public String internalName() { return "SQL"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
             var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {
+        @Override public IAnalyzer loadAnalyzer(IProject project) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
         }

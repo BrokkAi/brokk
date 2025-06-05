@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.collect.Streams;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.ValidationAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -164,16 +164,12 @@ class DeepScanDialog {
      * Shows a modal dialog for the user to select files suggested by Deep Scan.
      * Files can be added as read-only, editable, or summarized.
      * This method MUST be called on the Event Dispatch Thread (EDT).
-     *
-     * @param chrome             The main application window reference.
-     * @param suggestedFragments List of unique ContextFragments suggested by ContextAgent and ValidationAgent, grouped by file.
-     * @param reasoning          The reasoning provided by the ContextAgent for the suggestions.
      */
     private static void showDialog(Chrome chrome, List<ContextFragment> projectCodeFragments, List<ContextFragment> testCodeFragments, String reasoning) {
         assert SwingUtilities.isEventDispatchThread(); // Ensure called on EDT
 
         var contextManager = chrome.getContextManager();
-        Project project = contextManager.getProject(); // Keep project reference
+        var project = contextManager.getProject(); // Keep project reference
         boolean hasGit = project != null && project.hasGit();
 
         JDialog dialog = new JDialog(chrome.getFrame(), "Deep Scan Results", true); // Modal dialog
@@ -221,8 +217,6 @@ class DeepScanDialog {
             // Get the display name and tooltip (full path) from the fragment's file
             ProjectFile pf = fragment.files().stream()
                     .findFirst()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
                     .orElse(null); // Should not be null here based on earlier filtering
 
             String fileName = (pf != null) ? pf.getFileName() : fragment.shortDescription();

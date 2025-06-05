@@ -1,8 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.Project;
-import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.MainProject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,9 +21,9 @@ class SqlAnalyzerTest {
     // Helper to create a Project instance for testing.
     // SqlAnalyzer requires a concrete Project, not just IProject.
     // This mock-like Project provides the minimal methods needed by SqlAnalyzer.
-    private Project createTestProject(Set<ProjectFile> filesSet) {
+    private IProject createTestProject(Set<ProjectFile> filesSet) {
         // Use the single-argument constructor for Project
-        return new Project(tempDir) {
+        return new IProject() {
             @Override
             public Path getRoot() {
                 // Ensure the mock returns the tempDir as its root, consistent with Project's behavior
@@ -37,10 +36,6 @@ class SqlAnalyzerTest {
                 // SqlAnalyzer will then filter these based on .sql extension and exclusions.
                 return filesSet;
             }
-
-            // If SqlAnalyzer starts depending on IGitRepo methods via project.getRepo(),
-            // those would need to be mocked here as well. For now, it seems to only use
-            // project.getRoot() and project.getAllFiles().
         };
     }
 
@@ -51,7 +46,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
@@ -95,7 +90,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
@@ -125,7 +120,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
@@ -158,7 +153,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
         Optional<CodeUnit> tblOneOpt = analyzer.getDefinition("tbl_one");
@@ -217,7 +212,7 @@ class SqlAnalyzerTest {
         ProjectFile excludedProjectFile = new ProjectFile(tempDir, excludedDir.getFileName().toString() + "/" + excludedSqlFile.getFileName().toString());
 
 
-        Project testProject = createTestProject(Set.of(includedProjectFile, excludedProjectFile));
+        var testProject = createTestProject(Set.of(includedProjectFile, excludedProjectFile));
         // Exclude the directory "excluded_dir"
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Set.of(Path.of("excluded_dir")));
 
@@ -234,7 +229,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, "", StandardCharsets.UTF_8); // Empty content
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
@@ -249,7 +244,7 @@ class SqlAnalyzerTest {
         Files.writeString(txtFile, "CREATE TABLE my_table (id INT);", StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, txtFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 
@@ -265,7 +260,7 @@ class SqlAnalyzerTest {
         Files.writeString(sqlFile, sqlContent, StandardCharsets.UTF_8);
 
         ProjectFile projectFile = new ProjectFile(tempDir, sqlFile.getFileName().toString());
-        Project testProject = createTestProject(Set.of(projectFile));
+        var testProject = createTestProject(Set.of(projectFile));
 
         SqlAnalyzer analyzer = new SqlAnalyzer(testProject, Collections.emptySet());
 

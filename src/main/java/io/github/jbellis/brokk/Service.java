@@ -234,12 +234,12 @@ public final class Service {
     public Service(IProject project) {
         // Get and handle data retention policy
         var policy = project.getDataRetentionPolicy();
-        if (policy == Project.DataRetentionPolicy.UNSET) {
+        if (policy == MainProject.DataRetentionPolicy.UNSET) {
             logger.warn("Data Retention Policy is UNSET for project {}. Defaulting to MINIMAL.", project.getRoot().getFileName());
-            policy = Project.DataRetentionPolicy.MINIMAL;
+            policy = MainProject.DataRetentionPolicy.MINIMAL;
         }
 
-        String proxyUrl = Project.getProxyUrl();
+        String proxyUrl = MainProject.getProxyUrl();
         logger.info("Initializing models using policy: {} and proxy: {}", policy, proxyUrl);
 
         var tempModelLocations = new ConcurrentHashMap<String, String>();
@@ -299,7 +299,7 @@ public final class Service {
     }
 
     public float getUserBalance() throws IOException {
-        return getUserBalance(Project.getBrokkKey());
+        return getUserBalance(MainProject.getBrokkKey());
     }
 
     /**
@@ -407,20 +407,20 @@ public final class Service {
      * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    private void fetchAvailableModels(Project.DataRetentionPolicy policy,
+    private void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
                                       Map<String, String> locationsTarget,
                                       Map<String, Map<String, Object>> infoTarget) throws IOException
     {
         locationsTarget.clear(); // Clear at the beginning of an attempt
         infoTarget.clear();
 
-        String baseUrl = Project.getProxyUrl(); // Get full URL (including scheme) from project settings
-        boolean isBrokk = Project.getProxySetting() == Project.LlmProxySetting.BROKK;
+        String baseUrl = MainProject.getProxyUrl(); // Get full URL (including scheme) from project settings
+        boolean isBrokk = MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK;
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
         if (isBrokk) {
-            var kp = parseKey(Project.getBrokkKey());
+            var kp = parseKey(MainProject.getBrokkKey());
             authHeader = "Bearer " + kp.token();
         }
         Request request = new Request.Builder()
@@ -521,7 +521,7 @@ public final class Service {
 
                     // Apply data retention policy filter
                     boolean isPrivate = (Boolean) modelInfo.getOrDefault("is_private", false);
-                    if (policy == Project.DataRetentionPolicy.MINIMAL && !isPrivate) {
+                    if (policy == MainProject.DataRetentionPolicy.MINIMAL && !isPrivate) {
                         logger.debug("Skipping non-private model {} due to MINIMAL data retention policy", modelName);
                         continue;
                     }
@@ -647,7 +647,7 @@ public final class Service {
 
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
-        String baseUrl = Project.getProxyUrl();
+        String baseUrl = MainProject.getProxyUrl();
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
@@ -656,8 +656,8 @@ public final class Service {
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
 
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
-                var kp = parseKey(Project.getBrokkKey());
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                var kp = parseKey(MainProject.getBrokkKey());
                 builder = builder
                         .apiKey(kp.token)
                         .customHeaders(Map.of("Authorization", "Bearer " + kp.token))
@@ -861,7 +861,7 @@ public final class Service {
         Objects.requireNonNull(feedbackText, "feedbackText must not be null");
 
         // Get user ID from Brokk key
-        var kp = parseKey(Project.getBrokkKey());
+        var kp = parseKey(MainProject.getBrokkKey());
         
         var bodyBuilder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
@@ -1004,12 +1004,12 @@ public final class Service {
             RequestBody requestBody = builder.build();
 
             // Determine endpoint and authentication
-            String proxyUrl = Project.getProxyUrl();
+            String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
             var authHeader = "Bearer dummy-key"; // Default for non-Brokk
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
-                var kp = parseKey(Project.getBrokkKey());
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                var kp = parseKey(MainProject.getBrokkKey());
                 authHeader = "Bearer " + kp.token;
             }
 
