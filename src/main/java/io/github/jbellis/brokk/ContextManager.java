@@ -63,6 +63,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final Pattern TEST_FILE_PATTERN = Pattern.compile(
             "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
     );
+
+    public static final String DEFAULT_SESSION_NAME = "New Session";
     
     public static boolean isTestFile(ProjectFile file) {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
@@ -109,7 +111,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    private final Project project;
+    private final IProject project;
     private final ToolRegistry toolRegistry;
 
     // Current session tracking
@@ -138,18 +140,29 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Minimal constructor called from Brokk
      */
-    public ContextManager(Project project)
+    public ContextManager(AbstractProject project)
     {
         this.project = project;
         
-        // Initialize session management
+        // Initialize session management - check for last active session first
+        var lastActiveSessionId = project.getLastActiveSession();
         var sessions = project.listSessions();
-        if (sessions.isEmpty()) {
-            var newSessionInfo = project.newSession("New Session");
+        
+        if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
+            // Try to resume the last active session for this worktree
+            this.currentSessionId = lastActiveSessionId.get();
+            var sessionName = sessions.stream()
+                    .filter(s -> s.id().equals(currentSessionId))
+                    .findFirst()
+                    .map(IProject.SessionInfo::name)
+                    .orElse("Unknown");
+            logger.info("Resuming last active session: {} ({})", sessionName, currentSessionId);
+        } else if (sessions.isEmpty()) {
+            var newSessionInfo = project.newSession(DEFAULT_SESSION_NAME);
             this.currentSessionId = newSessionInfo.id();
             logger.info("Created and loaded new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
         } else {
-            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed());
+            sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed());
             var latestSession = sessions.get(0);
             this.currentSessionId = latestSession.id();
             logger.info("Loaded most recent session: {} ({})", latestSession.name(), latestSession.id());
@@ -192,6 +205,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // pass
             }
         };
+    }
+
+    private void initializeCurrentSessionAndHistory() {
+        var loadedCH = project.loadHistory(currentSessionId, this); // Returns ContextHistory with frozen contexts
+        if (loadedCH.getHistory().isEmpty()) {
+            liveContext = new Context(this, buildWelcomeMessage());
+            contextHistory.setInitialContext(liveContext.freeze().frozenContext());
+        } else {
+            contextHistory.setInitialContext(loadedCH.getHistory().getFirst()); // First is already frozen
+            for (int i = 1; i < loadedCH.getHistory().size(); i++) {
+                contextHistory.addFrozenContextAndClearRedo(loadedCH.getHistory().get(i));
+            }
+            liveContext = Context.unfreeze(topContext());
+        }
+        project.updateActiveSession(currentSessionId); // Mark this session as active for this project
+        notifyContextListeners(topContext());
+        io.updateContextHistoryTable(liveContext);
+        io.enableActionButtons();
     }
 
     /**
@@ -260,28 +291,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
 
         // Load saved context history or create a new one
-        submitBackgroundTask("Loading saved context", () -> {
-            var welcomeMessage = buildWelcomeMessage();
-            var loadedCH = project.loadHistory(currentSessionId, this); // Returns ContextHistory with frozen contexts
-
-            if (loadedCH.getHistory().isEmpty()) {
-                liveContext = new Context(this, welcomeMessage);
-                // Set the initial frozen context in history
-                contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-            } else {
-                // Populate our main contextHistory with the loaded frozen contexts
-                contextHistory.setInitialContext(loadedCH.getHistory().getFirst()); // First is already frozen
-                for (int i = 1; i < loadedCH.getHistory().size(); i++) {
-                    // Add subsequent frozen contexts and clear redo stack.
-                    contextHistory.addFrozenContextAndClearRedo(loadedCH.getHistory().get(i));
-                }
-                // Create the liveContext by unfreezing the top of the history
-                liveContext = Context.unfreeze(topContext());
-            }
-            notifyContextListeners(topContext()); // Notify with the live context
-            io.updateContextHistoryTable(liveContext); // Update UI with the live context
-            io.enableActionButtons(); // Enable buttons now that session loading is complete
-        });
+        submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
@@ -301,14 +311,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Scans the LLM history directory and deletes subdirectories whose last modified time
+     * Scans the LLM history directory (located within the master project's .brokk/sessions)
+     * and deletes subdirectories (individual session zips) whose last modified time
      * is older than one week. This method runs synchronously but is intended to be
      * called from a background task.
+     * Note: This currently cleans up based on Llm.getHistoryBaseDir which might point to a different location
+     * than the new Project.sessionsDir. This should be unified. For now, using Llm.getHistoryBaseDir.
+     * If Llm.getHistoryBaseDir needs project.getMasterRootPathForConfig(), it should be updated there.
+     * Assuming Llm.getHistoryBaseDir correctly points to the shared LLM log location.
      */
     private void cleanupOldHistory() {
-        var historyBaseDir = Llm.getHistoryBaseDir(project.getRoot());
+        // Llm.getHistoryBaseDir is expected to use the correct root (master/shared) for LLM history logs.
+        // If these logs are per-session and stored inside session zips, this cleanup needs rethinking.
+        // Current Llm.getHistoryBaseDir(project.getRoot()) might point to worktree-local if not careful.
+        // For shared history, it should be project.getMasterRootPathForConfig().
+        // Let's assume Llm.getHistoryBaseDir is smart or this function will be adjusted.
+        // For now, using getMasterRootPathForConfig for clarity that history should be shared.
+        var historyBaseDir = Llm.getHistoryBaseDir(project.getMasterRootPathForConfig());
         if (!Files.isDirectory(historyBaseDir)) {
-            logger.debug("LLM history directory {} does not exist, skipping cleanup.", historyBaseDir);
+            logger.debug("LLM history log directory {} does not exist, skipping cleanup.", historyBaseDir);
             return;
         }
 
@@ -375,7 +396,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
     
-    public Project getProject() {
+    public IProject getProject() {
         return project;
     }
 
@@ -663,11 +684,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Drop fragments by their IDs.
      */
-    public void drop(Collection<Integer> fragmentIds) {
+    public void drop(Collection<? extends ContextFragment> fragments) {
         // The pushContext method now returns the new liveContext
-        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(fragmentIds));
+        var ids = fragments.stream().map(ContextFragment::id).toList();
+        Context newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
         if (newLiveContext != null) { // Check if a change actually occurred
-            io.systemOutput(newLiveContext.getAction());
+            io.systemOutput("Dropped " + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
         }
     }
 
@@ -771,6 +793,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    /**
+     * Appends selected fragments from a historical (frozen) context to the current live context.
+     * If a {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also
+     * appended to the current live context's history. A new state representing this action is pushed to the context history.
+     *
+     * @param sourceFrozenContext The historical context to source fragments and history from.
+     * @param fragmentsToKeep A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
+        return submitUserTask("Copying workspace items from historical state", () -> {
+            try {
+                String actionMessage = "Copied workspace items from historical state";
+
+                pushContext(liveCtx -> liveCtx.appendFrom(sourceFrozenContext,
+                                                          fragmentsToKeep,
+                                                          actionMessage));
+                io.systemOutput(actionMessage);
+            } catch (CancellationException cex) {
+                io.systemOutput("Copying context items from historical state canceled.");
+            }
+        });
+    }
+
 
     /**
      * Adds any virtual fragment directly to the live context.
@@ -785,12 +831,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param image The java.awt.Image pasted from the clipboard.
      */
+    public ContextFragment.AnonymousImageFragment addPastedImageFragment(java.awt.Image image, String descriptionOverride) {
+        Future<String> descriptionFuture;
+        if (descriptionOverride != null && !descriptionOverride.isBlank()) {
+            descriptionFuture = CompletableFuture.completedFuture(descriptionOverride);
+        } else {
+            descriptionFuture = submitSummarizePastedImage(image);
+        }
+
+        // Must be final for lambda capture in pushContext
+        final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        return fragment;
+    }
+
+    /**
+     * Handles pasting an image from the clipboard without a predefined description.
+     * This will trigger asynchronous summarization of the image.
+     *
+     * @param image The java.awt.Image pasted from the clipboard.
+     */
     public void addPastedImageFragment(java.awt.Image image) {
-        Future<String> descriptionFuture = submitSummarizePastedImage(image);
-        pushContext(currentLiveCtx -> {
-            var fragment = new ContextFragment.PasteImageFragment(this, image, descriptionFuture);
-            return currentLiveCtx.addVirtualFragment(fragment);
-        });
+        addPastedImageFragment(image, null); // Calls the overload with descriptionOverride as null
     }
 
     /**
@@ -1154,12 +1216,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        // If not a PathFragment, it's a VirtualFragment.
         // Handle UsageFragment specially.
         if (cf.getType() == ContextFragment.FragmentType.USAGE) {
-            var uf = (ContextFragment.UsageFragment) cf;
-            var files = uf.files().stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-            return "[%s] (%s)".formatted(files, uf.description());
+            var files = cf.files().stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+            return "[%s] (%s)".formatted(files, cf.description());
         }
 
         // Default for other editable VirtualFragments
@@ -1206,6 +1266,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
     public Context pushContext(Function<Context, Context> contextGenerator) {
+        Instant start = Instant.now();
+        while (liveContext == null && java.time.Duration.between(start, Instant.now()).getSeconds() < 5) {
+            Thread.onSpinWait();
+        }
+        if (liveContext == null) {
+            logger.error("Timeout waiting for liveContext after 5 seconds");
+            liveContext = new Context(this, "Placeholder Workspace");
+        }
+
         var updatedLiveContext = contextGenerator.apply(liveContext);
         if (updatedLiveContext == liveContext) {
             // No change occurred
@@ -1218,7 +1287,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         liveContext = fr.liveContext();
         var frozen = fr.frozenContext();
         contextHistory.addFrozenContextAndClearRedo(frozen); // Add frozen version to history
-        notifyContextListeners(frozen);
+
+        // Ensure listeners are notified on the EDT
+        Context finalFrozenContext = frozen; // Effectively final for lambda
+        SwingUtilities.invokeLater(() -> notifyContextListeners(finalFrozenContext));
+
         project.saveHistory(contextHistory, currentSessionId);    // Persist the history of frozen contexts
 
         // Check conversation history length on the new live context
@@ -1607,11 +1680,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Future<String> actionFuture = submitSummarizeTaskForConversation(action);
 
         // pushContext will apply addHistoryEntry to the current liveContext,
-        // then liveContext will be updated, and a frozen version added to history.
-        var newLiveContext = pushContext(currentLiveCtx ->
-            currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
-        );
-        return newLiveContext.getTaskHistory().getLast();
+    // then liveContext will be updated, and a frozen version added to history.
+    var newLiveContext = pushContext(currentLiveCtx ->
+        currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
+    );
+    
+    // Auto-rename session if this is the first task and session has default name
+    if (newEntry.sequence() == 1) {
+        var sessions = project.listSessions();
+        var currentSession = sessions.stream()
+                .filter(s -> s.id().equals(currentSessionId))
+                .findFirst();
+        
+        if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+            try {
+                var summary = actionFuture.get();
+                renameSessionAsync(currentSessionId, summary).thenRun(() -> {
+                    SwingUtilities.invokeLater(() -> {
+                        if (io instanceof Chrome chrome) {
+                            chrome.getHistoryOutputPanel().updateSessionComboBox();
+                        }
+                    });
+                });
+            } catch (Exception e) {
+                logger.warn("Error renaming Session", e);
+            }
+        }
+    }
+    
+    return newLiveContext.getTaskHistory().getLast();
     }
 
     public List<Context> getContextHistoryList() {
@@ -1627,63 +1724,98 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Loads the ContextHistory for a specific session without switching to it.
+     * This allows viewing/inspecting session history without changing the current session.
+     * 
+     * @param sessionId The UUID of the session whose history to load
+     * @return A CompletableFuture that resolves to the ContextHistory for the specified session
+     */
+    public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
+        return CompletableFuture.supplyAsync(() -> {
+            return project.loadHistory(sessionId, this);
+        }, backgroundTasks);
+    }
+
+    /**
      * Creates a new session with the given name and switches to it asynchronously.
      * 
      * @param name The name for the new session
      * @return A CompletableFuture representing the completion of the session creation task
      */
     public CompletableFuture<Void> createNewSessionAsync(String name) {
+        // No explicit exclusivity check for new session, as it gets a new unique ID.
         var future = submitUserTask("Creating new session: " + name, () -> {
             logger.info("Attempting to create and switch to new session: {}", name);
-            Project.SessionInfo newSessionInfo = project.newSession(name);
-            this.currentSessionId = newSessionInfo.id();
+            MainProject.SessionInfo newSessionInfo = project.newSession(name);
+            this.currentSessionId = newSessionInfo.id(); // Switch currentSessionId first
+            project.updateActiveSession(this.currentSessionId); // Mark as active for this project
             logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
-            ContextHistory loadedCh = project.loadHistory(currentSessionId, this);
+
+            // Load/initialize history for the new session
+            ContextHistory loadedCh = project.loadHistory(currentSessionId, this); // Should be empty
             if (loadedCh.getHistory().isEmpty()) {
-                liveContext = new Context(this, "Welcome to session: " + newSessionInfo.name());
+                liveContext = new Context(this, "Welcome to the new session!");
                 contextHistory.setInitialContext(liveContext.freeze().frozenContext());
             } else {
+                // This case should ideally not happen for a brand new session
                 contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
                 for (int i = 1; i < loadedCh.getHistory().size(); i++) {
                     contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
                 }
                 liveContext = Context.unfreeze(topContext());
             }
-            project.saveHistory(contextHistory, currentSessionId);
+            project.saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(liveContext);
-            // The SessionsPanel table will be refreshed by its own ActionListener after this task.
         });
         return CompletableFuture.runAsync(() -> {
             try {
                 future.get();
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new RuntimeException("Failed to create new session", e);
             }
         });
     }
 
     /**
      * Switches to an existing session asynchronously.
-     * 
+     * Checks if the session is active elsewhere before switching.
+     *
      * @param sessionId The UUID of the session to switch to
      * @return A CompletableFuture representing the completion of the session switch task
      */
     public CompletableFuture<Void> switchSessionAsync(UUID sessionId) {
+        if (SessionRegistry.isSessionActiveElsewhere(project.getRoot(), sessionId)) {
+            String sessionName = project.listSessions().stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .map(IProject.SessionInfo::name).orElse("Unknown session");
+            io.showMessageDialog(
+                "Session '" + sessionName + "' (" + sessionId.toString().substring(0,8) + ")" +
+                " is currently active in another Brokk window.\n" +
+                "Please close it there or choose a different session.",
+                "Session In Use",
+                JOptionPane.WARNING_MESSAGE);
+            return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
+        }
+
         var future = submitUserTask("Switching session", () -> {
             logger.info("Attempting to switch to session: {}", sessionId);
             this.currentSessionId = sessionId;
+            project.updateActiveSession(this.currentSessionId); // Mark as active
+
             String sessionName = project.listSessions().stream()
                     .filter(s -> s.id().equals(sessionId))
                     .findFirst()
-                    .map(Project.SessionInfo::name)
+                    .map(IProject.SessionInfo::name)
                     .orElse("(Unknown Name)");
             logger.info("Switched to session: {} ({})", sessionName, sessionId);
+
             ContextHistory loadedCh = project.loadHistory(currentSessionId, this);
             if (loadedCh.getHistory().isEmpty()) {
                 liveContext = new Context(this, "Welcome to session: " + sessionName);
                 contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-                project.saveHistory(contextHistory, currentSessionId);
+                project.saveHistory(contextHistory, currentSessionId); // Save initial state if it was empty
             } else {
                 contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
                 for (int i = 1; i < loadedCh.getHistory().size(); i++) {
@@ -1698,7 +1830,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 future.get();
             } catch (Exception e) {
-                throw new RuntimeException(e);
+                throw new RuntimeException("Failed to switch session", e);
             }
         });
     }
@@ -1736,22 +1868,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String deletedSessionNameForLog = project.listSessions().stream()
                     .filter(s -> s.id().equals(sessionIdToDelete))
                     .findFirst()
-                    .map(Project.SessionInfo::name)
+                    .map(IProject.SessionInfo::name)
                     .orElse("(unknown name, likely already deleted)"); // Get name before deleting
             project.deleteSession(sessionIdToDelete);
             logger.info("Deleted session: {} ({})", deletedSessionNameForLog, sessionIdToDelete);
             if (sessionIdToDelete.equals(currentActiveSessionId)) {
-                List<Project.SessionInfo> remainingSessions = project.listSessions();
+                List<MainProject.SessionInfo> remainingSessions = project.listSessions();
                 if (remainingSessions.isEmpty()) {
-                    Project.SessionInfo newDefaultSession = project.newSession("New Session");
+                    MainProject.SessionInfo newDefaultSession = project.newSession(DEFAULT_SESSION_NAME);
                     this.currentSessionId = newDefaultSession.id();
                     logger.info("Current session was deleted. Created and switched to new default session: {} ({})", newDefaultSession.name(), newDefaultSession.id());
                     liveContext = new Context(this, "Welcome to session: " + newDefaultSession.name());
                     contextHistory.setInitialContext(liveContext.freeze().frozenContext());
                     project.saveHistory(contextHistory, this.currentSessionId);
                 } else {
-                    remainingSessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed());
-                    Project.SessionInfo nextSessionToActivate = remainingSessions.get(0);
+                    remainingSessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed());
+                    MainProject.SessionInfo nextSessionToActivate = remainingSessions.get(0);
                     this.currentSessionId = nextSessionToActivate.id();
                     logger.info("Current session was deleted. Switched to most recent remaining session: {} ({})", nextSessionToActivate.name(), nextSessionToActivate.id());
                     ContextHistory loadedCh = project.loadHistory(this.currentSessionId, this);
@@ -1790,7 +1922,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> copySessionAsync(UUID originalSessionId, String originalSessionName) {
         var future = submitUserTask("Copying session " + originalSessionName, () -> {
             String newSessionName = "Copy of " + originalSessionName;
-            Project.SessionInfo copiedSessionInfo = project.copySession(originalSessionId, newSessionName);
+            MainProject.SessionInfo copiedSessionInfo = project.copySession(originalSessionId, newSessionName);
             if (copiedSessionInfo != null) {
                 logger.info("Copied session {} ({}) to {} ({})", originalSessionName, originalSessionId, copiedSessionInfo.name(), copiedSessionInfo.id());
                 this.currentSessionId = copiedSessionInfo.id();
@@ -1904,7 +2036,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.warn("Summarization failed or was cancelled.");
                 return "Summarization failed.";
             }
-            return result.chatResponse().aiMessage().text().trim();
+            var summary = result.chatResponse().aiMessage().text().trim();
+            if (summary.endsWith(".")) {
+                return summary.substring(0, summary.length() - 1);
+            }
+            return summary;
         }
     }
 }

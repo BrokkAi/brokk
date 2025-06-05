@@ -35,12 +35,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import io.github.jbellis.brokk.util.Environment;
 
 /**
  * A Git repository abstraction using JGit.
- *
+ * <p>
  * The semantics are that GitRepo represents a subset of the files in the full Git repository
  * that is located in the `location` directory or one of its parents. The common case is that
  * the git dir is a child of `location` but we support instantiating in one of the working
@@ -56,29 +59,12 @@ public class GitRepo implements Closeable, IGitRepo {
     private Set<ProjectFile> trackedFilesCache = null;
 
     /**
-     * Find the directory containing the .git folder (i.e., the git top-level directory),
-     * searching up the directory tree from the given directory.
-     * Returns null if no .git directory is found.
-     */
-    private static Path findTopLevel(Path dir) {
-        assert dir != null;
-        Path current = dir;
-        while (true) {
-            if (current.resolve(".git").toFile().isDirectory()) {
-                return current;
-            }
-            if (current.getParent() == null) {
-                return null;
-            }
-            current = current.getParent();
-        }
-    }
-
-    /**
-     * Returns true if the directory has a .git folder.
+     * Returns true if the directory has a .git folder or is within a Git worktree.
      */
     public static boolean hasGitRepo(Path dir) {
-        return findTopLevel(dir) != null;
+        FileRepositoryBuilder builder = new FileRepositoryBuilder();
+        builder.findGitDir(dir.toFile());
+        return builder.getGitDir() != null;
     }
 
     /**
@@ -91,19 +77,56 @@ public class GitRepo implements Closeable, IGitRepo {
     public GitRepo(Path projectRoot) {
         assert projectRoot != null;
         this.projectRoot = projectRoot;
-        this.gitTopLevel = findTopLevel(projectRoot);
-        assert this.gitTopLevel != null : "No git repo found at or above " + projectRoot;
 
         try {
-            Path gitDir = this.gitTopLevel.resolve(".git");
-            logger.trace("Git dir for {} is {}", projectRoot, gitDir);
-            assert Files.isDirectory(gitDir) : ".git directory not found at " + gitDir;
-            repository = new FileRepositoryBuilder()
-                    .setGitDir(gitDir.toFile())
-                    .build();
+            FileRepositoryBuilder builder = new FileRepositoryBuilder();
+            builder.findGitDir(projectRoot.toFile());
+            if (builder.getGitDir() == null) {
+                throw new RuntimeException("No git repo found at or above " + projectRoot);
+            }
+            repository = builder.build();
             git = new Git(repository);
+
+            // For worktrees, we need to find the actual repository root, not the .git/worktrees path
+            if (isWorktree()) {
+                // For worktrees, read the commondir file to find the main repository
+                Path gitDir = repository.getDirectory().toPath();
+                Path commondirFile = gitDir.resolve("commondir");
+                if (Files.exists(commondirFile)) {
+                    String commonDirContent = Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
+                    Path commonDir = gitDir.resolve(commonDirContent).normalize();
+                    this.gitTopLevel = commonDir.getParent().normalize();
+                } else {
+                    // Fallback: try to parse the gitdir file in the working tree
+                    Path gitFile = repository.getWorkTree().toPath().resolve(".git");
+                    if (Files.exists(gitFile)) {
+                        String gitFileContent = Files.readString(gitFile, StandardCharsets.UTF_8).trim();
+                        if (gitFileContent.startsWith("gitdir: ")) {
+                            String gitDirPath = gitFileContent.substring("gitdir: ".length());
+                            Path worktreeGitDir = Path.of(gitDirPath).normalize();
+                            Path commondirFile2 = worktreeGitDir.resolve("commondir");
+                            if (Files.exists(commondirFile2)) {
+                                String commonDirContent2 = Files.readString(commondirFile2, StandardCharsets.UTF_8).trim();
+                                Path commonDir2 = worktreeGitDir.resolve(commonDirContent2).normalize();
+                                this.gitTopLevel = commonDir2.getParent().normalize();
+                            } else {
+                                // Ultimate fallback
+                                this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                            }
+                        } else {
+                            this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                        }
+                    } else {
+                        this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+                    }
+                }
+            } else {
+                // For regular repos, gitTopLevel is the parent of the actual .git directory
+                this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
+            }
+            logger.trace("Git dir for {} is {}, gitTopLevel is {}", projectRoot, repository.getDirectory(), gitTopLevel);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to open repository at " + this.gitTopLevel, e);
+            throw new RuntimeException("Failed to open repository at " + projectRoot, e);
         }
     }
 
@@ -114,22 +137,24 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /**
      * Converts a ProjectFile (which is relative to projectRoot) into a path string
-     * relative to gitTopLevel, suitable for JGit commands.
+     * relative to JGit's working tree root, suitable for JGit commands.
      */
     private String toRepoRelativePath(ProjectFile file) {
         // ProjectFile.absPath() gives the absolute path on the filesystem.
-        // We need to make it relative to the gitTopLevel for JGit.
-        Path relativeToGitTopLevel = gitTopLevel.relativize(file.absPath());
-        return relativeToGitTopLevel.toString().replace('\\', '/');
+        // We need to make it relative to JGit's working tree root.
+        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+        Path relativePath = workingTreeRoot.relativize(file.absPath());
+        return relativePath.toString().replace('\\', '/');
     }
 
     /**
      * Creates a ProjectFile instance from a path string returned by JGit.
-     * JGit paths are relative to gitTopLevel. The returned ProjectFile will be
+     * JGit paths are relative to the working tree root. The returned ProjectFile will be
      * relative to projectRoot.
      */
     private ProjectFile toProjectFile(String gitPath) {
-        Path absolutePath = gitTopLevel.resolve(gitPath);
+        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+        Path absolutePath = workingTreeRoot.resolve(gitPath);
         Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
         return new ProjectFile(projectRoot, pathRelativeToProjectRoot);
     }
@@ -198,7 +223,9 @@ public class GitRepo implements Closeable, IGitRepo {
                     while (treeWalk.next()) {
                         String gitPath = treeWalk.getPathString();
                         // Only add paths that are under the projectRoot
-                        if (gitTopLevel.resolve(gitPath).startsWith(projectRoot)) {
+                        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
+                        Path absoluteFilePathInWorktree = workingTreeRoot.resolve(gitPath);
+                        if (absoluteFilePathInWorktree.startsWith(projectRoot)) {
                             trackedPaths.add(gitPath);
                         }
                     }
@@ -206,18 +233,22 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             // Staged/modified/added/removed
             var status = git.status().call();
+            Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
             Stream.of(status.getChanged(), status.getModified(), status.getAdded(), status.getRemoved())
-                  .flatMap(Collection::stream)
-                  .filter(gitPath -> gitTopLevel.resolve(gitPath).startsWith(projectRoot))
-                  .forEach(trackedPaths::add);
+                    .flatMap(Collection::stream)
+                    .filter(gitPath -> {
+                        Path absoluteFilePathInWorktree = workingTreeRoot.resolve(gitPath);
+                        return absoluteFilePathInWorktree.startsWith(projectRoot);
+                    })
+                    .forEach(trackedPaths::add);
         } catch (IOException | GitAPIException e) {
             logger.error("getTrackedFiles failed", e);
             // not really much caller can do about this, it's a critical method
             throw new RuntimeException(e);
         }
         trackedFilesCache = trackedPaths.stream()
-                                     .map(this::toProjectFile)
-                                     .collect(Collectors.toSet());
+                .map(this::toProjectFile)
+                .collect(Collectors.toSet());
         return trackedFilesCache;
     }
 
@@ -397,9 +428,9 @@ public class GitRepo implements Closeable, IGitRepo {
                     }
                     rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' update failed: ");
                     if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
-                        status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
+                            status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
                         rejectionMessages.append("The remote contains work that you do not have locally. ")
-                                         .append("Pull and merge from the remote (or rebase) before pushing.");
+                                .append("Pull and merge from the remote (or rebase) before pushing.");
                     } else {
                         rejectionMessages.append(status.toString());
                         if (rru.getMessage() != null) {
@@ -530,6 +561,24 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Create a new branch from an existing one without checking it out
+     */
+    public void createBranch(String newBranchName, String sourceBranchName) throws GitAPIException {
+        if (listLocalBranches().contains(newBranchName)) {
+            throw new GitStateException("Branch '" + newBranchName + "' already exists");
+        }
+
+        logger.debug("Creating new branch '{}' from '{}'", newBranchName, sourceBranchName);
+        git.branchCreate()
+                .setName(newBranchName)
+                .setStartPoint(sourceBranchName)
+                .call();
+        logger.debug("Successfully created branch '{}'", newBranchName);
+
+        refresh();
+    }
+
+    /**
      * Create a new branch from an existing one and check it out
      */
     public void createAndCheckoutBranch(String newBranchName, String sourceBranchName) throws GitAPIException {
@@ -639,6 +688,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /**
      * Merge a branch into HEAD
+     *
      * @return The result of the merge operation.
      */
     public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
@@ -752,10 +802,10 @@ public class GitRepo implements Closeable, IGitRepo {
             }
         }
         return fileSet.stream()
-                      .filter(path -> !"/dev/null".equals(path))
-                      .sorted() // Sort paths alphabetically for consistent ordering
-                      .map(this::toProjectFile)
-                      .collect(Collectors.toList());
+                .filter(path -> !"/dev/null".equals(path))
+                .sorted() // Sort paths alphabetically for consistent ordering
+                .map(this::toProjectFile)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -1304,7 +1354,7 @@ public class GitRepo implements Closeable, IGitRepo {
      *
      * @param root The path to the directory where the Git repository will be initialized.
      * @throws GitAPIException If an error occurs during Git initialization.
-     * @throws IOException If an I/O error occurs while creating or modifying .gitignore.
+     * @throws IOException     If an I/O error occurs while creating or modifying .gitignore.
      */
     public static void initRepo(Path root) throws GitAPIException, IOException {
         logger.info("Initializing new Git repository at {}", root);
@@ -1319,7 +1369,7 @@ public class GitRepo implements Closeable, IGitRepo {
             logger.info("Created default .gitignore file with '{}' entry at {}.", brokkDirEntry, gitignorePath);
         } else {
             List<String> lines = Files.readAllLines(gitignorePath, StandardCharsets.UTF_8);
-            boolean entryExists = lines.stream().anyMatch(line -> line.trim().equals(brokkDirEntry.trim()) || line.trim().equals(brokkDirEntry.substring(0, brokkDirEntry.length() -1 )) );
+            boolean entryExists = lines.stream().anyMatch(line -> line.trim().equals(brokkDirEntry.trim()) || line.trim().equals(brokkDirEntry.substring(0, brokkDirEntry.length() - 1)));
 
             if (!entryExists) {
                 // Append with a newline ensuring not to add multiple blank lines if file ends with one
@@ -1378,5 +1428,148 @@ public class GitRepo implements Closeable, IGitRepo {
                               commit.getAuthorIdent().getName(),
                               Date.from(commit.getAuthorIdent().getWhenAsInstant()),
                               index);
+    }
+
+    /**
+     * Lists all worktrees in the repository.
+     */
+    @Override
+    public List<WorktreeInfo> listWorktrees() throws GitAPIException {
+        try {
+            var command = "git worktree list --porcelain";
+            var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+            var worktrees = new ArrayList<WorktreeInfo>();
+            var lines = output.split("\\R"); // Split by any newline sequence
+
+            Path currentPath = null;
+            String currentHead = null;
+            String currentBranch = null;
+
+            for (var line : lines) {
+                if (line.startsWith("worktree ")) {
+                    // Finalize previous entry if data is present
+                    if (currentPath != null) {
+                        worktrees.add(new WorktreeInfo(currentPath, currentBranch, currentHead));
+                        currentHead = null;
+                        currentBranch = null;
+                    }
+                    currentPath = Path.of(line.substring("worktree ".length())).toAbsolutePath().normalize();
+                } else if (line.startsWith("HEAD ")) {
+                    currentHead = line.substring("HEAD ".length());
+                } else if (line.startsWith("branch ")) {
+                    var branchRef = line.substring("branch ".length());
+                    if (branchRef.startsWith("refs/heads/")) {
+                        currentBranch = branchRef.substring("refs/heads/".length());
+                    } else {
+                        currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
+                    }
+                } else if (line.equals("detached")) {
+                    currentBranch = null; // Or a special string like "(detached HEAD)" if preferred
+                }
+            }
+            // Add the last parsed worktree
+            if (currentPath != null) {
+                worktrees.add(new WorktreeInfo(currentPath, currentBranch, currentHead));
+            }
+            return worktrees;
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepoException("Failed to list worktrees: " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepoException("Listing worktrees was interrupted", e);
+        }
+    }
+
+    /**
+     * Adds a new worktree at the specified path for the given branch.
+     */
+    @Override
+    public void addWorktree(String branch, Path path) throws GitAPIException {
+        try {
+            // Ensure path is absolute for the command
+            var absolutePath = path.toAbsolutePath().normalize();
+
+            // Check if branch exists locally
+            List<String> localBranches = listLocalBranches();
+            String command;
+            if (localBranches.contains(branch)) {
+                // Branch exists, checkout the existing branch
+                command = String.format("git worktree add %s %s", absolutePath, branch);
+            } else {
+                // Branch doesn't exist, create a new one
+                command = String.format("git worktree add -b %s %s", branch, absolutePath);
+            }
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepoException("Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepoException("Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
+        }
+    }
+
+    /**
+     * Removes the worktree at the specified path.
+     */
+    @Override
+    public void removeWorktree(Path path) throws GitAPIException {
+        try {
+            // Ensure path is absolute for the command
+            var absolutePath = path.toAbsolutePath().normalize();
+            var command = String.format("git worktree remove %s", absolutePath);
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepoException("Failed to remove worktree at " + path + ": " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepoException("Removing worktree at " + path + " was interrupted", e);
+        }
+    }
+
+    /**
+     * Returns the path of this worktree if it is a worktree, null otherwise.
+     */
+    @Override
+    public Path getWorktreePath() {
+        if (isWorktree()) {
+            return repository.getWorkTree().toPath().toAbsolutePath().normalize();
+        }
+        return null;
+    }
+
+    /**
+     * Returns true if this repository is a Git worktree.
+     */
+    @Override
+    public boolean isWorktree() {
+        return Files.isRegularFile(repository.getWorkTree().toPath().resolve(".git"));
+    }
+
+    /**
+     * Returns the set of branches that are checked out in worktrees.
+     */
+    @Override
+    public Set<String> getBranchesInWorktrees() throws GitAPIException {
+        return listWorktrees().stream()
+                .map(WorktreeInfo::branch)
+                .filter(branch -> branch != null && !branch.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public boolean supportsWorktrees() {
+        try {
+            // Try to run a simple git command to check if git executable is available and working
+            Environment.instance.runShellCommand("git --version", gitTopLevel, output -> {});
+            return true;
+        } catch (Environment.SubprocessException e) {
+            // This typically means git command failed, e.g., not found or permission issue
+            logger.warn("Git executable not found or 'git --version' failed, disabling worktree support: {}", e.getMessage());
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
+            return false;
+        }
     }
 }

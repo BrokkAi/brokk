@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.AnalyzerWrapper;
-import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.FileSelectionPanel; // Import new panel
@@ -19,7 +16,6 @@ import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -47,7 +43,7 @@ public class MultiFileSelectionDialog extends JDialog {
         }
     }
 
-    private final Project project;
+    private final IProject project;
     private final AnalyzerWrapper analyzerWrapper;
     private final Future<Set<ProjectFile>> completableProjectFilesFuture; // Keep for converting to List<Path>
 

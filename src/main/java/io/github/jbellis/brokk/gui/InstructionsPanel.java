@@ -71,7 +71,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
                                                    
-                                                   More tips are available in the Getting Started section on the right -->
+                                                   More tips are available in the Getting Started section in the Output panel above.
                                                    """;
 
     private static final int DROPDOWN_MENU_WIDTH = 1000; // Pixels
@@ -87,8 +87,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton runButton;
     private final JButton stopButton;
     private final JButton configureModelsButton;
-    private final JTextArea systemArea;
-    private final JScrollPane systemScrollPane;
     private final JLabel commandResultLabel;
     private final ContextManager contextManager; // Can be null if Chrome is initialized without one
     private JTable referenceFileTable;
@@ -135,8 +133,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             activateCommandInput();
             chrome.actionOutput("Recording");
         }, chrome::toolError);
-        systemArea = new JTextArea();
-        systemScrollPane = buildSystemMessagesArea();
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
         // Initialize Buttons first
@@ -206,7 +202,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         JPanel topBarPanel = buildTopBarPanel();
         add(topBarPanel, BorderLayout.NORTH);
 
-        // Center Panel (Command Input + System/Result) (Center)
+        // Center Panel (Command Input + Result) (Center)
         this.centerPanel = buildCenterPanel();
         add(this.centerPanel, BorderLayout.CENTER);
 
@@ -416,11 +412,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Reference-file table will be inserted just below the command input (now layeredPane)
         // by initializeReferenceFileTable()
 
-        // System Messages + Command Result
+        // Command Result
         var topInfoPanel = new JPanel();
         topInfoPanel.setLayout(new BoxLayout(topInfoPanel, BoxLayout.PAGE_AXIS));
         topInfoPanel.add(commandResultLabel);
-        topInfoPanel.add(systemScrollPane);
         panel.add(topInfoPanel);
 
         return panel;
@@ -464,15 +459,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e)  { 
-                ContextMenuUtils.handleFileReferenceClick(e,
-                                                         referenceFileTable,
-                                                         chrome,
-                                                         () -> triggerContextSuggestion(null)); 
+                // Only handle popup triggers (right-click) on press
+                if (e.isPopupTrigger()) {
+                    ContextMenuUtils.handleFileReferenceClick(e,
+                                                             referenceFileTable,
+                                                             chrome,
+                                                             () -> triggerContextSuggestion(null)); 
+                }
             }
             
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) { 
-                mousePressed(e); 
+                // Handle both popup triggers and left-clicks on release
+                ContextMenuUtils.handleFileReferenceClick(e,
+                                                         referenceFileTable,
+                                                         chrome,
+                                                         () -> triggerContextSuggestion(null)); 
             }
         });
 
@@ -562,31 +564,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return bottomPanel;
     }
 
-    /**
-     * Builds the system messages area that appears below the command input area.
-     * Moved from HistoryOutputPanel.
-     */
-    private JScrollPane buildSystemMessagesArea() {
-        // Create text area for system messages
-        systemArea.setEditable(false);
-        systemArea.getCaret().setVisible(false); // Hide the edit caret
-        systemArea.setLineWrap(true);
-        systemArea.setWrapStyleWord(true);
-        systemArea.setRows(4);
-
-        // Create scroll pane with border and title
-        var scrollPane = new JScrollPane(systemArea);
-        scrollPane.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "System Messages",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        AutoScroller.install(scrollPane);
-
-        return scrollPane;
-    }
 
     /**
      * Builds the command result label.
@@ -738,26 +715,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> commandResultLabel.setText(" ")); // Set back to space to maintain height
     }
 
-    /**
-     * Appends text to the system output area with timestamp.
-     * Moved from HistoryOutputPanel.
-     */
-    public void appendSystemOutput(String message) {
-        SwingUtilities.invokeLater(() -> {
-            // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-
-            // Add newline if needed
-            if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
-                systemArea.append("\n");
-            }
-
-            // Append timestamped message
-            systemArea.append(timestamp + ": " + message);
-            // Scroll to bottom
-            systemArea.setCaretPosition(systemArea.getDocument().getLength());
-        });
-    }
 
 
     /**
@@ -881,7 +838,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // 4. Compute Embeddings
-        List<String> chunks = Arrays.stream(snapshot.split("[.\\n]"))
+        var chunks = Arrays.stream(snapshot.split("[.\\n]"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .toList();
@@ -1066,7 +1023,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * if the balance is low.
      */
     public void checkBalanceAndNotify() {
-        if (Project.getProxySetting() != Project.LlmProxySetting.BROKK) {
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
             return; // Only check balance when using Brokk proxy
         }
 
@@ -1665,13 +1622,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var modelsInstance = this.contextManager.getService();
-        Map<String, String> availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
+        var availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
-        List<Service.FavoriteModel> favoriteModels = Project.loadFavoriteModels();
+        var favoriteModels = MainProject.loadFavoriteModels();
 
         // Filter favorite models to show only those that are currently available, and sort by alias
-        List<Service.FavoriteModel> favoriteModelsToShow = favoriteModels.stream()
+        var favoriteModelsToShow = favoriteModels.stream()
                 .filter(fav -> availableModelsMap.containsKey(fav.modelName()))
                 .sorted(Comparator.comparing(Service.FavoriteModel::alias))
                 .toList();

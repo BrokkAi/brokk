@@ -1,27 +1,32 @@
 package io.github.jbellis.brokk.gui;
 
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.CustomMessage;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.util.ImageUtil;
+import io.github.jbellis.brokk.util.MarkdownImageParser;
+import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.kohsuke.github.GHIssue;
-import org.kohsuke.github.GHIssueState;
-import org.kohsuke.github.GHLabel;
-import org.kohsuke.github.GHUser;
+import org.kohsuke.github.*;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
+import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Date;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
@@ -29,13 +34,13 @@ public class GitIssuesTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
     // Issue Table Column Indices
-    private static final int ISSUE_COL_NUMBER    = 0;
-    private static final int ISSUE_COL_TITLE     = 1;
-    private static final int ISSUE_COL_AUTHOR    = 2;
-    private static final int ISSUE_COL_UPDATED   = 3;
-    private static final int ISSUE_COL_LABELS    = 4;
+    private static final int ISSUE_COL_NUMBER = 0;
+    private static final int ISSUE_COL_TITLE = 1;
+    private static final int ISSUE_COL_AUTHOR = 2;
+    private static final int ISSUE_COL_UPDATED = 3;
+    private static final int ISSUE_COL_LABELS = 4;
     private static final int ISSUE_COL_ASSIGNEES = 5;
-    private static final int ISSUE_COL_STATUS    = 6;
+    private static final int ISSUE_COL_STATUS = 6;
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -46,11 +51,20 @@ public class GitIssuesTab extends JPanel {
     private JTextPane issueBodyTextPane;
     private JButton copyIssueDescriptionButton;
     private JButton openInBrowserButton;
+    private JButton captureButton;
 
     private FilterBox statusFilter;
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
+
+    // Context Menu for Issue Table
+    private JPopupMenu issueContextMenu;
+
+    // Shared actions for buttons and menu items
+    private Action copyDescriptionAction;
+    private Action openInBrowserAction;
+    private Action captureAction;
 
     private List<GHIssue> allIssuesFromApi = new ArrayList<>();
     private List<GHIssue> displayedIssues = new ArrayList<>();
@@ -58,21 +72,17 @@ public class GitIssuesTab extends JPanel {
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
 
-    // Lists to hold choices for dynamic filters
-    private List<String> authorChoices = new ArrayList<>();
-    private List<String> labelChoices = new ArrayList<>();
-    private List<String> assigneeChoices = new ArrayList<>();
-
     private final GfmRenderer gfmRenderer;
+    private final OkHttpClient httpClient;
 
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel)
-    {
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
+        this.httpClient = initializeHttpClient(contextManager, chrome);
 
         // Split panel with Issues on left (larger) and issue description on right (smaller)
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -101,19 +111,19 @@ public class GitIssuesTab extends JPanel {
         });
         verticalFilterPanel.add(statusFilter);
 
-        authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions);
+        authorFilter = new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
         verticalFilterPanel.add(authorFilter);
 
-        labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions);
+        labelFilter = new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
         verticalFilterPanel.add(labelFilter);
 
-        assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions);
+        assigneeFilter = new FilterBox(this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
@@ -128,7 +138,8 @@ public class GitIssuesTab extends JPanel {
 
         // Issue Table
         issueTableModel = new DefaultTableModel(
-                new Object[]{"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0) {
+                new Object[]{"#", "Title", "Author", "Updated", "Labels", "Assignees", "Status"}, 0)
+        {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -155,23 +166,49 @@ public class GitIssuesTab extends JPanel {
 
         issueTableAndButtonsPanel.add(new JScrollPane(issueTable), BorderLayout.CENTER);
 
+        // Create shared actions
+        copyDescriptionAction = new AbstractAction("Copy Description") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                copySelectedIssueDescription();
+            }
+        };
+        copyDescriptionAction.putValue(Action.SHORT_DESCRIPTION, "Copy the selected issue's description to the clipboard");
+        copyDescriptionAction.setEnabled(false);
+
+        openInBrowserAction = new AbstractAction("Open in Browser") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                openSelectedIssueInBrowser();
+            }
+        };
+        openInBrowserAction.putValue(Action.SHORT_DESCRIPTION, "Open the selected issue in your web browser");
+        openInBrowserAction.setEnabled(false);
+
+        captureAction = new AbstractAction("Capture") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                captureSelectedIssue();
+            }
+        };
+        captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
+        captureAction.setEnabled(false);
+
         // Button panel for Issues
         JPanel issueButtonPanel = new JPanel();
         issueButtonPanel.setBorder(BorderFactory.createEmptyBorder(new Constants().V_GLUE, 0, 0, 0));
         issueButtonPanel.setLayout(new BoxLayout(issueButtonPanel, BoxLayout.X_AXIS));
 
-        copyIssueDescriptionButton = new JButton("Copy Description");
-        copyIssueDescriptionButton.setToolTipText("Copy the selected issue's description to the clipboard");
-        copyIssueDescriptionButton.setEnabled(false);
-        copyIssueDescriptionButton.addActionListener(e -> copySelectedIssueDescription());
+        copyIssueDescriptionButton = new JButton(copyDescriptionAction);
         issueButtonPanel.add(copyIssueDescriptionButton);
         issueButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
 
-        openInBrowserButton = new JButton("Open in Browser");
-        openInBrowserButton.setToolTipText("Open the selected issue in your web browser");
-        openInBrowserButton.setEnabled(false);
-        openInBrowserButton.addActionListener(e -> openSelectedIssueInBrowser());
+        openInBrowserButton = new JButton(openInBrowserAction);
         issueButtonPanel.add(openInBrowserButton);
+        issueButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
+
+        captureButton = new JButton(captureAction);
+        issueButtonPanel.add(captureButton);
 
         issueButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
@@ -203,6 +240,48 @@ public class GitIssuesTab extends JPanel {
 
         add(splitPane, BorderLayout.CENTER);
 
+        // Initialize context menu and items
+        issueContextMenu = new JPopupMenu();
+        if (chrome.themeManager != null) {
+            chrome.themeManager.registerPopupMenu(issueContextMenu);
+        } else {
+            SwingUtilities.invokeLater(() -> {
+                if (chrome.themeManager != null) {
+                    chrome.themeManager.registerPopupMenu(issueContextMenu);
+                }
+            });
+        }
+
+        issueContextMenu.add(new JMenuItem(copyDescriptionAction));
+        issueContextMenu.add(new JMenuItem(openInBrowserAction));
+        issueContextMenu.add(new JMenuItem(captureAction));
+
+        // Add mouse listener for context menu on issue table
+        issueTable.addMouseListener(new MouseAdapter() {
+            private void showPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = issueTable.rowAtPoint(e.getPoint());
+                    if (row >= 0 && row < issueTable.getRowCount()) {
+                        // Select the row under the mouse pointer before showing the context menu.
+                        // This ensures that getSelectedRow() in action listeners returns the correct row,
+                        // and triggers the ListSelectionListener to update enable/disable states.
+                        issueTable.setRowSelectionInterval(row, row);
+                        issueContextMenu.show(e.getComponent(), e.getX(), e.getY());
+                    }
+                }
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                showPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                showPopup(e);
+            }
+        });
+
         // Listen for Issue selection changes
         issueTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && issueTable.getSelectedRow() != -1) {
@@ -216,8 +295,9 @@ public class GitIssuesTab extends JPanel {
                     }
                     GHIssue selectedIssue = displayedIssues.get(modelRow);
                     loadAndRenderIssueBody(selectedIssue);
-                    copyIssueDescriptionButton.setEnabled(true);
-                    openInBrowserButton.setEnabled(true);
+                    copyDescriptionAction.setEnabled(true);
+                    openInBrowserAction.setEnabled(true);
+                    captureAction.setEnabled(true);
                 } else { // No selection or invalid row
                     disableIssueActionsAndClearDetails();
                 }
@@ -229,9 +309,30 @@ public class GitIssuesTab extends JPanel {
         updateIssueList(); // async
     }
 
+    private OkHttpClient initializeHttpClient(ContextManager contextManager, Chrome chrome) {
+        OkHttpClient client;
+        try {
+            GitHubAuth auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+            client = auth.authenticatedClient();
+        } catch (IOException e) {
+            logger.error("Failed to initialize authenticated GitHub client for GitIssuesTab, falling back to unauthenticated client.", e);
+            client = new OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .writeTimeout(5, TimeUnit.SECONDS)
+                    .followRedirects(true)
+                    .build();
+            chrome.toolErrorRaw("Could not authenticate with GitHub for image downloads. Private images may not load.");
+        }
+        return client;
+    }
+
     private void disableIssueActionsAndClearDetails() {
-        copyIssueDescriptionButton.setEnabled(false);
-        openInBrowserButton.setEnabled(false);
+        if (copyDescriptionAction != null) {
+            copyDescriptionAction.setEnabled(false);
+            openInBrowserAction.setEnabled(false);
+            captureAction.setEnabled(false);
+        }
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
     }
@@ -314,9 +415,6 @@ public class GitIssuesTab extends JPanel {
                             "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
                     });
                     disableIssueActionsAndClearDetails();
-                    authorChoices.clear();
-                    labelChoices.clear();
-                    assigneeChoices.clear();
                 });
                 return null;
             }
@@ -325,65 +423,57 @@ public class GitIssuesTab extends JPanel {
             List<GHIssue> finalFetchedIssues = fetchedIssues;
             SwingUtilities.invokeLater(() -> {
                 allIssuesFromApi = new ArrayList<>(finalFetchedIssues);
-                populateDynamicFilterChoices(allIssuesFromApi);
                 filterAndDisplayIssues(); // Apply current filters
             });
             return null;
         });
     }
 
-    private List<String> getAuthorFilterOptions() {
-        return authorChoices;
-    }
+    private List<String> generateFilterOptionsFromIssues(List<GHIssue> issues, String filterType) {
+        if (issues.isEmpty()) {
+            return List.of();
+        }
 
-    private List<String> getLabelFilterOptions() {
-        return labelChoices;
-    }
-
-    private List<String> getAssigneeFilterOptions() {
-        return assigneeChoices;
-    }
-
-    private void populateDynamicFilterChoices(List<GHIssue> issues) {
-        // Author Filter
-        Map<String, Integer> authorCounts = new HashMap<>();
-        for (var issue : issues) {
-            try {
-                GHUser user = issue.getUser();
-                if (user != null) {
-                    String login = user.getLogin();
-                    if (login != null && !login.isBlank()) {
-                        authorCounts.merge(login, 1, Integer::sum);
+        Map<String, Integer> counts = new HashMap<>();
+        
+        switch (filterType) {
+            case "author" -> {
+                for (var issue : issues) {
+                    try {
+                        GHUser user = issue.getUser();
+                        if (user != null) {
+                            String login = user.getLogin();
+                            if (login != null && !login.isBlank()) {
+                                counts.merge(login, 1, Integer::sum);
+                            }
+                        }
+                    } catch (IOException e) {
+                        logger.warn("Could not get user or login for issue #{}", issue.getNumber(), e);
                     }
                 }
-            } catch (IOException e) {
-                logger.warn("Could not get user or login for issue #{}", issue.getNumber(), e);
             }
-        }
-        authorChoices = generateFilterOptionsList(authorCounts);
-
-        // Label Filter
-        Map<String, Integer> labelCounts = new HashMap<>();
-        for (var issue : issues) {
-            for (GHLabel label : issue.getLabels()) {
-                if (!label.getName().isBlank()) {
-                    labelCounts.merge(label.getName(), 1, Integer::sum);
+            case "label" -> {
+                for (var issue : issues) {
+                    for (GHLabel label : issue.getLabels()) {
+                        if (!label.getName().isBlank()) {
+                            counts.merge(label.getName(), 1, Integer::sum);
+                        }
+                    }
+                }
+            }
+            case "assignee" -> {
+                for (var issue : issues) {
+                    for (GHUser assignee : issue.getAssignees()) {
+                        String login = assignee.getLogin(); // Does not throw IOException
+                        if (login != null && !login.isBlank()) {
+                            counts.merge(login, 1, Integer::sum);
+                        }
+                    }
                 }
             }
         }
-        labelChoices = generateFilterOptionsList(labelCounts);
-
-        // Assignee Filter
-        Map<String, Integer> assigneeCounts = new HashMap<>();
-        for (var issue : issues) {
-            for (GHUser assignee : issue.getAssignees()) {
-                String login = assignee.getLogin(); // Does not throw IOException
-                if (login != null && !login.isBlank()) {
-                    assigneeCounts.merge(login, 1, Integer::sum);
-                }
-            }
-        }
-        assigneeChoices = generateFilterOptionsList(assigneeCounts);
+        
+        return generateFilterOptionsList(counts);
     }
 
     private List<String> generateFilterOptionsList(Map<String, Integer> counts) {
@@ -470,11 +560,12 @@ public class GitIssuesTab extends JPanel {
                     }
                     labels = issue.getLabels().stream().map(GHLabel::getName).collect(Collectors.joining(", "));
                     assignees = issue.getAssignees().stream()
-                                     .map(GHUser::getLogin) // GHUser.getLogin() does not throw IOException
-                                     .filter(login -> login != null && !login.isBlank())
-                                     .collect(Collectors.joining(", "));
+                            .map(GHUser::getLogin) // GHUser.getLogin() does not throw IOException
+                            .filter(login -> login != null && !login.isBlank())
+                            .collect(Collectors.joining(", "));
                     statusValue = issue.getState().toString();
-                } catch (IOException ex) { // This catch is for outer operations like issue.getUser(), issue.getUpdatedAt() etc.
+                } catch (
+                        IOException ex) { // This catch is for outer operations like issue.getUser(), issue.getUpdatedAt() etc.
                     logger.warn("Could not get metadata for issue #{}", issue.getNumber(), ex);
                 }
 
@@ -511,8 +602,242 @@ public class GitIssuesTab extends JPanel {
     }
 
     private void disableIssueActions() {
-        copyIssueDescriptionButton.setEnabled(false);
-        openInBrowserButton.setEnabled(false);
+        if (copyDescriptionAction != null) {
+            copyDescriptionAction.setEnabled(false);
+            openInBrowserAction.setEnabled(false);
+            captureAction.setEnabled(false);
+        }
+    }
+
+    private void captureSelectedIssue() {
+        int selectedRow = issueTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
+            return;
+        }
+        GHIssue issue = displayedIssues.get(selectedRow);
+        captureIssue(issue);
+    }
+
+    private void captureIssue(GHIssue issue) {
+        contextManager.submitContextTask("Capturing Issue #" + issue.getNumber(), () -> {
+            try {
+                // 1. Fetch metadata
+                String authorLogin = getAuthorLogin(issue);
+                String labels = getCollectedLabels(issue);
+                String assignees = getCollectedAssignees(issue);
+                String originalMarkdownBody = (issue.getBody() == null || issue.getBody().isBlank()) ? "*No description provided.*" : issue.getBody();
+
+                // 2. Build main issue content and create TaskFragment
+                List<ChatMessage> issueTextMessages = buildIssueTextContent(issue, authorLogin, labels, assignees, originalMarkdownBody);
+                ContextFragment.TaskFragment issueTextFragment = createIssueTextFragment(issue, issueTextMessages);
+                contextManager.addVirtualFragment(issueTextFragment);
+
+                // 3. Fetch comments
+                List<GHIssueComment> ghCommentsList;
+                try {
+                    ghCommentsList = issue.getComments();
+                } catch (IOException e) {
+                    logger.error("Could not fetch comments for issue #{}", issue.getNumber(), e);
+                    chrome.toolErrorRaw("Failed to download comments for #" + issue.getNumber() + ": " + e.getMessage());
+                    ghCommentsList = List.of(); // Use an empty list if fetching fails
+                }
+
+                // Process comments into ChatMessages
+                List<ChatMessage> commentChatMessages = buildChatMessagesFromGhComments(ghCommentsList, issue);
+                if (!commentChatMessages.isEmpty()) {
+                    contextManager.addVirtualFragment(createCommentsFragment(issue, commentChatMessages));
+                }
+
+                // 4. Process and capture images from issue body and comments
+                int capturedImageCount = processAndCaptureImages(issue, originalMarkdownBody, ghCommentsList);
+
+                // 5. Report success
+                String commentMessage = ghCommentsList.isEmpty() ? "" : " with " + ghCommentsList.size() + " comment(s)";
+                String imageMessage = capturedImageCount == 0 ? "" : " and " + capturedImageCount + " image(s)";
+                chrome.systemOutput("Issue #" + issue.getNumber() + " captured to workspace" + commentMessage + imageMessage + ".");
+
+            } catch (Exception e) { // Catches any unexpected exceptions from GHIssue API
+                logger.error("Failed to capture all details for issue #{}", issue.getNumber(), e);
+                chrome.toolErrorRaw("Failed to capture all details for issue #" + issue.getNumber() + ": " + e.getMessage());
+            }
+        });
+    }
+
+    private String getAuthorLogin(GHIssue issue) {
+        try {
+            if (issue.getUser() != null) {
+                String login = issue.getUser().getLogin();
+                return (login != null && !login.isBlank()) ? login : "N/A";
+            }
+        } catch (java.io.IOException e) { // Though GHIssue.getUser() itself doesn't declare IOException
+            logger.warn("Could not retrieve author for issue #{}", issue.getNumber(), e);
+        }
+        return "N/A"; // Fallback
+    }
+
+    private String getCollectedLabels(GHIssue issue) {
+        return issue.getLabels().stream()
+                .map(GHLabel::getName)
+                .collect(Collectors.joining(", "));
+    }
+
+    private String getCollectedAssignees(GHIssue issue) {
+        return issue.getAssignees().stream()
+                .map(GHUser::getLogin) // GHUser.getLogin() does not throw IOException
+                .filter(login -> login != null && !login.isBlank())
+                .collect(Collectors.joining(", "));
+    }
+
+    private List<ChatMessage> buildIssueTextContent(GHIssue issue, String authorLogin, String labels, String assignees, String markdownBody) {
+        String content = String.format("""
+                                       # Issue #%d: %s
+                                       
+                                       **Author:** %s
+                                       **Status:** %s
+                                       **URL:** %s
+                                       **Labels:** %s
+                                       **Assignees:** %s
+                                       
+                                       ---
+                                       
+                                       %s
+                                       """.stripIndent(),
+                                       issue.getNumber(),
+                                       issue.getTitle(),
+                                       authorLogin,
+                                       issue.getState().toString(),
+                                       issue.getHtmlUrl().toString(),
+                                       labels.isEmpty() ? "None" : labels,
+                                       assignees.isEmpty() ? "None" : assignees,
+                                       markdownBody
+        );
+        return List.of(new CustomMessage(Map.of("text", content)));
+    }
+
+    private ContextFragment.TaskFragment createIssueTextFragment(GHIssue issue, List<ChatMessage> messages) {
+        String description = String.format("GitHub Issue #%d: %s", issue.getNumber(), issue.getTitle());
+        return new ContextFragment.TaskFragment(
+                this.contextManager,
+                messages,
+                description,
+                false // some issues contain HTML
+        );
+    }
+
+    private List<ChatMessage> buildChatMessagesFromGhComments(List<GHIssueComment> ghCommentsList, GHIssue issue) {
+        List<ChatMessage> chatMessages = new ArrayList<>();
+        for (GHIssueComment c : ghCommentsList) {
+            String author = "unknown";
+            String commentBody = c.getBody(); // Does not throw IOException
+            String commentIdStr = String.valueOf(c.getId()); // Does not throw
+
+            try {
+                GHUser user = c.getUser(); // Can throw IOException
+                if (user != null) {
+                    String login = user.getLogin(); // Does not throw IOException
+                    if (login != null && !login.isBlank()) {
+                        author = login;
+                    }
+                }
+            } catch (IOException e_user) {
+                // issue.getNumber() does not throw IOException
+                String issueNumStr = String.valueOf(issue.getNumber());
+                logger.warn("IOException getting user for comment_id:{} on issue #{}: {}", commentIdStr, issueNumStr, e_user.getMessage());
+                // author remains "unknown"
+            } catch (Exception e_other_user) { // Catch any other unexpected exception from getUser/getLogin logic
+                // issue.getNumber() does not throw IOException
+                String issueNumStr = String.valueOf(issue.getNumber());
+                logger.error("Unexpected error getting user for comment_id:{} on issue #{}: {}", commentIdStr, issueNumStr, e_other_user.getMessage(), e_other_user);
+                // author remains "unknown"
+            }
+
+            if (commentBody != null && !commentBody.isBlank()) {
+                chatMessages.add(UserMessage.from(author, commentBody));
+            }
+        }
+        return chatMessages;
+    }
+
+    private ContextFragment.TaskFragment createCommentsFragment(GHIssue issue, List<ChatMessage> commentMessages) {
+        String description = String.format("GitHub Issue #%d: Comments", issue.getNumber());
+        return new ContextFragment.TaskFragment(
+                this.contextManager,
+                commentMessages,
+                description,
+                false // some comments contain HTML
+        );
+    }
+
+    // Record to hold image data before fragment creation
+    private int processAndCaptureImages(GHIssue issue, String issueBodyMarkdown, List<GHIssueComment> comments) {
+        Set<String> allImageUrls = new LinkedHashSet<>();
+
+        // 1. Extract from issue body
+        if (issueBodyMarkdown != null && !issueBodyMarkdown.isBlank()) {
+            allImageUrls.addAll(MarkdownImageParser.extractImageUrls(issueBodyMarkdown));
+        }
+
+        // 2. Extract from comments
+        Map<String, String> commentAuthors = new HashMap<>(); // To store author for description
+        for (GHIssueComment comment : comments) {
+            String commentBody = comment.getBody();
+            if (commentBody != null && !commentBody.isBlank()) {
+                Set<String> commentImageUrls = MarkdownImageParser.extractImageUrls(commentBody);
+                allImageUrls.addAll(commentImageUrls);
+                // Store author for URLs found in this comment
+                String author = "unknown";
+                try {
+                    GHUser user = comment.getUser(); // This can throw IOException
+                    if (user != null) {
+                        String login = user.getLogin(); // This does not throw IOException
+                        if (login != null && !login.isBlank()) {
+                            author = login;
+                        }
+                    }
+                } catch (IOException e) {
+                    logger.warn("Could not get author for comment id {} on issue #{}", comment.getId(), String.valueOf(issue.getNumber()), e);
+                }
+                for (String url : commentImageUrls) {
+                    // Associate the URL with this comment's author, potentially overwriting if URL is in multiple comments (rare)
+                    // or if already seen in issue body (issue body takes precedence later).
+                    commentAuthors.putIfAbsent(url, author);
+                }
+            }
+        }
+
+        int capturedImageCount = 0;
+        for (String imageUrl : allImageUrls) {
+            try {
+                URI imageUri = new URI(imageUrl);
+                if (ImageUtil.isImageUri(imageUri, this.httpClient)) {
+                    chrome.systemOutput("Downloading image: " + imageUrl);
+                    java.awt.Image image = ImageUtil.downloadImage(imageUri, this.httpClient);
+                    if (image != null) {
+                        String description;
+                        // Determine if the image URL was primarily from the issue body or a comment for description
+                        boolean inIssueBody = issueBodyMarkdown != null && !issueBodyMarkdown.isBlank() && MarkdownImageParser.extractImageUrls(issueBodyMarkdown).contains(imageUrl);
+                        if (inIssueBody) {
+                            description = String.format("GitHub issue #%s: Image from Issue", issue.getNumber());
+                        } else {
+                            String commentAuthor = commentAuthors.getOrDefault(imageUrl, "unknown author");
+                            description = String.format("GitHub issue #%s: Image from comment by %s", issue.getNumber(), commentAuthor);
+                        }
+                        contextManager.addPastedImageFragment(image, description);
+                        capturedImageCount++;
+                    } else {
+                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUrl);
+                        chrome.toolErrorRaw("Failed to download image: " + imageUrl);
+                    }
+                }
+            } catch (URISyntaxException e) {
+                logger.warn("Invalid image URI syntax: {}", imageUrl, e);
+                chrome.toolErrorRaw("Invalid image URL: " + imageUrl);
+            } catch (Exception e) { // General catch for robustness during image processing
+                logger.error("Unexpected error processing image {}: {}", imageUrl, e.getMessage(), e);
+                chrome.toolErrorRaw("Error processing image " + imageUrl + ": " + e.getMessage());
+            }
+        }
+        return capturedImageCount;
     }
 
     private void copySelectedIssueDescription() {

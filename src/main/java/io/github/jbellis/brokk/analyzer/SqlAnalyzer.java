@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.Project; // Changed from common.IProject to Project
+import io.github.jbellis.brokk.IProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -9,15 +9,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream; // Added import for Stream
 
 public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
-    private final Project project; // Changed from IProject to Project
+    private final IProject project; // Changed from IProject to Project
     private final Map<ProjectFile, List<CodeUnit>> declarationsByFile;
     final Map<CodeUnit, List<TreeSitterAnalyzer.Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
@@ -30,7 +28,7 @@ public class SqlAnalyzer implements IAnalyzer {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(Project project, Set<Path> excludedFiles) { // Changed from IProject to Project
+    public SqlAnalyzer(IProject project, Set<Path> excludedFiles) { // Changed from IProject to Project
         this.project = project;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
@@ -55,7 +53,7 @@ public class SqlAnalyzer implements IAnalyzer {
                     }
                     return true;
                 })
-                .collect(Collectors.toList());
+                .toList();
 
         logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), project.getRoot());
 

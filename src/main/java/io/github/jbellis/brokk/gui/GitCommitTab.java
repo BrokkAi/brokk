@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Project;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -659,7 +659,7 @@ public class GitCommitTab extends JPanel {
      * @param diffText The text difference to analyze for the commit message.
      * @return The inferred commit message string, or null if no message could be generated or an error occurred.
      */
-    private String inferCommitMessage(Project project, String diffText) {
+    private String inferCommitMessage(IProject project, String diffText) {
         var messages = CommitPrompts.instance.collectMessages(project, diffText);
         if (messages.isEmpty()) {
             SwingUtilities.invokeLater(() -> chrome.systemOutput("Nothing to commit for suggestion"));

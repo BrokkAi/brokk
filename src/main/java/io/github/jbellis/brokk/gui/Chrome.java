@@ -30,12 +30,15 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+import static io.github.jbellis.brokk.gui.Constants.*;
+
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
+    private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
     private boolean skipNextUpdateOutputPanelOnContextChange = false;
@@ -72,16 +75,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private Dimension backgroundLabelPreferredSize;
+    private JLabel systemMessageLabel;
+    private final List<String> systemMessages = new ArrayList<>();
     private JPanel bottomPanel;
 
-    private JSplitPane topSplitPane;
-    private JSplitPane verticalSplitPane;
-    private JSplitPane contextGitSplitPane;
+    private JSplitPane mainHorizontalSplitPane;
+    private JSplitPane leftVerticalSplitPane;
+    private JSplitPane rightVerticalSplitPane;
     private HistoryOutputPanel historyOutputPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
+    private final ProjectFilesPanel projectFilesPanel; // New panel for project files
     @Nullable
     private final GitPanel gitPanel; // Null when no git repo is present
 
@@ -116,25 +121,43 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Load saved theme, window size, and position
         frame.setTitle("Brokk: " + getProject().getRoot());
 
-        // If the project uses Git, put the context panel and the Git panel in a split pane
+        // Show initial system message
+        systemOutput("Opening project at " + getProject().getRoot());
+
+        // Create workspace panel and project files panel
+        workspacePanel = new WorkspacePanel(this, contextManager);
+        projectFilesPanel = new ProjectFilesPanel(this, contextManager);
+
+        // Create a vertical split pane for the left side: ProjectFilesPanel on top, WorkspacePanel on bottom
+        leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        leftVerticalSplitPane.setTopComponent(projectFilesPanel);
+        leftVerticalSplitPane.setBottomComponent(workspacePanel);
+        leftVerticalSplitPane.setResizeWeight(0.7); // 70% for project files panel, 30% for workspace
+
+        // Create main horizontal split pane: leftVerticalSplitPane on left, right side content on right
+        mainHorizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        mainHorizontalSplitPane.setResizeWeight(0.3); // 30% for the entire left side
+        mainHorizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
+
+        // Create right side content
         if (getProject().hasGit()) {
-            contextGitSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-            contextGitSplitPane.setResizeWeight(0.7); // 70% for context panel
-
-            workspacePanel = new WorkspacePanel(this, contextManager);
-            contextGitSplitPane.setTopComponent(workspacePanel);
-
             gitPanel = new GitPanel(this, contextManager);
-            contextGitSplitPane.setBottomComponent(gitPanel);
 
-            bottomPanel.add(contextGitSplitPane, BorderLayout.CENTER);
+            // Right side has HistoryOutput on top, Git on bottom
+            rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+            rightVerticalSplitPane.setResizeWeight(0.5); // 50% for history output
+            rightVerticalSplitPane.setTopComponent(historyOutputPanel);
+            rightVerticalSplitPane.setBottomComponent(gitPanel);
+
+            mainHorizontalSplitPane.setRightComponent(rightVerticalSplitPane);
             gitPanel.updateRepo();
         } else {
-            // No Git => only a context panel in the center
+            // No Git => only history output on the right
             gitPanel = null;
-            workspacePanel = new WorkspacePanel(this, contextManager);
-            bottomPanel.add(workspacePanel, BorderLayout.CENTER);
+            mainHorizontalSplitPane.setRightComponent(historyOutputPanel);
         }
+
+        bottomPanel.add(mainHorizontalSplitPane, BorderLayout.CENTER);
 
         initializeThemeManager();
 
@@ -205,7 +228,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    public Project getProject() {
+    public IProject getProject() {
         return contextManager.getProject();
     }
 
@@ -216,11 +239,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         assert gitPanel != null;
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             try {
-                var gitRepo = (GitRepo) getProject().getRepo();
-                var projectRoot = getProject().getRoot();
+                var project = getProject();
+                var gitRepo = (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
+                var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
-                // Update .gitignore
-                var gitignorePath = gitRepo.getGitTopLevel().resolve(".gitignore");
+                // Update .gitignore (located at gitTopLevel)
+                var gitignorePath = gitTopLevel.resolve(".gitignore");
                 String content = "";
 
                 if (Files.exists(gitignorePath)) {
@@ -231,28 +255,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Add entries to .gitignore if they don't exist
+                // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
                 if (!content.contains(".brokk/**") && !content.contains(".brokk/")) {
                     content += "\n### BROKK'S CONFIGURATION ###\n";
-                    content += ".brokk/**\n";
-                    content += "!.brokk/style.md\n";
-                    content += "!.brokk/project.properties\n";
+                    content += ".brokk/**\n";                   // Ignore .brokk dir in sub-projects (worktrees)
+                    content += "/.brokk/workspace.properties\n"; // Ignore workspace properties in main repo and worktrees
+                    content += "/.brokk/sessions/\n";           // Ignore sessions dir in main repo
+                    content += "/.brokk/dependencies/\n";       // Ignore dependencies dir in main repo
+                    content += "/.brokk/history.zip\n";         // Ignore legacy history zip
+                    content += "!.brokk/style.md\n";          // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
                     systemOutput("Updated .gitignore with .brokk entries");
 
-                    // Add .gitignore to git if it's not already in the index
+                    // Add .gitignore itself to git if it's not already in the index
+                    // The path for 'add' should be relative to the git repo's CWD, or absolute.
+                    // gitRepo.add() handles paths relative to its own root, or absolute paths.
+                    // Here, gitignorePath is absolute.
                     gitRepo.add(gitignorePath);
                 }
 
-                // Create .brokk directory if it doesn't exist
-                var brokkDir = projectRoot.resolve(".brokk");
-                Files.createDirectories(brokkDir);
+                // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
+                var sharedBrokkDir = gitTopLevel.resolve(".brokk");
+                Files.createDirectories(sharedBrokkDir);
 
-                // Add specific files to git
-                var styleMdPath = brokkDir.resolve("style.md");
-                var projectPropsPath = brokkDir.resolve("project.properties");
+                // Add specific shared files to git
+                var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
-                // Create files if they don't exist (empty files)
+                // Create shared files if they don't exist (empty files)
                 if (!Files.exists(styleMdPath)) {
                     Files.writeString(styleMdPath, "# Style Guide\n");
                 }
@@ -260,13 +292,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     Files.writeString(projectPropsPath, "# Brokk project configuration\n");
                 }
 
-                // Add files to git
+                // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
+                // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/style.md"));
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/project.properties"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
+                // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
+                // The GitRepo instance is for the current project (which could be a worktree),
+                // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added .brokk project files to git");
+                systemOutput("Added shared .brokk project files (style.md, project.properties) to git");
 
                 // Update commit message
                 gitPanel.setCommitMessageText("Update for Brokk project files");
@@ -287,7 +323,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
         // Apply current theme based on project settings
-        String currentTheme = Project.getTheme();
+        String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         switchTheme(isDark);
@@ -309,32 +345,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         gbc.gridx = 0;
         gbc.insets = new Insets(2, 2, 2, 2);
 
-        // Top Area: Instructions + History/Output
+        // Create instructions panel and history/output panel
         instructionsPanel = new InstructionsPanel(this);
-        instructionsPanel.appendSystemOutput("Opening project at " + getProject().getRoot());
-        historyOutputPanel = new HistoryOutputPanel(this, contextManager);
-
-        topSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        topSplitPane.setResizeWeight(0.4); // Instructions panel gets less space initially
-        topSplitPane.setTopComponent(instructionsPanel);
-        topSplitPane.setBottomComponent(historyOutputPanel);
+        historyOutputPanel = new HistoryOutputPanel(this, contextManager, instructionsPanel);
 
         // Bottom Area: Context/Git + Status
         bottomPanel = new JPanel(new BorderLayout());
-        // Status label at the very bottom
-        var statusLabel = buildBackgroundStatusLabel();
-        bottomPanel.add(statusLabel, BorderLayout.SOUTH);
+        // Status labels at the very bottom
+        var statusLabels = buildStatusLabels();
+        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
-
-        // Main Vertical Split: Top Area / Bottom Area
-        verticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        verticalSplitPane.setResizeWeight(0.3); // Give top area (instructions/history) 30% initially
-        verticalSplitPane.setTopComponent(topSplitPane);
-        verticalSplitPane.setBottomComponent(bottomPanel);
 
         gbc.weighty = 1.0;
         gbc.gridy = 0;
-        contentPanel.add(verticalSplitPane, gbc);
+        contentPanel.add(bottomPanel, gbc);
 
         panel.add(contentPanel, BorderLayout.CENTER);
         return panel;
@@ -415,11 +439,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    private JComponent buildBackgroundStatusLabel() {
+    private JComponent buildStatusLabels() {
+        // System message label (left side)
+        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
+        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
+        
+        // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
-        backgroundStatusLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-        backgroundLabelPreferredSize = backgroundStatusLabel.getPreferredSize();
-        return backgroundStatusLabel;
+        backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
+
+        // Panel to hold both labels
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
+        statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
+        
+        return statusPanel;
     }
 
     /**
@@ -498,12 +532,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void toolErrorRaw(String msg) {
-        logger.warn(msg);
-        SwingUtilities.invokeLater(() -> instructionsPanel.appendSystemOutput(msg));
-    }
-
-    @Override
     public void llmOutput(String token, ChatMessageType type) {
         // TODO: use messageSubType later on
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type));
@@ -515,9 +543,45 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
+    public void toolErrorRaw(String msg) {
+        logger.warn(msg);
+        systemOutputInternal(msg);
+    }
+
+    @Override
     public void systemOutput(String message) {
         logger.debug(message);
-        SwingUtilities.invokeLater(() -> instructionsPanel.appendSystemOutput(message));
+        systemOutputInternal(message);
+    }
+
+    private void systemOutputInternal(String message) {
+        SwingUtilities.invokeLater(() -> {
+            // Format timestamp as HH:MM
+            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+            String timestampedMessage = timestamp + ": " + message;
+
+            // Add to messages list
+            systemMessages.add(timestampedMessage);
+
+            // Keep only last 50 messages to prevent memory issues
+            if (systemMessages.size() > 50) {
+                systemMessages.remove(0);
+            }
+
+            // Update label text (show only the latest message)
+            systemMessageLabel.setText(message);
+
+            // Update tooltip with all recent messages
+            StringBuilder tooltipText = new StringBuilder("<html>");
+            for (int i = Math.max(0, systemMessages.size() - 10); i < systemMessages.size(); i++) {
+                if (i > Math.max(0, systemMessages.size() - 10)) {
+                    tooltipText.append("<br>");
+                }
+                tooltipText.append(systemMessages.get(i));
+            }
+            tooltipText.append("</html>");
+            systemMessageLabel.setToolTipText(tooltipText.toString());
+        });
     }
 
     @Override
@@ -535,7 +599,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 backgroundStatusLabel.setText(message);
                 backgroundStatusLabel.setToolTipText(tooltip);
             }
-            backgroundStatusLabel.setPreferredSize(backgroundLabelPreferredSize);
         });
     }
 
@@ -670,6 +733,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
+        // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
+        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        
         // Add a WindowListener to handle the close ('X') button click
         previewFrame.addWindowListener(new WindowAdapter() {
             @Override
@@ -677,20 +743,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // Check if the content is a PreviewTextPanel and if it has unsaved changes
                 if (contentComponent instanceof PreviewTextPanel ptp) {
                     if (ptp.confirmClose()) {
-                        // If confirmClose returns true (Save/Don't Save), finalize history and allow disposal.
+                        // If confirmClose returns true (Save/Don't Save), finalize history and dispose.
                         ptp.finalizeHistoryEntry(); // Create history entry if needed
-                        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-                        // Note: The window listener only *vetoes* the close. If it doesn't veto,
-                        // the default close operation takes over. We don't need to call dispose() here.
-                    } else {
-                        // If confirmClose returns false (user cancelled), do nothing.
-                        // We must explicitly set the default close operation here because
-                        // the user might click 'X' multiple times.
-                        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+                        previewFrame.dispose();
                     }
+                    // If confirmClose returns false (user cancelled), do nothing - window stays open
                 } else {
-                    // If not a PreviewTextPanel, just allow the default dispose operation
-                    previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+                    // If not a PreviewTextPanel, just dispose the window
+                    previewFrame.dispose();
                 }
             }
         });
@@ -806,9 +866,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                
+                boolean escapeHtml = outputFragment.isEscapeHtml();
+
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel();
+                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
@@ -838,7 +899,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 3. Image fragments (clipboard image or image file)
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.PasteImageFragment) workingFragment;
+                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
                     var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);
@@ -985,49 +1046,51 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
 
         SwingUtilities.invokeLater(() -> {
-            int topSplitPos = project.getTopSplitPosition();
-            if (topSplitPos > 0) {
-                topSplitPane.setDividerLocation(topSplitPos);
+            // Load and set main horizontal split position
+            int horizontalPos = project.getHorizontalSplitPosition();
+            if (horizontalPos > 0) {
+                mainHorizontalSplitPane.setDividerLocation(horizontalPos);
             } else {
-                topSplitPane.setDividerLocation(0.4); // Sensible default: 40% for instructions panel
+                mainHorizontalSplitPane.setDividerLocation(0.3);
             }
-            topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (topSplitPane.isShowing()) {
-                    var newPos = topSplitPane.getDividerLocation();
+            mainHorizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (mainHorizontalSplitPane.isShowing()) {
+                    var newPos = mainHorizontalSplitPane.getDividerLocation();
                     if (newPos > 0) {
-                        project.saveTopSplitPosition(newPos);
+                        project.saveHorizontalSplitPosition(newPos);
                     }
                 }
             });
 
-            int verticalPos = project.getVerticalSplitPosition();
-            if (verticalPos > 0) {
-                verticalSplitPane.setDividerLocation(verticalPos);
+            // Load and set left vertical split position (project files on top, workspace on bottom)
+            int leftVerticalPos = project.getLeftVerticalSplitPosition();
+            if (leftVerticalPos > 0) {
+                leftVerticalSplitPane.setDividerLocation(leftVerticalPos);
             } else {
-                verticalSplitPane.setDividerLocation(0.3);
+                leftVerticalSplitPane.setDividerLocation(0.7);
             }
-            verticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                if (verticalSplitPane.isShowing()) {
-                    var newPos = verticalSplitPane.getDividerLocation();
+            leftVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                if (leftVerticalSplitPane.isShowing()) {
+                    var newPos = leftVerticalSplitPane.getDividerLocation();
                     if (newPos > 0) {
-                        project.saveVerticalSplitPosition(newPos);
+                        project.saveLeftVerticalSplitPosition(newPos);
                     }
                 }
             });
 
-            if (contextGitSplitPane != null) {
-                int contextGitPos = project.getWorkspaceGitSplitPosition();
-                if (contextGitPos > 0) {
-                    contextGitSplitPane.setDividerLocation(contextGitPos);
+            if (rightVerticalSplitPane != null) {
+                int rightVerticalPos = project.getRightVerticalSplitPosition();
+                if (rightVerticalPos > 0) {
+                    rightVerticalSplitPane.setDividerLocation(rightVerticalPos);
                 } else {
-                    contextGitSplitPane.setDividerLocation(0.7);
+                    rightVerticalSplitPane.setDividerLocation(0.5);
                 }
 
-                contextGitSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                    if (contextGitSplitPane.isShowing()) {
-                        var newPos = contextGitSplitPane.getDividerLocation();
+                rightVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                    if (rightVerticalSplitPane.isShowing()) {
+                        var newPos = rightVerticalSplitPane.getDividerLocation();
                         if (newPos > 0) {
-                            project.saveWorkspaceGitSplitPosition(newPos);
+                            project.saveRightVerticalSplitPosition(newPos);
                         }
                     }
                 });
@@ -1088,20 +1151,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void toggleGitPanel() {
-        if (contextGitSplitPane == null) {
+        if (rightVerticalSplitPane == null) {
             return;
         }
 
         // For collapsing/expanding the Git panel
-        int lastGitPanelDividerLocation = contextGitSplitPane.getDividerLocation();
-        var totalHeight = contextGitSplitPane.getHeight();
-        var dividerSize = contextGitSplitPane.getDividerSize();
-        contextGitSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
+        int lastGitPanelDividerLocation = rightVerticalSplitPane.getDividerLocation();
+        var totalHeight = rightVerticalSplitPane.getHeight();
+        var dividerSize = rightVerticalSplitPane.getDividerSize();
+        rightVerticalSplitPane.setDividerLocation(totalHeight - dividerSize - 1);
 
         logger.debug("Git panel collapsed; stored divider location={}", lastGitPanelDividerLocation);
 
-        contextGitSplitPane.revalidate();
-        contextGitSplitPane.repaint();
+        rightVerticalSplitPane.revalidate();
+        rightVerticalSplitPane.repaint();
     }
 
     public void updateWorkspace() {
@@ -1118,6 +1181,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     GitPanel getGitPanel() {
         return gitPanel;
+    }
+
+    public void showFileInProjectTree(ProjectFile projectFile) {
+        if (projectFilesPanel != null) {
+            projectFilesPanel.showFileInTree(projectFile);
+        }
     }
 
     public InstructionsPanel getInstructionsPanel() {

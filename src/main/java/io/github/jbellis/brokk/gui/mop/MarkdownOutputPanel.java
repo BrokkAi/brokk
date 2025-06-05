@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.mop;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -63,11 +64,13 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     private boolean isDarkTheme = false;
     private boolean blockClearAndReset = false;
     private final ExecutorService compactExec;
+    private final boolean escapeHtml;
 
     // Global HtmlCustomizer applied to every renderer
     private HtmlCustomizer htmlCustomizer = HtmlCustomizer.DEFAULT;
 
-    public MarkdownOutputPanel() {
+    public MarkdownOutputPanel(boolean escapeHtml) {
+        this.escapeHtml = escapeHtml;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setOpaque(true);
         this.compactExec = Executors.newSingleThreadExecutor(r -> {
@@ -77,6 +80,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         });
     }
 
+    public MarkdownOutputPanel() {
+        this(true); // Default to escaping HTML
+    }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
@@ -267,7 +273,11 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_ai");
                 break;
             case USER:
-                title = "You";
+                if (message instanceof UserMessage userMessage && userMessage.name() != null && !userMessage.name().isEmpty()) {
+                    title = userMessage.name();
+                } else {
+                    title = "You";
+                }
                 iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_user");
                 break;
@@ -285,7 +295,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         
         // Create a new renderer for this message - disable edit blocks for user messages
         boolean enableEditBlocks = message.type() != ChatMessageType.USER;
-        var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks);
+        var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks, escapeHtml);
         renderer.setHtmlCustomizer(htmlCustomizer);
 
         // Create a new worker for this message

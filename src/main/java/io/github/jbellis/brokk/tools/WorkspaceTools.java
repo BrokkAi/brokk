@@ -201,28 +201,14 @@ public class WorkspaceTools {
         var currentContext = contextManager.topContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
         var idsToDropSet = new HashSet<>(fragmentIds);
-        var foundIds = new ArrayList<Integer>();
 
-        for (var frag : allFragments) {
-            if (idsToDropSet.contains(frag.id())) {
-                foundIds.add(frag.id());
-            }
-        }
-
-        var notFoundIds = fragmentIds.stream()
-                .filter(id -> !foundIds.contains(id))
+        var toDrop = allFragments.stream()
+                .filter(frag -> idsToDropSet.contains(frag.id()))
                 .toList();
 
-        if (!notFoundIds.isEmpty()) {
-            return "Fragment IDs not found in current workspace: " + notFoundIds;
-        }
-
-        if (!foundIds.isEmpty()) {
-            contextManager.drop(foundIds);
-            return "Dropped %d fragment(s) with IDs: [%s]".formatted(
-                    foundIds.size(),
-                    foundIds.stream().map(String::valueOf).collect(Collectors.joining(", "))
-            );
+        if (!toDrop.isEmpty()) {
+            contextManager.drop(toDrop);
+            return "Dropped %d fragment(s) with IDs: [%s]".formatted(toDrop.size(), toDrop);
         } else {
             return "No valid fragments found to drop for the given IDs: " + fragmentIds;
         }

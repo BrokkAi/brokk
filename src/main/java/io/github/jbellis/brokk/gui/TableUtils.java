@@ -113,6 +113,12 @@ public final class TableUtils {
     }
 
     public static void showOverflowPopup(Chrome chrome, JTable table, int row, int col, List<FileReferenceList.FileReferenceData> files) {
+        // Ensure we're on EDT
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> showOverflowPopup(chrome, table, row, col, files));
+            return;
+        }
+        
         // Create a wrapping FileReferenceList with all files
         var fullList = new WrappingFileReferenceList(files);
         fullList.setOpaque(false); // For visual continuity
@@ -229,6 +235,11 @@ public final class TableUtils {
         popup.setForeground(fgColor);
         fullList.setForeground(fgColor);
 
+        // Register popup with theme manager if available
+        if (chrome.themeManager != null) {
+            chrome.themeManager.registerPopupMenu(popup);
+        }
+        
         // Show popup below the specific cell
         var cellRect = table.getCellRect(row, col, true);
         popup.pack(); // Ensure proper sizing
@@ -687,13 +698,36 @@ public final class TableUtils {
         int yInCell = pointInTableCoords.y - cellRect.y;
         if (xInCell < 0 || yInCell < 0) return null;
 
+        // For WorkspacePanel's new layout where badges are below description text,
+        // we need to account for the description text height
+        if (column == WorkspacePanel.DESCRIPTION_COLUMN) { // Description column with badges below
+            // Estimate description text height (single line)
+            var baseFont = table.getFont();
+            var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3; // +3 for vertical strut
+            
+            // Check if click is in the badge area (below description)
+            if (yInCell < descriptionHeight) {
+                return null; // Click was in description area, not badges
+            }
+            
+            // Adjust Y coordinate to be relative to badge area
+            yInCell -= descriptionHeight;
+        }
+
         // Badge layout parameters – keep in sync with FileReferenceList
         final int hgap = 4;     // FlowLayout hgap in FileReferenceList
 
-        // Font used inside the badges (85 % of table font size) - must match FileReferenceList.createBadgeLabel
-        var baseFont = table.getFont();
-        var badgeFont = baseFont.deriveFont(Font.PLAIN, baseFont.getSize() * 0.85f);
-        var fm = table.getFontMetrics(badgeFont);
+        // Get the actual renderer component to use its font metrics
+        Component renderer = table.prepareRenderer(
+            table.getCellRenderer(row, column), row, column);
+        
+        // Font used inside the badges (85 % of component font size)
+        Font componentFont = renderer.getFont();
+        if (componentFont == null) {
+            componentFont = table.getFont(); // Fallback to table font
+        }
+        var badgeFont = componentFont.deriveFont(Font.PLAIN, componentFont.getSize() * 0.85f);
+        var fm = renderer.getFontMetrics(badgeFont);
 
         int currentX = 0;
         // Calculate insets based on BORDER_THICKNESS and text padding (matching createBadgeLabel)
@@ -710,6 +744,69 @@ public final class TableUtils {
             }
             currentX += labelWidth + hgap;
         }
+        // Note: This method only checks visible file badges, not the overflow badge
+        // Overflow badge detection is handled by the caller checking for null result
         return null;
+    }
+    
+    /**
+     * Checks if the click is likely on the overflow badge area.
+     * This is used when findClickedReference returns null but we have overflow.
+     */
+    public static boolean isClickOnOverflowBadge(Point pointInTableCoords,
+                                                  int row,
+                                                  int column,
+                                                  JTable table,
+                                                  List<TableUtils.FileReferenceList.FileReferenceData> visibleReferences,
+                                                  boolean hasOverflow) {
+        if (!hasOverflow || visibleReferences.isEmpty()) {
+            return false;
+        }
+        
+        // Convert to cell-local coordinates
+        Rectangle cellRect = table.getCellRect(row, column, false);
+        int xInCell = pointInTableCoords.x - cellRect.x;
+        int yInCell = pointInTableCoords.y - cellRect.y;
+        if (xInCell < 0 || yInCell < 0) return false;
+        
+        // For WorkspacePanel's new layout where badges are below description text
+        if (column == WorkspacePanel.DESCRIPTION_COLUMN) {
+            var baseFont = table.getFont();
+            var descriptionHeight = table.getFontMetrics(baseFont).getHeight() + 3;
+            if (yInCell < descriptionHeight) {
+                return false;
+            }
+            yInCell -= descriptionHeight;
+        }
+        
+        // Calculate where the overflow badge would be positioned
+        final int hgap = 4;
+        
+        // Get the actual renderer component to use its font metrics
+        Component renderer = table.prepareRenderer(
+            table.getCellRenderer(row, column), row, column);
+        
+        Font componentFont = renderer.getFont();
+        if (componentFont == null) {
+            componentFont = table.getFont(); // Fallback to table font
+        }
+        var badgeFont = componentFont.deriveFont(Font.PLAIN, componentFont.getSize() * 0.85f);
+        var fm = renderer.getFontMetrics(badgeFont);
+        
+        int borderStrokeInset = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS);
+        int textPaddingHorizontal = 6;
+        int totalInsetsPerSide = borderStrokeInset + textPaddingHorizontal;
+        
+        // Calculate position after all visible badges
+        int currentX = 0;
+        for (var ref : visibleReferences) {
+            int textWidth = fm.stringWidth(ref.getFileName());
+            int labelWidth = textWidth + (2 * totalInsetsPerSide);
+            currentX += labelWidth + hgap;
+        }
+        
+        // The overflow badge starts at currentX
+        // We'll be generous and consider any click past the last visible badge as overflow click
+        return xInCell >= currentX - hgap; // -hgap to be more forgiving
     }
 }

@@ -173,6 +173,7 @@ public class DtoMapper {
                     mgr,
                     originalType,
                     frozenDto.description(),
+                    frozenDto.shortDescription(),
                     frozenDto.textContent(),
                     imageBytes,
                     frozenDto.isTextFragment(),
@@ -200,7 +201,7 @@ public class DtoMapper {
             case PasteTextFragmentDto pasteTextDto -> new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()));
             case PasteImageFragmentDto pasteImageDto -> {
                 Image image = base64ToImage(pasteImageDto.base64ImageData());
-                yield new ContextFragment.PasteImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
+                yield new ContextFragment.AnonymousImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
             }
             case StacktraceFragmentDto stacktraceDto -> {
                 var sources = stacktraceDto.sources().stream()
@@ -229,6 +230,7 @@ public class DtoMapper {
                     ff.id(),
                     ff.getType().name(), // Assuming FrozenFragment.getType() returns the original fragment's type
                     ff.description(),
+                    ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
                     ff.isText(),
                     ff.syntaxStyle(),
@@ -290,7 +292,7 @@ public class DtoMapper {
                 var files = ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet());
                 var originalType = ContextFragment.FragmentType.valueOf(ffd.originalType());
                 yield FrozenFragment.fromDto(
-                    ffd.id(), mgr, originalType, ffd.description(), ffd.textContent(), imageBytes,
+                    ffd.id(), mgr, originalType, ffd.description(), ffd.shortDescription(), ffd.textContent(), imageBytes,
                     ffd.isTextFragment(), ffd.syntaxStyle(), files, ffd.originalClassName(), ffd.meta()
                 );
             }
@@ -381,6 +383,7 @@ public class DtoMapper {
                     ff.id(),
                     ff.getType().name(),
                     ff.description(),
+                    ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
                     ff.isText(),
                     ff.syntaxStyle(),
@@ -453,7 +456,7 @@ public class DtoMapper {
                 }
                 yield new PasteTextFragmentDto(pasteTextFragment.id(), pasteTextFragment.text(), description); // PasteTextFragment is non-dynamic
             }
-            case ContextFragment.PasteImageFragment pasteImageFragment -> {
+            case ContextFragment.AnonymousImageFragment pasteImageFragment -> {
                 // Block for up to 10 seconds to get the completed description
                 String description;
                 try {

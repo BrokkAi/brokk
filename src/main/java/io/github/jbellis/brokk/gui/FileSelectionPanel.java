@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -34,12 +34,12 @@ import java.util.function.Predicate;
 public class FileSelectionPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(FileSelectionPanel.class);
 
-    public record Config(Project project,
+    public record Config(io.github.jbellis.brokk.IProject project,
                          boolean allowExternalFiles,
                          Predicate<File> fileFilter,
                          Future<List<Path>> autocompleteCandidates, // Generalize to List<Path>
                          boolean multiSelect,
-                         Consumer<BrokkFile> onSingleFileConfirmed, // Optional: action for single file confirmation (e.g., double-click)
+                         Consumer<BrokkFile> onSingleFileConfirmed,// Optional: action for single file confirmation (e.g., double-click)
                          boolean includeProjectFilesInAutocomplete,
                          String customHintText
                          ) {
@@ -51,9 +51,9 @@ public class FileSelectionPanel extends JPanel {
     }
 
     private final Config config;
-    private final Project project; // May be null
+    private final IProject project; // May be null
     private final Path rootPath;  // May be null
-    private final FileTree fileTree;
+    private final FileSelectionTree tree;
     private final JTextComponent fileInputComponent; // JTextField or JTextArea
 
     public FileSelectionPanel(Config config) {
@@ -76,13 +76,11 @@ public class FileSelectionPanel extends JPanel {
 
         // 2. AutoCompletion
         // The provider needs access to project, allowExternalFiles, and autocompleteCandidates from config
-        var provider = new FilePanelCompletionProvider(
-                this.project,
-                config.autocompleteCandidates(),
-                config.allowExternalFiles(),
-                config.multiSelect(),
-                config.includeProjectFilesInAutocomplete()
-        );
+        var provider = new FilePanelCompletionProvider(this.project,
+                                                       config.autocompleteCandidates(),
+                                                       config.allowExternalFiles(),
+                                                       config.multiSelect(),
+                                                       config.includeProjectFilesInAutocomplete());
         var autoCompletion = new AutoCompletion(provider);
         autoCompletion.setAutoActivationEnabled(false);
         autoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
@@ -90,7 +88,7 @@ public class FileSelectionPanel extends JPanel {
         AutoCompleteUtil.bindCtrlEnter(autoCompletion, fileInputComponent); // Ctrl+Enter on input might imply confirmation
 
         // 3. FileTree
-        fileTree = new FileTree(this.project, config.allowExternalFiles(), config.fileFilter());
+        tree = new FileSelectionTree(this.project, config.allowExternalFiles(), config.fileFilter());
 
         // Layout: Input at North, Tree at Center
         JPanel inputPanel = new JPanel(new BorderLayout());
@@ -121,7 +119,7 @@ public class FileSelectionPanel extends JPanel {
     }
     add(inputPanel, BorderLayout.NORTH);
 
-    JScrollPane treeScrollPane = new JScrollPane(fileTree);
+    JScrollPane treeScrollPane = new JScrollPane(tree);
         treeScrollPane.setPreferredSize(new Dimension(450, 300)); // Default size, can be overridden
         add(treeScrollPane, BorderLayout.CENTER);
 
@@ -130,7 +128,7 @@ public class FileSelectionPanel extends JPanel {
 
     private void setupListeners() {
         // Tree selection listener
-        fileTree.addTreeSelectionListener(e -> {
+        tree.addTreeSelectionListener(e -> {
             // Only proceed if the current AWT event represents a user action
             var awtEvent = EventQueue.getCurrentEvent();
             if (!(awtEvent instanceof MouseEvent) && !(awtEvent instanceof KeyEvent)) {
@@ -140,7 +138,7 @@ public class FileSelectionPanel extends JPanel {
             TreePath currentPath = e.getPath(); // Use currentPath to avoid clash with java.nio.file.Path
             if (currentPath != null && currentPath.getLastPathComponent() instanceof DefaultMutableTreeNode node) {
                 Object userObject = node.getUserObject();
-                if (userObject instanceof FileTree.FileTreeNode fileNodeUserObj) {
+                if (userObject instanceof FileSelectionTree.FileTreeNode fileNodeUserObj) {
                     File file = fileNodeUserObj.getFile();
                     // A node in the tree is "selectable" if it passes the fileFilter.
                     // This allows selecting directories if the filter accepts them, even if they aren't leaves.
@@ -157,15 +155,15 @@ public class FileSelectionPanel extends JPanel {
         });
 
         // Tree double-click listener
-        fileTree.addMouseListener(new MouseAdapter() {
+        tree.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getClickCount() == 2) {
-                    TreePath path = fileTree.getPathForLocation(e.getX(), e.getY());
+                    TreePath path = tree.getPathForLocation(e.getX(), e.getY());
                     if (path != null) {
                         DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
                         if (node.isLeaf()) {
-                            fileTree.setSelectionPath(path); // Visually select
+                            tree.setSelectionPath(path); // Visually select
                             updateFileInputFromTreeSelection(node, path); // Update input field
                             if (!config.multiSelect() && config.onSingleFileConfirmed() != null) {
                                 List<BrokkFile> resolved = resolveAndGetSelectedFiles();
@@ -174,10 +172,10 @@ public class FileSelectionPanel extends JPanel {
                                 }
                             }
                         } else { // Double-clicked a directory
-                            if (fileTree.isExpanded(path)) {
-                                fileTree.collapsePath(path);
+                            if (tree.isExpanded(path)) {
+                                tree.collapsePath(path);
                             } else {
-                                fileTree.expandPath(path);
+                                tree.expandPath(path);
                             }
                         }
                     }
@@ -203,7 +201,7 @@ public class FileSelectionPanel extends JPanel {
     }
 
     private String getPathStringFromNode(DefaultMutableTreeNode node, TreePath path) {
-        if (node.getUserObject() instanceof FileTree.FileTreeNode fileNode) {
+        if (node.getUserObject() instanceof FileSelectionTree.FileTreeNode fileNode) {
             return fileNode.getFile().getAbsolutePath();
         } else if (!config.allowExternalFiles() && node.getUserObject() instanceof String) {
             // Repo file in repo-only mode - reconstruct relative path
@@ -353,17 +351,18 @@ public class FileSelectionPanel extends JPanel {
      * Handles project files, external paths, and different input component types.
      */
     private static class FilePanelCompletionProvider extends DefaultCompletionProvider {
-        private final Project project; // Can be null
+        private final IProject project; // Can be null
         private final Future<List<Path>> autocompleteCandidatesFuture;
         private final boolean allowExternalFiles;
         private final boolean multiSelectMode; // To determine how to get_already_entered_text
         private final boolean includeProjectFilesInAutocomplete;
 
-        public FilePanelCompletionProvider(Project project,
+        public FilePanelCompletionProvider(IProject project,
                                            Future<List<Path>> autocompleteCandidatesFuture,
                                            boolean allowExternalFiles,
                                            boolean multiSelectMode,
-                                           boolean includeProjectFilesInAutocomplete) {
+                                           boolean includeProjectFilesInAutocomplete)
+        {
             super();
             this.project = project;
             this.autocompleteCandidatesFuture = autocompleteCandidatesFuture;

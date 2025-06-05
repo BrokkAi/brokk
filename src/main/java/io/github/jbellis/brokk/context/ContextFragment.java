@@ -238,7 +238,6 @@ public interface ContextFragment {
     }
 
     record ProjectPathFragment(ProjectFile file, int id, IContextManager contextManager) implements PathFragment {
-
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
             this(file, nextId.getAndIncrement(), contextManager);
         }
@@ -799,17 +798,17 @@ public interface ContextFragment {
         }
     }
 
-    class PasteImageFragment extends PasteFragment {
+    class AnonymousImageFragment extends PasteFragment {
         private final Image image;
 
-        public PasteImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+        public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(contextManager, descriptionFuture);
             assert image != null;
             assert descriptionFuture != null;
             this.image = image;
         }
 
-        public PasteImageFragment(int existingId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+        public AnonymousImageFragment(int existingId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(existingId, contextManager, descriptionFuture);
             assert image != null;
             assert descriptionFuture != null;
@@ -854,6 +853,18 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             return Set.of();
+        }
+
+        @Override
+        public String description() {
+            if (descriptionFuture.isDone()) {
+                try {
+                    return descriptionFuture.get();
+                } catch (Exception e) {
+                    return "(Error summarizing paste)";
+                }
+            }
+            return "(Summarizing. This does not block LLM requests)";
         }
     }
 
@@ -1101,7 +1112,7 @@ public interface ContextFragment {
 
         public SkeletonFragment(IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
             super(contextManager);
-            assert targetIdentifiers != null && !targetIdentifiers.isEmpty();
+            assert targetIdentifiers != null;
             assert summaryType != null;
             this.targetIdentifiers = List.copyOf(targetIdentifiers);
             this.summaryType = summaryType;
@@ -1250,6 +1261,11 @@ public interface ContextFragment {
 
     interface OutputFragment {
         List<TaskEntry> entries();
+
+        /** Should raw HTML inside markdown be escaped before rendering? */
+        default boolean isEscapeHtml() {
+            return true;
+        }
     }
 
     /**
@@ -1340,27 +1356,51 @@ public interface ContextFragment {
         private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
         private final String sessionName;
+        private final boolean escapeHtml;
 
-        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
             super(contextManager);
             this.parser = parser;
             this.messages = messages;
             this.sessionName = sessionName;
+            this.escapeHtml = escapeHtml;
+        }
+
+        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+            this(contextManager, parser, messages, sessionName, true);
+        }
+
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+            this(contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
         }
 
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            this(contextManager, EditBlockParser.instance, messages, sessionName);
+            this(contextManager, EditBlockParser.instance, messages, sessionName, true);
         }
 
-        public TaskFragment(int existingId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+        public TaskFragment(int existingId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
             super(existingId, contextManager);
             this.parser = parser;
             this.messages = messages;
             this.sessionName = sessionName;
+            this.escapeHtml = escapeHtml;
+        }
+
+        public TaskFragment(int existingId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+            this(existingId, contextManager, parser, messages, sessionName, true);
+        }
+
+        public TaskFragment(int existingId, IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+            this(existingId, contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
         }
 
         public TaskFragment(int existingId, IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            this(existingId, contextManager, EditBlockParser.instance, messages, sessionName);
+            this(existingId, contextManager, EditBlockParser.instance, messages, sessionName, true);
+        }
+
+        @Override
+        public boolean isEscapeHtml() {
+            return escapeHtml;
         }
 
         @Override
