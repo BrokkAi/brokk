@@ -20,6 +20,15 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+import javax.swing.SwingWorker;
+import io.github.jbellis.brokk.issues.IssueProviderType;
+import io.github.jbellis.brokk.issues.IssuesProviderConfig;
+import io.github.jbellis.brokk.issues.JiraIssueService;
+import io.github.jbellis.brokk.issues.FilterOptions;
+import io.github.jbellis.brokk.issues.JiraFilterOptions;
+import java.io.IOException;
+import java.nio.file.Path;
+
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
@@ -60,6 +69,27 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final JButton applyButtonParent;
     private JTabbedPane projectSubTabbedPane;
 
+    // Issue Provider related UI
+    private JComboBox<io.github.jbellis.brokk.issues.IssueProviderType> issueProviderTypeComboBox;
+    private JPanel issueProviderConfigPanel; // Uses CardLayout
+    private CardLayout issueProviderCardLayout;
+
+    // GitHub specific fields (will be part of the GitHub card)
+    private JTextField githubOwnerField;
+    private JTextField githubRepoField;
+    private JTextField githubHostField; // New field for GHES host
+    private JCheckBox githubOverrideCheckbox;
+
+    private static final String NONE_CARD = "None";
+    private static final String GITHUB_CARD = "GitHub";
+    private static final String JIRA_CARD = "Jira";
+
+    // Jira specific fields (will be part of the Jira card)
+    private JTextField jiraProjectKeyField;
+    private JTextField jiraBaseUrlField;
+    private JPasswordField jiraApiTokenField;
+    private JButton testJiraConnectionButton;
+
 
     public SettingsProjectPanel(Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -92,9 +122,15 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var buildPanel = createBuildPanel(project);
         projectSubTabbedPane.addTab("Build", null, buildPanel, "Build configuration and Code Intelligence settings");
 
+        // Issues Tab (New)
+        var issuesPanel = createIssuesPanel(project);
+        projectSubTabbedPane.addTab("Issues", null, issuesPanel, "Issue tracker integration settings");
+
         // Data Retention Tab
         dataRetentionPanelInner = new DataRetentionPanel(project, this);
         projectSubTabbedPane.addTab("Data Retention", null, dataRetentionPanelInner, "Data retention policy for this project");
+
+        // Jira Tab is now removed, its contents moved to the "Issues" tab's Jira card.
 
         add(projectSubTabbedPane, BorderLayout.CENTER);
 
@@ -191,11 +227,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.NORTHWEST;
         var commitFormatInfo = new JLabel("<html>This informs the LLM how to structure the commit message suggestions it makes.</html>");
         commitFormatInfo.setFont(commitFormatInfo.getFont().deriveFont(Font.ITALIC, commitFormatInfo.getFont().getSize() * 0.9f));
-        gbc.insets = new Insets(0, 2, 2, 2);
+        gbc.insets = new Insets(0, 2, 8, 2); // Increased bottom inset
         generalPanel.add(commitFormatInfo, gbc);
 
         gbc.weighty = 0.0; // Reset for any future components
-        gbc.gridy = row;
+        gbc.gridy = row; // Use current row for glue
         gbc.gridx = 0; gbc.gridwidth = 2;
         gbc.fill = GridBagConstraints.VERTICAL; gbc.weighty = 1.0; // Add glue to push content up
         generalPanel.add(Box.createVerticalGlue(), gbc);
@@ -203,6 +239,247 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         return generalPanel;
     }
+
+    private JPanel createIssuesPanel(IProject project) {
+        var issuesPanel = new JPanel(new BorderLayout(5, 5));
+        issuesPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Provider selection
+        var providerSelectionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        providerSelectionPanel.add(new JLabel("Issue Provider:"));
+        issueProviderTypeComboBox = new JComboBox<>(io.github.jbellis.brokk.issues.IssueProviderType.values());
+        // Custom renderer to use getDisplayName
+        issueProviderTypeComboBox.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof io.github.jbellis.brokk.issues.IssueProviderType type) {
+                    setText(type.getDisplayName());
+                }
+                return this;
+            }
+        });
+        providerSelectionPanel.add(issueProviderTypeComboBox);
+        issuesPanel.add(providerSelectionPanel, BorderLayout.NORTH);
+
+        // Configuration area using CardLayout
+        issueProviderCardLayout = new CardLayout();
+        issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
+
+        // --- None Card ---
+        var noneCard = new JPanel(new BorderLayout());
+        var noneLabel = new JLabel("No issue provider configured.");
+        noneLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        noneLabel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        noneCard.add(noneLabel, BorderLayout.CENTER);
+        issueProviderConfigPanel.add(noneCard, NONE_CARD);
+
+        // --- GitHub Card ---
+        var gitHubCard = new JPanel(new GridBagLayout());
+        gitHubCard.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        var gbcGitHub = new GridBagConstraints();
+        gbcGitHub.insets = new Insets(2, 2, 2, 2);
+        gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
+        int githubRow = 0;
+
+        githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow++; gbcGitHub.gridwidth = 2; gbcGitHub.weightx = 0.0;
+        gbcGitHub.anchor = GridBagConstraints.NORTHWEST;
+        gitHubCard.add(githubOverrideCheckbox, gbcGitHub);
+
+        gbcGitHub.gridwidth = 1; // Reset gridwidth
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
+        gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
+        githubOwnerField = new JTextField(20);
+        gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
+        gitHubCard.add(githubOwnerField, gbcGitHub);
+
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
+        gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
+        githubRepoField = new JTextField(20);
+        gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
+        gitHubCard.add(githubRepoField, gbcGitHub);
+
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
+        gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
+        githubHostField = new JTextField(20);
+        githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
+        gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
+        gitHubCard.add(githubHostField, gbcGitHub);
+        
+        var ghInfoLabel = new JLabel("<html>If not overridden, issues are fetched from the project's own GitHub repository. Uses global GitHub token. Specify host for GitHub Enterprise.</html>");
+        ghInfoLabel.setFont(ghInfoLabel.getFont().deriveFont(Font.ITALIC, ghInfoLabel.getFont().getSize() * 0.9f));
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow++; gbcGitHub.gridwidth = 2; gbcGitHub.insets = new Insets(8, 2, 2, 2);
+        gitHubCard.add(ghInfoLabel, gbcGitHub);
+
+
+        // Enable/disable owner/repo/host fields based on checkbox
+        githubOverrideCheckbox.addActionListener(e -> {
+            boolean selected = githubOverrideCheckbox.isSelected();
+            githubOwnerField.setEnabled(selected);
+            githubRepoField.setEnabled(selected);
+            githubHostField.setEnabled(selected);
+            if (!selected) {
+                // Optionally clear or reset fields if needed when unchecked
+                 githubOwnerField.setText("");
+                 githubRepoField.setText("");
+                 githubHostField.setText("");
+            }
+        });
+        // Initial state
+        githubOwnerField.setEnabled(false);
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false);
+        
+        gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.gridwidth = 2;
+        gbcGitHub.weighty = 1.0; gbcGitHub.fill = GridBagConstraints.VERTICAL;
+        gitHubCard.add(Box.createVerticalGlue(), gbcGitHub);
+        issueProviderConfigPanel.add(gitHubCard, GITHUB_CARD);
+
+
+        // --- Jira Card (reuses components) ---
+        var jiraCard = new JPanel(new GridBagLayout());
+        jiraCard.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0)); // Padding for the card content
+        var gbcJira = new GridBagConstraints();
+        gbcJira.insets = new Insets(2, 2, 2, 2);
+        gbcJira.fill = GridBagConstraints.HORIZONTAL;
+        int jiraRow = 0;
+
+        // Initialize Jira fields if they are null
+        jiraProjectKeyField = new JTextField();
+        jiraBaseUrlField = new JTextField();
+        jiraApiTokenField = new JPasswordField();
+        testJiraConnectionButton = new JButton("Test Jira Connection");
+
+
+        // Jira Base URL
+        gbcJira.gridx = 0; gbcJira.gridy = jiraRow; gbcJira.weightx = 0.0;
+        gbcJira.anchor = GridBagConstraints.NORTHWEST; gbcJira.fill = GridBagConstraints.NONE;
+        jiraCard.add(new JLabel("Jira Base URL:"), gbcJira);
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.weightx = 1.0; gbcJira.fill = GridBagConstraints.HORIZONTAL;
+        jiraCard.add(jiraBaseUrlField, gbcJira);
+        var baseUrlInfo = new JLabel("<html>The base URL of your Jira instance (e.g., https://yourcompany.atlassian.net).</html>");
+        baseUrlInfo.setFont(baseUrlInfo.getFont().deriveFont(Font.ITALIC, baseUrlInfo.getFont().getSize() * 0.9f));
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.insets = new Insets(0, 2, 8, 2);
+        jiraCard.add(baseUrlInfo, gbcJira);
+        gbcJira.insets = new Insets(2, 2, 2, 2);
+
+        // Jira API Token
+        gbcJira.gridx = 0; gbcJira.gridy = jiraRow; gbcJira.weightx = 0.0;
+        gbcJira.anchor = GridBagConstraints.NORTHWEST; gbcJira.fill = GridBagConstraints.NONE;
+        jiraCard.add(new JLabel("Jira API Token:"), gbcJira);
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.weightx = 1.0; gbcJira.fill = GridBagConstraints.HORIZONTAL;
+        jiraCard.add(jiraApiTokenField, gbcJira);
+        var apiTokenInfo = new JLabel("<html>Your Jira API token. Refer to Atlassian documentation for how to create one.</html>");
+        apiTokenInfo.setFont(apiTokenInfo.getFont().deriveFont(Font.ITALIC, apiTokenInfo.getFont().getSize() * 0.9f));
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.insets = new Insets(0, 2, 8, 2);
+        jiraCard.add(apiTokenInfo, gbcJira);
+        gbcJira.insets = new Insets(2, 2, 2, 2);
+
+        // Jira Project Key
+        gbcJira.gridx = 0; gbcJira.gridy = jiraRow; gbcJira.weightx = 0.0;
+        gbcJira.anchor = GridBagConstraints.NORTHWEST; gbcJira.fill = GridBagConstraints.NONE;
+        jiraCard.add(new JLabel("Jira Project Key:"), gbcJira);
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.weightx = 1.0; gbcJira.fill = GridBagConstraints.HORIZONTAL;
+        jiraCard.add(jiraProjectKeyField, gbcJira);
+        var jiraProjectKeyInfo = new JLabel("<html>The key of your Jira project (e.g., CASSANDRA). Used to scope issue searches.</html>");
+        jiraProjectKeyInfo.setFont(jiraProjectKeyInfo.getFont().deriveFont(Font.ITALIC, jiraProjectKeyInfo.getFont().getSize() * 0.9f));
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.insets = new Insets(0, 2, 8, 2);
+        jiraCard.add(jiraProjectKeyInfo, gbcJira);
+        gbcJira.insets = new Insets(2, 2, 2, 2);
+
+        // Test Connection Button
+        testJiraConnectionButton.addActionListener(e -> testJiraConnectionAction());
+        gbcJira.gridx = 1; gbcJira.gridy = jiraRow++; gbcJira.weightx = 0.0; gbcJira.fill = GridBagConstraints.NONE; gbcJira.anchor = GridBagConstraints.EAST;
+        jiraCard.add(testJiraConnectionButton, gbcJira);
+
+        // Vertical glue
+        gbcJira.gridx = 0; gbcJira.gridy = jiraRow; gbcJira.gridwidth = 2;
+        gbcJira.weighty = 1.0; gbcJira.fill = GridBagConstraints.VERTICAL;
+        jiraCard.add(Box.createVerticalGlue(), gbcJira);
+        issueProviderConfigPanel.add(jiraCard, JIRA_CARD);
+
+        issuesPanel.add(issueProviderConfigPanel, BorderLayout.CENTER);
+
+        // Action listener for provider selection
+        issueProviderTypeComboBox.addActionListener(e -> {
+            io.github.jbellis.brokk.issues.IssueProviderType selectedType = (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
+            if (selectedType == null) selectedType = io.github.jbellis.brokk.issues.IssueProviderType.NONE; // Should not happen with enum
+            switch (selectedType) {
+                case JIRA:
+                    issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
+                    break;
+                case GITHUB:
+                    issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
+                    break;
+                case NONE:
+                default:
+                    issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
+                    break;
+            }
+        });
+        return issuesPanel;
+    }
+
+    private void testJiraConnectionAction() {
+        String baseUrl = jiraBaseUrlField.getText().trim();
+        String token = new String(jiraApiTokenField.getPassword()).trim();
+        String projectKey = jiraProjectKeyField.getText().trim();
+
+        if (baseUrl.isEmpty() || token.isEmpty()) {
+            JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                          "Please fill in Jira Base URL and API Token.",
+                                          "Missing Information", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        IProject tempProject = new IProject() {
+            @Override public String getJiraBaseUrl() { return baseUrl; }
+            @Override public String getJiraApiToken() { return token; }
+            @Override public String getJiraProjectKey() { return projectKey; }
+            @Override public Path getRoot() { return Path.of("."); } // Dummy
+        };
+
+        testJiraConnectionButton.setEnabled(false);
+        SwingWorker<String, Void> worker = new SwingWorker<>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                JiraIssueService testService = new JiraIssueService(tempProject);
+                try {
+                    // Use a concrete FilterOptions implementation, e.g., JiraFilterOptions with nulls for a basic check
+                    FilterOptions filterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(null, null, null, null, null, null);
+                    testService.listIssues(filterOptions); // This might fetch issues, confirming connection and auth
+                    return "Connection successful!";
+                } catch (IOException ioException) {
+                    logger.warn("Jira connection test failed: {}", ioException.getMessage());
+                    return "Connection failed: " + ioException.getMessage();
+                } catch (Exception ex) {
+                    logger.error("Unexpected error during Jira connection test: {}", ex.getMessage(), ex);
+                    return "Connection failed with unexpected error: " + ex.getMessage();
+                }
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    String result = get();
+                    if (result.startsWith("Connection successful")) {
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this, result, "Jira Connection Test", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this, result, "Jira Connection Test Failed", JOptionPane.ERROR_MESSAGE);
+                    }
+                } catch (Exception ex) {
+                    String errorMessage = "An unexpected error occurred during the test: " + ex.getMessage();
+                    logger.error(errorMessage, ex);
+                    JOptionPane.showMessageDialog(SettingsProjectPanel.this, errorMessage, "Jira Connection Test Error", JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    testJiraConnectionButton.setEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
 
     private JPanel createBuildPanel(IProject project) {
         var buildPanel = new JPanel(new GridBagLayout());
@@ -552,6 +829,49 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         styleGuideArea.setText(project.getStyleGuide());
         commitFormatArea.setText(project.getCommitMessageFormat());
 
+        // Issues Tab
+        io.github.jbellis.brokk.IssueProvider currentProvider = project.getIssuesProvider();
+        issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
+
+        githubOwnerField.setEnabled(false); // Default state
+        githubRepoField.setEnabled(false);
+        githubHostField.setEnabled(false); // Default state for host field
+        githubOverrideCheckbox.setSelected(false);
+
+        switch (currentProvider.type()) {
+            case JIRA:
+                if (currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
+                    jiraBaseUrlField.setText(jiraConfig.baseUrl());
+                    jiraApiTokenField.setText(jiraConfig.apiToken());
+                    jiraProjectKeyField.setText(jiraConfig.projectKey());
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
+                break;
+            case GITHUB:
+                if (currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.GithubConfig githubConfig) {
+                    if (!githubConfig.isDefault()) {
+                        githubOwnerField.setText(githubConfig.owner());
+                        githubRepoField.setText(githubConfig.repo());
+                        githubHostField.setText(githubConfig.host()); // Load host
+                        githubOwnerField.setEnabled(true);
+                        githubRepoField.setEnabled(true);
+                        githubHostField.setEnabled(true); // Enable host field if override is active
+                        githubOverrideCheckbox.setSelected(true);
+                    } else {
+                        // Fields remain disabled and empty, checkbox unchecked
+                         githubOwnerField.setText("");
+                         githubRepoField.setText("");
+                         githubHostField.setText("");
+                    }
+                }
+                issueProviderCardLayout.show(issueProviderConfigPanel, GITHUB_CARD);
+                break;
+            case NONE:
+            default:
+                issueProviderCardLayout.show(issueProviderConfigPanel, NONE_CARD);
+                break;
+        }
+
         // Build Tab - Load settings only if details are available
         // If not available, the whenCompleteAsync callback from initComponents will call loadBuildPanelSettings
         if (project.hasBuildDetails()) {
@@ -607,6 +927,34 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // General Tab
         project.saveStyleGuide(styleGuideArea.getText());
         project.setCommitMessageFormat(commitFormatArea.getText());
+
+        // Issues Tab
+        io.github.jbellis.brokk.issues.IssueProviderType selectedType = (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
+        io.github.jbellis.brokk.IssueProvider newProviderToSet;
+
+        switch (selectedType) {
+            case JIRA:
+                String baseUrl = jiraBaseUrlField.getText().trim();
+                String apiToken = new String(jiraApiTokenField.getPassword()).trim();
+                String projectKey = jiraProjectKeyField.getText().trim();
+                newProviderToSet = io.github.jbellis.brokk.IssueProvider.jira(baseUrl, apiToken, projectKey);
+                break;
+            case GITHUB:
+                if (githubOverrideCheckbox.isSelected()) {
+                    String owner = githubOwnerField.getText().trim();
+                    String repo = githubRepoField.getText().trim();
+                    String host = githubHostField.getText().trim();
+                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(owner, repo, host);
+                } else {
+                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(); // Default GitHub (empty owner, repo, host)
+                }
+                break;
+            case NONE:
+            default:
+                newProviderToSet = io.github.jbellis.brokk.IssueProvider.none();
+                break;
+        }
+        project.setIssuesProvider(newProviderToSet);
 
         // Build Tab
         var currentDetails = project.loadBuildDetails();

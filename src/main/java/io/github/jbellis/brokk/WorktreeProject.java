@@ -200,4 +200,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {
         parent.setCodeAgentTestScope(selectedScope);
     }
+
+    @Override
+    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+        return parent.getIssuesProvider();
+    }
+
+    @Override
+    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+        parent.setIssuesProvider(provider);
+    }
 }

@@ -199,6 +199,63 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#projectKey()} instead.
+     */
+    @Deprecated
+    default String getJiraProjectKey() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraProjectKey(String projectKey) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#baseUrl()} instead.
+     */
+    @Deprecated
+    default String getJiraBaseUrl() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraBaseUrl(String baseUrl) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#apiToken()} instead.
+     */
+    @Deprecated
+    default String getJiraApiToken() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraApiToken(String token) {
+        throw new UnsupportedOperationException();
+    }
+
+    // New methods for the IssueProvider record
+    default io.github.jbellis.brokk.IssueProvider getIssuesProvider() { // Method name clash is intentional record migration
+        throw new UnsupportedOperationException();
+    }
+
+    default void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+        throw new UnsupportedOperationException();
+    }
+
     enum CpgRefresh {
         AUTO,
         ON_RESTART,
