@@ -591,6 +591,17 @@ public class Project implements IProject, AutoCloseable {
         // Request for analyzer rebuild is now handled by ContextManager after this call
     }
 
+    /**
+     * Checks if code intelligence is configured for this project.
+     * Code intelligence is considered configured when analyzer languages are non-empty and not just NONE.
+     *
+     * @return true if code intelligence is configured, false otherwise
+     */
+    public boolean isCodeIntelConfigured() {
+        var langs = getAnalyzerLanguages();
+        return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Language.NONE));
+    }
+
     public enum CodeAgentTestScope {
         ALL, WORKSPACE;
 

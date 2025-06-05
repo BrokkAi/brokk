@@ -10,6 +10,7 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 
 /**
  * A modal dialog to configure the tools available to the Architect agent.
@@ -35,7 +36,9 @@ public class ArchitectOptionsDialog {
         // Use invokeAndWait to run the dialog logic on the EDT and wait for completion
         SwingUtil.runOnEdt(() -> {
             // Initial checks must happen *inside* the EDT task now
+            var project = chrome.getProject();
             var isCpg = contextManager.getAnalyzerWrapper().isCpg();
+            boolean codeIntelConfigured = project != null && project.isCodeIntelConfigured();
             // Use last options as default for this session
             var currentOptions = lastArchitectOptions;
 
@@ -53,7 +56,7 @@ public class ArchitectOptionsDialog {
             mainPanel.add(explanationLabel);
 
             // Helper to create checkbox with description
-            java.util.function.BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
+            BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
                 JCheckBox cb = new JCheckBox("<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>");
                 cb.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0)); // Spacing below checkbox
                 mainPanel.add(cb);
@@ -72,9 +75,12 @@ public class ArchitectOptionsDialog {
 
             var analyzerCb = createCheckbox.apply("Code Intelligence Tools", "Allow direct querying of code structure (e.g., find usages, call graphs)");
             analyzerCb.setSelected(currentOptions.includeAnalyzerTools());
-            analyzerCb.setEnabled(isCpg); // Disable if not a CPG
-            if (!isCpg) {
-                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(chrome.getProject().getAnalyzerLanguages()));
+            analyzerCb.setEnabled(isCpg && codeIntelConfigured); // Disable if not a CPG or if CI is not configured
+
+            if (!codeIntelConfigured) {
+                analyzerCb.setToolTipText("Code Intelligence is not configured. Please configure languages in Project Settings.");
+            } else if (!isCpg) {
+                analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(project.getAnalyzerLanguages()));
             }
 
             var workspaceCb = createCheckbox.apply("Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the workspace");
@@ -98,7 +104,7 @@ public class ArchitectOptionsDialog {
                 var selectedOptions = new ArchitectAgent.ArchitectOptions(
                         contextCb.isSelected(),
                         validationCb.isSelected(),
-                        isCpg && analyzerCb.isSelected(), // Force false if not CPG
+                        isCpg && codeIntelConfigured && analyzerCb.isSelected(), // Force false if not CPG or CI not configured
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected()
