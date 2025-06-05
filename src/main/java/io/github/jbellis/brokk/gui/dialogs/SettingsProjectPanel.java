@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Project;
-import io.github.jbellis.brokk.Project.DataRetentionPolicy;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -26,7 +27,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<Project.CpgRefresh> cpgRefreshComboBox;
+    private JComboBox<MainProject.CpgRefresh> cpgRefreshComboBox;
     private JTextField buildCleanCommandField;
     private JTextField allTestsCommandField;
     private JTextField someTestsCommandField; // Added for testSomeCommand
@@ -197,7 +198,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return generalPanel;
     }
 
-    private JPanel createBuildPanel(Project project) {
+    private JPanel createBuildPanel(IProject project) {
         var buildPanel = new JPanel(new GridBagLayout());
         buildPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         var gbc = new GridBagConstraints();
@@ -232,8 +233,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE;
         buildPanel.add(new JLabel("Code Agent Tests:"), gbc);
-        runAllTestsRadio = new JRadioButton(Project.CodeAgentTestScope.ALL.toString());
-        runTestsInWorkspaceRadio = new JRadioButton(Project.CodeAgentTestScope.WORKSPACE.toString());
+        runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
+        runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
         var testScopeGroup = new ButtonGroup();
         testScopeGroup.add(runAllTestsRadio); testScopeGroup.add(runTestsInWorkspaceRadio);
         var radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -246,7 +247,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.weighty = 0.0; // Ensure weighty is reset before this
         gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(new JLabel("CI Refresh:"), gbc);
-        cpgRefreshComboBox = new JComboBox<>(new Project.CpgRefresh[]{Project.CpgRefresh.AUTO, Project.CpgRefresh.ON_RESTART, Project.CpgRefresh.MANUAL});
+        cpgRefreshComboBox = new JComboBox<>(new MainProject.CpgRefresh[]{IProject.CpgRefresh.AUTO, IProject.CpgRefresh.ON_RESTART, IProject.CpgRefresh.MANUAL});
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         buildPanel.add(cpgRefreshComboBox, gbc);
 
@@ -410,7 +411,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         languagesDisplayField.setText(cdl.isEmpty() ? "None" : cdl);
     }
 
-    private void showLanguagesDialog(Project project) {
+    private void showLanguagesDialog(IProject project) {
         var dialog = new JDialog(parentDialog, "Select Languages for Analysis", true);
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
         dialog.setLayout(new BorderLayout(10, 10));
@@ -493,14 +494,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         allTestsCommandField.setText(details.testAllCommand());
         someTestsCommandField.setText(details.testSomeCommand());
 
-        if (project.getCodeAgentTestScope() == Project.CodeAgentTestScope.ALL) {
+        if (project.getCodeAgentTestScope() == IProject.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
         } else {
             runTestsInWorkspaceRadio.setSelected(true);
         }
 
         var currentRefresh = project.getAnalyzerRefresh();
-        cpgRefreshComboBox.setSelectedItem(currentRefresh == Project.CpgRefresh.UNSET ? Project.CpgRefresh.AUTO : currentRefresh);
+        cpgRefreshComboBox.setSelectedItem(currentRefresh == IProject.CpgRefresh.UNSET ? IProject.CpgRefresh.AUTO : currentRefresh);
 
         currentAnalyzerLanguagesForDialog = new HashSet<>(project.getAnalyzerLanguages());
         updateLanguagesDisplayField();
@@ -537,13 +538,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             logger.debug("Applied Build Details changes.");
         }
 
-        Project.CodeAgentTestScope selectedScope = runAllTestsRadio.isSelected() ? Project.CodeAgentTestScope.ALL : Project.CodeAgentTestScope.WORKSPACE;
+        MainProject.CodeAgentTestScope selectedScope = runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
         if (selectedScope != project.getCodeAgentTestScope()) {
             project.setCodeAgentTestScope(selectedScope);
             logger.debug("Applied Code Agent Test Scope: {}", selectedScope);
         }
 
-        var selectedRefresh = (Project.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
+        var selectedRefresh = (MainProject.CpgRefresh) cpgRefreshComboBox.getSelectedItem();
         if (selectedRefresh != project.getAnalyzerRefresh()) {
             project.setAnalyzerRefresh(selectedRefresh);
             logger.debug("Applied Code Intelligence Refresh: {}", selectedRefresh);
@@ -580,7 +581,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
     public static class DataRetentionPanel extends JPanel {
-        private final Project project;
+        private final IProject project;
         private final SettingsProjectPanel parentProjectPanel; // For triggering model refresh
         private final ButtonGroup policyGroup;
         private final JRadioButton improveRadio;
@@ -590,7 +591,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         private final JLabel orgDisabledLabel;
         private final JLabel infoLabel;
 
-        public DataRetentionPanel(Project project, SettingsProjectPanel parentProjectPanel) {
+        public DataRetentionPanel(IProject project, SettingsProjectPanel parentProjectPanel) {
             super(new GridBagLayout());
             this.project = project;
             this.parentProjectPanel = parentProjectPanel;

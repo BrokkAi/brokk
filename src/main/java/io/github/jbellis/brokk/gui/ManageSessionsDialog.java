@@ -1,9 +1,8 @@
 package io.github.jbellis.brokk.gui;
 
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
@@ -77,7 +76,7 @@ public class ManageSessionsDialog extends JDialog {
                 java.awt.Point p = event.getPoint();
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
-                    Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
+                    MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
                     if (sessionInfo != null) {
                         return "Last modified: " + new java.util.Date(sessionInfo.modified()).toString();
                     }
@@ -225,7 +224,7 @@ public class ManageSessionsDialog extends JDialog {
         // Session selection listener - load session history instead of switching
         sessionsTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting() && sessionsTable.getSelectedRow() != -1) {
-                Project.SessionInfo selectedSessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 2);
+                MainProject.SessionInfo selectedSessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 2);
                 loadSessionHistory(selectedSessionInfo.id());
             }
         });
@@ -354,8 +353,8 @@ public class ManageSessionsDialog extends JDialog {
 
     public void refreshSessionsTable() {
         sessionsTableModel.setRowCount(0);
-        List<Project.SessionInfo> sessions = contextManager.getProject().listSessions();
-        sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed()); // Sort newest first
+        List<MainProject.SessionInfo> sessions = contextManager.getProject().listSessions();
+        sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed()); // Sort newest first
 
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
@@ -375,7 +374,7 @@ public class ManageSessionsDialog extends JDialog {
 
         // Select current session and load its history
         for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-            Project.SessionInfo rowInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(i, 2);
+            MainProject.SessionInfo rowInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(i, 2);
             if (rowInfo.id().equals(currentSessionId)) {
                 sessionsTable.setRowSelectionInterval(i, i);
                 loadSessionHistory(rowInfo.id()); // Load history for current session
@@ -389,7 +388,7 @@ public class ManageSessionsDialog extends JDialog {
         if (row < 0) return;
 
         sessionsTable.setRowSelectionInterval(row, row);
-        Project.SessionInfo sessionInfo = (Project.SessionInfo) sessionsTableModel.getValueAt(row, 2);
+        MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(row, 2);
 
         JPopupMenu popup = new JPopupMenu();
 

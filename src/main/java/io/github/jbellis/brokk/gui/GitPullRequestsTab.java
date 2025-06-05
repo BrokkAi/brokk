@@ -1,9 +1,10 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.ContextFragment.StringFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import org.apache.logging.log4j.LogManager;
@@ -825,9 +826,9 @@ public class GitPullRequestsTab extends JPanel {
 
     private class PrFilesFetcherWorker extends SwingWorker<Map<Integer, List<String>>, Void> {
         private final List<GHPullRequest> prsToFetchFilesFor;
-        private final io.github.jbellis.brokk.Project project;
+        private final IProject project;
 
-        public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, io.github.jbellis.brokk.Project project) {
+        public PrFilesFetcherWorker(List<GHPullRequest> prsToFetchFilesFor, IProject project) {
             this.prsToFetchFilesFor = prsToFetchFilesFor;
             this.project = project;
         }

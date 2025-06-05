@@ -45,7 +45,7 @@ public class GitHubAuth
      *                     or connection to GitHub fails.
      * @throws IllegalArgumentException If the project is null.
      */
-    public static synchronized GitHubAuth getOrCreateInstance(Project project) throws IOException {
+    public static synchronized GitHubAuth getOrCreateInstance(IProject project) throws IOException {
         if (project == null) {
             throw new IllegalArgumentException("Project cannot be null for GitHubAuth.");
         }
@@ -124,7 +124,7 @@ public class GitHubAuth
         }
 
         // Try with token
-        var token = Project.getGitHubToken();
+        var token = MainProject.getGitHubToken();
         if (token != null && !token.isBlank()) {
             try {
                 logger.debug("Attempting GitHub connection with token for {}/{}", owner, repoName);

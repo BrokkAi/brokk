@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -53,7 +53,7 @@ public class GuiTheme {
 
         try {
             // Save preference first so we know the value is stored
-            Project.setTheme(themeName);
+            MainProject.setTheme(themeName);
 
             // Apply the theme to the Look and Feel
             if (isDark) {
@@ -173,7 +173,7 @@ public class GuiTheme {
      * @return true if dark theme is active
      */
     public boolean isDarkTheme() {
-        return THEME_DARK.equalsIgnoreCase(Project.getTheme());
+        return THEME_DARK.equalsIgnoreCase(MainProject.getTheme());
     }
 
     /**

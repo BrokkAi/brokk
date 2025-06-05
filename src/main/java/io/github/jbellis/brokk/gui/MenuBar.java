@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.BuildInfo;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
@@ -184,14 +185,12 @@ public class MenuBar {
                             .toList();
                 });
 
-                FileSelectionDialog dialog = new FileSelectionDialog(
-                        chrome.getFrame(),
-                        project,
-                        "Select File to View",
-                        false, // Don't allow external files
-                        f -> true, // Allow all files/directories in tree
-                        allFilesFuture
-                );
+                FileSelectionDialog dialog = new FileSelectionDialog(chrome.getFrame(),
+                                                                     project,
+                                                                     "Select File to View",
+                                                                     false,
+                                                                     f -> true,
+                                                                     allFilesFuture);
                 dialog.setVisible(true);
 
                 if (dialog.isConfirmed() && dialog.getSelectedFile() != null) {
@@ -314,7 +313,7 @@ public class MenuBar {
     private static void rebuildRecentProjectsMenu(JMenu recentMenu) {
         recentMenu.removeAll();
 
-        var map = io.github.jbellis.brokk.Project.loadRecentProjects();
+        var map = MainProject.loadRecentProjects();
         if (map.isEmpty()) {
             var emptyItem = new JMenuItem("(No Recent Projects)");
             emptyItem.setEnabled(false);

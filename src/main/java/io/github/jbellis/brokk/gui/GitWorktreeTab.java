@@ -2,7 +2,8 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
@@ -232,7 +233,7 @@ public class GitWorktreeTab extends JPanel {
                     SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0); // Clear existing rows
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
-                            String sessionTitle = Project.getActiveSessionTitle(wt.path())
+                            String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
                                     .orElse("(no session)");
                             worktreeTableModel.addRow(new Object[]{
                                     wt.path().toString(),
@@ -268,7 +269,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        Project parentProject = contextManager.getProject();
+        MainProject parentProject = (MainProject) contextManager.getProject();
 
         contextManager.submitUserTask("Opening/focusing worktree(s)", () -> {
             for (Path worktreePath : worktreePaths) {
@@ -324,20 +325,18 @@ public class GitWorktreeTab extends JPanel {
 
     private void addWorktree() {
         // Get Project and IGitRepo instances
-        Project project = contextManager.getProject();
+        MainProject project = (MainProject) contextManager.getProject();
         IGitRepo repo = project.getRepo();
         
         // Verify that IGitRepo is an instance of GitRepo
-        if (!(repo instanceof GitRepo)) {
+        if (!(repo instanceof GitRepo gitRepo)) {
             JOptionPane.showMessageDialog(this, 
                 "Worktree operations are only supported for Git repositories.", 
                 "Error", 
                 JOptionPane.ERROR_MESSAGE);
             return;
         }
-        
-        GitRepo gitRepo = (GitRepo) repo;
-        
+
         try {
             // Branch Selection Logic
             List<String> localBranches = gitRepo.listLocalBranches();
@@ -346,7 +345,7 @@ public class GitWorktreeTab extends JPanel {
             // Determine available branches
             List<String> availableBranches = localBranches.stream()
                 .filter(branch -> !branchesInWorktrees.contains(branch))
-                .collect(Collectors.toList());
+                .toList();
             
             if (availableBranches.isEmpty()) {
                 JOptionPane.showMessageDialog(this, 
@@ -447,14 +446,14 @@ public class GitWorktreeTab extends JPanel {
                     }
 
                     // Create Project instance for the new worktree to manage its session
-                    Project newWorktreeProject = new Project(newWorktreePath, project);
+                    var newWorktreeProject = new WorktreeProject(newWorktreePath, project);
                     String sessionName = "Worktree: " + branchNameToUse;
-                    Project.SessionInfo newSession = newWorktreeProject.newSession(sessionName);
+                    MainProject.SessionInfo newSession = newWorktreeProject.newSession(sessionName);
                     newWorktreeProject.setLastActiveSession(newSession.id());
                     newWorktreeProject.saveWorkspaceProperties(); // Save the session id
                     newWorktreeProject.close(); // Release resources
 
-                    final Project parentProject = project;
+                    final MainProject parentProject = project;
                     SwingUtilities.invokeLater(() -> Brokk.openProject(newWorktreePath, parentProject));
 
                     SwingUtilities.invokeLater(this::loadWorktrees);
@@ -508,7 +507,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        Project project = contextManager.getProject();
+        MainProject project = (MainProject) contextManager.getProject();
         IGitRepo repo = project.getRepo();
 
         if (!(repo instanceof GitRepo)) { // Should not happen if buttons are correctly disabled by buildUnsupportedUI

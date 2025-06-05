@@ -228,7 +228,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    public Project getProject() {
+    public IProject getProject() {
         return contextManager.getProject();
     }
 
@@ -323,7 +323,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
         // Apply current theme based on project settings
-        String currentTheme = Project.getTheme();
+        String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         switchTheme(isDark);

@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.Project.CpgRefresh;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +27,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private final AnalyzerListener listener; // can be null if no one is listening
     private final Path root;
     private final ContextManager.TaskRunner runner;
-    private final Project project;
+    private final IProject project;
 
     private volatile boolean running = true;
     private volatile boolean paused = false;
@@ -39,7 +38,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
 
-    public AnalyzerWrapper(Project project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
+    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
         this.runner = runner;
@@ -167,7 +166,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
 
             if (relevantFileChanged) {
-                if (project.getAnalyzerRefresh() == CpgRefresh.AUTO) {
+                if (project.getAnalyzerRefresh() == IProject.CpgRefresh.AUTO) {
                     logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                                  batch.stream()
                                          .filter(e -> trackedPaths.contains(e.path))
@@ -231,7 +230,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
             long startTime = System.currentTimeMillis();
 
-            if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+            if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
                 logger.debug("First startup for language {}: timing Analyzer creation", lang.name());
                 resultAnalyzer = lang.createAnalyzer(project);
             } else {
@@ -257,7 +256,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 IAnalyzer delegate;
                 long langStartTime = System.currentTimeMillis();
 
-                if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+                if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
                      delegate = lang.createAnalyzer(project);
                 } else {
                     delegate = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
@@ -287,7 +286,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.afterEachBuild();
         }
 
-        if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+        if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
             handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, allEmpty, projectLangs);
             startWatcher();
         } else if (isInitialLoad) { // Not UNSET, but still initial load
@@ -307,11 +306,11 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.warn("AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
             // Set a default refresh policy if listener is unexpectedly null
             if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(CpgRefresh.MANUAL);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             } else {
-                project.setAnalyzerRefresh(CpgRefresh.AUTO);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             }
             return;
         }
@@ -320,7 +319,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.info("Empty {} analyzer", langNames);
             listener.afterFirstBuild("");
         } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(CpgRefresh.MANUAL);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
@@ -329,7 +328,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
@@ -338,7 +337,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
-            project.setAnalyzerRefresh(CpgRefresh.AUTO);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             If this is fewer than expected, it's probably because Brokk only looks for %s files.
@@ -363,7 +362,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL) {
             logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
                 return lang.loadAnalyzer(project);

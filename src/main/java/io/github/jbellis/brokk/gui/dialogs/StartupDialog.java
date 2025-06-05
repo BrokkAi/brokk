@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -223,7 +223,7 @@ public class StartupDialog extends JDialog {
         }
 
         assert finalKeyToUse != null : "finalKeyToUse should have been set if no errors occurred.";
-        Project.setBrokkKey(finalKeyToUse);
+        MainProject.setBrokkKey(finalKeyToUse);
 
         // --- Determine the Project Path ---
         Path finalProjectPathToUse;

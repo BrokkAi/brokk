@@ -5,10 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
-import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -22,7 +19,6 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * A component that combines the context history panel with the output panel using BorderLayout.
@@ -36,7 +32,7 @@ public class HistoryOutputPanel extends JPanel {
     private DefaultTableModel historyModel;
     private JButton undoButton;
     private JButton redoButton;
-    private JComboBox<Project.SessionInfo> sessionComboBox;
+    private JComboBox<MainProject.SessionInfo> sessionComboBox;
     private JButton newSessionButton;
     private JButton manageSessionsButton;
 
@@ -143,7 +139,7 @@ public class HistoryOutputPanel extends JPanel {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                          boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof Project.SessionInfo sessionInfo) {
+                if (value instanceof MainProject.SessionInfo sessionInfo) {
                     setText(sessionInfo.name());
                 }
                 return this;
@@ -152,7 +148,7 @@ public class HistoryOutputPanel extends JPanel {
         
         // Add selection listener for session switching
         sessionComboBox.addActionListener(e -> {
-            var selectedSession = (Project.SessionInfo) sessionComboBox.getSelectedItem();
+            var selectedSession = (MainProject.SessionInfo) sessionComboBox.getSelectedItem();
             if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
                 contextManager.switchSessionAsync(selectedSession.id());
             }
@@ -213,7 +209,7 @@ public class HistoryOutputPanel extends JPanel {
             // Clear and repopulate
             sessionComboBox.removeAllItems();
             var sessions = contextManager.getProject().listSessions();
-            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed()); // Most recent first
+            sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed()); // Most recent first
             
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
@@ -744,7 +740,7 @@ public class HistoryOutputPanel extends JPanel {
      * Inner class representing a detached window for viewing output text
      */
     private static class OutputWindow extends JFrame {
-        private final Project project;
+        private final IProject project;
         /**
          * Creates a new output window with the given text content
          *
@@ -825,23 +821,6 @@ public class HistoryOutputPanel extends JPanel {
 
             // Make window visible
             setVisible(true);
-        }
-        
-        /**
-         * Helper method to find JScrollPane component within a container
-         */
-        private Component findScrollPane(Container container) {
-            for (Component comp : container.getComponents()) {
-                if (comp instanceof JScrollPane) {
-                    return comp;
-                } else if (comp instanceof Container subContainer) {
-                    Component found = findScrollPane(subContainer);
-                    if (found != null) {
-                        return found;
-                    }
-                }
-            }
-            return null;
         }
     }
 
