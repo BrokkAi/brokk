@@ -5,10 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
-import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -21,8 +18,10 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * A component that combines the context history panel with the output panel using BorderLayout.
@@ -48,6 +47,9 @@ public class HistoryOutputPanel extends JPanel {
     private JButton copyButton;
 
     private InstructionsPanel instructionsPanel;
+    private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
+    
+    private String lastSpinnerMessage;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -325,7 +327,7 @@ public class HistoryOutputPanel extends JPanel {
                          if (output != null) {
                              // Open in new window
                              new OutputWindow(HistoryOutputPanel.this, output,
-                                              chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+                                              chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
                          }
                      }
                  }
@@ -629,9 +631,25 @@ public class HistoryOutputPanel extends JPanel {
         openWindowButton.setMnemonic(KeyEvent.VK_W);
         openWindowButton.setToolTipText("Open the output in a new window");
         openWindowButton.addActionListener(e -> {
-            var output = contextManager.selectedContext().getParsedOutput();
-            if (output != null) {
-                new OutputWindow(this, output, chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+            if (llmStreamArea.isBlocking()) {
+                List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
+                var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), true);
+                if (lastSpinnerMessage != null) {
+                    newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
+                }
+                activeStreamingWindows.add(newStreamingWindow);
+                newStreamingWindow.addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent evt) {
+                        activeStreamingWindows.remove(newStreamingWindow);
+                    }
+                });
+            } else {
+                var output = contextManager.selectedContext().getParsedOutput();
+                if (output != null) {
+                    new OutputWindow(this, output, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
+                }
             }
         });
         // Set minimum size
@@ -685,6 +703,7 @@ public class HistoryOutputPanel extends JPanel {
      */
     public void appendLlmOutput(String text, ChatMessageType type) {
         llmStreamArea.append(text, type);
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().append(text, type));
     }
 
     /**
@@ -701,6 +720,8 @@ public class HistoryOutputPanel extends JPanel {
         if (llmStreamArea != null) {
             llmStreamArea.showSpinner(message);
         }
+        lastSpinnerMessage = message;
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
 
     /**
@@ -710,6 +731,8 @@ public class HistoryOutputPanel extends JPanel {
         if (llmStreamArea != null) {
             llmStreamArea.hideSpinner();
         }
+        lastSpinnerMessage = null;
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
 
     /**
@@ -735,6 +758,10 @@ public class HistoryOutputPanel extends JPanel {
     public void setMarkdownOutputPanelBlocking(boolean blocked) {
         if (llmStreamArea != null) {
             llmStreamArea.setBlocking(blocked);
+            if (!blocked) {
+                activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setBlocking(false));
+                activeStreamingWindows.clear();
+            }
         } else {
             logger.warn("Attempted to set blocking state on null llmStreamArea");
         }
@@ -745,6 +772,8 @@ public class HistoryOutputPanel extends JPanel {
      */
     private static class OutputWindow extends JFrame {
         private final Project project;
+        private final MarkdownOutputPanel outputPanel;
+
         /**
          * Creates a new output window with the given text content
          *
@@ -752,7 +781,7 @@ public class HistoryOutputPanel extends JPanel {
          * @param output The messages (ai, user, ...) to display
          * @param isDark Whether to use dark theme
          */
-        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, boolean isDark) {
+        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, boolean isDark, boolean isBlockingMode) {
             super("Output"); // Call superclass constructor first
                 
                 // Set icon from Chrome.newFrame
@@ -770,7 +799,7 @@ public class HistoryOutputPanel extends JPanel {
                 setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
             // Create markdown panel with the text
-            var outputPanel = new MarkdownOutputPanel();
+            outputPanel = new MarkdownOutputPanel();
             outputPanel.updateTheme(isDark);
             outputPanel.setText(output);
             
@@ -780,8 +809,11 @@ public class HistoryOutputPanel extends JPanel {
             // Add the content panel to the frame
             add(contentPanel);
             
-            // Schedule compaction after everything is set up
-            outputPanel.scheduleCompaction();
+            if (!isBlockingMode) {
+                // Schedule compaction after everything is set up
+                outputPanel.scheduleCompaction();
+            }
+            outputPanel.setBlocking(isBlockingMode);
 
             // Load saved size and position, or use defaults
             var bounds = project.getOutputWindowBounds();
@@ -826,7 +858,14 @@ public class HistoryOutputPanel extends JPanel {
             // Make window visible
             setVisible(true);
         }
-        
+
+        /**
+         * Gets the MarkdownOutputPanel used by this window.
+         */
+        public MarkdownOutputPanel getMarkdownOutputPanel() {
+            return outputPanel;
+        }
+
         /**
          * Helper method to find JScrollPane component within a container
          */
