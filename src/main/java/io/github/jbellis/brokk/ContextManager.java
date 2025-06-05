@@ -151,11 +151,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
             this.currentSessionId = newSessionInfo.id();
             logger.info("Created and loaded new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
         } else {
-            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::modified).reversed());
+            sessions.sort(java.util.Comparator.comparingLong(Project.SessionInfo::lastAccessed).reversed());
             var latestSession = sessions.get(0);
             this.currentSessionId = latestSession.id();
             logger.info("Loaded most recent session: {} ({})", latestSession.name(), latestSession.id());
         }
+        project.updateSessionLastAccessed(this.currentSessionId);
         
         this.contextHistory = new ContextHistory();
         this.service = new ServiceWrapper();
@@ -1746,6 +1747,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var future = submitUserTask("Switching session", () -> {
             logger.info("Attempting to switch to session: {}", sessionId);
             this.currentSessionId = sessionId;
+            project.updateSessionLastAccessed(this.currentSessionId);
             String sessionName = project.listSessions().stream()
                     .filter(s -> s.id().equals(sessionId))
                     .findFirst()

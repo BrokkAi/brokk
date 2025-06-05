@@ -71,7 +71,7 @@ public class Project implements IProject, AutoCloseable {
     /**
      * Record representing session metadata for the sessions management system.
      */
-    public record SessionInfo(UUID id, String name, long created, long modified) {}
+    public record SessionInfo(UUID id, String name, long created, long modified, long lastAccessed) {}
 
     // --- Static paths for global config ---
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
@@ -726,16 +726,6 @@ public class Project implements IProject, AutoCloseable {
         if (!hasGit()) {
             return false;
         }
-        // We can safely cast to GitRepo because hasGit() checks this.
-        // However, getRemoteUrl is available on IGitRepo, which GitRepo implements.
-        // But getRemoteUrl is specific to GitRepo, not on IGitRepo in general.
-        // The IGitRepo interface in the provided context does not have getRemoteUrl.
-        // The GitRepo class *does* have getRemoteUrl("origin").
-        // So, we need to ensure 'repo' is indeed a GitRepo instance if we want to call that specific method.
-        // The current getRepo() returns IGitRepo.
-        // Let's assume getRepo() returns a GitRepo instance when hasGit() is true.
-        // If getRemoteUrl("origin") was on IGitRepo, we wouldn't need the cast.
-        // Given the context, if hasGit() is true, repo *is* a GitRepo.
         var gitRepo = (GitRepo) getRepo(); // Assuming getRepo() returns GitRepo when hasGit() is true
         String remoteUrl = gitRepo.getRemoteUrl("origin");
 
@@ -840,7 +830,7 @@ public class Project implements IProject, AutoCloseable {
             }
             
             if (currentInfo != null) {
-                var updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                var updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis(), currentInfo.lastAccessed());
                 sessions.set(index, updatedInfo);
                 saveSessions(sessions);
             } else {
@@ -1646,7 +1636,7 @@ public class Project implements IProject, AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = UUID.randomUUID();
         var currentTime = System.currentTimeMillis();
-        var newSession = new SessionInfo(sessionId, name, currentTime, currentTime);
+        var newSession = new SessionInfo(sessionId, name, currentTime, currentTime, currentTime);
         
         // Add to existing sessions list
         var sessions = new ArrayList<>(listSessions());
@@ -1685,7 +1675,7 @@ public class Project implements IProject, AutoCloseable {
         }
         
         if (oldInfo != null) {
-            SessionInfo updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), oldInfo.modified());
+            SessionInfo updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), oldInfo.modified(), oldInfo.lastAccessed());
             sessions.set(index, updatedInfo);
             saveSessions(sessions);
         } else {
@@ -1739,7 +1729,7 @@ public class Project implements IProject, AutoCloseable {
             return null;
         }
         long currentTime = System.currentTimeMillis();
-        SessionInfo newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
+        SessionInfo newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, currentTime);
         List<SessionInfo> sessions = new ArrayList<>(listSessions());
         sessions.add(newSessionInfo);
         saveSessions(sessions);
@@ -1749,5 +1739,34 @@ public class Project implements IProject, AutoCloseable {
     @Override
     public void close() {
         // analyzerWrapper is now closed by ContextManager
+    }
+
+    /**
+     * Updates the lastAccessed timestamp for a given session.
+     *
+     * @param sessionId The UUID of the session to update
+     */
+    public void updateSessionLastAccessed(UUID sessionId) {
+        List<SessionInfo> sessions = new ArrayList<>(listSessions());
+        int index = -1;
+        SessionInfo currentInfo = null;
+
+        for (int i = 0; i < sessions.size(); i++) {
+            if (sessions.get(i).id().equals(sessionId)) {
+                currentInfo = sessions.get(i);
+                index = i;
+                break;
+            }
+        }
+
+        if (currentInfo != null) {
+            long newLastAccessedTime = System.currentTimeMillis();
+            SessionInfo updatedInfo = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), currentInfo.modified(), newLastAccessedTime);
+            sessions.set(index, updatedInfo);
+            saveSessions(sessions);
+            logger.debug("Updated lastAccessed for session \"{}\" (ID: {}) to {}", updatedInfo.name(), updatedInfo.id(), newLastAccessedTime);
+        } else {
+            logger.warn("Session ID {} not found, cannot update lastAccessed time.", sessionId);
+        }
     }
 }
