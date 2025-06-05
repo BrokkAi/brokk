@@ -812,12 +812,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param image The java.awt.Image pasted from the clipboard.
      */
+    public ContextFragment.AnonymousImageFragment addPastedImageFragment(java.awt.Image image, String descriptionOverride) {
+        Future<String> descriptionFuture;
+        if (descriptionOverride != null && !descriptionOverride.isBlank()) {
+            descriptionFuture = CompletableFuture.completedFuture(descriptionOverride);
+        } else {
+            descriptionFuture = submitSummarizePastedImage(image);
+        }
+
+        // Must be final for lambda capture in pushContext
+        final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        return fragment;
+    }
+
+    /**
+     * Handles pasting an image from the clipboard without a predefined description.
+     * This will trigger asynchronous summarization of the image.
+     *
+     * @param image The java.awt.Image pasted from the clipboard.
+     */
     public void addPastedImageFragment(java.awt.Image image) {
-        Future<String> descriptionFuture = submitSummarizePastedImage(image);
-        pushContext(currentLiveCtx -> {
-            var fragment = new ContextFragment.PasteImageFragment(this, image, descriptionFuture);
-            return currentLiveCtx.addVirtualFragment(fragment);
-        });
+        addPastedImageFragment(image, null); // Calls the overload with descriptionOverride as null
     }
 
     /**
@@ -1254,7 +1270,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         liveContext = fr.liveContext();
         var frozen = fr.frozenContext();
         contextHistory.addFrozenContextAndClearRedo(frozen); // Add frozen version to history
-        notifyContextListeners(frozen);
+
+        // Ensure listeners are notified on the EDT
+        Context finalFrozenContext = frozen; // Effectively final for lambda
+        SwingUtilities.invokeLater(() -> notifyContextListeners(finalFrozenContext));
+
         project.saveHistory(contextHistory, currentSessionId);    // Persist the history of frozen contexts
 
         // Check conversation history length on the new live context

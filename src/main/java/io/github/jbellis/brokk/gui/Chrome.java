@@ -856,9 +856,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                
+                boolean escapeHtml = outputFragment.isEscapeHtml();
+
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel();
+                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
@@ -888,7 +889,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 3. Image fragments (clipboard image or image file)
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.PasteImageFragment) workingFragment;
+                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
                     var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);

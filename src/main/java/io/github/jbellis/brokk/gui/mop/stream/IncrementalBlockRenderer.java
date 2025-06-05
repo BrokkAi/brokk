@@ -57,7 +57,6 @@ public final class IncrementalBlockRenderer {
     // Content tracking
     private String lastHtmlFingerprint = "";
     private String currentMarkdown = "";  // The current markdown content (always markdown, never HTML)
-    private String compactedHtml = "";    // HTML content after compaction (empty if not compacted)
     private boolean compacted = false;    // Whether content has been compacted for better text selection
 
     // Per-instance HTML customizer; defaults to NO_OP to avoid null checks
@@ -82,18 +81,23 @@ public final class IncrementalBlockRenderer {
      * @param dark true for dark theme, false for light theme
      */
     public IncrementalBlockRenderer(boolean dark) {
-        this(dark, true);
+        this(dark, true, true);
     }
-    
+
+    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks) {
+        this(dark, enableEditBlocks, true);
+    }
+
     /**
-     * Creates a new incremental renderer with the given theme and edit block setting.
-     * 
+     * Creates a new incremental renderer with the given theme, edit block, and HTML escaping settings.
+     *
      * @param dark true for dark theme, false for light theme
      * @param enableEditBlocks true to enable edit block parsing and rendering, false to disable
+     * @param escapeHtml true to escape HTML within markdown, false to allow raw HTML
      */
-    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks) {
+    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks, boolean escapeHtml) {
         this.isDarkTheme = dark;
-        
+
         // Create root panel with vertical BoxLayout
         root = new JPanel();
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -110,9 +114,9 @@ public final class IncrementalBlockRenderer {
             .set(BrokkMarkdownExtension.ENABLE_EDIT_BLOCK, enableEditBlocks)
             .set(IdProvider.ID_PROVIDER, idProvider)
             .set(HtmlRenderer.SOFT_BREAK, "<br />\n")
-            .set(HtmlRenderer.ESCAPE_HTML, true)
+            .set(HtmlRenderer.ESCAPE_HTML, escapeHtml)
             .set(TablesExtension.MIN_SEPARATOR_DASHES, 1);
-            
+
         parser = Parser.builder(options).build();
         renderer = HtmlRenderer.builder(options).build();
         
@@ -415,10 +419,6 @@ public final class IncrementalBlockRenderer {
         compacted = true;
 
         // Store the compacted HTML for future reference
-        this.compactedHtml = mergedComponents.stream()
-                                         .filter(cd -> cd instanceof MarkdownComponentData)
-                                         .map(cd -> ((MarkdownComponentData) cd).html())
-                                         .collect(Collectors.joining("\n"));
         this.lastHtmlFingerprint = mergedComponents.stream().map(ComponentData::fp).collect(Collectors.joining("-"));
     }
 
@@ -530,7 +530,6 @@ public final class IncrementalBlockRenderer {
      * Returns the Swing component that displays the given marker id, if any.
      */
     public java.util.Optional<JComponent> findByMarkerId(int id) {
-        assert SwingUtilities.isEventDispatchThread() : "findByMarkerId must be called on EDT";
         return Optional.ofNullable(markerIndex.get(id));
     }
 
@@ -538,7 +537,6 @@ public final class IncrementalBlockRenderer {
      * Returns all marker ids currently known to this renderer.
      */
     public Set<Integer> getIndexedMarkerIds() {
-        assert SwingUtilities.isEventDispatchThread() : "getIndexedMarkerIds must be called on EDT";
         return Set.copyOf(markerIndex.keySet());
     }
     

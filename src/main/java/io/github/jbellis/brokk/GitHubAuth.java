@@ -10,9 +10,13 @@ import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
 import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Handles GitHub authentication and API calls.
@@ -202,5 +206,33 @@ public class GitHubAuth
     {
         var pr = getGhRepository().getPullRequest(prNumber);
         return pr.listCommits().toList();
+    }
+
+    /**
+     * Creates an OkHttpClient configured with GitHub authentication.
+     *
+     * @return An authenticated OkHttpClient.
+     */
+    public OkHttpClient authenticatedClient() {
+        var builder = new OkHttpClient.Builder()
+                .connectTimeout(5, TimeUnit.SECONDS) // Sensible defaults
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(5, TimeUnit.SECONDS)
+                .followRedirects(true);
+
+        var token = Project.getGitHubToken();
+        if (token != null && !token.isBlank()) {
+            builder.addInterceptor(chain -> {
+                Request originalRequest = chain.request();
+                Request authenticatedRequest = originalRequest.newBuilder()
+                        .header("Authorization", "token " + token)
+                        .build();
+                return chain.proceed(authenticatedRequest);
+            });
+            logger.debug("Authenticated OkHttpClient created with token.");
+        } else {
+            logger.debug("GitHub token not found or blank; OkHttpClient will be unauthenticated for direct image fetches.");
+        }
+        return builder.build();
     }
 }

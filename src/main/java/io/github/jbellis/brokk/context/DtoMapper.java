@@ -201,7 +201,7 @@ public class DtoMapper {
             case PasteTextFragmentDto pasteTextDto -> new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()));
             case PasteImageFragmentDto pasteImageDto -> {
                 Image image = base64ToImage(pasteImageDto.base64ImageData());
-                yield new ContextFragment.PasteImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
+                yield new ContextFragment.AnonymousImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
             }
             case StacktraceFragmentDto stacktraceDto -> {
                 var sources = stacktraceDto.sources().stream()
@@ -456,7 +456,7 @@ public class DtoMapper {
                 }
                 yield new PasteTextFragmentDto(pasteTextFragment.id(), pasteTextFragment.text(), description); // PasteTextFragment is non-dynamic
             }
-            case ContextFragment.PasteImageFragment pasteImageFragment -> {
+            case ContextFragment.AnonymousImageFragment pasteImageFragment -> {
                 // Block for up to 10 seconds to get the completed description
                 String description;
                 try {

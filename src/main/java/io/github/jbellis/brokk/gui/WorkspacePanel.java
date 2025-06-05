@@ -19,11 +19,10 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
+import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -1609,20 +1608,20 @@ public class WorkspacePanel extends JPanel {
 
                 if (uri != null) { // Only proceed if URI parsing was successful
                     // Try to handle as image URL first
-                    if (isImageUri(uri)) {
+                    if (ImageUtil.isImageUri(uri, httpClient)) {
                         try {
                             chrome.systemOutput("Fetching image from " + clipboardText);
-                            java.awt.Image image = javax.imageio.ImageIO.read(uri.toURL());
+                            java.awt.Image image = ImageUtil.downloadImage(uri, httpClient);
                             if (image != null) {
                                 contextManager.addPastedImageFragment(image);
                                 chrome.systemOutput("Pasted image from URL added to context");
                                 chrome.actionComplete();
                                 return; // Image handled, done with paste action
                             } else {
-                                logger.warn("URL {} identified as image, but ImageIO.read returned null. Falling back to text.", clipboardText);
+                                logger.warn("URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.", clipboardText);
                                 chrome.systemOutput("Could not load image from URL. Trying to fetch as text.");
                             }
-                        } catch (IOException e) {
+                        } catch (Exception e) { // Catching general exception as downloadImage might throw various things indirectly
                             logger.warn("Failed to fetch or decode image from URL {}: {}. Falling back to text.", clipboardText, e.getMessage());
                             chrome.systemOutput("Failed to load image from URL: " + e.getMessage() + ". Trying to fetch as text.");
                             // Fall through to fetching as text
@@ -1789,30 +1788,6 @@ public class WorkspacePanel extends JPanel {
 
     private boolean isUrl(String text) {
         return text.matches("^https?://\\S+$");
-    }
-
-    private boolean isImageUri(URI uri) {
-        Request request = new Request.Builder()
-                .url(uri.toString())
-                .head() // Send a HEAD request
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (response.isSuccessful()) {
-                String contentType = response.header("Content-Type");
-                if (contentType != null) {
-                    logger.debug("URL {} Content-Type: {}", uri, contentType);
-                    return contentType.toLowerCase().startsWith("image/");
-                } else {
-                    logger.warn("URL {} did not return a Content-Type header.", uri);
-                }
-            } else {
-                logger.warn("HEAD request to {} failed with code: {}", uri, response.code());
-            }
-        } catch (IOException e) {
-            logger.error("IOException during HEAD request to {}: {}", uri, e.getMessage());
-        }
-        return false;
     }
 
     /**

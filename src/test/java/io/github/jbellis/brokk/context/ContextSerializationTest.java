@@ -142,7 +142,7 @@ public class ContextSerializationTest {
 
         // Context 2: Image fragment, task history
         var image1 = createTestImage(Color.RED, 10, 10);
-        var pasteImageFragment1 = new ContextFragment.PasteImageFragment(mockContextManager, image1, CompletableFuture.completedFuture("Pasted Red Image"));
+        var pasteImageFragment1 = new ContextFragment.AnonymousImageFragment(mockContextManager, image1, CompletableFuture.completedFuture("Pasted Red Image"));
         
         var context2 = new Context(mockContextManager, "Context 2 started")
                 .addVirtualFragment(pasteImageFragment1);
@@ -173,7 +173,7 @@ public class ContextSerializationTest {
 
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Pasted Red Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description()))
             .findFirst();
         assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted Red Image fragment not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
@@ -181,7 +181,7 @@ public class ContextSerializationTest {
         byte[] imageBytesContent;
         if (loadedImageFragment instanceof FrozenFragment ff) {
             imageBytesContent = ff.imageBytesContent();
-        } else if (loadedImageFragment instanceof ContextFragment.PasteImageFragment pif) {
+        } else if (loadedImageFragment instanceof ContextFragment.AnonymousImageFragment pif) {
             imageBytesContent = imageToBytes(pif.image());
         } else {
             throw new AssertionError("Unexpected fragment type for pasted image: " + loadedImageFragment.getClass());
@@ -291,12 +291,12 @@ public class ContextSerializationTest {
         // Create two PasteImageFragments with identical content and description
         // This should result in the same FrozenFragment instance due to interning
         var sharedDescription = "Shared Blue Image";
-        var liveImageFrag1 = new ContextFragment.PasteImageFragment(
+        var liveImageFrag1 = new ContextFragment.AnonymousImageFragment(
             mockContextManager, 
             sharedImage, 
             CompletableFuture.completedFuture(sharedDescription)
         );
-        var liveImageFrag2 = new ContextFragment.PasteImageFragment(
+        var liveImageFrag2 = new ContextFragment.AnonymousImageFragment(
             mockContextManager, 
             sharedImage, 
             CompletableFuture.completedFuture(sharedDescription)
@@ -333,19 +333,19 @@ public class ContextSerializationTest {
         
         // Find the image fragments in each context
         var fragment1 = loadedCtx1.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Shared Blue Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
             .findFirst()
             .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
             
         var fragment2 = loadedCtx2.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Shared Blue Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
             .findFirst()
             .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
         
         byte[] imageBytes1, imageBytes2;
         if (fragment1 instanceof FrozenFragment ff1) {
             imageBytes1 = ff1.imageBytesContent();
-        } else if (fragment1 instanceof ContextFragment.PasteImageFragment pif1) {
+        } else if (fragment1 instanceof ContextFragment.AnonymousImageFragment pif1) {
             imageBytes1 = imageToBytes(pif1.image());
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx1: " + fragment1.getClass());
@@ -353,7 +353,7 @@ public class ContextSerializationTest {
 
         if (fragment2 instanceof FrozenFragment ff2) {
             imageBytes2 = ff2.imageBytesContent();
-        } else if (fragment2 instanceof ContextFragment.PasteImageFragment pif2) {
+        } else if (fragment2 instanceof ContextFragment.AnonymousImageFragment pif2) {
             imageBytes2 = imageToBytes(pif2.image());
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx2: " + fragment2.getClass());
@@ -376,8 +376,8 @@ public class ContextSerializationTest {
         assertEquals(8, reconstructedImage2.getHeight());
         
         // Verify descriptions
-        assertEquals("Paste of " + sharedDescription, fragment1.description());
-        assertEquals("Paste of " + sharedDescription, fragment2.description());
+        assertEquals(sharedDescription, fragment1.description());
+        assertEquals(sharedDescription, fragment2.description());
     }
 
     @Test
