@@ -309,7 +309,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // Schedule background rebuild if using stale cached analyzer
         if (needsRebuild) {
             logger.debug("Scheduling background rebuild for stale analyzer");
-            requestRebuild();
+            rebuild();
         }
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
