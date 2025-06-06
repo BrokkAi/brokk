@@ -263,13 +263,13 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
 
         // Determine styling based on message type
         String title = null;
-        String iconText = null;
+        Icon iconEmoji = null;
         Color highlightColor = null;
         
         switch (message.type()) {
             case AI:
                 title = "Brokk";
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_ai");
                 break;
             case USER:
@@ -278,18 +278,18 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
                 } else {
                     title = "You";
                 }
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_user");
                 break;
             case CUSTOM:
             case SYSTEM:
                 title = "System";
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
                 break;
             default:
                 title = message.type().toString();
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
         }
         
@@ -304,7 +304,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         // Create the UI component (MessageBubble)
         var bubbleUI = new MessageBubble(
             title,
-            iconText,
+            iconEmoji,
             renderer.getRoot(),
             isDarkTheme,
             highlightColor
@@ -756,6 +756,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     public boolean getScrollableTracksViewportHeight() {
         return false;
     }
+
 
 
     /**
