@@ -388,7 +388,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
             logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
                 return new CachedAnalyzerResult(lang.loadAnalyzer(project), false);
