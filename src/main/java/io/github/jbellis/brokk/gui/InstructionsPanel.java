@@ -1495,16 +1495,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             if (projectLoaded && !gitAvailable) {
                 codeButton.setEnabled(false);
                 codeButton.setToolTipText("Code feature requires Git integration for this project.");
+            } else if (!hasInstructions) {
+                codeButton.setEnabled(false);
+                codeButton.setToolTipText("Please enter instructions before running Code");
             } else {
                 codeButton.setEnabled(projectLoaded && cmAvailable);
                 // Default tooltip is set during initialization, no need to reset unless it changed
             }
 
-            askButton.setEnabled(projectLoaded && cmAvailable);
-            searchButton.setEnabled(projectLoaded && cmAvailable);
-            runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
-            // Enable deepScanButton only if instructionsArea is also enabled
-            deepScanButton.setEnabled(projectLoaded && cmAvailable && instructionsArea.isEnabled());
+            // Other buttons follow the same hasInstructions rule
+            if (!hasInstructions) {
+                askButton.setEnabled(false);
+                searchButton.setEnabled(false);
+                runButton.setEnabled(false);
+                deepScanButton.setEnabled(false);
+            } else {
+                askButton.setEnabled(projectLoaded && cmAvailable);
+                searchButton.setEnabled(projectLoaded && cmAvailable);
+                runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
+                // Enable deepScanButton only if instructionsArea is also enabled
+                deepScanButton.setEnabled(projectLoaded && cmAvailable && instructionsArea.isEnabled());
+            }
             // Stop is only enabled when an action is running
             stopButton.setEnabled(false);
 
