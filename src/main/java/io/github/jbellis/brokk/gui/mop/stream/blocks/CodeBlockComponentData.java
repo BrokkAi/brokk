@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.mop.stream.blocks;
 
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.MessageBubble;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.mop.util.ComponentUtils;
@@ -134,12 +135,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
                        fenceInfo.substring(0, 1).toUpperCase() + fenceInfo.substring(1);
 
         // Use code icon
-        //String iconText = "\uD83D\uDCDD"; // Unicode for memo/pencil emoji
-        var icon = UIManager.getIcon("Brokk.aiIcon");
-        if (icon == null) {
-            icon = UIManager.getIcon("TipOfTheDay.icon");
-        }
-        icon = UIManager.getIcon("TipOfTheDay.icon");
+        var icon = SwingUtil.uiIcon("FileChooser.listViewIcon");
 
         // Create the panel using BaseChatMessagePanel
         return new MessageBubble(
