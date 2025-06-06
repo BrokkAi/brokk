@@ -303,7 +303,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // Notify listener after each build, once currentAnalyzer is set
         if (listener != null) {
-            listener.afterEachBuild(isInitialLoad);
+            listener.afterEachBuild(externalRebuildRequested);
         }
 
         // Schedule background rebuild if using stale cached analyzer
