@@ -30,6 +30,7 @@ public interface AnalyzerListener
     /**
      * Called after each Analyzer build, successful or not.
      * This includes the initial build and any subsequent rebuilds.
+     * @param isInitialLoad true if this was the initial analyzer load, false for subsequent rebuilds.
      */
-    void afterEachBuild();
+    void afterEachBuild(boolean isInitialLoad);
 }

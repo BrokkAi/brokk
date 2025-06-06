@@ -277,7 +277,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void afterEachBuild() {
+            public void afterEachBuild(boolean isInitialLoad) {
                 // possible for analyzer build to finish before context load does
                 if (liveContext != null) {
                     var fr = liveContext.freeze();
@@ -285,10 +285,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     contextHistory.updateTopContext(fr.frozenContext());
                     io.updateWorkspace();
                 }
+                if (!isInitialLoad && io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer rebuild completed");
+                }
             }
         };
 
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener, (Chrome) this.io);
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
 
         // Load saved context history or create a new one
         submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);

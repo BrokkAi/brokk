@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.*;
-import io.github.jbellis.brokk.gui.Chrome;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -29,7 +28,6 @@ public class AnalyzerWrapper implements AutoCloseable {
     private final Path root;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
-    private final Chrome chrome;
 
     private volatile boolean running = true;
     private volatile boolean paused = false;
@@ -40,12 +38,11 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
 
-    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, AnalyzerListener listener, Chrome chrome) {
+    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
         this.runner = runner;
         this.listener = listener;
-        this.chrome = chrome;
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
@@ -306,15 +303,13 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // Notify listener after each build, once currentAnalyzer is set
         if (listener != null) {
-            listener.afterEachBuild();
+            listener.afterEachBuild(isInitialLoad);
         }
 
         // Schedule background rebuild if using stale cached analyzer
         if (needsRebuild) {
             logger.debug("Scheduling background rebuild for stale analyzer");
             requestRebuild();
-        } else if (!isInitialLoad) {
-            chrome.notifyActionComplete("Analyzer rebuild completed");
         }
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
