@@ -242,6 +242,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         }
                     });
                 }
+                // Update button states when text changes
+                updateButtonStates();
             }
 
             @Override
@@ -1475,14 +1477,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean projectLoaded = chrome.getProject() != null;
             boolean cmAvailable = this.contextManager != null;
             boolean gitAvailable = projectLoaded && chrome.getProject().hasGit();
+            boolean hasInstructions = !getInstructions().isBlank();
 
             // Architect Button
             if (projectLoaded && !gitAvailable) {
                 architectButton.setEnabled(false);
                 architectButton.setToolTipText("Architect feature requires Git integration for this project.");
+            } else if (!hasInstructions) {
+                architectButton.setEnabled(false);
+                architectButton.setToolTipText("Please enter instructions before running Architect");
             } else {
                 architectButton.setEnabled(projectLoaded && cmAvailable);
-                // Default tooltip is set during initialization, no need to reset unless it changed
+                architectButton.setToolTipText("Run the multi-step agent to execute the current plan");
             }
 
             // Code Button
