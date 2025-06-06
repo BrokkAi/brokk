@@ -70,6 +70,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
+    private static boolean isImage(Path p)
+    {
+        if (p == null || p.getFileName() == null) {
+            return false;
+        }
+        var lower = p.getFileName().toString().toLowerCase();
+        return FileExtensions.IMAGE_EXTENSIONS.stream().anyMatch(lower::endsWith);
+    }
+
     @NotNull
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return createLoggingExecutorService(toWrap, Set.of());
@@ -596,10 +605,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void editFiles(Collection<ProjectFile> files)
     {
-        var proposedEditableFragments = files.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, this)) // Pass IContextManager
-                .toList();
-        editFiles(proposedEditableFragments);
+        var filesByType = files.stream()
+                .collect(Collectors.partitioningBy(f -> isImage(f.absPath())));
+
+        var imageFiles = filesByType.get(true);
+        var nonImageFiles = filesByType.get(false);
+
+        if (!nonImageFiles.isEmpty()) {
+            var proposedEditableFragments = nonImageFiles.stream()
+                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, this)) // Pass IContextManager
+                    .toList();
+            // Call the overloaded editFiles method that handles List<ContextFragment.ProjectPathFragment>
+            this.editFiles(proposedEditableFragments);
+        }
+
+        if (!imageFiles.isEmpty()) {
+            // Add image files as read-only
+            addReadOnlyFiles(imageFiles);
+        }
     }
 
     /**
