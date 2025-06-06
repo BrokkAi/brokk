@@ -803,6 +803,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
         return fileSet.stream()
                 .filter(path -> !"/dev/null".equals(path))
+                .sorted() // Sort paths alphabetically for consistent ordering
                 .map(this::toProjectFile)
                 .collect(Collectors.toList());
     }
@@ -1487,7 +1488,7 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             // Ensure path is absolute for the command
             var absolutePath = path.toAbsolutePath().normalize();
-            
+
             // Check if branch exists locally
             List<String> localBranches = listLocalBranches();
             String command;

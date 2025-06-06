@@ -8,10 +8,15 @@ import javax.swing.undo.CompoundEdit;
 import javax.swing.undo.UndoManager;
 import javax.swing.undo.UndoableEdit;
 
-public class AbstractContentPanel
+public abstract class AbstractContentPanel
         extends JPanel
         implements JMeldContentPanelIF {
     private MyUndoManager undoManager = new MyUndoManager();
+
+    // Abstract methods to be implemented by subclasses for navigation logic
+    public abstract boolean isAtFirstLogicalChange();
+    public abstract boolean isAtLastLogicalChange();
+    public abstract void goToLastLogicalChange();
 
     public boolean isUndoEnabled() {
         return getUndoHandler().canUndo();
