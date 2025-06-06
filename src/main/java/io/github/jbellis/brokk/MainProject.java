@@ -1107,6 +1107,7 @@ public final class MainProject extends AbstractProject {
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
         }
+        var legacySessionIds = new HashSet<UUID>();
         if (Files.exists(legacySessionsIndexPath)) {
             logger.debug("Attempting to read legacy sessions from {}", legacySessionsIndexPath);
             try {
@@ -1115,11 +1116,20 @@ public final class MainProject extends AbstractProject {
                     if (!line.trim().isEmpty()) {
                         try {
                             var legacySessionInfo = objectMapper.readValue(line, SessionInfo.class);
+                            legacySessionIds.add(legacySessionInfo.id());
                             if (!sessionIdsFromManifests.contains(legacySessionInfo.id())) {
                                 Path correspondingZip = getSessionHistoryPath(legacySessionInfo.id());
                                 if (Files.exists(correspondingZip)) {
                                     sessions.add(legacySessionInfo);
-                                    logger.info("Loaded session {} info from legacy sessions.jsonl (manifest missing)", legacySessionInfo.id());
+                                    
+                                    // Migrate on the spot - write manifest to zip
+                                    try {
+                                        writeSessionInfoToZip(correspondingZip, legacySessionInfo);
+                                        sessionIdsFromManifests.add(legacySessionInfo.id());
+                                        logger.info("Migrated session {} into its zip manifest", legacySessionInfo.id());
+                                    } catch (IOException e) {
+                                        logger.warn("Unable to migrate legacy session {}: {}", legacySessionInfo.id(), e.getMessage());
+                                    }
                                 } else {
                                     logger.warn("Orphaned session {} in legacy sessions.jsonl (no zip found), skipping.", legacySessionInfo.id());
                                 }
@@ -1127,6 +1137,16 @@ public final class MainProject extends AbstractProject {
                         } catch (JsonProcessingException e) {
                             logger.error("Failed to parse legacy SessionInfo from line: {}", line, e);
                         }
+                    }
+                }
+                
+                // Delete legacy file if all sessions were successfully migrated
+                if (sessionIdsFromManifests.containsAll(legacySessionIds)) {
+                    try {
+                        Files.delete(legacySessionsIndexPath);
+                        logger.info("Successfully migrated all legacy sessions and deleted {}", legacySessionsIndexPath.getFileName());
+                    } catch (IOException e) {
+                        logger.warn("Could not delete legacy sessions.jsonl: {}", e.getMessage());
                     }
                 }
             } catch (IOException e) {

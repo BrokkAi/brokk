@@ -333,4 +333,62 @@ public class FragmentDtos {
             }
         }
     }
+
+    /**
+     * DTO for holding all unique fragments in a session history.
+     * Used as the top-level object for fragments.json.
+     */
+    public record AllFragmentsDto(
+            int version, // Version of the fragment DTO structure
+            Map<Integer, ReferencedFragmentDto> referenced,
+            Map<Integer, VirtualFragmentDto> virtual,
+            Map<Integer, TaskFragmentDto> task) {
+        public AllFragmentsDto {
+            if (version < 1) {
+                throw new IllegalArgumentException("Version must be 1 or greater");
+            }
+            referenced = referenced != null ? Map.copyOf(referenced) : Map.of();
+            virtual = virtual != null ? Map.copyOf(virtual) : Map.of();
+            task = task != null ? Map.copyOf(task) : Map.of();
+        }
+    }
+
+    /**
+     * Compact DTO for Context, referring to fragments by ID.
+     * Used in contexts.jsonl.
+     */
+    public record CompactContextDto(
+            List<Integer> editable,
+            List<Integer> readonly,
+            List<Integer> virtuals, // Renamed from virtual to virtuals to avoid keyword clash if ever used as var
+            List<TaskEntryRefDto> tasks,
+            Integer parsedOutputId,
+            String action) {
+        public CompactContextDto {
+            editable = editable != null ? List.copyOf(editable) : List.of();
+            readonly = readonly != null ? List.copyOf(readonly) : List.of();
+            virtuals = virtuals != null ? List.copyOf(virtuals) : List.of();
+            tasks = tasks != null ? List.copyOf(tasks) : List.of();
+            // parsedOutputId can be null
+            if (action == null) {
+                throw new IllegalArgumentException("action cannot be null");
+            }
+        }
+    }
+
+    /**
+     * Compact DTO for TaskEntry, referring to its log fragment by ID.
+     * Used within CompactContextDto.
+     */
+    public record TaskEntryRefDto(int sequence, Integer logId, String summary) {
+        public TaskEntryRefDto {
+            // logId can be null if summary is present, and vice-versa
+            if ((logId == null) == (summary == null)) {
+                throw new IllegalArgumentException("Exactly one of logId or summary must be non-null");
+            }
+            if (summary != null && summary.isEmpty()) {
+                throw new IllegalArgumentException("summary cannot be empty when present");
+            }
+        }
+    }
 }

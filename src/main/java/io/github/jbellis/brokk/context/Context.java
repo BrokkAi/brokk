@@ -51,7 +51,7 @@ public class Context {
     transient final ContextFragment.TaskFragment parsedOutput;
 
     /** description of the action that created this context, can be a future (like PasteFragment) */
-    transient final Future<String> action;
+    public transient final Future<String> action;
 
     /**
      * Unique transient identifier for this context instance.

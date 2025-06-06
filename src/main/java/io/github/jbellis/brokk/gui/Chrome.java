@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
 import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
@@ -646,6 +647,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         
         // If single panel, create a scroll pane for it
         JComponent contentComponent;
+        var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
             var scrollPane = new JScrollPane(markdownPanels.get(0));
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -655,7 +657,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // Multiple panels - create container with BoxLayout
             JPanel messagesContainer = new JPanel();
             messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-            messagesContainer.setBackground(markdownPanels.get(0).getBackground());
+            componentsWithChatBackground.add(messagesContainer);
             
             for (MarkdownOutputPanel panel : markdownPanels) {
                 messagesContainer.add(panel);
@@ -668,14 +670,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         
         // Create main content panel to hold search bar and content
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setBackground(markdownPanels.get(0).getBackground());
+        JPanel contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        componentsWithChatBackground.add(contentPanel);
         
         // Create search callback and search bar panel
         var searchCallback = new MarkdownPanelSearchCallback(markdownPanels);
         var searchBarPanel = new SearchBarPanel(searchCallback, true, true, 3);
         searchCallback.setSearchBarPanel(searchBarPanel);
-        searchBarPanel.setBackground(contentPanel.getBackground());
+        componentsWithChatBackground.add(searchBarPanel);
+
+        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.get(0).getBackground()));
         
         // Add components to content panel
         contentPanel.add(searchBarPanel, BorderLayout.NORTH);
@@ -1470,5 +1474,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
         return null;
+    }
+
+    private static class SearchableContentPanel extends JPanel implements ThemeAware {
+        private final List<JComponent> componentsWithChatBackground;
+
+        public SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
+            super(new BorderLayout());
+            this.componentsWithChatBackground = componentsWithChatBackground;
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            Color newBackgroundColor = ThemeColors.getColor(guiTheme.isDarkTheme(), "chat_background");
+            componentsWithChatBackground.forEach(c -> c.setBackground(newBackgroundColor));
+            SwingUtilities.updateComponentTreeUI(this);
+        }
     }
 }
