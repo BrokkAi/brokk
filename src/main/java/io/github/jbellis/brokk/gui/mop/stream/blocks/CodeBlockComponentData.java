@@ -134,12 +134,17 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
                        fenceInfo.substring(0, 1).toUpperCase() + fenceInfo.substring(1);
 
         // Use code icon
-        String iconText = "\uD83D\uDCDD"; // Unicode for memo/pencil emoji
+        //String iconText = "\uD83D\uDCDD"; // Unicode for memo/pencil emoji
+        var icon = UIManager.getIcon("Brokk.aiIcon");
+        if (icon == null) {
+            icon = UIManager.getIcon("TipOfTheDay.icon");
+        }
+        icon = UIManager.getIcon("TipOfTheDay.icon");
 
         // Create the panel using BaseChatMessagePanel
         return new MessageBubble(
                 title,
-                iconText,
+                icon,
                 textArea,
                 isDarkTheme,
                 ThemeColors.getColor(isDarkTheme, "codeHighlight"),

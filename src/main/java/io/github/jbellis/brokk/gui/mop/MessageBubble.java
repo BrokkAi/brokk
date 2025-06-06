@@ -89,7 +89,7 @@ public class MessageBubble extends JPanel {
      * @param messageBgColor   The background color for the message (optional)
      * @param chatBgColor      The background color for the chat panel (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor,
                          Color messageBgColor, Color chatBgColor)
     {
@@ -107,7 +107,7 @@ public class MessageBubble extends JPanel {
      * @param highlightColor   The color to use for the left highlight bar
      * @param messageBgColor   The background color for the message (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor, Color messageBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
@@ -123,7 +123,7 @@ public class MessageBubble extends JPanel {
      * @param isDarkTheme      Whether dark theme is active
      * @param highlightColor   The color to use for the left highlight bar
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
@@ -133,8 +133,8 @@ public class MessageBubble extends JPanel {
     /**
      * Common initialization method for all constructors.
      */
-    private void initialize(String title, String iconText, Component contentComponent,
-                            boolean isDarkTheme, Color highlightColor, 
+    private void initialize(String title, Icon iconText, Component contentComponent,
+                            boolean isDarkTheme, Color highlightColor,
                             Color customMessageBgColor, Color customChatBgColor)
     {
         setLayout(new BorderLayout());
