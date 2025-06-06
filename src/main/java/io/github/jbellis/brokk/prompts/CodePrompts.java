@@ -181,7 +181,9 @@ public abstract class CodePrompts {
                - You are being asked here for conceptual understanding and problem diagnosis
                
                Be concise but complete in your explanations. If you need more information to answer a question,
-               don't hesitate to ask for clarification.
+               don't hesitate to ask for clarification. If you notice references to code in the Workspace that
+               you need to see to answer accurately, do your best to take educated guesses but clarify that
+               it IS an educated guess and ask the user to add the relevant code.
                
                Format your answer with Markdown for readability.
                </instructions>

@@ -9,6 +9,11 @@ import java.util.List;
 import java.util.Set;
 
 public interface IGitRepo {
+    
+    /**
+     * Information about a Git worktree.
+     */
+    record WorktreeInfo(Path path, String branch, String commitId) {}
     Set<ProjectFile> getTrackedFiles();
 
     default String diff() throws GitAPIException {
@@ -63,5 +68,38 @@ public interface IGitRepo {
 
     default void remove(ProjectFile file) throws GitAPIException {
         throw new UnsupportedOperationException();
+    }
+
+    default List<WorktreeInfo> listWorktrees() throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    default void addWorktree(String branch, Path path) throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    default void removeWorktree(Path path) throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    default Path getWorktreePath() {
+        return null;
+    }
+
+    default boolean isWorktree() {
+        return false;
+    }
+
+    default Set<String> getBranchesInWorktrees() throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Checks if the repository implementation supports worktree operations.
+     * This often depends on the availability of a command-line Git executable.
+     * @return true if worktrees are supported, false otherwise.
+     */
+    default boolean supportsWorktrees() {
+        return false;
     }
 }

@@ -168,3 +168,11 @@ startup overhead so using the repl or `sbtn` is recommended.)
 
 If you change the build definition, run `reload` to start using the changes.
 
+## Icon Browser
+
+To explore available Look and Feel icons for UI development:
+- GUI browser: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil icons"`
+- Console list: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil"`
+
+Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
+

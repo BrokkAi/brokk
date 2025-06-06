@@ -1042,9 +1042,19 @@ public class GitLogTab extends JPanel {
                     logger.warn("Could not check for stashes existence", e);
                 }
 
+                // Get branches checked out in worktrees
+                Set<String> branchesInWorktrees = getRepo().getBranchesInWorktrees();
+
                 // Process actual local branches
                 for (String branch : localBranches) {
-                    String checkmark = branch.equals(currentGitBranch) ? "✓" : "";
+                    String checkmark;
+                    if (branch.equals(currentGitBranch)) {
+                        checkmark = "✓";
+                    } else if (branchesInWorktrees.contains(branch)) {
+                        checkmark = "+";
+                    } else {
+                        checkmark = "";
+                    }
                     localBranchRows.add(new Object[]{checkmark, branch});
                     // If this branch was the target (previously selected) and we haven't found it yet
                     if (branch.equals(targetBranchToSelect) && targetSelectionIndex == -1) {

@@ -8,10 +8,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -50,7 +47,7 @@ public class BuildAgent {
 
     // Use standard ChatMessage history
     private final List<ChatMessage> chatHistory = new ArrayList<>();
-    private final Project project;
+    private final IProject project;
     // Field to store the result from the reportBuildDetails tool
     private BuildDetails reportedDetails = null;
     // Field to store the reason from the abortBuildDetails tool
@@ -58,7 +55,7 @@ public class BuildAgent {
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
 
-    public BuildAgent(Project project, Llm llm, ToolRegistry toolRegistry) {
+    public BuildAgent(IProject project, Llm llm, ToolRegistry toolRegistry) {
         this.project = project;
         assert llm != null : "coder cannot be null";
         assert toolRegistry != null : "toolRegistry cannot be null";
@@ -364,7 +361,7 @@ public class BuildAgent {
         // Runs asynchronously on the background executor provided by ContextManager
         return CompletableFuture.supplyAsync(() -> {
             // Retrieve build details from the project associated with the ContextManager
-            Project project = (Project) cm.getProject();
+            MainProject project = (MainProject) cm.getProject();
             BuildDetails details = project.loadBuildDetails();
 
             if (details.equals(BuildDetails.EMPTY)) {
@@ -373,8 +370,8 @@ public class BuildAgent {
             }
 
             // Check project setting for test scope
-            Project.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
-            if (testScope == Project.CodeAgentTestScope.ALL) {
+            MainProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
+            if (testScope == IProject.CodeAgentTestScope.ALL) {
                 logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
                 return details.testAllCommand();
             }

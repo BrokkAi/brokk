@@ -158,6 +158,6 @@ public interface IContextManager {
      * Create a new LLM instance for the given model and description
      */
     default Llm getLlm(StreamingChatLanguageModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == Project.DataRetentionPolicy.IMPROVE_BROKK);
+        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 }

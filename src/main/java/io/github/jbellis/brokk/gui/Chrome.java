@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
 import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import org.apache.logging.log4j.LogManager;
@@ -228,7 +229,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    public Project getProject() {
+    public IProject getProject() {
         return contextManager.getProject();
     }
 
@@ -239,11 +240,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         assert gitPanel != null;
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             try {
-                var gitRepo = (GitRepo) getProject().getRepo();
-                var projectRoot = getProject().getRoot();
+                var project = getProject();
+                var gitRepo = (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
+                var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
-                // Update .gitignore
-                var gitignorePath = gitRepo.getGitTopLevel().resolve(".gitignore");
+                // Update .gitignore (located at gitTopLevel)
+                var gitignorePath = gitTopLevel.resolve(".gitignore");
                 String content = "";
 
                 if (Files.exists(gitignorePath)) {
@@ -254,28 +256,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Add entries to .gitignore if they don't exist
+                // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
                 if (!content.contains(".brokk/**") && !content.contains(".brokk/")) {
                     content += "\n### BROKK'S CONFIGURATION ###\n";
-                    content += ".brokk/**\n";
-                    content += "!.brokk/style.md\n";
-                    content += "!.brokk/project.properties\n";
+                    content += ".brokk/**\n";                   // Ignore .brokk dir in sub-projects (worktrees)
+                    content += "/.brokk/workspace.properties\n"; // Ignore workspace properties in main repo and worktrees
+                    content += "/.brokk/sessions/\n";           // Ignore sessions dir in main repo
+                    content += "/.brokk/dependencies/\n";       // Ignore dependencies dir in main repo
+                    content += "/.brokk/history.zip\n";         // Ignore legacy history zip
+                    content += "!.brokk/style.md\n";          // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
                     systemOutput("Updated .gitignore with .brokk entries");
 
-                    // Add .gitignore to git if it's not already in the index
+                    // Add .gitignore itself to git if it's not already in the index
+                    // The path for 'add' should be relative to the git repo's CWD, or absolute.
+                    // gitRepo.add() handles paths relative to its own root, or absolute paths.
+                    // Here, gitignorePath is absolute.
                     gitRepo.add(gitignorePath);
                 }
 
-                // Create .brokk directory if it doesn't exist
-                var brokkDir = projectRoot.resolve(".brokk");
-                Files.createDirectories(brokkDir);
+                // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
+                var sharedBrokkDir = gitTopLevel.resolve(".brokk");
+                Files.createDirectories(sharedBrokkDir);
 
-                // Add specific files to git
-                var styleMdPath = brokkDir.resolve("style.md");
-                var projectPropsPath = brokkDir.resolve("project.properties");
+                // Add specific shared files to git
+                var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
-                // Create files if they don't exist (empty files)
+                // Create shared files if they don't exist (empty files)
                 if (!Files.exists(styleMdPath)) {
                     Files.writeString(styleMdPath, "# Style Guide\n");
                 }
@@ -283,13 +293,17 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     Files.writeString(projectPropsPath, "# Brokk project configuration\n");
                 }
 
-                // Add files to git
+                // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
+                // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/style.md"));
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/project.properties"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
+                // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
+                // The GitRepo instance is for the current project (which could be a worktree),
+                // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added .brokk project files to git");
+                systemOutput("Added shared .brokk project files (style.md, project.properties) to git");
 
                 // Update commit message
                 gitPanel.setCommitMessageText("Update for Brokk project files");
@@ -310,7 +324,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
         // Apply current theme based on project settings
-        String currentTheme = Project.getTheme();
+        String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         switchTheme(isDark);
@@ -633,6 +647,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         
         // If single panel, create a scroll pane for it
         JComponent contentComponent;
+        var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
             var scrollPane = new JScrollPane(markdownPanels.get(0));
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -642,7 +657,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // Multiple panels - create container with BoxLayout
             JPanel messagesContainer = new JPanel();
             messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-            messagesContainer.setBackground(markdownPanels.get(0).getBackground());
+            componentsWithChatBackground.add(messagesContainer);
             
             for (MarkdownOutputPanel panel : markdownPanels) {
                 messagesContainer.add(panel);
@@ -655,14 +670,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
         
         // Create main content panel to hold search bar and content
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setBackground(markdownPanels.get(0).getBackground());
+        JPanel contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        componentsWithChatBackground.add(contentPanel);
         
         // Create search callback and search bar panel
         var searchCallback = new MarkdownPanelSearchCallback(markdownPanels);
         var searchBarPanel = new SearchBarPanel(searchCallback, true, true, 3);
         searchCallback.setSearchBarPanel(searchBarPanel);
-        searchBarPanel.setBackground(contentPanel.getBackground());
+        componentsWithChatBackground.add(searchBarPanel);
+
+        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.get(0).getBackground()));
         
         // Add components to content panel
         contentPanel.add(searchBarPanel, BorderLayout.NORTH);
@@ -720,6 +737,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
+        // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
+        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        
         // Add a WindowListener to handle the close ('X') button click
         previewFrame.addWindowListener(new WindowAdapter() {
             @Override
@@ -727,20 +747,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // Check if the content is a PreviewTextPanel and if it has unsaved changes
                 if (contentComponent instanceof PreviewTextPanel ptp) {
                     if (ptp.confirmClose()) {
-                        // If confirmClose returns true (Save/Don't Save), finalize history and allow disposal.
+                        // If confirmClose returns true (Save/Don't Save), finalize history and dispose.
                         ptp.finalizeHistoryEntry(); // Create history entry if needed
-                        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-                        // Note: The window listener only *vetoes* the close. If it doesn't veto,
-                        // the default close operation takes over. We don't need to call dispose() here.
-                    } else {
-                        // If confirmClose returns false (user cancelled), do nothing.
-                        // We must explicitly set the default close operation here because
-                        // the user might click 'X' multiple times.
-                        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+                        previewFrame.dispose();
                     }
+                    // If confirmClose returns false (user cancelled), do nothing - window stays open
                 } else {
-                    // If not a PreviewTextPanel, just allow the default dispose operation
-                    previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+                    // If not a PreviewTextPanel, just dispose the window
+                    previewFrame.dispose();
                 }
             }
         });
@@ -856,9 +870,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                
+                boolean escapeHtml = outputFragment.isEscapeHtml();
+
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel();
+                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
@@ -888,7 +903,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 3. Image fragments (clipboard image or image file)
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.PasteImageFragment) workingFragment;
+                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
                     var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);
@@ -1459,5 +1474,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
         return null;
+    }
+
+    private static class SearchableContentPanel extends JPanel implements ThemeAware {
+        private final List<JComponent> componentsWithChatBackground;
+
+        public SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
+            super(new BorderLayout());
+            this.componentsWithChatBackground = componentsWithChatBackground;
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            Color newBackgroundColor = ThemeColors.getColor(guiTheme.isDarkTheme(), "chat_background");
+            componentsWithChatBackground.forEach(c -> c.setBackground(newBackgroundColor));
+            SwingUtilities.updateComponentTreeUI(this);
+        }
     }
 }

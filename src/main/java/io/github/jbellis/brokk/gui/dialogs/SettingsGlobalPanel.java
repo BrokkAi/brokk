@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -24,6 +25,8 @@ import java.awt.event.MouseMotionListener;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
@@ -179,7 +182,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
-        if (Project.getProxySetting() == Project.LlmProxySetting.STAGING) {
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
             var proxyInfoLabel = new JLabel("Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
             proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridx = 1;
@@ -267,7 +270,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             logger.warn("signupLabel is null, cannot update visibility.");
             return;
         }
-        String currentPersistedKey = Project.getBrokkKey(); // Read from persistent store
+        String currentPersistedKey = MainProject.getBrokkKey(); // Read from persistent store
         boolean keyIsEffectivelyPresent = currentPersistedKey != null && !currentPersistedKey.trim().isEmpty();
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
     }
@@ -374,7 +377,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return panel;
     }
 
-    private JPanel createModelsPanel(Project project) {
+    private JPanel createModelsPanel(IProject project) {
         var panel = new JPanel(new GridBagLayout()); // Always create, enable/disable content
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -622,11 +625,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     public void loadSettings() {
         // Service Tab
-        brokkKeyField.setText(Project.getBrokkKey());
+        brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
         updateSignupLabelVisibility();
         if (brokkProxyRadio != null && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
                 brokkProxyRadio.setSelected(true);
             } else {
                 localhostProxyRadio.setSelected(true);
@@ -634,7 +637,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         // Appearance Tab
-        if (Project.getTheme().equals("dark")) {
+        if (MainProject.getTheme().equals("dark")) {
             darkThemeRadio.setSelected(true);
         } else {
             lightThemeRadio.setSelected(true);
@@ -669,17 +672,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         updateModelsPanelEnablement(); // Re-check enablement based on project presence
 
         // Quick Models Tab
-        quickModelsTableModel.setFavorites(Project.loadFavoriteModels());
+        quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
         // GitHub Tab
         if (gitHubTokenField != null) { // Only if panel was created
-            gitHubTokenField.setText(Project.getGitHubToken());
+            gitHubTokenField.setText(MainProject.getGitHubToken());
         }
     }
 
     public boolean applySettings() {
         // Service Tab
-        String currentBrokkKeyInSettings = Project.getBrokkKey();
+        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
         String newBrokkKeyFromField = brokkKeyField.getText().trim();
         boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
@@ -687,7 +690,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (!newBrokkKeyFromField.isEmpty()) {
                 try {
                     Service.validateKey(newBrokkKeyFromField);
-                    Project.setBrokkKey(newBrokkKeyFromField);
+                    MainProject.setBrokkKey(newBrokkKeyFromField);
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
@@ -696,13 +699,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     return false;
                 } catch (IOException ex) { // Network error, but allow saving
                     JOptionPane.showMessageDialog(this, "Network error: " + ex.getMessage() + ". Key saved, but validation failed.", "Network Error", JOptionPane.WARNING_MESSAGE);
-                    Project.setBrokkKey(newBrokkKeyFromField);
+                    MainProject.setBrokkKey(newBrokkKeyFromField);
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh();
                 }
             } else { // newBrokkKeyFromField is empty
-                Project.setBrokkKey(newBrokkKeyFromField);
+                MainProject.setBrokkKey(newBrokkKeyFromField);
                 refreshBalanceDisplay();
                 updateSignupLabelVisibility();
                 parentDialog.triggerDataRetentionPolicyRefresh();
@@ -710,9 +713,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         if (brokkProxyRadio != null && localhostProxyRadio != null) { // Not STAGING
-            Project.LlmProxySetting proxySetting = brokkProxyRadio.isSelected() ? Project.LlmProxySetting.BROKK : Project.LlmProxySetting.LOCALHOST;
-            if (proxySetting != Project.getProxySetting()) {
-                 Project.setLlmProxySetting(proxySetting);
+            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected() ? MainProject.LlmProxySetting.BROKK : MainProject.LlmProxySetting.LOCALHOST;
+            if (proxySetting != MainProject.getProxySetting()) {
+                 MainProject.setLlmProxySetting(proxySetting);
                  logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
                  // Consider notifying user about restart if changed. Dialog does this.
             }
@@ -721,7 +724,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
         String newTheme = newIsDark ? "dark" : "light";
-        if (!newTheme.equals(Project.getTheme())) {
+        if (!newTheme.equals(MainProject.getTheme())) {
             chrome.switchTheme(newIsDark);
             logger.debug("Applied Theme: {}", newTheme);
         }
@@ -739,14 +742,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        Project.saveFavoriteModels(quickModelsTableModel.getFavorites());
+        MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // GitHub Tab
         if (gitHubTokenField != null) {
             String newToken = gitHubTokenField.getText().trim();
-            if (!newToken.equals(Project.getGitHubToken())) {
-                Project.setGitHubToken(newToken);
+            if (!newToken.equals(MainProject.getGitHubToken())) {
+                MainProject.setGitHubToken(newToken);
                 GitHubAuth.invalidateInstance();
                 logger.debug("Applied GitHub Token");
             }
@@ -754,11 +757,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return true;
     }
 
-    private void applyModelConfig(Project project,
+    private void applyModelConfig(IProject project,
                                   JComboBox<String> modelCombo,
                                   JComboBox<Service.ReasoningLevel> reasoningCombo,
-                                  java.util.function.Supplier<Service.ModelConfig> currentConfigGetter,
-                                  java.util.function.Consumer<Service.ModelConfig> configSetter) {
+                                  Supplier<Service.ModelConfig> currentConfigGetter,
+                                  Consumer<Service.ModelConfig> configSetter) {
         if (modelCombo == null || reasoningCombo == null || !modelCombo.isEnabled()) return; // Not initialized or panel disabled
 
         String selectedModelName = (String) modelCombo.getSelectedItem();

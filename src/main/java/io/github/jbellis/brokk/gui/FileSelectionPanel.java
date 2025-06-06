@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -34,12 +34,12 @@ import java.util.function.Predicate;
 public class FileSelectionPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(FileSelectionPanel.class);
 
-    public record Config(Project project,
+    public record Config(io.github.jbellis.brokk.IProject project,
                          boolean allowExternalFiles,
                          Predicate<File> fileFilter,
                          Future<List<Path>> autocompleteCandidates, // Generalize to List<Path>
                          boolean multiSelect,
-                         Consumer<BrokkFile> onSingleFileConfirmed, // Optional: action for single file confirmation (e.g., double-click)
+                         Consumer<BrokkFile> onSingleFileConfirmed,// Optional: action for single file confirmation (e.g., double-click)
                          boolean includeProjectFilesInAutocomplete,
                          String customHintText
                          ) {
@@ -51,7 +51,7 @@ public class FileSelectionPanel extends JPanel {
     }
 
     private final Config config;
-    private final Project project; // May be null
+    private final IProject project; // May be null
     private final Path rootPath;  // May be null
     private final FileSelectionTree tree;
     private final JTextComponent fileInputComponent; // JTextField or JTextArea
@@ -76,13 +76,11 @@ public class FileSelectionPanel extends JPanel {
 
         // 2. AutoCompletion
         // The provider needs access to project, allowExternalFiles, and autocompleteCandidates from config
-        var provider = new FilePanelCompletionProvider(
-                this.project,
-                config.autocompleteCandidates(),
-                config.allowExternalFiles(),
-                config.multiSelect(),
-                config.includeProjectFilesInAutocomplete()
-        );
+        var provider = new FilePanelCompletionProvider(this.project,
+                                                       config.autocompleteCandidates(),
+                                                       config.allowExternalFiles(),
+                                                       config.multiSelect(),
+                                                       config.includeProjectFilesInAutocomplete());
         var autoCompletion = new AutoCompletion(provider);
         autoCompletion.setAutoActivationEnabled(false);
         autoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, InputEvent.CTRL_DOWN_MASK));
@@ -353,17 +351,18 @@ public class FileSelectionPanel extends JPanel {
      * Handles project files, external paths, and different input component types.
      */
     private static class FilePanelCompletionProvider extends DefaultCompletionProvider {
-        private final Project project; // Can be null
+        private final IProject project; // Can be null
         private final Future<List<Path>> autocompleteCandidatesFuture;
         private final boolean allowExternalFiles;
         private final boolean multiSelectMode; // To determine how to get_already_entered_text
         private final boolean includeProjectFilesInAutocomplete;
 
-        public FilePanelCompletionProvider(Project project,
+        public FilePanelCompletionProvider(IProject project,
                                            Future<List<Path>> autocompleteCandidatesFuture,
                                            boolean allowExternalFiles,
                                            boolean multiSelectMode,
-                                           boolean includeProjectFilesInAutocomplete) {
+                                           boolean includeProjectFilesInAutocomplete)
+        {
             super();
             this.project = project;
             this.autocompleteCandidatesFuture = autocompleteCandidatesFuture;

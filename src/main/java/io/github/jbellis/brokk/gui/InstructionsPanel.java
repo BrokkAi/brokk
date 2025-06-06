@@ -459,15 +459,22 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mousePressed(java.awt.event.MouseEvent e)  { 
-                ContextMenuUtils.handleFileReferenceClick(e,
-                                                         referenceFileTable,
-                                                         chrome,
-                                                         () -> triggerContextSuggestion(null)); 
+                // Only handle popup triggers (right-click) on press
+                if (e.isPopupTrigger()) {
+                    ContextMenuUtils.handleFileReferenceClick(e,
+                                                             referenceFileTable,
+                                                             chrome,
+                                                             () -> triggerContextSuggestion(null)); 
+                }
             }
             
             @Override
             public void mouseReleased(java.awt.event.MouseEvent e) { 
-                mousePressed(e); 
+                // Handle both popup triggers and left-clicks on release
+                ContextMenuUtils.handleFileReferenceClick(e,
+                                                         referenceFileTable,
+                                                         chrome,
+                                                         () -> triggerContextSuggestion(null)); 
             }
         });
 
@@ -831,7 +838,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // 4. Compute Embeddings
-        List<String> chunks = Arrays.stream(snapshot.split("[.\\n]"))
+        var chunks = Arrays.stream(snapshot.split("[.\\n]"))
                 .map(String::strip)
                 .filter(s -> !s.isEmpty())
                 .toList();
@@ -1016,7 +1023,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * if the balance is low.
      */
     public void checkBalanceAndNotify() {
-        if (Project.getProxySetting() != Project.LlmProxySetting.BROKK) {
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
             return; // Only check balance when using Brokk proxy
         }
 
@@ -1615,13 +1622,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         var modelsInstance = this.contextManager.getService();
-        Map<String, String> availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
+        var availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models
 
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
-        List<Service.FavoriteModel> favoriteModels = Project.loadFavoriteModels();
+        var favoriteModels = MainProject.loadFavoriteModels();
 
         // Filter favorite models to show only those that are currently available, and sort by alias
-        List<Service.FavoriteModel> favoriteModelsToShow = favoriteModels.stream()
+        var favoriteModelsToShow = favoriteModels.stream()
                 .filter(fav -> availableModelsMap.containsKey(fav.modelName()))
                 .sorted(Comparator.comparing(Service.FavoriteModel::alias))
                 .toList();

@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,7 +17,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * A custom tree component for displaying project files with lazy loading,
@@ -26,13 +26,13 @@ public class ProjectTree extends JTree {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
 
-    private final Project project;
+    private final IProject project;
     private final ContextManager contextManager;
     private final Chrome chrome;
     private JPopupMenu currentContextMenu;
 
 
-    public ProjectTree(Project project, ContextManager contextManager, Chrome chrome) {
+    public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
         this.chrome = chrome;

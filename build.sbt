@@ -45,12 +45,12 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.20.0",
 
   // Joern dependencies
-  "io.joern" %% "x2cpg" % "4.0.366",
-  "io.joern" %% "c2cpg" % "4.0.366",
-  "io.joern" %% "javasrc2cpg" % "4.0.366",
-  "io.joern" %% "pysrc2cpg" % "4.0.366",
-  "io.joern" %% "joern-cli" % "4.0.366",
-  "io.joern" %% "semanticcpg" % "4.0.366",
+  "io.joern" %% "x2cpg" % "4.0.369",
+  "io.joern" %% "c2cpg" % "4.0.369",
+  "io.joern" %% "javasrc2cpg" % "4.0.369",
+  "io.joern" %% "pysrc2cpg" % "4.0.369",
+  "io.joern" %% "joern-cli" % "4.0.369",
+  "io.joern" %% "semanticcpg" % "4.0.369",
   
   // Utilities
   "com.formdev" % "flatlaf" % "3.6",
@@ -58,8 +58,8 @@ libraryDependencies ++= Seq(
   "com.fifesoft" % "autocomplete" % "3.3.2",
   "io.github.java-diff-utils" % "java-diff-utils" % "4.15",
   "org.yaml" % "snakeyaml" % "2.3",
-  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.1.0.202411261347-r",
-  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.1.0.202411261347-r",
+  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.2.1.202505142326-r",
+  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.2.1.202505142326-r",
   "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.3",
   "com.vladsch.flexmark" % "flexmark" % "0.64.8",
   "com.vladsch.flexmark" % "flexmark-html2md-converter" % "0.64.8",

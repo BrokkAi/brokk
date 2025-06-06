@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
+import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 
@@ -19,6 +21,10 @@ public class ArchitectOptionsDialog {
     // Remember last selection for the current session
     private static ArchitectAgent.ArchitectOptions lastArchitectOptions = ArchitectAgent.ArchitectOptions.DEFAULTS;
 
+    private static boolean isCodeIntelConfigured(IProject project) {
+        var langs = project.getAnalyzerLanguages();
+        return !langs.isEmpty() && !(langs.size() == 1 && langs.contains(Language.NONE));
+    }
     /**
      * Shows a modal dialog synchronously on the Event Dispatch Thread (EDT) to configure
      * Architect tools and returns the chosen options, or null if cancelled.
@@ -38,7 +44,7 @@ public class ArchitectOptionsDialog {
             // Initial checks must happen *inside* the EDT task now
             var project = chrome.getProject();
             var isCpg = contextManager.getAnalyzerWrapper().isCpg();
-            boolean codeIntelConfigured = project != null && project.isCodeIntelConfigured();
+            boolean codeIntelConfigured = project != null && isCodeIntelConfigured(project);
             // Use last options as default for this session
             var currentOptions = lastArchitectOptions;
 
