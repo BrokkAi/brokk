@@ -288,7 +288,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         };
 
-        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener, (Chrome) this.io);
 
         // Load saved context history or create a new one
         submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);

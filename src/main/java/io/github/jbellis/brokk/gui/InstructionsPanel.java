@@ -1523,12 +1523,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private void checkFocusAndNotify(String actionName) {
-        SwingUtilities.invokeLater(() -> { // Ensure frame access is on EDT
-            JFrame mainFrame = chrome.getFrame();
-            if (mainFrame != null && mainFrame.isShowing() && !mainFrame.isActive()) {
-                Environment.instance.sendNotificationAsync("Action '" + actionName + "' completed.");
-            }
-        });
+        chrome.notifyActionComplete("Action '" + actionName + "' completed.");
     }
 
     private void repopulateInstructionsArea(String originalText) {
