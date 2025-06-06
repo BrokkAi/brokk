@@ -93,14 +93,17 @@ public class GitIssuesTab extends JPanel {
         JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
 
-        // Vertical Filter Panel
-        JPanel verticalFilterPanel = new JPanel();
-        verticalFilterPanel.setLayout(new BoxLayout(verticalFilterPanel, BoxLayout.Y_AXIS));
+        // Vertical Filter Panel with BorderLayout to keep filters at top
+        JPanel verticalFilterPanel = new JPanel(new BorderLayout());
+
+        // Container for the actual filters
+        JPanel filtersContainer = new JPanel();
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        verticalFilterPanel.add(filterLabel);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
+        filtersContainer.add(filterLabel);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
         statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
         statusFilter.setToolTipText("Filter by issue status");
@@ -109,27 +112,28 @@ public class GitIssuesTab extends JPanel {
             // Status filter change triggers a new API fetch
             updateIssueList();
         });
-        verticalFilterPanel.add(statusFilter);
+        filtersContainer.add(statusFilter);
 
         authorFilter = new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(authorFilter);
+        filtersContainer.add(authorFilter);
 
         labelFilter = new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(labelFilter);
+        filtersContainer.add(labelFilter);
 
         assigneeFilter = new FilterBox(this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(assigneeFilter);
+        filtersContainer.add(assigneeFilter);
 
-        verticalFilterPanel.add(Box.createVerticalGlue()); // Pushes filters to the top
+        // Add the filters container to the north of the panel to keep them at the top
+        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
 
         mainIssueAreaPanel.add(verticalFilterPanel, BorderLayout.WEST);
 
@@ -435,7 +439,7 @@ public class GitIssuesTab extends JPanel {
         }
 
         Map<String, Integer> counts = new HashMap<>();
-        
+
         switch (filterType) {
             case "author" -> {
                 for (var issue : issues) {
@@ -472,7 +476,7 @@ public class GitIssuesTab extends JPanel {
                 }
             }
         }
-        
+
         return generateFilterOptionsList(counts);
     }
 
@@ -691,15 +695,15 @@ public class GitIssuesTab extends JPanel {
     private List<ChatMessage> buildIssueTextContent(GHIssue issue, String authorLogin, String labels, String assignees, String markdownBody) {
         String content = String.format("""
                                        # Issue #%d: %s
-                                       
+
                                        **Author:** %s
                                        **Status:** %s
                                        **URL:** %s
                                        **Labels:** %s
                                        **Assignees:** %s
-                                       
+
                                        ---
-                                       
+
                                        %s
                                        """.stripIndent(),
                                        issue.getNumber(),

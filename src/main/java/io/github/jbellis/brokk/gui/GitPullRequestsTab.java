@@ -142,14 +142,17 @@ public class GitPullRequestsTab extends JPanel {
         JPanel mainPrAreaPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         mainPrAreaPanel.setBorder(BorderFactory.createTitledBorder("Pull Requests"));
 
-        // Vertical Filter Panel
-        JPanel verticalFilterPanel = new JPanel();
-        verticalFilterPanel.setLayout(new BoxLayout(verticalFilterPanel, BoxLayout.Y_AXIS));
+        // Vertical Filter Panel with BorderLayout to keep filters at top
+        JPanel verticalFilterPanel = new JPanel(new BorderLayout());
+        
+        // Container for the actual filters
+        JPanel filtersContainer = new JPanel();
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        verticalFilterPanel.add(filterLabel);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
+        filtersContainer.add(filterLabel);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
         statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
         statusFilter.setToolTipText("Filter by PR status");
@@ -158,33 +161,34 @@ public class GitPullRequestsTab extends JPanel {
             // Status filter change triggers a new API fetch
             updatePrList();
         });
-        verticalFilterPanel.add(statusFilter);
+        filtersContainer.add(statusFilter);
 
         authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions);
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(authorFilter);
+        filtersContainer.add(authorFilter);
 
         labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions);
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(labelFilter);
+        filtersContainer.add(labelFilter);
 
         assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions);
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(assigneeFilter);
+        filtersContainer.add(assigneeFilter);
 
         reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS);
         reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
         reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         reviewFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(reviewFilter);
+        filtersContainer.add(reviewFilter);
 
-        verticalFilterPanel.add(Box.createVerticalGlue()); // Pushes filters to the top
+        // Add the filters container to the north of the panel to keep them at the top
+        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
 
         mainPrAreaPanel.add(verticalFilterPanel, BorderLayout.WEST);
 
