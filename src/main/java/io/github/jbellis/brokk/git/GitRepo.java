@@ -1453,7 +1453,11 @@ public class GitRepo implements Closeable, IGitRepo {
                         currentHead = null;
                         currentBranch = null;
                     }
-                    currentPath = Path.of(line.substring("worktree ".length())).toAbsolutePath().normalize();
+                    try {
+                        currentPath = Path.of(line.substring("worktree ".length())).toRealPath();
+                    } catch (IOException e) {
+                        throw new GitRepoException("Failed to resolve worktree path: " + line.substring("worktree ".length()), e);
+                    }
                 } else if (line.startsWith("HEAD ")) {
                     currentHead = line.substring("HEAD ".length());
                 } else if (line.startsWith("branch ")) {
