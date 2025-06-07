@@ -575,4 +575,36 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     public boolean isDarkTheme() {
         return guiTheme.isDarkTheme();
     }
+
+    @Override
+    public boolean isAtFirstLogicalChange() {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return true;
+        }
+        if (selectedDelta == null) {
+            return false;
+        }
+        return patch.getDeltas().indexOf(selectedDelta) == 0;
+    }
+
+    @Override
+    public boolean isAtLastLogicalChange() {
+        if (patch == null || patch.getDeltas().isEmpty()) {
+            return true;
+        }
+        if (selectedDelta == null) {
+            return false;
+        }
+        var deltas = patch.getDeltas();
+        var currentIndex = deltas.indexOf(selectedDelta);
+        return currentIndex != -1 && currentIndex == deltas.size() - 1;
+    }
+
+    @Override
+    public void goToLastLogicalChange() {
+        if (patch != null && !patch.getDeltas().isEmpty()) {
+            setSelectedDelta(patch.getDeltas().getLast());
+            showSelectedDelta();
+        }
+    }
 }

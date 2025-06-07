@@ -56,18 +56,35 @@ public final class FilterBox extends JPanel {
         // Event Listeners
         iconLabel.addMouseListener(new MouseAdapter() {
             @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!isEnabled()) return;
+                
+                if (selected != null) { // CLEAR icon is showing
+                    clear();
+                } else { // ARROW icon is showing
+                    showPopup();
+                }
+            }
+
+            @Override
             public void mouseEntered(MouseEvent e) {
-                if (selected != null && isEnabled()) {
-                    iconLabel.setOpaque(true);
-                    iconLabel.setBackground(ICON_HOVER_BG_COLOR);
+                if (isEnabled()) {
+                    iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                    if (selected != null) {
+                        iconLabel.setOpaque(true);
+                        iconLabel.setBackground(ICON_HOVER_BG_COLOR);
+                    }
                 }
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (selected != null && isEnabled()) {
-                    iconLabel.setOpaque(false);
-                    iconLabel.setBackground(null);
+                if (isEnabled()) {
+                    iconLabel.setCursor(Cursor.getDefaultCursor());
+                    if (selected != null) {
+                        iconLabel.setOpaque(false);
+                        iconLabel.setBackground(null);
+                    }
                 }
             }
         });
@@ -77,14 +94,10 @@ public final class FilterBox extends JPanel {
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled()) return;
 
+                // Only handle clicks outside the icon area - icon handles its own clicks
                 Point p = e.getPoint();
-                if (iconLabel.getBounds().contains(p)) {
-                    if (selected != null) { // CLEAR icon is showing
-                        clear();
-                    } else { // ARROW icon is showing
-                        showPopup();
-                    }
-                } else { // Click was on textLabel area or panel background
+                Rectangle iconBounds = iconLabel.getBounds();
+                if (!iconBounds.contains(p)) {
                     showPopup();
                 }
             }

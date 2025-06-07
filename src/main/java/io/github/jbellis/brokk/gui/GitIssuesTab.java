@@ -184,18 +184,20 @@ public class GitIssuesTab extends JPanel {
             }
         });
 
-
         // Panel to hold filters (WEST) and table+buttons (CENTER)
         JPanel filtersAndTablePanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
 
-        // Vertical Filter Panel
-        JPanel verticalFilterPanel = new JPanel();
-        verticalFilterPanel.setLayout(new BoxLayout(verticalFilterPanel, BoxLayout.Y_AXIS));
+        // Vertical Filter Panel with BorderLayout to keep filters at top
+        JPanel verticalFilterPanel = new JPanel(new BorderLayout());
+
+        // Container for the actual filters
+        JPanel filtersContainer = new JPanel();
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        verticalFilterPanel.add(filterLabel);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
+        filtersContainer.add(filterLabel);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
         if (this.issueService instanceof JiraIssueService) {
             resolutionFilter = new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
@@ -203,8 +205,8 @@ public class GitIssuesTab extends JPanel {
             resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
             // API call needed when resolution changes
             resolutionFilter.addPropertyChangeListener("value", e -> updateIssueList());
-            verticalFilterPanel.add(resolutionFilter);
-            verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP));
+            filtersContainer.add(resolutionFilter); // Add to filtersContainer
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
 
             statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
@@ -218,30 +220,31 @@ public class GitIssuesTab extends JPanel {
             // Status filter change triggers a new API fetch and subsequent processing.
             updateIssueList();
         });
-        verticalFilterPanel.add(statusFilter);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP));
+        filtersContainer.add(statusFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         authorFilter = new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
         authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        verticalFilterPanel.add(authorFilter);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP));
+        filtersContainer.add(authorFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         labelFilter = new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
         labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        verticalFilterPanel.add(labelFilter);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP));
+        filtersContainer.add(labelFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         assigneeFilter = new FilterBox(this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
         assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
-        verticalFilterPanel.add(assigneeFilter);
+        filtersContainer.add(assigneeFilter);
 
-        verticalFilterPanel.add(Box.createVerticalGlue()); // Pushes filters to the top
+        // Add the filters container to the north of the panel to keep them at the top
+        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
 
         filtersAndTablePanel.add(verticalFilterPanel, BorderLayout.WEST);
 
@@ -823,7 +826,7 @@ public class GitIssuesTab extends JPanel {
         }
         bodyForCapture = (bodyForCapture == null || bodyForCapture.isBlank()) ? "*No description provided.*" : bodyForCapture;
         String content = String.format("""
-                                       # Issue %s: %s
+                                       # Issue #%s: %s
 
                                        **Author:** %s
                                        **Status:** %s

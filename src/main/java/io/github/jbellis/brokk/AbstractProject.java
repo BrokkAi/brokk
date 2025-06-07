@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -89,7 +88,6 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
      */
     private void saveProperties(Path file, Properties properties, String comment) {
         try {
-            Files.createDirectories(file.getParent());
             if (Files.exists(file)) {
                 Properties existingProps = new Properties();
                 try (var reader = Files.newBufferedReader(file)) {
@@ -97,26 +95,14 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
                 } catch (IOException e) {
                     // Ignore read error, proceed to save anyway
                 }
-                if (propsEqual(existingProps, properties)) {
-                    return; 
+                if (existingProps.equals(properties)) {
+                    return;
                 }
             }
             AtomicWrites.atomicSaveProperties(file, properties, comment);
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", file, e.getMessage());
         }
-    }
-
-    protected static boolean propsEqual(Properties p1, Properties p2) {
-        if (p1 == null || p2 == null || p1.size() != p2.size()) {
-            return false;
-        }
-        return p1.entrySet().stream()
-                .allMatch(e -> {
-                    String key = (String) e.getKey();
-                    String value = (String) e.getValue();
-                    return value.equals(p2.getProperty(key));
-                });
     }
 
     public final void saveTextHistory(List<String> historyItems, int maxItems) {

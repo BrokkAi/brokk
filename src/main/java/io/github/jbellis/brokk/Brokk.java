@@ -6,6 +6,7 @@ import com.github.tjake.jlama.safetensors.DType;
 import com.github.tjake.jlama.safetensors.SafeTensorSupport;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
@@ -100,10 +101,15 @@ public class Brokk {
         }
 
         // Ensure L&F is set on EDT before any UI is created, then show splash screen.
+        var isDark = MainProject.getTheme().equals("dark");
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    com.formdev.flatlaf.FlatLightLaf.setup();
+                    if (isDark) {
+                        com.formdev.flatlaf.FlatDarkLaf.setup();
+                    } else {
+                        com.formdev.flatlaf.FlatLightLaf.setup();
+                    }
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
@@ -113,6 +119,9 @@ public class Brokk {
             logger.fatal("Failed to initialize Look and Feel or SplashScreen on EDT. Exiting.", e);
             System.exit(1);
         }
+
+        // preload theme for rsyntaxtextarea, this is moderately slow so we want to get a head start before it gets called on EDT
+        Thread.ofPlatform().start(() -> GuiTheme.loadRSyntaxTheme(isDark));
 
         // Argument parsing and initial validation (off-EDT / main thread)
         boolean noProjectFlag = false;
@@ -288,9 +297,9 @@ public class Brokk {
         splashScreen = new JWindow();
         Chrome.applyIcon(splashScreen); // Sets window icon for taskbar if applicable
 
-        var panel = new JPanel(new BorderLayout(0, 10)); // Vertical gap
+        var panel = new JPanel(new BorderLayout(15, 0)); // Horizontal gap
         Border lineBorder = BorderFactory.createLineBorder(Color.GRAY);
-        Border emptyBorder = BorderFactory.createEmptyBorder(30, 50, 30, 50); // Increased padding
+        Border emptyBorder = BorderFactory.createEmptyBorder(30, 50, 30, 50); // Padding
         panel.setBorder(BorderFactory.createCompoundBorder(lineBorder, emptyBorder));
 
         var iconUrl = Brokk.class.getResource(ICON_RESOURCE);
@@ -298,11 +307,11 @@ public class Brokk {
             var icon = new ImageIcon(iconUrl);
             // Scale icon to a reasonable size for splash, e.g., 64x64
             Image scaledImage = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
-            JLabel iconLabel = new JLabel(new ImageIcon(scaledImage), SwingConstants.CENTER);
-            panel.add(iconLabel, BorderLayout.NORTH);
+            JLabel iconLabel = new JLabel(new ImageIcon(scaledImage)); // Alignment handled by BorderLayout
+            panel.add(iconLabel, BorderLayout.WEST);
         }
 
-        var label = new JLabel("Connecting to Brokk...", SwingConstants.CENTER);
+        var label = new JLabel("Brokk " + BuildInfo.version(), SwingConstants.LEFT); // Align text left
         label.setFont(label.getFont().deriveFont(Font.BOLD, 18f)); // Larger font
         panel.add(label, BorderLayout.CENTER);
 

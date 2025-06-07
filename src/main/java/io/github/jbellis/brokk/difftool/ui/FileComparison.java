@@ -23,7 +23,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class FileComparison extends SwingWorker<String, Object> {
     private final BrokkDiffPanel mainPanel;
-private final ContextManager contextManager;
+    private final ContextManager contextManager;
     private JMDiffNode diffNode;
     private BufferDiffPanel panel;
     private final BufferSource leftSource;
