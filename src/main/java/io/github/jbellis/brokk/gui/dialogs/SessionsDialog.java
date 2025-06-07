@@ -244,7 +244,7 @@ public class SessionsDialog extends JDialog {
             }
         });
 
-        // Add mouse listener for right-click context menu on sessions table
+        // Add mouse listener for right-click context menu and double-click on sessions table
         sessionsTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -257,6 +257,17 @@ public class SessionsDialog extends JDialog {
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     showSessionContextMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = sessionsTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(row, 2);
+                        renameSession(sessionInfo);
+                    }
                 }
             }
         });
@@ -405,19 +416,7 @@ public class SessionsDialog extends JDialog {
         popup.addSeparator();
 
         JMenuItem renameItem = new JMenuItem("Rename");
-        renameItem.addActionListener(event -> {
-            String newName = JOptionPane.showInputDialog(SessionsDialog.this,
-                                                         "Enter new name for session '" + sessionInfo.name() + "':",
-                                                         sessionInfo.name());
-            if (newName != null && !newName.trim().isBlank()) {
-                contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
-                    SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    })
-                );
-            }
-        });
+        renameItem.addActionListener(event -> renameSession(sessionInfo));
         popup.add(renameItem);
 
         JMenuItem deleteItem = new JMenuItem("Delete");
@@ -451,6 +450,20 @@ public class SessionsDialog extends JDialog {
         chrome.getTheme().registerPopupMenu(popup);
 
         popup.show(sessionsTable, e.getX(), e.getY());
+    }
+
+    private void renameSession(MainProject.SessionInfo sessionInfo) {
+        String newName = JOptionPane.showInputDialog(SessionsDialog.this,
+                                                     "Enter new name for session '" + sessionInfo.name() + "':",
+                                                     sessionInfo.name());
+        if (newName != null && !newName.trim().isBlank()) {
+            contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
+                SwingUtilities.invokeLater(() -> {
+                    refreshSessionsTable();
+                    historyOutputPanel.updateSessionComboBox();
+                })
+            );
+        }
     }
 
     @Override
