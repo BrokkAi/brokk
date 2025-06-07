@@ -6,6 +6,7 @@ import com.github.tjake.jlama.safetensors.DType;
 import com.github.tjake.jlama.safetensors.SafeTensorSupport;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
@@ -100,10 +101,15 @@ public class Brokk {
         }
 
         // Ensure L&F is set on EDT before any UI is created, then show splash screen.
+        var isDark = MainProject.getTheme().equals("dark");
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    com.formdev.flatlaf.FlatLightLaf.setup();
+                    if (isDark) {
+                        com.formdev.flatlaf.FlatDarkLaf.setup();
+                    } else {
+                        com.formdev.flatlaf.FlatLightLaf.setup();
+                    }
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
@@ -113,6 +119,9 @@ public class Brokk {
             logger.fatal("Failed to initialize Look and Feel or SplashScreen on EDT. Exiting.", e);
             System.exit(1);
         }
+
+        // preload theme for rsyntaxtextarea, this is moderately slow so we want to get a head start before it gets called on EDT
+        Thread.ofPlatform().start(() -> GuiTheme.loadRSyntaxTheme(isDark));
 
         // Argument parsing and initial validation (off-EDT / main thread)
         boolean noProjectFlag = false;
