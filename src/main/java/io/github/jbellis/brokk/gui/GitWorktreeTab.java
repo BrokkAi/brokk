@@ -32,6 +32,7 @@ public class GitWorktreeTab extends JPanel {
     private JButton addButton;
     private JButton removeButton;
     private JButton openButton; // Added
+    private JButton refreshButton; // Added
 
     public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
@@ -57,6 +58,8 @@ public class GitWorktreeTab extends JPanel {
         // Ensure buttons (if they were somehow initialized) are disabled
         if (addButton != null) addButton.setEnabled(false);
         if (removeButton != null) removeButton.setEnabled(false);
+        if (openButton != null) openButton.setEnabled(false); // Ensure openButton is also handled
+        if (refreshButton != null) refreshButton.setEnabled(false); // Disable refresh button
         revalidate();
         repaint();
     }
@@ -64,10 +67,18 @@ public class GitWorktreeTab extends JPanel {
     private void buildWorktreeTabUI() {
         // Main panel for the table
         JPanel tablePanel = new JPanel(new BorderLayout());
-        worktreeTableModel = new DefaultTableModel(new Object[]{"Path", "Branch", "Session"}, 0) {
+        worktreeTableModel = new DefaultTableModel(new Object[]{"\u2713", "Path", "Branch", "Session"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 0) {
+                    return Boolean.class;
+                }
+                return super.getColumnClass(columnIndex);
             }
         };
         worktreeTable = new JTable(worktreeTableModel) {
@@ -118,12 +129,57 @@ public class GitWorktreeTab extends JPanel {
                 return c;
             }
         });
+
+        // Configure the "Active" column (checkmark)
+        var activeColumn = worktreeTable.getColumnModel().getColumn(0);
+        activeColumn.setPreferredWidth(25);
+        activeColumn.setMaxWidth(30);
+        activeColumn.setMinWidth(20);
+        activeColumn.setResizable(false);
+        activeColumn.setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                       boolean hasFocus, int row, int col) {
+                JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+                label.setHorizontalAlignment(SwingConstants.CENTER);
+
+                if (Boolean.TRUE.equals(value)) {
+                    label.setText("\u2713"); // Heavy Check Mark
+                    label.setToolTipText("This is the currently active Brokk project window");
+                } else {
+                    label.setText("");
+                    label.setToolTipText(null);
+                }
+
+                // Apply visual styling consistent with the main row renderer for row 0
+                if (row == 0) {
+                    label.setForeground(Color.GRAY);
+                    // Match background handling of the default renderer for row 0 selection
+                    if (isSelected && table.isFocusOwner() && table.isRowSelected(row)) {
+                        label.setBackground(table.getBackground());
+                    } else {
+                        label.setBackground(table.getBackground());
+                    }
+                    label.setEnabled(false); 
+                } else {
+                    // For other rows, ensure foreground/background reflects selection state
+                    // The super call usually handles this, but setText can sometimes reset it.
+                    label.setForeground(isSelected && table.isFocusOwner() ? table.getSelectionForeground() : table.getForeground());
+                    label.setBackground(isSelected && table.isFocusOwner() ? table.getSelectionBackground() : table.getBackground());
+                    label.setEnabled(true);
+                }
+                return label;
+            }
+        });
+
         tablePanel.add(new JScrollPane(worktreeTable), BorderLayout.CENTER);
 
         add(tablePanel, BorderLayout.CENTER);
 
-        // Button panel for add/remove
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // Button panel for actions
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
+
         addButton = new JButton("+");
         addButton.setToolTipText("Add new worktree");
         addButton.addActionListener(e -> addWorktree());
@@ -146,6 +202,13 @@ public class GitWorktreeTab extends JPanel {
         removeButton.addActionListener(e -> removeWorktree());
         buttonPanel.add(removeButton);
 
+        buttonPanel.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
+
+        refreshButton = new JButton("Refresh");
+        refreshButton.setToolTipText("Refresh the list of worktrees");
+        refreshButton.addActionListener(e -> refresh());
+        buttonPanel.add(refreshButton);
+
         add(buttonPanel, BorderLayout.SOUTH);
 
         worktreeTable.getSelectionModel().addListSelectionListener(e -> {
@@ -160,7 +223,8 @@ public class GitWorktreeTab extends JPanel {
                 if (e.getClickCount() == 2) {
                     int row = worktreeTable.rowAtPoint(e.getPoint());
                     if (row > 0 && row < worktreeTableModel.getRowCount()) { // row > 0 to exclude main repo
-                        String pathString = (String) worktreeTableModel.getValueAt(row, 0);
+                        // Path is now in column 1
+                        String pathString = (String) worktreeTableModel.getValueAt(row, 1);
                         handleOpenOrFocusWorktrees(List.of(Path.of(pathString)));
                     }
                 }
@@ -208,7 +272,8 @@ public class GitWorktreeTab extends JPanel {
         for (int row : selectedRows) {
             if (row == 0) continue; // Skip main repo
             if (row >= 0 && row < worktreeTableModel.getRowCount()) { // Check bounds
-                String pathString = (String) worktreeTableModel.getValueAt(row, 0);
+                // Path is now in column 1
+                String pathString = (String) worktreeTableModel.getValueAt(row, 1);
                 paths.add(Path.of(pathString));
             }
         }
@@ -230,12 +295,18 @@ public class GitWorktreeTab extends JPanel {
                 IGitRepo repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
                     List<IGitRepo.WorktreeInfo> worktrees = gitRepo.listWorktrees();
+                    // Normalize the current project's root path for reliable comparison
+                    Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
+
                     SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0); // Clear existing rows
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
                             String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
                                     .orElse("(no session)");
+                            // wt.path() is already a real path from GitRepo.listWorktrees()
+                            boolean isActive = currentProjectRoot.equals(wt.path());
                             worktreeTableModel.addRow(new Object[]{
+                                    isActive, // For the "✓" column
                                     wt.path().toString(),
                                     wt.branch(),
                                     sessionTitle
