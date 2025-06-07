@@ -39,6 +39,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static java.lang.Math.max;
+
 /**
  * Manages the current and previous context, along with other state like prompts and message history.
  * <p>
@@ -104,7 +106,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Lots of threads allowed since AutoContext updates get dropped here
     // Use unbounded queue to prevent task rejection
     private final ExecutorService backgroundTasks = createLoggingExecutorService(
-            new ThreadPoolExecutor(3, 12,
+            new ThreadPoolExecutor(2, max(8, Runtime.getRuntime().availableProcessors()),
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
                                    Executors.defaultThreadFactory()),
