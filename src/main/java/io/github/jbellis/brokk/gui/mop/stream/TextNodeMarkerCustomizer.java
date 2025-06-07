@@ -25,7 +25,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
      * Tags inside which we deliberately skip highlighting.
      */
     private static final Set<String> SKIP_TAGS =
-            Set.of("code", "pre", "a", "script", "style", "img");
+            Set.of("script", "style", "img");
 
     /**
      * Attribute used to mark wrapper elements created by this customizer.
