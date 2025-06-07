@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -227,6 +228,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return null;
             });
         }
+    }
+
+    /**
+     * Sends a desktop notification if the main window is not active.
+     * @param notification Notification
+     */
+    public void notifyActionComplete(String notification) {
+        SwingUtilities.invokeLater(() -> {
+            // 'frame' is the JFrame member of Chrome
+            if (frame != null && frame.isShowing() && !frame.isActive()) {
+                Environment.instance.sendNotificationAsync(notification);
+            }
+        });
     }
 
     public IProject getProject() {
