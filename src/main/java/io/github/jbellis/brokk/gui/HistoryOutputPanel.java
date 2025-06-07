@@ -171,7 +171,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionButton.setMinimumSize(newSessionSize);
         newSessionButton.setMaximumSize(newSessionSize);
         newSessionButton.addActionListener(e -> {
-            contextManager.createNewSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
+            contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
                 SwingUtilities.invokeLater(this::updateSessionComboBox)
             );
         });
@@ -471,7 +471,7 @@ public class HistoryOutputPanel extends JPanel {
 
         JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
         newSessionFromWorkspaceItem.addActionListener(event -> {
-            contextManager.createNewSessionFromWorkspaceAsync(context, ContextManager.DEFAULT_SESSION_NAME)
+            contextManager.createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
                 .exceptionally(ex -> {
                     chrome.toolErrorRaw("Failed to create new session from workspace: " + ex.getMessage());
                     return null;
@@ -581,7 +581,7 @@ public class HistoryOutputPanel extends JPanel {
         AutoScroller.install(jsp);
 
         // Add a text change listener to update capture buttons
-        llmStreamArea.addTextChangeListener(() -> chrome.updateCaptureButtons());
+        llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
 
         return jsp;
     }

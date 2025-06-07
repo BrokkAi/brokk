@@ -66,6 +66,44 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Sanitizes a proposed branch name and ensures it is unique by appending a numerical suffix if necessary.
+     * If the initial sanitization results in an empty string, "branch" is used as the base.
+     *
+     * @param proposedName The desired branch name.
+     * @return A sanitized and unique branch name.
+     * @throws GitAPIException if an error occurs while listing local branches.
+     */
+    public String sanitizeBranchName(String proposedName) throws GitAPIException {
+        String sanitized = proposedName.trim().toLowerCase();
+        // Replace whitespace with hyphens
+        sanitized = sanitized.replaceAll("\\s+", "-");
+        // Remove characters not suitable for branch names (keeping only alphanumeric and hyphen)
+        sanitized = sanitized.replaceAll("[^a-z0-9-]", "");
+        // Remove leading or trailing hyphens that might result from sanitation
+        sanitized = sanitized.replaceAll("^-+|-+$", "");
+
+        if (sanitized.isEmpty()) {
+            sanitized = "branch"; // Default base name if sanitization results in an empty string
+        }
+
+        List<String> localBranches = listLocalBranches();
+
+        if (!localBranches.contains(sanitized)) {
+            return sanitized;
+        }
+
+        String baseCandidate = sanitized;
+        int N = 2;
+        String nextCandidate;
+        do {
+            nextCandidate = baseCandidate + "-" + N;
+            N++;
+        } while (localBranches.contains(nextCandidate));
+
+        return nextCandidate;
+    }
+
+    /**
      * Get the JGit instance for direct API access
      */
     public Git getGit() {

@@ -21,6 +21,10 @@ public interface IGitRepo {
         return "";
     }
 
+    default String sanitizeBranchName(String proposedName) throws GitAPIException {
+        return proposedName;
+    }
+
     default Path getGitTopLevel() {
         throw new UnsupportedOperationException();
     }
