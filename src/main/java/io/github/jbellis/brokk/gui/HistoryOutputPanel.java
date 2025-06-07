@@ -467,6 +467,17 @@ public class HistoryOutputPanel extends JPanel {
         JMenuItem resetToHereIncludingHistoryItem = new JMenuItem("Copy Workspace with History");
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
+        popup.addSeparator();
+
+        JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
+        newSessionFromWorkspaceItem.addActionListener(event -> {
+            contextManager.createNewSessionFromWorkspaceAsync(context, ContextManager.DEFAULT_SESSION_NAME)
+                .exceptionally(ex -> {
+                    chrome.toolErrorRaw("Failed to create new session from workspace: " + ex.getMessage());
+                    return null;
+                });
+        });
+        popup.add(newSessionFromWorkspaceItem);
 
         // Register popup with theme manager
         if (chrome.themeManager != null) {

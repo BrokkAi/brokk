@@ -1774,6 +1774,61 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Creates a new session with the given name, copies the workspace from the sourceFrozenContext,
+     * and switches to it asynchronously.
+     *
+     * @param sourceFrozenContext The context whose workspace items will be copied.
+     * @param newSessionName The name for the new session.
+     * @return A CompletableFuture representing the completion of the session creation task.
+     */
+    public CompletableFuture<Void> createNewSessionFromWorkspaceAsync(Context sourceFrozenContext, String newSessionName) {
+        var future = submitUserTask("Creating new session '" + newSessionName + "' from workspace", () -> {
+            logger.info("Attempting to create and switch to new session '{}' from workspace of context '{}'",
+                        newSessionName, sourceFrozenContext.getAction());
+
+            // 1. Create new session info
+            MainProject.SessionInfo newSessionInfo = project.newSession(newSessionName);
+            this.currentSessionId = newSessionInfo.id(); // Switch currentSessionId
+            project.updateActiveSession(this.currentSessionId); // Mark as active
+            logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
+
+            // 2. Create the initial context for the new session.
+            // This context will be based on sourceFrozenContext, inheriting its workspace and taskHistory.
+            // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
+            var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";
+            var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
+            var newParsedOutputFragment = new ContextFragment.TaskFragment(this,
+                                                                           List.of(SystemMessage.from(newActionDescription)),
+                                                                           newActionDescription);
+
+            // sourceFrozenContext is already frozen. withParsedOutput returns a new frozen Context.
+            Context initialContextForNewSession = sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+
+            // 3. Initialize the ContextManager's history for the new session with this single context.
+            // setInitialContext clears existing history and redo states.
+            this.contextHistory.setInitialContext(initialContextForNewSession);
+
+            // 4. Update the ContextManager's liveContext by unfreezing this initial context.
+            this.liveContext = Context.unfreeze(initialContextForNewSession);
+
+            // 5. Save the new session's history (which now contains one entry).
+            project.saveHistory(this.contextHistory, this.currentSessionId);
+
+            // 6. Notify UI about the context change.
+            notifyContextListeners(this.contextHistory.topContext()); // Pass the frozen initialContextForNewSession
+            io.updateContextHistoryTable(this.liveContext); // Update activity table
+        });
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                logger.error("Failed to create new session from workspace", e);
+                throw new RuntimeException("Failed to create new session from workspace", e);
+            }
+        });
+    }
+    
+    /**
      * Switches to an existing session asynchronously.
      * Checks if the session is active elsewhere before switching.
      *
