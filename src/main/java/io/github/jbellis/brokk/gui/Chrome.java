@@ -412,6 +412,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager.applyTheme(isDark);
     }
 
+    public GuiTheme getTheme() {
+        return themeManager;
+    }
+
     @Override
     public String getLlmOutputText() {
         return SwingUtil.runOnEdt(() -> historyOutputPanel.getLlmOutputText(), null);

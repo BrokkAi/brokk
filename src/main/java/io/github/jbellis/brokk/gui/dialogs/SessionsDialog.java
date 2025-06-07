@@ -1,10 +1,13 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 
 import javax.swing.*;
@@ -20,7 +23,7 @@ import java.util.UUID;
 /**
  * Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview
  */
-public class ManageSessionsDialog extends JDialog {
+public class SessionsDialog extends JDialog {
     private final HistoryOutputPanel historyOutputPanel;
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -38,12 +41,9 @@ public class ManageSessionsDialog extends JDialog {
     private WorkspacePanel workspacePanel;
     private MarkdownOutputPanel markdownOutputPanel;
     private JScrollPane markdownScrollPane;
-
-    // Current session context for previewing
-    private ContextHistory currentSessionHistory;
     private Context selectedActivityContext;
 
-    public ManageSessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
+    public SessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
         super(chrome.getFrame(), "Manage Sessions", true);
         this.historyOutputPanel = historyOutputPanel;
         this.chrome = chrome;
@@ -155,7 +155,7 @@ public class ManageSessionsDialog extends JDialog {
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
-        markdownOutputPanel.updateTheme(chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+        markdownOutputPanel.updateTheme(chrome.getTheme().isDarkTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -285,7 +285,6 @@ public class ManageSessionsDialog extends JDialog {
         // Load session history asynchronously
         contextManager.loadSessionHistoryAsync(sessionId).thenAccept(history -> {
             SwingUtilities.invokeLater(() -> {
-                currentSessionHistory = history;
                 populateActivityTable(history);
             });
         }).exceptionally(throwable -> {
@@ -407,9 +406,9 @@ public class ManageSessionsDialog extends JDialog {
 
         JMenuItem renameItem = new JMenuItem("Rename");
         renameItem.addActionListener(event -> {
-            String newName = JOptionPane.showInputDialog(ManageSessionsDialog.this,
-                "Enter new name for session '" + sessionInfo.name() + "':",
-                sessionInfo.name());
+            String newName = JOptionPane.showInputDialog(SessionsDialog.this,
+                                                         "Enter new name for session '" + sessionInfo.name() + "':",
+                                                         sessionInfo.name());
             if (newName != null && !newName.trim().isBlank()) {
                 contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
                     SwingUtilities.invokeLater(() -> {
@@ -423,11 +422,11 @@ public class ManageSessionsDialog extends JDialog {
 
         JMenuItem deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(event -> {
-            int confirm = JOptionPane.showConfirmDialog(ManageSessionsDialog.this,
-                "Are you sure you want to delete session '" + sessionInfo.name() + "'?",
-                "Confirm Delete",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(SessionsDialog.this,
+                                                        "Are you sure you want to delete session '" + sessionInfo.name() + "'?",
+                                                        "Confirm Delete",
+                                                        JOptionPane.YES_NO_OPTION,
+                                                        JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 contextManager.deleteSessionAsync(sessionInfo.id()).thenRun(() ->
                     SwingUtilities.invokeLater(() -> {
@@ -449,9 +448,7 @@ public class ManageSessionsDialog extends JDialog {
         popup.add(copyItem);
 
         // Register popup with theme manager
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popup);
-        }
+        chrome.getTheme().registerPopupMenu(popup);
 
         popup.show(sessionsTable, e.getX(), e.getY());
     }

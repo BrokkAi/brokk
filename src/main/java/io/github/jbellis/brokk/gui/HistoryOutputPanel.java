@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -182,7 +183,7 @@ public class HistoryOutputPanel extends JPanel {
         manageSessionsButton.setMinimumSize(manageSessionSize);
         manageSessionsButton.setMaximumSize(manageSessionSize);
         manageSessionsButton.addActionListener(e -> {
-            var dialog = new ManageSessionsDialog(this, chrome, contextManager);
+            var dialog = new SessionsDialog(this, chrome, contextManager);
             dialog.setVisible(true);
         });
 
