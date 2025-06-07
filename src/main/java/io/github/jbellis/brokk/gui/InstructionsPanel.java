@@ -242,8 +242,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         }
                     });
                 }
-                // Update button states when text changes
-                updateButtonStates();
             }
 
             @Override
@@ -1477,60 +1475,30 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean projectLoaded = chrome.getProject() != null;
             boolean cmAvailable = this.contextManager != null;
             boolean gitAvailable = projectLoaded && chrome.getProject().hasGit();
-            boolean hasInstructions = !getInstructions().isBlank();
-            final String noInstructionsTooltipBase = "Please enter instructions before running ";
 
             // Architect Button
             if (projectLoaded && !gitAvailable) {
                 architectButton.setEnabled(false);
                 architectButton.setToolTipText("Architect feature requires Git integration for this project.");
-            } else if (!hasInstructions) {
-                architectButton.setEnabled(false);
-                architectButton.setToolTipText(noInstructionsTooltipBase + "Architect");
             } else {
                 architectButton.setEnabled(projectLoaded && cmAvailable);
-                architectButton.setToolTipText("Run the multi-step agent to execute the current plan");
+                // Default tooltip is set during initialization, no need to reset unless it changed
             }
 
             // Code Button
             if (projectLoaded && !gitAvailable) {
                 codeButton.setEnabled(false);
                 codeButton.setToolTipText("Code feature requires Git integration for this project.");
-            } else if (!hasInstructions) {
-                codeButton.setEnabled(false);
-                codeButton.setToolTipText(noInstructionsTooltipBase + "Code");
             } else {
                 codeButton.setEnabled(projectLoaded && cmAvailable);
-                codeButton.setToolTipText("Tell the LLM to write code using the current context (click ▼ for model options)");
+                // Default tooltip is set during initialization, no need to reset unless it changed
             }
 
-            // Other buttons follow the same hasInstructions rule
-            if (!hasInstructions) {
-                askButton.setEnabled(false);
-                askButton.setToolTipText(noInstructionsTooltipBase + "Ask");
-
-                searchButton.setEnabled(false);
-                searchButton.setToolTipText(noInstructionsTooltipBase + "Search");
-
-                runButton.setEnabled(false);
-                runButton.setToolTipText(noInstructionsTooltipBase + "Run in Shell");
-
-                deepScanButton.setEnabled(false);
-                deepScanButton.setToolTipText(noInstructionsTooltipBase + "Deep Scan");
-            } else {
-                askButton.setEnabled(projectLoaded && cmAvailable);
-                askButton.setToolTipText("Ask the LLM a question about the current context (click ▼ for model options)");
-
-                searchButton.setEnabled(projectLoaded && cmAvailable);
-                searchButton.setToolTipText("Explore the codebase beyond the current context");
-
-                runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
-                runButton.setToolTipText("Execute the current instructions in a shell");
-
-                // Enable deepScanButton only if instructionsArea is also enabled
-                deepScanButton.setEnabled(projectLoaded && cmAvailable && instructionsArea.isEnabled());
-                deepScanButton.setToolTipText("Perform a deeper analysis (Code + Tests) to suggest relevant context");
-            }
+            askButton.setEnabled(projectLoaded && cmAvailable);
+            searchButton.setEnabled(projectLoaded && cmAvailable);
+            runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
+            // Enable deepScanButton only if instructionsArea is also enabled
+            deepScanButton.setEnabled(projectLoaded && cmAvailable && instructionsArea.isEnabled());
             // Stop is only enabled when an action is running
             stopButton.setEnabled(false);
 
