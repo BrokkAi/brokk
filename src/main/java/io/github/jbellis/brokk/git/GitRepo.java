@@ -35,8 +35,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import io.github.jbellis.brokk.util.Environment;
@@ -1531,17 +1529,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Returns the path of this worktree if it is a worktree, null otherwise.
-     */
-    @Override
-    public Path getWorktreePath() {
-        if (isWorktree()) {
-            return repository.getWorkTree().toPath().toAbsolutePath().normalize();
-        }
-        return null;
-    }
-
-    /**
      * Returns true if this repository is a Git worktree.
      */
     @Override
@@ -1558,6 +1545,30 @@ public class GitRepo implements Closeable, IGitRepo {
                 .map(WorktreeInfo::branch)
                 .filter(branch -> branch != null && !branch.isEmpty())
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Determines the next available path for a new worktree in the specified storage directory.
+     * It looks for paths named "wt1", "wt2", etc., and returns the first one that doesn't exist.
+     *
+     * @param worktreeStorageDir The directory where worktrees are stored.
+     * @return A Path for the new worktree.
+     * @throws IOException if an I/O error occurs when checking for directory existence.
+     */
+    @Override
+    public Path getNextWorktreePath(Path worktreeStorageDir) throws IOException {
+        Files.createDirectories(worktreeStorageDir); // Ensure base directory exists
+        int nextWorktreeNum = 1;
+        Path newWorktreePath;
+        while (true) {
+            Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
+            if (!Files.exists(potentialPath)) {
+                newWorktreePath = potentialPath;
+                break;
+            }
+            nextWorktreeNum++;
+        }
+        return newWorktreePath;
     }
 
     @Override

@@ -605,12 +605,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Asynchronous context actions: add/read/copy/edit/summarize/drop
-    // ------------------------------------------------------------------
-    // Core context manipulation logic called by ContextPanel / Chrome
-    // ------------------------------------------------------------------
-
     /**
      * Add the given files to editable.
      */

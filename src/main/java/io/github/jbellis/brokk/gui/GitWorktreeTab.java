@@ -486,29 +486,11 @@ public class GitWorktreeTab extends JPanel {
 
             // Path Generation Logic
             Path worktreeStorageDir = project.getWorktreeStoragePath();
-            
-            // Ensure worktree storage directory exists
-            try {
-                Files.createDirectories(worktreeStorageDir);
-            } catch (IOException e) {
-                JOptionPane.showMessageDialog(this, "Failed to create worktree storage directory: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
-            // Determine the next worktree directory name
-            int nextWorktreeNum = 1;
-            Path newWorktreePath;
-            while (true) {
-                Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
-                if (!Files.exists(potentialPath)) {
-                    newWorktreePath = potentialPath;
-                    break;
-                }
-                nextWorktreeNum++;
-            }
 
             contextManager.submitUserTask("Adding worktree for branch: " + branchNameToUse, () -> {
                 try {
+                    // Determine the next worktree directory name using GitRepo method
+                    Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
                     if (isCreatingNewBranch) {
                         String currentBranch = gitRepo.getCurrentBranch();
                         logger.info("Creating new branch '{}' from '{}'", branchNameToUse, currentBranch);
