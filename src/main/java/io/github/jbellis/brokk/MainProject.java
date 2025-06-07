@@ -61,6 +61,7 @@ public final class MainProject extends AbstractProject {
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
                                                                """.stripIndent();
     private static volatile Boolean isDataShareAllowedCache = null;
+    private static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -79,7 +80,7 @@ public final class MainProject extends AbstractProject {
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
-    public static record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
+    public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {
             if (openWorktrees == null) {
                 openWorktrees = List.of();
@@ -127,19 +128,26 @@ public final class MainProject extends AbstractProject {
         return this.masterRootPathForConfig;
     }
 
-    private static Properties loadGlobalProperties() {
+    private static synchronized Properties loadGlobalProperties() {
+        if (globalPropertiesCache != null) {
+            return (Properties) globalPropertiesCache.clone();
+        }
+        
         var props = new Properties();
         if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
             try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
+                globalPropertiesCache = (Properties) props.clone();
                 return props;
             }
         }
         boolean migrated = migrateOldModelConfigsIfNecessary(props);
         if (migrated) {
             saveGlobalProperties(props);
+        } else {
+            globalPropertiesCache = (Properties) props.clone();
         }
         return props;
     }
@@ -182,22 +190,16 @@ public final class MainProject extends AbstractProject {
         return changed;
     }
 
-    private static void saveGlobalProperties(Properties props) {
+    private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-                Properties existingProps = new Properties();
-                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
-                    existingProps.load(reader);
-                } catch (IOException e) {
-                    // Ignore
-                }
-                if (AbstractProject.propsEqual(existingProps, props)) { // Use AbstractProject.propsEqual
-                    return;
-                }
+            if (loadGlobalProperties().equals(props)) {
+                return;
             }
             AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
+            globalPropertiesCache = null; // Invalidate cache on error
         }
     }
 
@@ -446,7 +448,7 @@ public final class MainProject extends AbstractProject {
                     existingProps.load(reader);
                 } catch (IOException e) { /* ignore */ }
 
-                if (AbstractProject.propsEqual(existingProps, projectProps)) { // Use AbstractProject.propsEqual
+                if (Objects.equals(existingProps, projectProps)) { // Use AbstractProject.propsEqual
                     return;
                 }
             }
