@@ -204,9 +204,6 @@ public class HistoryOutputPanel extends JPanel {
      */
     public void updateSessionComboBox() {
         SwingUtilities.invokeLater(() -> {
-            // Store current selection to avoid triggering change events
-            var currentSelection = sessionComboBox.getSelectedItem();
-            
             // Remove action listener temporarily
             var listeners = sessionComboBox.getActionListeners();
             for (var listener : listeners) {

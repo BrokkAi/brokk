@@ -1680,30 +1680,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
     var newLiveContext = pushContext(currentLiveCtx ->
         currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
     );
-    
-    // Auto-rename session if this is the first task and session has default name
-    if (newEntry.sequence() == 1) {
-        var sessions = project.listSessions();
-        var currentSession = sessions.stream()
-                .filter(s -> s.id().equals(currentSessionId))
-                .findFirst();
-        
-        if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            try {
-                var summary = actionFuture.get();
-                renameSessionAsync(currentSessionId, summary).thenRun(() -> {
-                    SwingUtilities.invokeLater(() -> {
-                        if (io instanceof Chrome chrome) {
-                            chrome.getHistoryOutputPanel().updateSessionComboBox();
-                        }
-                    });
+
+    // Auto-rename session if session has default name
+    var sessions = project.listSessions();
+    var currentSession = sessions.stream()
+            .filter(s -> s.id().equals(currentSessionId))
+            .findFirst();
+
+    if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+        try {
+            var summary = actionFuture.get(); // This might block if actionFuture is not yet complete
+            renameSessionAsync(currentSessionId, summary).thenRun(() -> {
+                SwingUtilities.invokeLater(() -> {
+                    if (io instanceof Chrome chrome) {
+                        chrome.getHistoryOutputPanel().updateSessionComboBox();
+                    }
                 });
-            } catch (Exception e) {
-                logger.warn("Error renaming Session", e);
-            }
+            });
+        } catch (Exception e) {
+            logger.warn("Error renaming Session", e);
         }
     }
-    
+
     return newLiveContext.getTaskHistory().getLast();
     }
 
