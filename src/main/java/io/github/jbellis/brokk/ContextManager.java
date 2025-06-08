@@ -250,6 +250,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void afterFirstBuild(String msg) {
+                if (io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer build completed");
+                }
                 if (msg.isEmpty()) {
                     SwingUtilities.invokeLater(() -> {
                         io.showMessageDialog(
@@ -283,13 +286,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void afterEachBuild() {
+            public void afterEachBuild(boolean externalRebuildRequested) {
                 // possible for analyzer build to finish before context load does
                 if (liveContext != null) {
                     var fr = liveContext.freeze();
                     liveContext = fr.liveContext();
                     contextHistory.updateTopContext(fr.frozenContext());
                     io.updateWorkspace();
+                }
+                if (externalRebuildRequested && io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer rebuild completed");
                 }
             }
         };
