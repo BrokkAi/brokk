@@ -1426,7 +1426,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
                     InstructionsPanel newWorktreeIP = newWorktreeChrome.getInstructionsPanel();
                     newWorktreeIP.runArchitectCommand(originalInstructions, finalOptions);
-                    SwingUtilities.invokeLater(newWorktreeIP::requestCommandInputFocus);
                 };
 
                 MainProject mainProjectParent = (currentProject instanceof MainProject)
@@ -1481,21 +1480,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Vision check (applies if Architect is run directly, not in new worktree)
         // If in new worktree, the check happens in *that* instance's runArchitectCommand.
-         if (contextHasImages()) {
+        if (contextHasImages()) {
             var models = contextManager.getService();
             var nonVisionModels = Stream.of(architectModel, codeModel, searchModel)
-                                        .filter(m -> !models.supportsVision(m))
-                                        .map(models::nameOf)
-                                        .distinct()
-                                        .toList();
+                    .filter(m -> !models.supportsVision(m))
+                    .map(models::nameOf)
+                    .distinct()
+                    .toList();
             if (!nonVisionModels.isEmpty()) {
                 showVisionSupportErrorDialog(String.join(", ", nonVisionModels));
                 enableButtons(); // Re-enable if we abort here
                 return;
             }
         }
-        // chrome.getProject().addToInstructionsHistory(goal, 20); and clearCommandInput();
-        // are typically called by the public runArchitectCommand() or runArchitectInNewWorktree() before this.
 
         submitAction("Architect", goal, () -> {
             // Proceed with execution using the selected options
