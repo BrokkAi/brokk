@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -126,14 +127,24 @@ public class SessionsDialog extends JDialog {
             }
         });
 
-        // Set up emoji renderer for first column of activity table
+        // Set up icon renderer for first column of activity table
         activityTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                                                           boolean isSelected, boolean hasFocus, int row, int column) {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
+
+                // Set icon and center-align
+                if (value instanceof Icon icon) {
+                    label.setIcon(icon);
+                    label.setText("");
+                } else {
+                    label.setIcon(null);
+                    label.setText(value != null ? value.toString() : "");
+                }
                 label.setHorizontalAlignment(JLabel.CENTER);
+
                 return label;
             }
         });
@@ -316,10 +327,10 @@ public class SessionsDialog extends JDialog {
 
         // Add rows for each context in history
         for (var ctx : history.getHistory()) {
-            // Add emoji for AI responses, empty for user actions
-            String emoji = (ctx.getParsedOutput() != null) ? "🤖" : "";
+            // Add icon for AI responses, null for user actions
+            Icon iconEmoji = (ctx.getParsedOutput() != null) ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
             activityTableModel.addRow(new Object[]{
-                    emoji,
+                    iconEmoji,
                     ctx.getAction(),
                     ctx // Store the actual context object in hidden column
             });
