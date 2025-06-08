@@ -1399,7 +1399,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     return;
                 }
 
-                GitWorktreeTab.WorktreeSetupResult setupResult;
                 Path newWorktreePath;
                 String actualBranchName;
 
@@ -1410,7 +1409,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                      return;
                 }
 
-                setupResult = GitWorktreeTab.setupNewGitWorktree(
+                var setupResult = GitWorktreeTab.setupNewGitWorktree(
                         (MainProject) projectForWorktreeSetup,
                         (io.github.jbellis.brokk.git.GitRepo) projectForWorktreeSetup.getRepo(),
                         generatedBranchName,
@@ -1442,7 +1441,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProjectParent)
                         .initialTask(initialArchitectTask)
-                        .sourceContextForSessionCopy(cm.liveContext())
+                        .sourceContextForSession(cm.topContext())
                         .open()
                         .thenAccept(success -> {
                     if (Boolean.TRUE.equals(success)) {

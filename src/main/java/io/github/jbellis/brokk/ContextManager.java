@@ -159,15 +159,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .map(IProject.SessionInfo::name)
                     .orElse("Unknown");
             logger.info("Resuming last active session: {} ({})", sessionName, currentSessionId);
-        } else if (sessions.isEmpty()) {
+        } else {
             var newSessionInfo = project.newSession(DEFAULT_SESSION_NAME);
             this.currentSessionId = newSessionInfo.id();
             logger.info("Created and loaded new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
-        } else {
-            sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed());
-            var latestSession = sessions.get(0);
-            this.currentSessionId = latestSession.id();
-            logger.info("Loaded most recent session: {} ({})", latestSession.name(), latestSession.id());
         }
         
         this.contextHistory = new ContextHistory();
@@ -1777,6 +1772,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
         var newSessionInfo = project.newSession(newSessionName);
+        currentSessionId = newSessionInfo.id();
         project.updateActiveSession(newSessionInfo.id());
         var ctx = newContextFrom(sourceFrozenContext);
         var ch = new ContextHistory();

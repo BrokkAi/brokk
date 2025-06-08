@@ -454,6 +454,11 @@ public class GitWorktreeTab extends JPanel {
             gbc.insets = new Insets(2, 2, 2, 2);
             panel.add(newBranchNameField, gbc);
 
+            JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
+            copyWorkspaceCheckbox.setSelected(false); // Default to false
+            gbc.insets = new Insets(10, 2, 2, 2); // Add some space before the checkbox
+            panel.add(copyWorkspaceCheckbox, gbc);
+
             int result = JOptionPane.showConfirmDialog(this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result != JOptionPane.OK_OPTION) {
                 return;
@@ -461,6 +466,7 @@ public class GitWorktreeTab extends JPanel {
 
             String branchNameToUse;
             boolean isCreatingNewBranch = createNewBranchRadio.isSelected();
+            boolean copyWorkspace = copyWorkspaceCheckbox.isSelected();
 
             if (isCreatingNewBranch) {
                 branchNameToUse = newBranchNameField.getText().trim();
@@ -481,30 +487,26 @@ public class GitWorktreeTab extends JPanel {
                 try {
                     WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchNameToUse, isCreatingNewBranch, null);
                     Path newWorktreePath = setupResult.worktreePath();
-                    // String actualBranchNameUsed = setupResult.branchName(); // if needed for logging
 
-                    // Create Project instance for the new worktree to manage its standard new session
-                    // This is for the regular "Add Worktree" button flow.
-                    // Architect flow will use createNewSessionFromWorkspaceAsync via Brokk.openProject.
-                    var newWorktreeProject = new WorktreeProject(newWorktreePath, project);
-                    String sessionName = "Worktree: " + branchNameToUse; // Default session name for new worktree
-                    MainProject.SessionInfo newSession = newWorktreeProject.newSession(sessionName);
-                    newWorktreeProject.setLastActiveSession(newSession.id());
-                    newWorktreeProject.saveWorkspaceProperties(); // Save the session id
-                    newWorktreeProject.close(); // Release resources, Brokk.openProject will create its own instance
+                    Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath)
+                            .parent(project);
 
-                    new Brokk.OpenProjectBuilder(newWorktreePath)
-                            .parent(project)
-                            .open()
+                    if (copyWorkspace) {
+                        logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
+                        openProjectBuilder.sourceContextForSession(contextManager.topContext());
+                    }
+
+                    openProjectBuilder.open()
                             .thenAccept(success -> {
                                 if (Boolean.TRUE.equals(success)) {
                                     chrome.systemOutput("Successfully opened worktree: " + newWorktreePath.getFileName());
                                 } else {
                                     chrome.toolErrorRaw("Error opening worktree " + newWorktreePath.getFileName());
                                 }
+                                // Refresh worktree list regardless of open success, as the worktree itself was created.
+                                SwingUtilities.invokeLater(this::loadWorktrees);
                             });
 
-                    SwingUtilities.invokeLater(this::loadWorktrees);
                     chrome.systemOutput("Successfully created worktree for branch '" + branchNameToUse + "' at " + newWorktreePath);
                 } catch (GitAPIException e) {
                     logger.error("Git error while adding worktree for branch: " + branchNameToUse, e);

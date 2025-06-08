@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -496,7 +495,7 @@ public class Brokk {
             return this;
         }
 
-        public OpenProjectBuilder sourceContextForSessionCopy(@Nullable Context sourceContextForSession) {
+        public OpenProjectBuilder sourceContextForSession(@Nullable Context sourceContextForSession) {
             this.sourceContextForSession = sourceContextForSession;
             return this;
         }
@@ -709,13 +708,12 @@ public class Brokk {
     private static CompletableFuture<Optional<ContextManager>> initializeProjectAndContextManager(OpenProjectBuilder builder) {
         Path projectPath = builder.path;
         MainProject parent = builder.parent;
-        Context sourceContextForSessionCopy = builder.sourceContextForSession;
 
         try {
             MainProject.updateRecentProject(projectPath);
             var project = AbstractProject.createProject(projectPath, parent);
 
-            if (project.getRepo().isWorktree() && parent == null && sourceContextForSessionCopy == null) {
+            if (project.getRepo().isWorktree() && parent == null) {
                 logger.warn("User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.", projectPath);
                 final Path finalProjectPath = projectPath;
                 SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
@@ -765,10 +763,10 @@ public class Brokk {
 
             // TODO nothing is actually async here
             var contextManager = new ContextManager(project); // Project must be final or effectively final for lambda
-            if (sourceContextForSessionCopy != null) {
+            if (builder.sourceContextForSession != null) {
                 // Asynchronously create session from workspace, then complete the future
                 String newSessionName = "Architect Session (" + project.getRoot().getFileName() + ")"; // Or generate based on branch
-                contextManager.createSessionWithoutGui(sourceContextForSessionCopy, newSessionName);
+                contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
             }
             return CompletableFuture.completedFuture(Optional.of(contextManager));
         } catch (Exception e) {
