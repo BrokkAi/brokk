@@ -117,10 +117,9 @@ public class Brokk {
                 showSplashScreen();
             });
         } catch (Exception e) { // Catches InterruptedException and InvocationTargetException
-            logger.fatal("Failed to initialize Look and Feel or SplashScreen on EDT. Exiting.", e);
+            logger.fatal("Failed to initialize SplashScreen. Exiting.", e);
             System.exit(1);
         }
-        Thread.ofPlatform().start(() -> GuiTheme.loadRSyntaxTheme(isDark));
     }
 
     private static ParsedArgs parseArguments(String[] args) {
