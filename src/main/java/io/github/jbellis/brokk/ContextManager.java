@@ -113,7 +113,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    private final IProject project;
+    private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
     // Current session tracking
@@ -145,25 +145,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public ContextManager(AbstractProject project)
     {
         this.project = project;
-        
-        // Initialize session management - check for last active session first
-        var lastActiveSessionId = project.getLastActiveSession();
-        var sessions = project.listSessions();
-        
-        if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
-            // Try to resume the last active session for this worktree
-            this.currentSessionId = lastActiveSessionId.get();
-            var sessionName = sessions.stream()
-                    .filter(s -> s.id().equals(currentSessionId))
-                    .findFirst()
-                    .map(IProject.SessionInfo::name)
-                    .orElse("Unknown");
-            logger.info("Resuming last active session: {} ({})", sessionName, currentSessionId);
-        } else {
-            var newSessionInfo = project.newSession(DEFAULT_SESSION_NAME);
-            this.currentSessionId = newSessionInfo.id();
-            logger.info("Created and loaded new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
-        }
         
         this.contextHistory = new ContextHistory();
         this.service = new ServiceWrapper();
@@ -210,28 +191,45 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This method is synchronous but intended to be called from a background task.
      */
      private void initializeCurrentSessionAndHistory() {
-        var loadedCH = project.loadHistory(currentSessionId, this); // Returns ContextHistory with frozen contexts
-        if (loadedCH.getHistory().isEmpty()) {
-            liveContext = new Context(this, buildWelcomeMessage());
-            contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-        } else {
-            contextHistory.setInitialContext(loadedCH.getHistory().getFirst()); // First is already frozen
-            for (int i = 1; i < loadedCH.getHistory().size(); i++) {
-                contextHistory.addFrozenContextAndClearRedo(loadedCH.getHistory().get(i));
-            }
-            liveContext = Context.unfreeze(topContext());
-        }
-        project.updateActiveSession(currentSessionId); // Mark this session as active for this project
+         // load last active session, if present
+         var lastActiveSessionId = project.getLastActiveSession();
+         var sessions = project.listSessions();
+         UUID sessionId;
+         if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
+             // Try to resume the last active session for this worktree
+             sessionId = lastActiveSessionId.get();
+             logger.info("Resuming last active session {}", sessionId);
+         } else {
+             var newSessionInfo = project.newSession(DEFAULT_SESSION_NAME);
+             sessionId = newSessionInfo.id();
+             logger.info("Created and loaded new session: {}", newSessionInfo.id());
+         }
 
-        // Notify listeners and UI on EDT after initialization is complete
-        SwingUtilities.invokeLater(() -> {
-            notifyContextListeners(topContext());
-            if (io != null && io instanceof Chrome) { // Check if UI is ready
+         // load session contents
+         var loadedCH = project.loadHistory(sessionId, this);
+         if (loadedCH.getHistory().isEmpty()) {
+             liveContext = new Context(this, buildWelcomeMessage());
+             contextHistory.setInitialContext(liveContext.freeze().frozenContext());
+         } else {
+             contextHistory.setInitialContext(loadedCH.getHistory().getFirst()); // First is already frozen
+             for (int i = 1; i < loadedCH.getHistory().size(); i++) {
+                 contextHistory.addFrozenContextAndClearRedo(loadedCH.getHistory().get(i));
+             }
+             liveContext = Context.unfreeze(topContext());
+         }
+
+         // make it official
+         updateActiveSession(sessionId);
+
+         // Notify listeners and UI on EDT
+         SwingUtilities.invokeLater(() -> {
+             notifyContextListeners(topContext());
+             if (io != null && io instanceof Chrome) { // Check if UI is ready
                  io.updateContextHistoryTable(liveContext);
                  io.enableActionButtons();
-            }
-        });
-    }
+             }
+         });
+     }
 
     /**
      * Called from Brokk to finish wiring up references to Chrome and Coder
@@ -1747,9 +1745,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createSessionAsync(String name) {
         // No explicit exclusivity check for new session, as it gets a new unique ID.
         var future = submitUserTask("Creating new session: " + name, () -> {
-            MainProject.SessionInfo newSessionInfo = project.newSession(name);
-            this.currentSessionId = newSessionInfo.id(); // Switch currentSessionId first
-            project.updateActiveSession(this.currentSessionId); // Mark as active for this project
+            var newSessionInfo = project.newSession(name);
+            updateActiveSession(newSessionInfo.id()); // Mark as active for this project
             logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
 
             // initialize history for the new session
@@ -1770,10 +1767,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    public void updateActiveSession(UUID sessionId) {
+        currentSessionId = sessionId;
+        SessionRegistry.update(project.getRoot(), sessionId);
+        project.setLastActiveSession(sessionId);
+    }
+
     public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
         var newSessionInfo = project.newSession(newSessionName);
-        currentSessionId = newSessionInfo.id();
-        project.updateActiveSession(newSessionInfo.id());
+        updateActiveSession(newSessionInfo.id());
         var ctx = newContextFrom(sourceFrozenContext);
         var ch = new ContextHistory();
         ch.setInitialContext(ctx);
@@ -1795,8 +1797,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // 1. Create new session info
             var newSessionInfo = project.newSession(newSessionName);
-            this.currentSessionId = newSessionInfo.id(); // Switch currentSessionId
-            project.updateActiveSession(this.currentSessionId); // Mark as active
+            updateActiveSession(newSessionInfo.id());
             logger.debug("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
 
             // 2. Create the initial context for the new session.
@@ -1862,8 +1863,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var future = submitUserTask("Switching session", () -> {
             logger.debug("Attempting to switch to session: {}", sessionId);
-            this.currentSessionId = sessionId;
-            project.updateActiveSession(this.currentSessionId); // Mark as active
+            updateActiveSession(sessionId); // Mark as active
 
             String sessionName = project.listSessions().stream()
                     .filter(s -> s.id().equals(sessionId))
@@ -1925,45 +1925,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> deleteSessionAsync(UUID sessionIdToDelete) {
         var future = submitUserTask("Deleting session " + sessionIdToDelete, () -> {
-            UUID currentActiveSessionId = this.currentSessionId;
-            String deletedSessionNameForLog = project.listSessions().stream()
-                    .filter(s -> s.id().equals(sessionIdToDelete))
-                    .findFirst()
-                    .map(IProject.SessionInfo::name)
-                    .orElse("(unknown name, likely already deleted)"); // Get name before deleting
             project.deleteSession(sessionIdToDelete);
-            logger.info("Deleted session: {} ({})", deletedSessionNameForLog, sessionIdToDelete);
-            if (sessionIdToDelete.equals(currentActiveSessionId)) {
-                List<MainProject.SessionInfo> remainingSessions = project.listSessions();
-                if (remainingSessions.isEmpty()) {
-                    MainProject.SessionInfo newDefaultSession = project.newSession(DEFAULT_SESSION_NAME);
-                    this.currentSessionId = newDefaultSession.id();
-                    logger.info("Current session was deleted. Created and switched to new default session: {} ({})", newDefaultSession.name(), newDefaultSession.id());
-                    liveContext = new Context(this, "Welcome to session: " + newDefaultSession.name());
-                    contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-                    project.saveHistory(contextHistory, this.currentSessionId);
-                } else {
-                    remainingSessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed());
-                    MainProject.SessionInfo nextSessionToActivate = remainingSessions.get(0);
-                    this.currentSessionId = nextSessionToActivate.id();
-                    logger.info("Current session was deleted. Switched to most recent remaining session: {} ({})", nextSessionToActivate.name(), nextSessionToActivate.id());
-                    ContextHistory loadedCh = project.loadHistory(this.currentSessionId, this);
-                    if (loadedCh.getHistory().isEmpty()) {
-                        liveContext = new Context(this, "Welcome to session: " + nextSessionToActivate.name());
-                        contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-                        project.saveHistory(contextHistory, this.currentSessionId);
-                    } else {
-                        contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
-                        for (int i = 1; i < loadedCh.getHistory().size(); i++) {
-                            contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
-                        }
-                        liveContext = Context.unfreeze(topContext());
-                    }
-                }
-                notifyContextListeners(topContext());
-                io.updateContextHistoryTable(liveContext);
+            logger.info("Deleted session {}", sessionIdToDelete);
+            if (sessionIdToDelete.equals(currentSessionId)) {
+                // start fresh
+                initializeCurrentSessionAndHistory();
             }
         });
+
         return CompletableFuture.runAsync(() -> {
             try {
                 future.get();
@@ -1983,27 +1952,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> copySessionAsync(UUID originalSessionId, String originalSessionName) {
         var future = submitUserTask("Copying session " + originalSessionName, () -> {
             String newSessionName = "Copy of " + originalSessionName;
-            MainProject.SessionInfo copiedSessionInfo = project.copySession(originalSessionId, newSessionName);
-            if (copiedSessionInfo != null) {
-                logger.info("Copied session {} ({}) to {} ({})", originalSessionName, originalSessionId, copiedSessionInfo.name(), copiedSessionInfo.id());
-                this.currentSessionId = copiedSessionInfo.id();
-                ContextHistory loadedCh = project.loadHistory(this.currentSessionId, this);
-                if (loadedCh.getHistory().isEmpty()) {
-                    liveContext = new Context(this, "Welcome to session: " + copiedSessionInfo.name());
-                    contextHistory.setInitialContext(liveContext.freeze().frozenContext());
-                    project.saveHistory(contextHistory, this.currentSessionId);
-                } else {
-                    contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
-                    for (int i = 1; i < loadedCh.getHistory().size(); i++) {
-                        contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
-                    }
-                    liveContext = Context.unfreeze(topContext());
-                }
-                notifyContextListeners(topContext());
-                io.updateContextHistoryTable(liveContext);
-            } else {
+            IProject.SessionInfo copiedSessionInfo = null;
+            try {
+                copiedSessionInfo = project.copySession(originalSessionId, newSessionName);
+            } catch (IOException e) {
                 io.toolErrorRaw("Failed to copy session " + originalSessionName);
             }
+
+            logger.info("Copied session {} ({}) to {} ({})", originalSessionName, originalSessionId, copiedSessionInfo.name(), copiedSessionInfo.id());
+            var loadedCh = project.loadHistory(copiedSessionInfo.id(), this);
+            assert !loadedCh.getHistory().isEmpty();
+            contextHistory.setInitialContext(loadedCh.getHistory().getFirst());
+            for (int i = 1; i < loadedCh.getHistory().size(); i++) {
+                contextHistory.addFrozenContextAndClearRedo(loadedCh.getHistory().get(i));
+            }
+            liveContext = Context.unfreeze(topContext());
+            updateActiveSession(copiedSessionInfo.id());
+
+            notifyContextListeners(topContext());
+            io.updateContextHistoryTable(liveContext);
         });
         return CompletableFuture.runAsync(() -> {
             try {

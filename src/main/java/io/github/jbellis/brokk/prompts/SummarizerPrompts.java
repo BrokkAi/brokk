@@ -7,19 +7,21 @@ import dev.langchain4j.data.message.UserMessage;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.Set;
 
 public class SummarizerPrompts {
     public static final SummarizerPrompts instance = new SummarizerPrompts() {};
-    
-    public static final int WORD_BUDGET_5 = 5; 
-    public static final int WORD_BUDGET_12 = 12; 
+
+    public static final int WORD_BUDGET_3 = 3;
+    public static final int WORD_BUDGET_5 = 5;
+    public static final int WORD_BUDGET_12 = 12;
     
     private SummarizerPrompts() {}
 
     public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
         assert actionTxt != null;
         assert !actionTxt.isBlank();
-        assert wordBudget == WORD_BUDGET_5 || wordBudget == WORD_BUDGET_12 : wordBudget;
+        assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12).contains(wordBudget) : wordBudget;
 
         var example = """
         # What Brokk can do
@@ -42,9 +44,16 @@ public class SummarizerPrompts {
         - "Here are the usages of Foo.bar.  Is parameter zep always loaded from cache?"
         """;
         var exampleRequest = getRequest(example, wordBudget);
-        var exampleResponse = wordBudget == WORD_BUDGET_12
-                ? "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration"
-                : "Brokk: context management, agentic search";
+        var exampleResponse = switch (wordBudget) {
+            case WORD_BUDGET_3:
+                yield "Brokk: code intelligence";
+            case WORD_BUDGET_5:
+                yield "Brokk: context management, agentic search";
+            case WORD_BUDGET_12:
+                yield "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
+            default:
+                throw new AssertionError(wordBudget);
+        };
 
         var request = getRequest(actionTxt, wordBudget);
         return List.of(new SystemMessage(systemIntro()),
