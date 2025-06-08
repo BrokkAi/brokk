@@ -1680,35 +1680,33 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Future<String> actionFuture = submitSummarizeTaskForConversation(action);
 
         // pushContext will apply addHistoryEntry to the current liveContext,
-    // then liveContext will be updated, and a frozen version added to history.
-    var newLiveContext = pushContext(currentLiveCtx ->
-        currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture)
-    );
-    
-    // Auto-rename session if this is the first task and session has default name
-    if (newEntry.sequence() == 1) {
-        var sessions = project.listSessions();
-        var currentSession = sessions.stream()
-                .filter(s -> s.id().equals(currentSessionId))
-                .findFirst();
-        
-        if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            try {
-                var summary = actionFuture.get();
-                renameSessionAsync(currentSessionId, summary).thenRun(() -> {
-                    SwingUtilities.invokeLater(() -> {
-                        if (io instanceof Chrome chrome) {
-                            chrome.getHistoryOutputPanel().updateSessionComboBox();
-                        }
+        // then liveContext will be updated, and a frozen version added to history.
+        var newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture));
+
+        // Auto-rename session if this is the first task and session has default name
+        if (newEntry.sequence() == 1) {
+            var sessions = project.listSessions();
+            var currentSession = sessions.stream()
+                    .filter(s -> s.id().equals(currentSessionId))
+                    .findFirst();
+
+            if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+                try {
+                    var summary = actionFuture.get();
+                    renameSessionAsync(currentSessionId, summary).thenRun(() -> {
+                        SwingUtilities.invokeLater(() -> {
+                            if (io instanceof Chrome chrome) {
+                                chrome.getHistoryOutputPanel().updateSessionComboBox();
+                            }
+                        });
                     });
-                });
-            } catch (Exception e) {
-                logger.warn("Error renaming Session", e);
+                } catch (Exception e) {
+                    logger.warn("Error renaming Session", e);
+                }
             }
         }
-    }
-    
-    return newLiveContext.getTaskHistory().getLast();
+
+        return newLiveContext.getTaskHistory().getLast();
     }
 
     public List<Context> getContextHistoryList() {
