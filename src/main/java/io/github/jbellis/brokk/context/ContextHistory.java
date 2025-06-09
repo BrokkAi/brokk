@@ -78,12 +78,6 @@ public class ContextHistory {
         selected = frozen;
     }
 
-    public synchronized void updateTopContext(Context ctx) {
-        assert ctx.isFrozen();
-        history.removeLast();
-        history.addLast(ctx);
-    }
-
     /* ─────────────── undo / redo  ────────────── */
 
     public record UndoResult(boolean wasUndone, int steps) {

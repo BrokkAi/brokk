@@ -466,8 +466,7 @@ public class ContextSerializationTest {
             }
         });
         
-        var context2 = new Context(mockContextManager, "Second context")
-                .withAction(slowFuture);
+        var context2 = new Context(mockContextManager, "Second context").withAction(slowFuture);
         history.addFrozenContextAndClearRedo(context2.freeze());
         
         // Create context with a very slow action that should timeout
@@ -480,8 +479,7 @@ public class ContextSerializationTest {
             }
         });
         
-        var context3 = new Context(mockContextManager, "Third context")
-                .withAction(timeoutFuture);
+        var context3 = new Context(mockContextManager, "Third context").withAction(timeoutFuture);
         history.addFrozenContextAndClearRedo(context3.freeze());
         
         // Wait for the slow future to complete before serialization

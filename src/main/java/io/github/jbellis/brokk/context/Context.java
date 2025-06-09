@@ -572,15 +572,24 @@ public class Context {
                            action);
     }
 
+    public Context withAction(String action) {
+        return new Context(contextManager,
+                           editableFiles,
+                           readonlyFiles,
+                           virtualFragments,
+                           taskHistory,
+                           parsedOutput,
+                           CompletableFuture.completedFuture(action));
+    }
+
     public Context withAction(Future<String> action) {
-        return new Context( // Keep same ID as this is just updating the action
-                            contextManager,
-                            editableFiles,
-                            readonlyFiles,
-                            virtualFragments,
-                            taskHistory,
-                            parsedOutput,
-                            action);
+        return new Context(contextManager,
+                           editableFiles,
+                           readonlyFiles,
+                           virtualFragments,
+                           taskHistory,
+                           parsedOutput,
+                           action);
     }
 
     /**
