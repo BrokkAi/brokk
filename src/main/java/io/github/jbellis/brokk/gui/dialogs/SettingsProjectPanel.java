@@ -1117,7 +1117,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                          parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
                      }
                 }
-            }
+            } // else this is standalone data retention dialog
         }
     }
 }
