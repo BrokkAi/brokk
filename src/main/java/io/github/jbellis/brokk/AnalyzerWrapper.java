@@ -526,7 +526,12 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         try {
             // Try to get with zero timeout - returns null if not done
-            return future.get(0, TimeUnit.MILLISECONDS);
+            IAnalyzer result = future.get(0, TimeUnit.MILLISECONDS);
+            // If we got a result, cache it to avoid future.get() calls
+            if (result != null) {
+                currentAnalyzer = result;
+            }
+            return result;
         } catch (TimeoutException e) {
             // Not done yet
             return null;

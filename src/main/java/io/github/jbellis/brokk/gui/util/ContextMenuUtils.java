@@ -260,6 +260,12 @@ public final class ContextMenuUtils {
         // Summarize option
         JMenuItem summarizeItem = new JMenuItem("Summarize " + targetRef.getFullPath());
         summarizeItem.addActionListener(e1 -> {
+            if (!cm.getAnalyzerWrapper().isReady()) {
+                cm.getIo().systemNotify("Code Intelligence is still being built. Please wait until completion.",
+                                      "Analyzer Busy",
+                                      JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
             withTemporaryListenerDetachment(chrome, cm, () -> {
                 if (targetRef.getRepoFile() == null) {
                     chrome.toolErrorRaw("Cannot summarize: " + targetRef.getFullPath() + " - ProjectFile information not available");

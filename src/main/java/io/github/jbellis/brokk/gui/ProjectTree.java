@@ -194,6 +194,12 @@ public class ProjectTree extends JTree {
 
         JMenuItem summarizeItem = new JMenuItem(selectedFiles.size() == 1 ? "Summarize" : "Summarize All");
         summarizeItem.addActionListener(ev -> {
+            if (!contextManager.getAnalyzerWrapper().isReady()) {
+                contextManager.getIo().systemNotify("Code Intelligence is still being built. Please wait until completion.",
+                                                  "Analyzer Busy",
+                                                  JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
             contextManager.submitContextTask("Summarize files", () -> {
                 contextManager.addSummaries(new HashSet<>(selectedFiles), Collections.emptySet());
             });
