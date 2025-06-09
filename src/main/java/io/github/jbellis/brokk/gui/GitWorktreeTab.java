@@ -19,9 +19,32 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import javax.swing.JCheckBox;
+import javax.swing.JOptionPane;
+
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
+
+    public enum MergeMode {
+        MERGE_COMMIT("Merge commit"),
+        SQUASH_COMMIT("Squash and merge"),
+        REBASE_MERGE("Rebase and merge");
+
+        private final String displayName;
+
+        MergeMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -33,6 +56,9 @@ public class GitWorktreeTab extends JPanel {
     private JButton removeButton;
     private JButton openButton; // Added
     private JButton refreshButton; // Added
+    private JButton mergeButton; // Added for worktree merge functionality
+
+    private final boolean isWorktreeWindow;
 
     public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
@@ -40,7 +66,10 @@ public class GitWorktreeTab extends JPanel {
         this.contextManager = contextManager;
         this.gitPanel = gitPanel;
 
-        IGitRepo repo = contextManager.getProject().getRepo();
+        var project = contextManager.getProject();
+        this.isWorktreeWindow = project instanceof WorktreeProject;
+
+        IGitRepo repo = project.getRepo();
         if (repo.supportsWorktrees()) {
             buildWorktreeTabUI();
             loadWorktrees();
@@ -180,34 +209,53 @@ public class GitWorktreeTab extends JPanel {
         JPanel buttonPanel = new JPanel();
         buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
 
+        // Initialize field buttons (their properties like text, tooltip, listener)
         addButton = new JButton("+");
         addButton.setToolTipText("Add new worktree");
         addButton.addActionListener(e -> addWorktree());
-        buttonPanel.add(addButton);
+
+        removeButton = new JButton("-");
+        removeButton.setToolTipText("Remove selected worktree(s)");
+        removeButton.setEnabled(false); // Initially disabled
+        removeButton.addActionListener(e -> removeWorktree());
 
         openButton = new JButton("Open");
         openButton.setToolTipText("Open selected worktree(s)");
-        openButton.setEnabled(false);
+        openButton.setEnabled(false); // Initially disabled
         openButton.addActionListener(e -> {
             List<Path> pathsToOpen = getSelectedWorktreePaths();
             if (!pathsToOpen.isEmpty()) {
                 handleOpenOrFocusWorktrees(pathsToOpen);
             }
         });
-        buttonPanel.add(openButton);
-
-        removeButton = new JButton("-");
-        removeButton.setToolTipText("Remove selected worktree(s)");
-        removeButton.setEnabled(false); // Initially disabled
-        removeButton.addActionListener(e -> removeWorktree());
-        buttonPanel.add(removeButton);
-
-        buttonPanel.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
 
         refreshButton = new JButton("Refresh");
         refreshButton.setToolTipText("Refresh the list of worktrees");
         refreshButton.addActionListener(e -> refresh());
-        buttonPanel.add(refreshButton);
+
+        if (!isWorktreeWindow) { // MainProject context
+            buttonPanel.add(addButton);
+            buttonPanel.add(removeButton);
+            buttonPanel.add(Box.createHorizontalGlue());
+            buttonPanel.add(openButton);
+            buttonPanel.add(refreshButton);
+        } else { // WorktreeProject context
+            addButton.setVisible(false);
+            removeButton.setVisible(false);
+
+            var project = contextManager.getProject();
+            String wtName = ((WorktreeProject) project).getRoot().getFileName().toString();
+            mergeButton = new JButton("Merge " + wtName + " into...");
+            mergeButton.setToolTipText("Merge this worktree branch into another branch");
+            mergeButton.setEnabled(true);
+            mergeButton.addActionListener(e -> showMergeDialog());
+
+            buttonPanel.add(Box.createHorizontalGlue());
+            buttonPanel.add(openButton);
+            buttonPanel.add(refreshButton);
+            buttonPanel.add(Box.createRigidArea(new Dimension(5, 0)));
+            buttonPanel.add(mergeButton);
+        }
 
         add(buttonPanel, BorderLayout.SOUTH);
 
@@ -283,9 +331,26 @@ public class GitWorktreeTab extends JPanel {
     private void updateButtonStates() {
         List<Path> selectedPaths = getSelectedWorktreePaths();
         boolean hasSelection = !selectedPaths.isEmpty();
-        if (openButton != null) openButton.setEnabled(hasSelection);
-        if (removeButton != null) removeButton.setEnabled(hasSelection);
-        // addButton is always enabled if worktrees are supported
+
+        if (openButton != null) {
+            openButton.setEnabled(hasSelection);
+        }
+
+        if (isWorktreeWindow) {
+            if (addButton != null) {
+                addButton.setEnabled(false);
+            }
+            if (removeButton != null) {
+                removeButton.setEnabled(false);
+            }
+            // mergeButton's state is not currently driven by selection in this method.
+            // It is initialized as enabled.
+        } else { // MainProject context
+            // addButton in MainProject view is generally always enabled if worktrees are supported.
+            if (removeButton != null) {
+                removeButton.setEnabled(hasSelection);
+            }
+        }
     }
 
 
@@ -646,5 +711,51 @@ public class GitWorktreeTab extends JPanel {
         gitRepo.addWorktree(branchNameToUse, newWorktreePath);
 
         return new WorktreeSetupResult(newWorktreePath, branchNameToUse);
+    }
+
+    private void showMergeDialog() {
+        var project = contextManager.getProject();
+        String worktreeBranchName = "";
+        if (project instanceof WorktreeProject && project.getRepo() instanceof GitRepo gitRepo) {
+            try {
+                worktreeBranchName = gitRepo.getCurrentBranch();
+            } catch (GitAPIException e) {
+                logger.error("Could not get current branch for worktree", e);
+                // Optionally inform the user or disable merge functionality if branch name is crucial
+            }
+        }
+
+        JPanel dialogPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridwidth = GridBagConstraints.REMAINDER;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(2, 2, 2, 2);
+
+        JCheckBox removeWorktreeCb = new JCheckBox("Delete worktree after merge");
+        removeWorktreeCb.setSelected(true);
+        dialogPanel.add(removeWorktreeCb, gbc);
+
+        final String finalWorktreeBranchName = worktreeBranchName; // For use in lambda
+        JCheckBox removeBranchCb = new JCheckBox("Delete branch '" + finalWorktreeBranchName + "' after merge");
+        removeBranchCb.setSelected(true);
+        dialogPanel.add(removeBranchCb, gbc);
+
+        Runnable updateRemoveBranchCbState = () -> {
+            if (removeWorktreeCb.isSelected()) {
+                removeBranchCb.setEnabled(true);
+            } else {
+                removeBranchCb.setEnabled(false);
+                removeBranchCb.setSelected(false); // Uncheck when disabled
+            }
+        };
+        removeWorktreeCb.addActionListener(e -> updateRemoveBranchCbState.run());
+        updateRemoveBranchCbState.run(); // Call once to set initial state
+
+        int result = JOptionPane.showConfirmDialog(this, dialogPanel, "Merge Worktree Branch", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        if (result == JOptionPane.OK_OPTION) { // Placeholder for actual merge logic
+            logger.info("Merge confirmed. Remove worktree: " + removeWorktreeCb.isSelected() + ", Remove branch: " + removeBranchCb.isSelected());
+            // Actual merge logic will go here in a future step
+        }
     }
 }
