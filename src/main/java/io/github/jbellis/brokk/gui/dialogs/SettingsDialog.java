@@ -17,6 +17,8 @@ import java.awt.event.WindowEvent;
 public class SettingsDialog extends JDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
+    public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
+
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
     private SettingsGlobalPanel globalSettingsPanel;

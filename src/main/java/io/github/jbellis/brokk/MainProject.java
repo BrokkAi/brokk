@@ -24,6 +24,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.Set;
@@ -64,6 +65,8 @@ public final class MainProject extends AbstractProject {
 
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+
+    private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT = """
                                                                The commit message should be structured as follows: <type>: <description>
@@ -784,6 +787,17 @@ public final class MainProject extends AbstractProject {
             props.setProperty(GITHUB_TOKEN_KEY, token.trim());
         }
         saveGlobalProperties(props);
+        notifyGitHubTokenChanged();
+    }
+
+    private static void notifyGitHubTokenChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.gitHubTokenChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
     }
 
     public static String getGitHubToken() {
@@ -904,6 +918,14 @@ public final class MainProject extends AbstractProject {
         isDataShareAllowedCache = allowed;
         logger.info("Data sharing allowed for organization: {}", allowed);
         return allowed;
+    }
+
+    public static void addSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.add(listener);
+    }
+
+    public static void removeSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.remove(listener);
     }
 
     public enum DataRetentionPolicy {

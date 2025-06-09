@@ -90,7 +90,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         if (project != null && project.isGitHubRepo()) {
             var gitHubPanel = createGitHubPanel();
-            globalSubTabbedPane.addTab("GitHub", null, gitHubPanel, "GitHub integration settings");
+            globalSubTabbedPane.addTab(SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
         }
 
         // Jira Tab removed
