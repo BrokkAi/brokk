@@ -469,7 +469,7 @@ public class Context {
      * @param idsToRemove Collection of fragment IDs to remove
      * @return A new Context with the specified fragments removed, or this context if no changes were made
      */
-    public Context removeFragmentsByIds(Collection<Integer> idsToRemove) {
+    public Context removeFragmentsByIds(Collection<String> idsToRemove) {
         if (idsToRemove == null || idsToRemove.isEmpty()) {
             return this;
         }
@@ -820,34 +820,38 @@ public class Context {
      * Used to ensure proper ID sequencing when deserializing contexts.
      */
     public int getMaxId() {
-        var maxId = 0;
+        var maxNumericId = 0;
 
         // Check editable files
-        maxId = Math.max(maxId, editableFiles.stream()
-                .mapToInt(f -> f.id())
+        maxNumericId = Math.max(maxNumericId, editableFiles.stream()
+                .map(ContextFragment::id)
+                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
                 .max()
                 .orElse(0));
 
         // Check readonly files
-        maxId = Math.max(maxId, readonlyFiles.stream()
-                .mapToInt(f -> f.id())
+        maxNumericId = Math.max(maxNumericId, readonlyFiles.stream()
+                .map(ContextFragment::id)
+                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
                 .max()
                 .orElse(0));
 
         // Check virtual fragments
-        maxId = Math.max(maxId, virtualFragments.stream()
-                .mapToInt(f -> f.id())
+        maxNumericId = Math.max(maxNumericId, virtualFragments.stream()
+                .map(ContextFragment.VirtualFragment::id)
+                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
                 .max()
                 .orElse(0));
 
         // Check task history
-        maxId = Math.max(maxId, taskHistory.stream()
+        maxNumericId = Math.max(maxNumericId, taskHistory.stream()
                 .filter(t -> t.log() != null)
-                .mapToInt(t -> t.log().id())
+                .map(t -> t.log().id())
+                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
                 .max()
                 .orElse(0));
 
-        return maxId;
+        return maxNumericId;
     }
 
     public record FreezeResult(Context liveContext, Context frozenContext) {

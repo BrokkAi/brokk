@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -856,14 +857,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var latestCtx = contextManager.getContextHistory().topContext();
             boolean isCurrentContext = latestCtx != null
                     && latestCtx.allFragments()
-                    .anyMatch(f -> f.id() == fragment.id());
+                    .anyMatch(f -> f.id().equals(fragment.id()));
 
             // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
             // a true PathFragment instance (gives us access to BrokkFile, etc.).
             ContextFragment workingFragment;
             if (isCurrentContext
                     && fragment.getType().isPathFragment()
-                    && fragment instanceof io.github.jbellis.brokk.context.FrozenFragment frozen) {
+                    && fragment instanceof FrozenFragment frozen)
+            {
                 workingFragment = frozen.unfreeze(contextManager);
             } else {
                 workingFragment = fragment;

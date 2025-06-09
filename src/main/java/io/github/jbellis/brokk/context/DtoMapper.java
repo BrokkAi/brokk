@@ -20,9 +20,9 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
@@ -36,137 +36,19 @@ public class DtoMapper {
     }
 
     /**
-     * Converts a Context domain object to its DTO representation.
-     */
-    public static ContextDto toDto(Context ctx) {
-        var editableFilesDto = ctx.editableFiles()
-                .map(fragment -> (ReferencedFragmentDto) DtoMapper.toReferencedFragmentDto(fragment))
-                .toList();
-        
-        var readonlyFilesDto = ctx.readonlyFiles()
-                .map(fragment -> (ReferencedFragmentDto) DtoMapper.toReferencedFragmentDto(fragment))
-                .toList();
-        
-        var virtualFragmentsDto = ctx.virtualFragments()
-                .map(DtoMapper::toVirtualFragmentDto)
-                .filter(dto -> dto != null) // Skip unsupported fragments for now
-                .toList();
-        
-        var taskHistoryDto = ctx.getTaskHistory().stream()
-                .map(DtoMapper::toTaskEntryDto)
-                .toList();
-        
-        var parsedOutputDto = ctx.getParsedOutput() != null 
-                ? toTaskFragmentDto(ctx.getParsedOutput())
-                : null;
-        
-        // Wait up to 5 seconds for action to resolve, fallback to "(Summary Unavailable)"
-        String actionSummary;
-        try {
-            actionSummary = ctx.action.get(5, java.util.concurrent.TimeUnit.SECONDS);
-            if (actionSummary == null) { // Ensure actionSummary is not null
-                actionSummary = "(Summary was null)";
-            }
-        } catch (java.util.concurrent.TimeoutException e) {
-            actionSummary = "(Summary Unavailable)";
-        } catch (Exception e) {
-            actionSummary = "(Error retrieving summary: " + e.getMessage() + ")";
-        }
-        
-        return new ContextDto(editableFilesDto,
-                readonlyFilesDto,
-                virtualFragmentsDto,
-                taskHistoryDto,
-                parsedOutputDto,
-                actionSummary);
-    }
-    
-    /**
-     * Converts a ContextHistory to its DTO representation.
-     */
-    public static HistoryDto toHistoryDto(ContextHistory ch) {
-        var contexts = ch.getHistory().stream()
-                .map(DtoMapper::toDto)
-                .toList();
-        return new HistoryDto(contexts);
-    }
-    
-    /**
-     * Converts a HistoryDto back to a ContextHistory domain object.
-     */
-    public static ContextHistory fromHistoryDto(HistoryDto dto, IContextManager mgr, Map<Integer, byte[]> imageBytesMap) {
-        var ch = new ContextHistory();
-        Map<Integer, ContextFragment> fragmentCache = new HashMap<>();
-        
-        var contexts = dto.contexts().stream()
-                .map(contextDto -> DtoMapper.fromDto(contextDto, mgr, imageBytesMap, fragmentCache))
-                .toList();
-        
-        if (!contexts.isEmpty()) {
-            ch.setInitialContext(contexts.get(0));
-            for (int i = 1; i < contexts.size(); i++) {
-                final Context contextToAdd = contexts.get(i);
-                ch.addFrozenContextAndClearRedo(contextToAdd);
-            }
-        }
-        
-        return ch;
-    }
-    
-    /**
-     * Converts a ContextDto back to a Context domain object.
-     */
-    public static Context fromDto(ContextDto dto, IContextManager mgr, Map<Integer, byte[]> imageBytesMap, Map<Integer, ContextFragment> fragmentCache) {
-        var editableFragments = dto.editableFiles().stream()
-                .map(dtoObj -> fromReferencedFragmentDto(dtoObj, mgr, imageBytesMap, fragmentCache))
-                .collect(Collectors.toList());
-
-        var readonlyFragments = dto.readonlyFiles().stream()
-                .map(dtoObj -> fromReferencedFragmentDto(dtoObj, mgr, imageBytesMap, fragmentCache))
-                .collect(Collectors.toList());
-
-        var virtualFragments = dto.virtualFragments().stream()
-                .map(virtualDto -> fromVirtualFragmentDto(virtualDto, mgr, imageBytesMap, fragmentCache))
-                .collect(Collectors.toList());
-
-        var taskHistory = dto.taskHistory().stream()
-                .map(taskDto -> fromTaskEntryDto(taskDto, mgr, fragmentCache))
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toCollection(ArrayList::new));
-
-        var parsedOutputFragment = dto.parsedOutput() != null
-                ? fromTaskFragmentDto(dto.parsedOutput(), mgr, fragmentCache)
-                : null;
-
-        var actionFuture = (dto.actionSummary() != null)
-                ? CompletableFuture.completedFuture(dto.actionSummary())
-                : CompletableFuture.completedFuture("Restored Session");
-
-        // Use the main constructor that accepts List<ContextFragment>
-        return new Context(Context.newId(), // Or restore ID if ContextDto had one
-                           mgr,
-                            editableFragments,
-                            readonlyFragments,
-                            virtualFragments,
-                            taskHistory,
-                            parsedOutputFragment,
-                            actionFuture);
-    }
-    
-    /**
      * Converts a CompactContextDto back to a Context domain object using a pre-populated fragment cache.
      */
-    public static Context fromCompactDto(CompactContextDto dto, IContextManager mgr, Map<Integer, ContextFragment> fragmentCache, Map<Integer, byte[]> imageBytesMap) {
+    public static Context fromCompactDto(CompactContextDto dto, IContextManager mgr, Map<String, ContextFragment> fragmentCache, Map<String, byte[]> imageBytesMap) {
         var editableFragments = dto.editable().stream()
-                .map(id -> (ContextFragment) fragmentCache.get(id)) // Cast needed as map stores ContextFragment
+                .map(id -> fragmentCache.get(id)) // Cast needed as map stores ContextFragment
                 .filter(java.util.Objects::nonNull) // Filter out if ID not found, though ideally all should be present
                 .collect(Collectors.toList());
 
         var readonlyFragments = dto.readonly().stream()
-                .map(id -> (ContextFragment) fragmentCache.get(id)) // Cast needed
+                .map(id -> fragmentCache.get(id)) // Cast needed
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
-        
+
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id)) // Specific cast
                 .filter(java.util.Objects::nonNull)
@@ -174,21 +56,29 @@ public class DtoMapper {
 
         var taskHistory = dto.tasks().stream()
                 .map(taskRefDto -> {
-                    ContextFragment.TaskFragment logFragment = null;
                     if (taskRefDto.logId() != null) {
-                        logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
-                    }
-                    if (logFragment != null) {
-                        return new TaskEntry(taskRefDto.sequence(), logFragment, null);
-                    } else if (taskRefDto.summary() != null) {
+                        ContextFragment.TaskFragment logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                        if (logFragment != null) {
+                            return new TaskEntry(taskRefDto.sequence(), logFragment, null);
+                        } else {
+                            // This case should ideally not happen if all fragments are resolved correctly.
+                            // If it does, it means a TaskFragment referenced by logId was not found in the cache.
+                            logger.warn("TaskFragment with ID {} not found in cache for TaskEntryRefDto {}. Using summary if available.",
+                                        taskRefDto.logId(), taskRefDto);
+                            if (taskRefDto.summary() != null) { // Fallback to summary if log fragment is missing despite having an ID
+                                return TaskEntry.fromCompressed(taskRefDto.sequence(), taskRefDto.summary());
+                            }
+                        }
+                    } else if (taskRefDto.summary() != null) { // This is the normal path for compressed entries
                         return TaskEntry.fromCompressed(taskRefDto.sequence(), taskRefDto.summary());
                     }
-                    logger.warn("TaskEntryRefDto {} had neither valid logId nor summary.", taskRefDto);
-                    return null; // Should not happen with valid DTO
+                    // If neither logId (that resolves) nor summary is present.
+                    logger.warn("TaskEntryRefDto {} could not be resolved to a TaskEntry (logId missing/unresolved and no summary).", taskRefDto);
+                    return null;
                 })
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
-        
+
         ContextFragment.TaskFragment parsedOutputFragment = null;
         if (dto.parsedOutputId() != null) {
             parsedOutputFragment = (ContextFragment.TaskFragment) fragmentCache.get(dto.parsedOutputId());
@@ -206,21 +96,84 @@ public class DtoMapper {
                            actionFuture);
     }
 
-    public static ContextFragment.VirtualFragment fromVirtualFragmentDto(VirtualFragmentDto dto, IContextManager mgr, Map<Integer, byte[]> imageBytesMap, Map<Integer, ContextFragment> fragmentCache) {
-        if (dto == null) {
-            return null;
+    // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
+    public static ContextFragment resolveAndBuildFragment(String idToResolve,
+                                                          Map<String, ReferencedFragmentDto> referencedDtos,
+                                                          Map<String, VirtualFragmentDto> virtualDtos,
+                                                          Map<String, TaskFragmentDto> taskDtos,
+                                                          IContextManager mgr,
+                                                          Map<String, byte[]> imageBytesMap,
+                                                          Map<String, ContextFragment> fragmentCacheForRecursion) {
+        if (referencedDtos.containsKey(idToResolve)) {
+            return _buildReferencedFragment(referencedDtos.get(idToResolve), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
         }
-        var cachedFragment = fragmentCache.get(dto.id());
-        if (cachedFragment != null) {
-            if (cachedFragment instanceof ContextFragment.VirtualFragment vf) {
-                return vf;
-            } else {
-                // This should ideally not happen if IDs are unique across fragment types or cache is properly managed
-                throw new IllegalStateException("Cached fragment for ID " + dto.id() + " is not a VirtualFragment: " + cachedFragment.getClass());
-            }
+        if (virtualDtos.containsKey(idToResolve)) {
+            return _buildVirtualFragment(virtualDtos.get(idToResolve), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
         }
+        if (taskDtos.containsKey(idToResolve)) {
+            return _buildTaskFragment(taskDtos.get(idToResolve), mgr, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
+        }
+        logger.error("Fragment DTO not found for ID: {} during resolveAndBuildFragment", idToResolve);
+        throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve + " during resolveAndBuildFragment");
+    }
 
-        ContextFragment.VirtualFragment newFragment = switch (dto) {
+    private static ContextFragment _buildReferencedFragment(ReferencedFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap,
+                                                           Map<String, ContextFragment> fragmentCacheForRecursion,
+                                                           Map<String, ReferencedFragmentDto> allReferencedDtos,
+                                                           Map<String, VirtualFragmentDto> allVirtualDtos,
+                                                           Map<String, TaskFragmentDto> allTaskDtos) {
+        if (dto == null) return null;
+
+        return switch (dto) {
+            case ProjectFileDto pfd -> ContextFragment.ProjectPathFragment.withId(
+                    new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
+            case ExternalFileDto efd -> ContextFragment.ExternalPathFragment.withId(
+                    new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
+            case ImageFileDto ifd -> {
+                BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
+                yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
+            }
+            case GitFileFragmentDto gfd -> ContextFragment.GitFileFragment.withId(
+                    new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())), gfd.revision(), gfd.content(), gfd.id());
+            case FrozenFragmentDto ffd ->
+                FrozenFragment.fromDto(
+                    ffd.id(),
+                    mgr,
+                    ContextFragment.FragmentType.valueOf(ffd.originalType()),
+                    ffd.description(),
+                    ffd.shortDescription(),
+                    ffd.textContent(),
+                    imageBytesMap.get(ffd.id()),
+                    ffd.isTextFragment(),
+                    ffd.syntaxStyle(),
+                    ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
+                    ffd.originalClassName(),
+                    ffd.meta()
+                );
+        };
+    }
+
+    private static ContextFragment.TaskFragment _buildTaskFragment(TaskFragmentDto dto, IContextManager mgr,
+                                                                  Map<String, ContextFragment> fragmentCacheForRecursion,
+                                                                  Map<String, ReferencedFragmentDto> allReferencedDtos,
+                                                                  Map<String, VirtualFragmentDto> allVirtualDtos,
+                                                                  Map<String, TaskFragmentDto> allTaskDtos) {
+        if (dto == null) return null;
+
+        var messages = dto.messages().stream()
+                .map(DtoMapper::fromChatMessageDto)
+                .toList();
+        return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+    }
+
+    private static ContextFragment.VirtualFragment _buildVirtualFragment(VirtualFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap,
+                                                                        Map<String, ContextFragment> fragmentCacheForRecursion,
+                                                                        Map<String, ReferencedFragmentDto> allReferencedDtos,
+                                                                        Map<String, VirtualFragmentDto> allVirtualDtos,
+                                                                        Map<String, TaskFragmentDto> allTaskDtos) {
+        if (dto == null) return null;
+
+        return switch (dto) {
             case FrozenFragmentDto frozenDto ->
                 FrozenFragment.fromDto(
                     frozenDto.id(),
@@ -229,7 +182,7 @@ public class DtoMapper {
                     frozenDto.description(),
                     frozenDto.shortDescription(),
                     frozenDto.textContent(),
-                    imageBytesMap.get(frozenDto.id()), // Get image bytes from map
+                    imageBytesMap.get(frozenDto.id()),
                     frozenDto.isTextFragment(),
                     frozenDto.syntaxStyle(),
                     frozenDto.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
@@ -245,13 +198,16 @@ public class DtoMapper {
                         .toList();
                 yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
-            case TaskFragmentDto taskDto ->
-                // Ensure TaskFragments from the virtual list also use the caching mechanism
-                fromTaskFragmentDto(taskDto, mgr, fragmentCache); // Already handles caching
-            case StringFragmentDto stringDto -> new ContextFragment.StringFragment(stringDto.id(), mgr, stringDto.text(), stringDto.description(), stringDto.syntaxStyle());
-            case SkeletonFragmentDto skeletonDto -> new ContextFragment.SkeletonFragment(skeletonDto.id(), mgr, skeletonDto.targetIdentifiers(), ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
-            case UsageFragmentDto usageDto -> new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
-            case PasteTextFragmentDto pasteTextDto -> new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()));
+            case TaskFragmentDto taskDto -> // This case implies a TaskFragmentDto was listed under "virtual"
+                _buildTaskFragment(taskDto, mgr, fragmentCacheForRecursion, allReferencedDtos, allVirtualDtos, allTaskDtos);
+            case StringFragmentDto stringDto ->
+                new ContextFragment.StringFragment(stringDto.id(), mgr, stringDto.text(), stringDto.description(), stringDto.syntaxStyle());
+            case SkeletonFragmentDto skeletonDto ->
+                new ContextFragment.SkeletonFragment(skeletonDto.id(), mgr, skeletonDto.targetIdentifiers(), ContextFragment.SummaryType.valueOf(skeletonDto.summaryType()));
+            case UsageFragmentDto usageDto ->
+                new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
+            case PasteTextFragmentDto pasteTextDto ->
+                new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()));
             case PasteImageFragmentDto pasteImageDto -> {
                 Image image = base64ToImage(pasteImageDto.base64ImageData());
                 yield new ContextFragment.AnonymousImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
@@ -262,30 +218,29 @@ public class DtoMapper {
                         .collect(Collectors.toSet());
                 yield new ContextFragment.StacktraceFragment(stacktraceDto.id(), mgr, sources, stacktraceDto.original(), stacktraceDto.exception(), stacktraceDto.code());
             }
-            case CallGraphFragmentDto callGraphDto -> new ContextFragment.CallGraphFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), callGraphDto.depth(), callGraphDto.isCalleeGraph());
+            case CallGraphFragmentDto callGraphDto ->
+                new ContextFragment.CallGraphFragment(callGraphDto.id(), mgr, callGraphDto.methodName(), callGraphDto.depth(), callGraphDto.isCalleeGraph());
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
-                        .map(taskEntryDto -> fromTaskEntryDto(taskEntryDto, mgr, fragmentCache)) // Pass cache
+                        .map(taskEntryDto -> _fromTaskEntryDto(taskEntryDto, mgr, fragmentCacheForRecursion, allReferencedDtos, allVirtualDtos, allTaskDtos))
                         .filter(java.util.Objects::nonNull)
                         .toList();
                 yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
+            // If any VirtualFragmentDto subtype was missed, it would fall through.
+            // Ensure all subtypes of VirtualFragmentDto are handled in the switch.
+            // default -> throw new IllegalArgumentException("Unsupported VirtualFragmentDto subtype: " + dto.getClass().getName());
         };
-        // For V0 path, we cache as we build. For V1, cache is pre-populated.
-        // This method (fromVirtualFragmentDto) is part of the V0 path AND V1 pre-population.
-        // So, ensure it always tries to cache if not already present.
-        // The `if (cachedFragment != null)` check at the start handles cases where it's already cached.
-        fragmentCache.put(newFragment.id(), newFragment);
-        return newFragment;
     }
 
     public static ReferencedFragmentDto toReferencedFragmentDto(ContextFragment fragment) {
+        // If the fragment is already frozen, serialize as FrozenFragmentDto
         if (fragment instanceof FrozenFragment ff) {
             try {
                 var filesDto = ff.files().stream().map(DtoMapper::toProjectFileDto).collect(Collectors.toSet());
                 return new FrozenFragmentDto(
-                    ff.id(),
-                    ff.getType().name(), // Assuming FrozenFragment.getType() returns the original fragment's type
+                    ff.id(), 
+                    ff.getType().name(), 
                     ff.description(),
                     ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
@@ -299,71 +254,27 @@ public class DtoMapper {
                 throw new RuntimeException("Failed to serialize FrozenFragment to DTO: " + ff.id(), e);
             }
         }
-        if (fragment instanceof ContextFragment.ProjectPathFragment pf) {
-            return toProjectFileDto(pf);
-        }
-        if (fragment instanceof ContextFragment.GitFileFragment gf) {
-            var file = gf.file();
-            return new GitFileFragmentDto(gf.id(), file.getRoot().toString(), file.getRelPath().toString(), gf.revision(), gf.content());
-        }
-        if (fragment instanceof ContextFragment.ExternalPathFragment ef) {
-            return new ExternalFileDto(ef.id(), ef.file().getPath().toString());
-        }
-        if (fragment instanceof ContextFragment.ImageFileFragment imf) {
-            var file = imf.file();
-            String absPath = file.absPath().toString();
-            String fileName = file.getFileName().toLowerCase();
-            String mediaType = null;
-            if (fileName.endsWith(".png")) mediaType = "image/png";
-            else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
-            else if (fileName.endsWith(".gif")) mediaType = "image/gif";
-            return new ImageFileDto(imf.id(), absPath, mediaType);
-        }
-        throw new IllegalArgumentException("Unsupported fragment type for referenced DTO conversion: " + fragment.getClass());
+        // For live fragments, serialize to their specific DTOs
+        return switch (fragment) {
+            case ContextFragment.ProjectPathFragment pf -> toProjectFileDto(pf);
+            case ContextFragment.GitFileFragment gf -> {
+                var file = gf.file();
+                yield new GitFileFragmentDto(gf.id(), file.getRoot().toString(), file.getRelPath().toString(), gf.revision(), gf.content());
+            }
+            case ContextFragment.ExternalPathFragment ef -> new ExternalFileDto(ef.id(), ef.file().getPath().toString());
+            case ContextFragment.ImageFileFragment imf -> {
+                var file = imf.file();
+                String absPath = file.absPath().toString();
+                String fileName = file.getFileName().toLowerCase();
+                String mediaType = null;
+                if (fileName.endsWith(".png")) mediaType = "image/png";
+                else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
+                else if (fileName.endsWith(".gif")) mediaType = "image/gif";
+                yield new ImageFileDto(imf.id(), absPath, mediaType);
+            }
+            default -> throw new IllegalArgumentException("Unsupported fragment type for referenced DTO conversion: " + fragment.getClass());
+        };
     }
-
-    public static ContextFragment fromReferencedFragmentDto(ReferencedFragmentDto dto, IContextManager mgr, Map<Integer, byte[]> imageBytesMap, Map<Integer, ContextFragment> fragmentCache) {
-        if (dto == null) {
-            return null;
-        }
-        var cachedFragment = fragmentCache.get(dto.id());
-        if (cachedFragment != null) {
-            // No specific type check needed here as ReferencedFragmentDto is a broad category
-        // and the cache stores ContextFragment.
-        // This method (fromReferencedFragmentDto) is part of the V0 path AND V1 pre-population.
-        return cachedFragment;
-    }
-
-    ContextFragment newFragment = switch (dto) {
-        case ProjectFileDto pfd -> ContextFragment.ProjectPathFragment.withId(
-                new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
-        case ExternalFileDto efd -> ContextFragment.ExternalPathFragment.withId(
-                new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr);
-        case ImageFileDto ifd -> {
-            BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-            yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
-        }
-        case GitFileFragmentDto gfd -> ContextFragment.GitFileFragment.withId(
-                new ProjectFile(Path.of(gfd.repoRoot()), Path.of(gfd.relPath())), gfd.revision(), gfd.content(), gfd.id());
-        case FrozenFragmentDto ffd ->
-            FrozenFragment.fromDto(
-                ffd.id(),
-                mgr,
-                ContextFragment.FragmentType.valueOf(ffd.originalType()),
-                ffd.description(),
-                ffd.shortDescription(),
-                ffd.textContent(),
-                imageBytesMap.get(ffd.id()), // Get image bytes from map
-                ffd.isTextFragment(),
-                ffd.syntaxStyle(),
-                ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
-                ffd.originalClassName(),
-                ffd.meta()
-            );
-    };
-    fragmentCache.put(newFragment.id(), newFragment); // newFragment.id() should match dto.id()
-    return newFragment;
-}
 
 private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextManager mgr) {
         Path path = Path.of(ifd.absPath());
@@ -390,59 +301,20 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
     
     private static ProjectFileDto toProjectFileDto(ProjectFile pf) {
         // This DTO is for ProjectFile instances not directly part of editable/readonly PathFragments,
-        // e.g., those embedded in FrozenFragment.sources/files. The ID might not be relevant here or
-        // should come from a different source if these ProjectFiles were originally live fragments.
-        // For now, using 0, assuming the primary fragment's ID is what's tracked.
-        return new ProjectFileDto(0, pf.getRoot().toString(), pf.getRelPath().toString());
+        // e.g., those embedded in FrozenFragment.sources/files.
+        // If this ProjectFile was never a standalone fragment, it doesn't have its own ID.
+        // Using a placeholder like "0_pf" or a hash of its path could be options.
+        // For now, using "0" as a String, consistent with it being a non-fragment identifier.
+        return new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
     }
-    
-    // toPathFragmentDto is no longer directly called by toDto, but might be used by other DTOs if they contain PathFragments directly.
-    // For now, keeping it. If it becomes unused, it can be removed.
-    public static PathFragmentDto toPathFragmentDto(ContextFragment.PathFragment fragment) {
-        return switch (fragment) {
-            case ContextFragment.ProjectPathFragment projectFragment -> {
-                var pf = projectFragment.file();
-                yield new ProjectFileDto(projectFragment.id(), pf.getRoot().toString(), pf.getRelPath().toString());
-            }
-            case ContextFragment.ExternalPathFragment externalFragment -> {
-                var ef = externalFragment.file();
-                yield new ExternalFileDto(externalFragment.id(), ef.getPath().toString());
-            }
-            case ContextFragment.GitFileFragment gitFileFragment -> {
-                var pf = gitFileFragment.file();
-                yield new GitFileFragmentDto(
-                    gitFileFragment.id(),
-                    pf.getRoot().toString(),
-                    pf.getRelPath().toString(),
-                    gitFileFragment.revision(),
-                    gitFileFragment.content()
-                );
-            }
-            case ContextFragment.ImageFileFragment imageFileFragment -> {
-                var file = imageFileFragment.file();
-                String absPath = file.absPath().toString();
-                String fileName = file.getFileName().toLowerCase();
-                String mediaType = null;
-                if (fileName.endsWith(".png")) {
-                    mediaType = "image/png";
-                } else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) {
-                    mediaType = "image/jpeg";
-                } else if (fileName.endsWith(".gif")) {
-                    mediaType = "image/gif";
-                }
-                yield new ImageFileDto(imageFileFragment.id(), absPath, mediaType);
-            }
-        };
-    }
-    
+
     public static VirtualFragmentDto toVirtualFragmentDto(ContextFragment.VirtualFragment fragment) {
-        // Handle FrozenFragment first
+        // If the fragment is already frozen, serialize as FrozenFragmentDto
         if (fragment instanceof FrozenFragment ff) {
             try {
                 var filesDto = ff.files().stream()
                         .map(DtoMapper::toProjectFileDto)
                         .collect(Collectors.toSet());
-                
                 return new FrozenFragmentDto(
                     ff.id(),
                     ff.getType().name(),
@@ -456,159 +328,102 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
                     ff.meta()
                 );
             } catch (Exception e) {
-                throw new RuntimeException("Failed to serialize FrozenFragment", e);
+                logger.error("Failed to serialize FrozenFragment to DTO: {}", ff.id(), e);
+                throw new RuntimeException("Failed to serialize FrozenFragment to DTO: " + ff.id(), e);
             }
         }
-        
+
+        // For live VirtualFragments, serialize to their specific DTOs
         return switch (fragment) {
             case ContextFragment.SearchFragment searchFragment -> {
-                var sourcesDto = searchFragment.sources().stream() // No analyzer needed for pre-computed
+                var sourcesDto = searchFragment.sources().stream()
                         .map(DtoMapper::toCodeUnitDto)
                         .collect(Collectors.toSet());
                 var messagesDto = searchFragment.messages().stream()
                         .map(DtoMapper::toChatMessageDto)
                         .toList();
+                // SearchFragment is a TaskFragment, its ID is content-hashed via TaskFragment's logic
                 yield new SearchFragmentDto(
-                        searchFragment.id(),
-                        searchFragment.description(), // sessionName
-                        "", // explanation - no longer available as separate field
+                        searchFragment.id(), // This ID comes from TaskFragment constructor
+                        searchFragment.description(), // sessionName for TaskFragment
+                        "", // explanation - no longer a separate field for SearchFragmentDto itself
                         sourcesDto,
                         messagesDto
                 );
             }
-            case ContextFragment.TaskFragment taskFragment -> {
-                var messagesDto = taskFragment.messages().stream()
-                        .map(DtoMapper::toChatMessageDto)
-                        .toList();
-                yield new TaskFragmentDto(taskFragment.id(), messagesDto, taskFragment.description());
-            }
-            case ContextFragment.StringFragment stringFragment -> {
-                yield new StringFragmentDto(
-                        stringFragment.id(),
-                        stringFragment.text(), // StringFragment is non-dynamic
-                        stringFragment.description(),
-                        stringFragment.syntaxStyle()
-                );
-            }
-            case ContextFragment.SkeletonFragment skeletonFragment -> {
-                yield new SkeletonFragmentDto(
-                        skeletonFragment.id(),
-                        skeletonFragment.getTargetIdentifiers(),
-                        skeletonFragment.getSummaryType().name()
-                );
-            }
-            case ContextFragment.UsageFragment usageFragment -> {
-                yield new UsageFragmentDto(
-                        usageFragment.id(),
-                        usageFragment.targetIdentifier()
-                );
-            }
+            case ContextFragment.TaskFragment taskFragment -> toTaskFragmentDto(taskFragment); // Handles general TaskFragments
+            case ContextFragment.StringFragment stringFragment -> new StringFragmentDto(
+                    stringFragment.id(), stringFragment.text(), stringFragment.description(), stringFragment.syntaxStyle());
+            case ContextFragment.SkeletonFragment skeletonFragment -> new SkeletonFragmentDto(
+                    skeletonFragment.id(), skeletonFragment.getTargetIdentifiers(), skeletonFragment.getSummaryType().name());
+            case ContextFragment.UsageFragment usageFragment -> new UsageFragmentDto(
+                    usageFragment.id(), usageFragment.targetIdentifier());
             case ContextFragment.PasteTextFragment pasteTextFragment -> {
-                // Block for up to 10 seconds to get the completed description
-                String description;
-                try {
-                    var future = pasteTextFragment.descriptionFuture;
-                    String fullDescription = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-                    // Remove "Paste of " prefix to avoid duplication during deserialization
-                    description = fullDescription.startsWith("Paste of ")
-                        ? fullDescription.substring("Paste of ".length())
-                        : fullDescription;
-                } catch (java.util.concurrent.TimeoutException e) {
-                    description = "(Paste description timed out)";
-                } catch (Exception e) {
-                    description = "(Error getting paste description)";
-                }
-                yield new PasteTextFragmentDto(pasteTextFragment.id(), pasteTextFragment.text(), description); // PasteTextFragment is non-dynamic
+                String description = getFutureDescription(pasteTextFragment.descriptionFuture, "Paste of ");
+                yield new PasteTextFragmentDto(pasteTextFragment.id(), pasteTextFragment.text(), description);
             }
             case ContextFragment.AnonymousImageFragment pasteImageFragment -> {
-                // Block for up to 10 seconds to get the completed description
-                String description;
-                try {
-                    var future = pasteImageFragment.descriptionFuture;
-                    String fullDescription = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
-                    // Remove "Paste of " prefix to avoid duplication during deserialization
-                    description = fullDescription.startsWith("Paste of ")
-                        ? fullDescription.substring("Paste of ".length())
-                        : fullDescription;
-                } catch (java.util.concurrent.TimeoutException e) {
-                    description = "(Paste description timed out)";
-                } catch (Exception e) {
-                    description = "(Error getting paste description)";
-                }
-                // Convert Image to base64
+                String description = getFutureDescription(pasteImageFragment.descriptionFuture, "Paste of ");
                 String base64ImageData = imageToBase64(pasteImageFragment.image());
                 yield new PasteImageFragmentDto(pasteImageFragment.id(), base64ImageData, description);
             }
             case ContextFragment.StacktraceFragment stacktraceFragment -> {
-                var sourcesDto = stacktraceFragment.sources().stream() // No analyzer needed for pre-computed
+                var sourcesDto = stacktraceFragment.sources().stream()
                         .map(DtoMapper::toCodeUnitDto)
                         .collect(Collectors.toSet());
                 yield new StacktraceFragmentDto(
                         stacktraceFragment.id(),
                         sourcesDto,
-                        stacktraceFragment.text().split("\n\nStacktrace methods in this project:\n\n")[0], // original // StacktraceFragment is non-dynamic
-                        stacktraceFragment.description().substring("stacktrace of ".length()), // exception
-                        stacktraceFragment.text().contains("\n\nStacktrace methods in this project:\n\n")
-                            ? stacktraceFragment.text().split("\n\nStacktrace methods in this project:\n\n")[1]
-                            : "" // code
+                        stacktraceFragment.getOriginal(),
+                        stacktraceFragment.getException(),
+                        stacktraceFragment.getCode()
                 );
             }
-            case ContextFragment.CallGraphFragment callGraphFragment -> {
-                yield new CallGraphFragmentDto(
-                        callGraphFragment.id(),
-                        callGraphFragment.getMethodName(),
-                        callGraphFragment.getDepth(),
-                        callGraphFragment.isCalleeGraph()
-                );
-            }
+            case ContextFragment.CallGraphFragment callGraphFragment -> new CallGraphFragmentDto(
+                    callGraphFragment.id(), callGraphFragment.getMethodName(), callGraphFragment.getDepth(), callGraphFragment.isCalleeGraph());
             case ContextFragment.HistoryFragment historyFragment -> {
                 var historyDto = historyFragment.entries().stream()
                         .map(DtoMapper::toTaskEntryDto)
                         .toList();
                 yield new HistoryFragmentDto(historyFragment.id(), historyDto);
             }
-            default -> null; // Skip unsupported fragments
+            default -> throw new IllegalArgumentException("Unsupported VirtualFragment type for DTO conversion: " + fragment.getClass().getName());
         };
     }
+
+    private static String getFutureDescription(Future<String> future, String prefix) {
+        String description;
+        try {
+            String fullDescription = future.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            description = fullDescription.startsWith(prefix)
+                ? fullDescription.substring(prefix.length())
+                : fullDescription;
+        } catch (java.util.concurrent.TimeoutException e) {
+            description = "(Paste description timed out)";
+        } catch (Exception e) {
+            description = "(Error getting paste description: " + e.getMessage() + ")";
+        }
+        return description;
+    }
     
-    private static TaskEntryDto toTaskEntryDto(TaskEntry entry) { // IContextManager not needed for serialization
+    private static TaskEntryDto toTaskEntryDto(TaskEntry entry) {
         TaskFragmentDto logDto = null;
         if (entry.log() != null) {
             var messagesDto = entry.log().messages().stream()
                     .map(DtoMapper::toChatMessageDto)
                     .toList();
-            logDto = new TaskFragmentDto(entry.log().id(), messagesDto, entry.log().description());
+            logDto = new TaskFragmentDto(entry.log().id(), messagesDto, entry.log().description()); // entry.log().id() is String
         }
 
         return new TaskEntryDto(entry.sequence(), logDto, entry.summary());
     }
-    
+
+    // TaskFragmentDto constructor expects String id
     public static TaskFragmentDto toTaskFragmentDto(ContextFragment.TaskFragment fragment) {
         var messagesDto = fragment.messages().stream()
                 .map(DtoMapper::toChatMessageDto)
                 .toList();
-        return new TaskFragmentDto(fragment.id(), messagesDto, fragment.description());
-    }
-
-    public static ContextFragment.TaskFragment fromTaskFragmentDto(TaskFragmentDto dto, IContextManager mgr, Map<Integer, ContextFragment> fragmentCache) {
-        if (dto == null) {
-            return null;
-        }
-        var cachedFragment = fragmentCache.get(dto.id());
-        if (cachedFragment != null) {
-            if (cachedFragment instanceof ContextFragment.TaskFragment tf) {
-                return tf;
-            } else {
-                throw new IllegalStateException("Cached fragment for ID " + dto.id() + " is not a TaskFragment: " + cachedFragment.getClass());
-            }
-        }
-
-        var messages = dto.messages().stream()
-                .map(DtoMapper::fromChatMessageDto)
-                .toList();
-        var newFragment = new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
-        fragmentCache.put(newFragment.id(), newFragment);
-        return newFragment;
+        return new TaskFragmentDto(fragment.id(), messagesDto, fragment.description()); // fragment.id() is String
     }
 
     private static ChatMessageDto toChatMessageDto(ChatMessage message) {
@@ -637,7 +452,10 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
                     yield new ExternalFile(path.toAbsolutePath());
                 }
             }
-            case GitFileFragmentDto gfd -> fromProjectFileDto(new ProjectFileDto(0, gfd.repoRoot(), gfd.relPath()));
+            // Assuming ProjectFileDto now takes String ID.
+            // For GitFileFragmentDto, the ID is its hash, but when converting to BrokkFile for CodeUnitDto context,
+            // it's just a file path. "0" string is fine as placeholder if BrokkFile doesn't need an ID here.
+            case GitFileFragmentDto gfd -> fromProjectFileDto(new ProjectFileDto("0", gfd.repoRoot(), gfd.relPath()));
         };
     }
 
@@ -654,7 +472,8 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
 
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) { // IContextManager not needed for serialization
         ProjectFile pf = codeUnit.source();
-        ProjectFileDto pfd = new ProjectFileDto(0, pf.getRoot().toString(), pf.getRelPath().toString());
+        // Assuming ProjectFileDto constructor now takes String ID
+        ProjectFileDto pfd = new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
         return new CodeUnitDto(
                 pfd,
                 codeUnit.kind().name(),
@@ -663,17 +482,25 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
         );
     }
 
-    private static TaskEntry fromTaskEntryDto(TaskEntryDto dto, IContextManager mgr, Map<Integer, ContextFragment> fragmentCache) {
-        if (dto == null) {
-            return null;
-        }
+    // Note: fragmentCache parameter is for recursive resolution of dependencies.
+    private static TaskEntry _fromTaskEntryDto(TaskEntryDto dto, IContextManager mgr,
+                                              Map<String, ContextFragment> fragmentCacheForRecursion,
+                                              Map<String, ReferencedFragmentDto> allReferencedDtos,
+                                              Map<String, VirtualFragmentDto> allVirtualDtos,
+                                              Map<String, TaskFragmentDto> allTaskDtos) {
+        if (dto == null) return null;
+
         if (dto.log() != null) {
-            // Use fromTaskFragmentDto to ensure caching for the TaskFragment within TaskEntry
-            var taskFragment = fromTaskFragmentDto(dto.log(), mgr, fragmentCache);
+            ContextFragment.TaskFragment taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
+                dto.log().id(), // ID of the TaskFragment to resolve
+                idToResolve -> resolveAndBuildFragment(idToResolve, allReferencedDtos, allVirtualDtos, allTaskDtos,
+                                                       mgr, null, fragmentCacheForRecursion) // imageBytesMap not needed for TaskFragment directly
+            );
             return new TaskEntry(dto.sequence(), taskFragment, null);
         } else if (dto.summary() != null) {
             return TaskEntry.fromCompressed(dto.sequence(), dto.summary());
         } else {
+            logger.warn("TaskEntryDto {} had neither log nor summary during deserialization.", dto);
             return null; // Invalid TaskEntry
         }
     }
