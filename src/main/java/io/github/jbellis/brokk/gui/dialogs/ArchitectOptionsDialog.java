@@ -18,8 +18,9 @@ import java.util.function.BiFunction;
  * A modal dialog to configure the tools available to the Architect agent.
  */
 public class ArchitectOptionsDialog {
-    // Remember last selection for the current session
+    // Remember last selections for the current session
     private static ArchitectAgent.ArchitectOptions lastArchitectOptions = ArchitectAgent.ArchitectOptions.DEFAULTS;
+    private static boolean lastRunInWorktree = false; // Default to not running in worktree
 
     private static boolean isCodeIntelConfigured(IProject project) {
         var langs = project.getAnalyzerLanguages();
@@ -33,11 +34,11 @@ public class ArchitectOptionsDialog {
      *
      * @param chrome         The main application window reference for positioning and theme.
      * @param contextManager The context manager to check project capabilities (e.g., CPG).
-     * @return The selected ArchitectOptions, or null if the dialog was cancelled.
+     * @return The selected ArchitectChoices (options + worktree preference), or null if the dialog was cancelled.
      */
-    public static ArchitectAgent.ArchitectOptions showDialogAndWait(Chrome chrome, ContextManager contextManager) {
+    public static ArchitectChoices showDialogAndWait(Chrome chrome, ContextManager contextManager) {
         // Use AtomicReference to capture the result from the EDT lambda
-        var resultHolder = new AtomicReference<ArchitectAgent.ArchitectOptions>();
+        var resultHolder = new AtomicReference<ArchitectChoices>();
 
         // Use invokeAndWait to run the dialog logic on the EDT and wait for completion
         SwingUtil.runOnEdt(() -> {
@@ -47,6 +48,7 @@ public class ArchitectOptionsDialog {
             boolean codeIntelConfigured = project != null && isCodeIntelConfigured(project);
             // Use last options as default for this session
             var currentOptions = lastArchitectOptions;
+            boolean currentRunInWorktree = lastRunInWorktree;
 
             JDialog dialog = new JDialog(chrome.getFrame(), "Architect Tools", true); // Modal dialog
             dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE); // Dispose on close
@@ -95,6 +97,22 @@ public class ArchitectOptionsDialog {
             var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current workspace");
             searchCb.setSelected(currentOptions.includeSearchAgent());
 
+            // --- Worktree Checkbox ---
+            mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
+            var worktreeCb = new JCheckBox("Run in New Git Worktree");
+            worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
+            boolean gitAvailable = project != null && project.hasGit();
+            boolean worktreesSupported = gitAvailable && project.getRepo().supportsWorktrees();
+            worktreeCb.setEnabled(worktreesSupported);
+            worktreeCb.setSelected(currentRunInWorktree && worktreesSupported); // Only selected if supported
+
+            if (!gitAvailable) {
+                worktreeCb.setToolTipText("Git is not configured for this project.");
+            } else if (!worktreesSupported) {
+                worktreeCb.setToolTipText("Git worktrees are not supported by your Git version or repository configuration.");
+            }
+            mainPanel.add(worktreeCb);
+
             dialog.add(new JScrollPane(mainPanel), BorderLayout.CENTER); // Add scroll pane
 
             // --- Button Panel ---
@@ -115,13 +133,18 @@ public class ArchitectOptionsDialog {
                         codeCb.isSelected(),
                         searchCb.isSelected()
                 );
+                boolean runInWorktreeSelected = worktreeCb.isSelected();
+
                 lastArchitectOptions = selectedOptions; // Remember for next time this session
-                resultHolder.set(selectedOptions); // Set result
+                lastRunInWorktree = runInWorktreeSelected; // Remember worktree choice
+
+                resultHolder.set(new ArchitectChoices(selectedOptions, runInWorktreeSelected)); // Set result
                 dialog.dispose(); // Close dialog
             });
 
             cancelButton.addActionListener(e -> {
-                resultHolder.set(null); // Indicate cancellation
+                // resultHolder is already null by default, or will be set if OK is clicked.
+                // No need to explicitly set to null here again, windowClosing handles it if not set by OK.
                 dialog.dispose(); // Close dialog
             });
 
