@@ -4,24 +4,18 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.issues.Comment;
-import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.GitHubIssueService;
-import io.github.jbellis.brokk.issues.IssueDetails;
 import io.github.jbellis.brokk.issues.IssueHeader;
 import io.github.jbellis.brokk.issues.IssueService;
 import io.github.jbellis.brokk.util.HtmlUtil;
 import io.github.jbellis.brokk.util.ImageUtil;
-import io.github.jbellis.brokk.util.MarkdownImageParser;
+import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.kohsuke.github.*;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -35,12 +29,10 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 
 public class GitIssuesTab extends JPanel {
@@ -93,6 +85,7 @@ public class GitIssuesTab extends JPanel {
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
+    private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
@@ -140,8 +133,17 @@ public class GitIssuesTab extends JPanel {
         splitPane.setResizeWeight(0.6); // 60% for Issue list, 40% for details
 
         // --- Left side - Issues table and filters ---
-        JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
         mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
+
+        // Panel to hold token message (if any) and search bar
+        JPanel topContentPanel = new JPanel();
+        topContentPanel.setLayout(new BoxLayout(topContentPanel, BoxLayout.Y_AXIS));
+
+        gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
+        JPanel tokenPanelWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        tokenPanelWrapper.add(gitHubTokenMissingPanel);
+        topContentPanel.add(tokenPanelWrapper);
 
         // Search Panel
         JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
@@ -150,7 +152,9 @@ public class GitIssuesTab extends JPanel {
         searchField.setToolTipText("Search issues (Ctrl+F to focus)");
         searchPanel.add(new JLabel("Search: "), BorderLayout.WEST);
         searchPanel.add(searchField, BorderLayout.CENTER);
-        mainIssueAreaPanel.add(searchPanel, BorderLayout.NORTH);
+        topContentPanel.add(searchPanel);
+
+        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); // Add combined top panel
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
             logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchField.getText());
