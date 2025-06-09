@@ -9,6 +9,7 @@ import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 import javax.swing.*;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +17,7 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.zip.ZipFile;
 
 public class Decompiler {
@@ -141,6 +143,40 @@ public class Decompiler {
                     logger.debug("Final contents of {} after decompilation:", outputDir);
                     try (var pathStream = Files.walk(outputDir, 1)) { // Walk only one level deep for brevity
                         pathStream.forEach(path -> logger.debug("   {}", path.getFileName()));
+                    // 6. Fix common decompilation syntax issues
+                    logger.info("Fixing common decompilation syntax issues...");
+                    fixDecompiledSyntaxIssues(outputDir);
+                    logger.info("Syntax fixes completed.");
+
+                    // Notify user of success and refresh analyzer
+                    io.systemOutput("Decompilation completed. Refreshing code intelligence...");
+                    logger.info("Decompilation completed successfully for {} to {}", jarPath, outputDir);
+
+                    // Request analyzer refresh to include decompiled files
+                    SwingUtilities.invokeLater(() -> {
+                        try {
+                            io.getContextManager().getAnalyzerWrapper().requestRebuild();
+                            io.systemOutput("Code intelligence refreshed. Decompiled files are now available for analysis.");
+                            logger.info("Analyzer refresh requested after decompilation of {}", jarPath);
+                        } catch (Exception e) {
+                            logger.warn("Failed to refresh analyzer after decompilation", e);
+                            io.systemOutput("Decompilation completed, but code intelligence refresh failed. " +
+                                           "You may need to reopen the project to analyze decompiled files.");
+                        }
+                    });
+
+                    // Log final directory structure for troubleshooting and count decompiled files
+                    logger.info("Final contents of {} after decompilation:", outputDir);
+                    try (var pathStream = Files.walk(outputDir)) {
+                        var paths = pathStream.collect(java.util.stream.Collectors.toList());
+                        long javaFileCount = paths.stream().filter(p -> p.toString().endsWith(".java")).count();
+                        long totalFileCount = paths.stream().filter(Files::isRegularFile).count();
+                        logger.info("Decompiled {} Java files out of {} total files", javaFileCount, totalFileCount);
+
+                        // Log top-level structure
+                        try (var topLevelStream = Files.walk(outputDir, 1)) {
+                            topLevelStream.forEach(path -> logger.debug("   {}", path.getFileName()));
+                        }
                     } catch (IOException e) {
                         logger.warn("Error listing output directory contents", e);
                     }
@@ -160,11 +196,15 @@ public class Decompiler {
                     }
                 }
                 return null;
-            });
-        } catch (IOException e) {
-            // Error *before* starting the worker (e.g., creating directories)
-            io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
-        }
+            } catch (IOException e) {
+                // Error *before* starting the worker (e.g., creating directories)
+                io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
+            }
+        });
+      } catch (IOException e) {
+          // Error *before* starting the worker (e.g., creating directories)
+          io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
+      }
     }
 
     public static void extractJarToTemp(Path jarPath, Path targetDir) throws IOException {
@@ -238,5 +278,45 @@ public class Decompiler {
                 return FileVisitResult.CONTINUE; // Continue deletion attempt
             }
         });
+    }
+
+    /**
+     * Fixes common syntax issues in decompiled Java files that prevent proper parsing.
+     * This addresses issues like malformed import statements that cause Joern's CPG to skip files.
+     */
+    private static void fixDecompiledSyntaxIssues(Path outputDir) {
+        logger.debug("Starting syntax fixes for decompiled files in: {}", outputDir);
+
+        // Pattern to match malformed import statements like "import package.Class.;"
+        Pattern malformedImportPattern = Pattern.compile("^(\\s*import\\s+[\\w.]+)\\.;\\s*$", Pattern.MULTILINE);
+
+        try (var pathStream = Files.walk(outputDir)) {
+            pathStream
+                .filter(path -> path.toString().endsWith(".java"))
+                .forEach(javaFile -> {
+                    try {
+                        // Read file content
+                        String content = Files.readString(javaFile, StandardCharsets.UTF_8);
+                        String originalContent = content;
+
+                        // Fix malformed import statements
+                        content = malformedImportPattern.matcher(content).replaceAll("$1;");
+
+                        // Only write back if changes were made
+                        if (!content.equals(originalContent)) {
+                            Files.writeString(javaFile, content, StandardCharsets.UTF_8);
+                            logger.debug("Fixed syntax issues in: {}", javaFile);
+                        }
+
+                    } catch (IOException e) {
+                        logger.warn("Failed to fix syntax issues in file: {} ({})", javaFile, e.getMessage());
+                    }
+                });
+
+        } catch (IOException e) {
+            logger.warn("Error walking directory for syntax fixes: {} ({})", outputDir, e.getMessage());
+        }
+
+        logger.debug("Completed syntax fixes for decompiled files");
     }
 }
