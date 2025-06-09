@@ -26,7 +26,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -77,14 +76,6 @@ public class Brokk {
             // Cast to the specific type expected by the Future if necessary
             return model;
         });
-    }
-
-    /**
-     * Provides read-only access to the map of open project windows.
-     * @return An unmodifiable map of project paths to Chrome instances.
-     */
-    public static Map<Path, Chrome> getOpenProjectWindows() {
-        return Collections.unmodifiableMap(openProjectWindows);
     }
 
     private static void setupSystemPropertiesAndIcon() {

@@ -15,11 +15,9 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import javax.swing.event.MenuEvent;
 import javax.swing.event.MenuListener;
 
@@ -53,7 +51,6 @@ public class MenuBar {
 
         JMenuItem reopenProjectItem;
         if (hasProject) {
-            // Ensure getFileName() is converted to String for formatting
             String projectName = chrome.getProject().getRoot().getFileName().toString();
             reopenProjectItem = new JMenuItem("Reopen `%s`".formatted(projectName));
             reopenProjectItem.addActionListener(e -> {
@@ -272,46 +269,52 @@ public class MenuBar {
             @Override
             public void menuSelected(MenuEvent e) {
                 windowMenu.removeAll();
-                Map<Path, Chrome> openWindows = Brokk.getOpenProjectWindows();
-                Path currentProjectPath = null;
-                if (chrome.getProject() != null && chrome.getProject().getRoot() != null) {
-                    currentProjectPath = chrome.getProject().getRoot().toAbsolutePath().normalize();
-                }
-
+                Window currentChromeWindow = chrome.getFrame();
                 List<JMenuItem> menuItemsList = new ArrayList<>();
 
-                for (Map.Entry<Path, Chrome> entry : openWindows.entrySet()) {
-                    Path projectPath = entry.getKey().toAbsolutePath().normalize();
-                    Chrome projectChrome = entry.getValue();
-
-                    if (projectChrome.getProject() == null || projectChrome.getProject().getRoot() == null) {
-                        continue; // Skip if project or its root is null
+                for (Window window : Window.getWindows()) {
+                    if (!window.isVisible()) {
+                        continue;
                     }
 
-                    String projectName = projectChrome.getProject().getRoot().getFileName().toString();
-                    JMenuItem menuItem;
+                    // We are interested in Frames and non-modal Dialogs
+                    if (!(window instanceof Frame || window instanceof Dialog)) {
+                        continue;
+                    }
 
-                    if (projectPath.equals(currentProjectPath)) {
-                        menuItem = new JCheckBoxMenuItem(projectName, true);
+                    if (window instanceof JDialog dialog && dialog.isModal()) {
+                        continue;
+                    }
+
+                    String title = null;
+                    if (window instanceof Frame frame) {
+                        title = frame.getTitle();
+                    } else {
+                        title = ((Dialog) window).getTitle();
+                    }
+
+                    if (title == null || title.trim().isEmpty()) {
+                        continue;
+                    }
+
+                    JMenuItem menuItem;
+                    if (window == currentChromeWindow) {
+                        menuItem = new JCheckBoxMenuItem(title, true);
                         menuItem.setEnabled(false); // Current window item is selected but disabled
                     } else {
-                        menuItem = new JMenuItem(projectName);
-                        menuItem.addActionListener(e2 -> Brokk.focusProjectWindow(projectPath));
+                        menuItem = new JMenuItem(title);
+                        final Window windowToFocus = window; // final variable for lambda
+                        menuItem.addActionListener(actionEvent -> {
+                            windowToFocus.toFront();
+                            windowToFocus.requestFocus();
+                        });
                     }
                     menuItemsList.add(menuItem);
                 }
 
-                // JMenuItem and JCheckBoxMenuItem both have getText()
                 menuItemsList.sort(Comparator.comparing(JMenuItem::getText));
-
-                if (menuItemsList.isEmpty()) {
-                    JMenuItem emptyItem = new JMenuItem("(No other windows open)");
-                    emptyItem.setEnabled(false);
-                    windowMenu.add(emptyItem);
-                } else {
-                    for (JMenuItem item : menuItemsList) {
-                        windowMenu.add(item);
-                    }
+                for (JMenuItem item : menuItemsList) {
+                    windowMenu.add(item);
                 }
             }
 
