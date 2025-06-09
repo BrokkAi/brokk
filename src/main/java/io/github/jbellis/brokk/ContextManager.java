@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
@@ -252,8 +254,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void afterFirstBuild(String msg) {
                 if (io instanceof Chrome chrome) {
                     chrome.notifyActionComplete("Analyzer build completed");
+                    SwingUtil.runOnEdt(() -> {
+                        JOptionPane.showMessageDialog(
+                                chrome.getFrame(),
+                                """
+                                Build Agent has completed inspecting your project,
+                                please review the build configuration.
+                                """.stripIndent(),
+                                "Build Completed",
+                                JOptionPane.INFORMATION_MESSAGE
+                        );
+                        SettingsDialog.showSettingsDialog(chrome, "Build");
+                    });
                 }
                 if (msg.isEmpty()) {
+                    // This warning about empty code intelligence is still relevant
+                    // and can be shown after the settings dialog is closed or concurrently if Modality allows.
+                    // For simplicity, let it follow the previous dialog chain.
                     SwingUtilities.invokeLater(() -> {
                         io.showMessageDialog(
                                 "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
