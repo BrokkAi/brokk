@@ -538,6 +538,13 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
     }
 
+    /**
+     * @return true if the analyzer is ready for use, false if still building
+     */
+    public boolean isReady() {
+        return getNonBlocking() != null;
+    }
+
     public void requestRebuild() {
         externalRebuildRequested = true;
     }

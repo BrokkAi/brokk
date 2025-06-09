@@ -244,7 +244,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onBlocked() {
                 if (Thread.currentThread() == userActionThread.get()) {
-                    io.actionOutput("Waiting for Code Intelligence");
+                    io.systemNotify("Code Intelligence is still being built. Please wait until completion.",
+                                    "Analyzer Busy",
+                                    JOptionPane.INFORMATION_MESSAGE);
                 }
             }
 

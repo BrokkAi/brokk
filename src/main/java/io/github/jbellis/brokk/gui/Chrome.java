@@ -1477,6 +1477,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JOptionPane.showMessageDialog(frame, message, title, messageType);
     }
 
+    @Override
+    public void systemNotify(String message, String title, int messageType) {
+        SwingUtilities.invokeLater(() -> {
+            showMessageDialog(message, title, messageType);
+        });
+    }
+
     /**
      * Helper method to find JScrollPane component within a container
      */

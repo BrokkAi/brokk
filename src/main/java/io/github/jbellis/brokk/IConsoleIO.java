@@ -57,6 +57,10 @@ public interface IConsoleIO {
     default void systemOutput(String message) {
         llmOutput("\n" + message, ChatMessageType.USER);
     }
+
+    default void systemNotify(String message, String title, int messageType) {
+        systemOutput(message); // Default implementation forwards to existing systemOutput
+    }
     
     default void showOutputSpinner(String message) {}
 

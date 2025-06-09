@@ -1185,9 +1185,10 @@ public class WorkspacePanel extends JPanel {
      * Checks if analyzer is ready for operations, shows error message if not.
      */
     private boolean isAnalyzerReady() {
-        var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-        if (analyzer == null) {
-            chrome.systemOutput("Code Intelligence is still being built. Please wait until completion.");
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            chrome.systemNotify("Code Intelligence is still being built. Please wait until completion.",
+                              "Analyzer Busy",
+                              JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
         return true;
