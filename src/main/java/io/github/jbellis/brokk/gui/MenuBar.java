@@ -305,6 +305,9 @@ public class MenuBar {
                         menuItem = new JMenuItem(title);
                         final Window windowToFocus = window; // final variable for lambda
                         menuItem.addActionListener(actionEvent -> {
+                            if (windowToFocus instanceof Frame frame) {
+                                frame.setState(Frame.NORMAL);
+                            }
                             windowToFocus.toFront();
                             windowToFocus.requestFocus();
                         });
