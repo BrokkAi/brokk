@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
 public class AnalyzerWrapper implements AutoCloseable {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
+    public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
+    public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
+
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
@@ -526,12 +529,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         try {
             // Try to get with zero timeout - returns null if not done
-            IAnalyzer result = future.get(0, TimeUnit.MILLISECONDS);
-            // If we got a result, cache it to avoid future.get() calls
-            if (result != null) {
-                currentAnalyzer = result;
-            }
-            return result;
+            return future.get(0, TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
             // Not done yet
             return null;

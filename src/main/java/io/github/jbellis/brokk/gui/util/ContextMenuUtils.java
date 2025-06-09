@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.util;
 
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -261,8 +262,8 @@ public final class ContextMenuUtils {
         JMenuItem summarizeItem = new JMenuItem("Summarize " + targetRef.getFullPath());
         summarizeItem.addActionListener(e1 -> {
             if (!cm.getAnalyzerWrapper().isReady()) {
-                cm.getIo().systemNotify("Code Intelligence is still being built. Please wait until completion.",
-                                      "Analyzer Busy",
+                cm.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                      AnalyzerWrapper.ANALYZER_BUSY_TITLE,
                                       JOptionPane.INFORMATION_MESSAGE);
                 return;
             }

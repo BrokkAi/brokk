@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
@@ -195,8 +196,8 @@ public class ProjectTree extends JTree {
         JMenuItem summarizeItem = new JMenuItem(selectedFiles.size() == 1 ? "Summarize" : "Summarize All");
         summarizeItem.addActionListener(ev -> {
             if (!contextManager.getAnalyzerWrapper().isReady()) {
-                contextManager.getIo().systemNotify("Code Intelligence is still being built. Please wait until completion.",
-                                                  "Analyzer Busy",
+                contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                                  AnalyzerWrapper.ANALYZER_BUSY_TITLE,
                                                   JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
