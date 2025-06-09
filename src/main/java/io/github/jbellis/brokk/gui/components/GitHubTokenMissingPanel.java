@@ -10,7 +10,9 @@ public class GitHubTokenMissingPanel extends JPanel {
 
     public GitHubTokenMissingPanel(Chrome chrome) {
         super(new FlowLayout(FlowLayout.LEFT));
-        add(new JLabel("GitHub token not configured."));
+        var tokenMissingLabel = new JLabel("GitHub token not configured.");
+        tokenMissingLabel.setFont(tokenMissingLabel.getFont().deriveFont(Font.ITALIC));
+        add(tokenMissingLabel);
         JButton settingsButton = new JButton("Settings");
         settingsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME));
         add(settingsButton);
