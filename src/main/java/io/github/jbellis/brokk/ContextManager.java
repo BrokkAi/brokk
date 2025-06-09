@@ -209,7 +209,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          var loadedCH = project.loadHistory(sessionId, this);
          if (loadedCH.getHistory().isEmpty()) {
              liveContext = new Context(this, buildWelcomeMessage());
-             contextHistory.setInitialContext(liveContext.freeze().frozenContext());
+             contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
          } else {
              contextHistory.setInitialContext(loadedCH.getHistory().getFirst()); // First is already frozen
              for (int i = 1; i < loadedCH.getHistory().size(); i++) {
@@ -278,7 +278,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onTrackedFileChange() {
                 project.getRepo().refresh();
                 if (liveContext != null) {
-                    var fr = liveContext.freeze();
+                    var fr = liveContext.freezeAndCleanup();
                     liveContext = fr.liveContext();
                     contextHistory.updateTopContext(fr.frozenContext());
                     // analyzer refresh will call this too, but it will be delayed
@@ -291,7 +291,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void afterEachBuild(boolean externalRebuildRequested) {
                 // possible for analyzer build to finish before context load does
                 if (liveContext != null) {
-                    var fr = liveContext.freeze();
+                    var fr = liveContext.freezeAndCleanup();
                     liveContext = fr.liveContext();
                     contextHistory.updateTopContext(fr.frozenContext());
                     io.updateWorkspace();
@@ -1291,7 +1291,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         liveContext = updatedLiveContext; // Update to the new live state
 
-        var fr = liveContext.freeze();
+        var fr = liveContext.freezeAndCleanup();
         liveContext = fr.liveContext();
         var frozen = fr.frozenContext();
         contextHistory.addFrozenContextAndClearRedo(frozen); // Add frozen version to history
@@ -1755,7 +1755,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // initialize history for the new session
             liveContext = new Context(this, "Welcome to the new session!");
-            contextHistory.setInitialContext(liveContext.freeze().frozenContext());
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
             project.saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
             // notifications
@@ -1840,7 +1840,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newParsedOutputFragment = new ContextFragment.TaskFragment(this,
                                                                        List.of(SystemMessage.from(newActionDescription)),
                                                                        newActionDescription);
-        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture).freezeOnly();
+        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture).freeze();
     }
 
     /**
@@ -1879,7 +1879,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             ContextHistory loadedCh = project.loadHistory(currentSessionId, this);
             if (loadedCh.getHistory().isEmpty()) {
                 liveContext = new Context(this, "Welcome to session: " + sessionName);
-                contextHistory.setInitialContext(liveContext.freeze().frozenContext());
+                contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
                 project.saveHistory(contextHistory, currentSessionId); // Save initial state if it was empty
             } else {
                 contextHistory.setInitialContext(loadedCh.getHistory().getFirst());

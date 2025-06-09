@@ -865,7 +865,7 @@ public class Context {
      * @return a FreezeResult with the (potentially modified to exclude invalid Fragments)
      *         liveContext + frozenContext
      */
-    public FreezeResult freeze() {
+    public FreezeResult freezeAndCleanup() {
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
         var badFragments = new ArrayList<ContextFragment>();
@@ -944,12 +944,13 @@ public class Context {
      * Dynamic PathFragments (from editable or readonly lists) are frozen and remain in their
      * respective lists as FrozenFragment instances. Dynamic VirtualFragments are also frozen
      * and remain in the virtualFragments list.
-     * This method is used by ContextHistory.
+     *
+     * Use with care since this method throws away the changes made by excluding newly-invalid fragments!
      *
      * @return A new Context instance with dynamic fragments frozen
      */
-    public Context freezeOnly() {
-        return freeze().frozenContext;
+    public Context freeze() {
+        return freezeAndCleanup().frozenContext;
     }
 
     /**

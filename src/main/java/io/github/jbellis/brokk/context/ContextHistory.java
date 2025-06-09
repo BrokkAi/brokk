@@ -15,7 +15,7 @@ import java.util.*;
  * locking.</p>
  *
  * <p><strong>Contract:</strong> every {@code Context} handed to this class
- * <em>must already be frozen</em> (see {@link Context#freeze()}).  This class
+ * <em>must already be frozen</em> (see {@link Context#freezeAndCleanup()}).  This class
  * never calls {@code freeze()} on its own.</p>
  */
 public class ContextHistory {
