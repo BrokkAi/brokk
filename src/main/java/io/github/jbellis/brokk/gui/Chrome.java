@@ -754,26 +754,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
         previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        
-        // Add a WindowListener to handle the close ('X') button click
-        previewFrame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Check if the content is a PreviewTextPanel and if it has unsaved changes
-                if (contentComponent instanceof PreviewTextPanel ptp) {
-                    if (ptp.confirmClose()) {
-                        // If confirmClose returns true (Save/Don't Save), finalize history and dispose.
-                        ptp.finalizeHistoryEntry(); // Create history entry if needed
-                        previewFrame.dispose();
-                    }
-                    // If confirmClose returns false (user cancelled), do nothing - window stays open
-                } else {
-                    // If not a PreviewTextPanel, just dispose the window
-                    previewFrame.dispose();
-                }
-            }
-        });
-
 
         // Add ESC key binding to close the window (delegates to windowClosing)
         var rootPane = previewFrame.getRootPane();
