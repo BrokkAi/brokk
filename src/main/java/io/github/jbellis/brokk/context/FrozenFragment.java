@@ -323,8 +323,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                                                       isText, syntaxStyle, files,
                                                       originalClassName, meta);
 
-            // Include the live fragment's ID in the intern key to ensure each fragment gets its own frozen copy
-            String internKey = contentHash + ":" + liveFragment.id();
+            // Use liveFragment.id() for the new FrozenFragment if it's created.
+            // The INTERN_POOL ensures that if another live fragment (possibly with a different ID)
+            // produces the exact same contentHash, the first FrozenFragment instance (with its ID) is reused.
             final String finalFullDescription = fullDescription; 
             final String finalShortDescription = shortDescription;
             final String finalTextContent = textContent;
@@ -332,7 +333,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             final Set<ProjectFile> finalFiles = files;
             final Map<String,String> finalMeta = meta;
 
-            return INTERN_POOL.computeIfAbsent(internKey, k -> new FrozenFragment(contentHash, // Still store the plain hash
+            return INTERN_POOL.computeIfAbsent(contentHash, k -> new FrozenFragment(k,
                                                                                     liveFragment.id(),
                                                                                     contextManagerForFrozenFragment,
                                                                                     type,
