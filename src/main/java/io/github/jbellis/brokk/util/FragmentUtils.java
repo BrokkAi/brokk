@@ -45,7 +45,8 @@ public final class FragmentUtils {
                                                 Set<ProjectFile> files,  // Can be null or empty
                                                 String originalClassName,
                                                 Map<String, String> meta // Can be null or empty
-                                                ) {
+                                                )
+    {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
 

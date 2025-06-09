@@ -18,7 +18,6 @@ import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class HistoryIo {
@@ -141,7 +140,7 @@ public final class HistoryIo {
                 CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
                 // Fragments are already resolved and in fragmentCache.
                 // DtoMapper.fromCompactDto will retrieve them.
-                contexts.add(DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, imageBytesMap));
+                contexts.add(DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache));
             } catch (Exception e) {
                 logger.error("Failed to parse V1 CompactContextDto from line: {}", line, e);
                 throw new IOException("Failed to parse V1 CompactContextDto from line: " + line, e);

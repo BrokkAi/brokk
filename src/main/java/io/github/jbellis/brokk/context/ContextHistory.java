@@ -56,7 +56,7 @@ public class ContextHistory {
             selected = ctx;
             return true;
         }
-        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx.getId());
+        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx);
         return false;
     }
 

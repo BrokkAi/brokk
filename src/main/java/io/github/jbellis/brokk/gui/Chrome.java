@@ -388,10 +388,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert ctx != null;
 
-        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
+        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
 
-        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !isSkipNextUpdateOutputPanelOnContextChange());
+        final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
         setSkipNextUpdateOutputPanelOnContextChange(false);
         activeContext = ctx;
 
@@ -402,10 +402,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             Context latestContext = contextManager.getContextHistory().topContext();
             if (latestContext != null) {
                 isEditable = ctx.equals(latestContext);
-            } else if (ctx.getId() == 1) { 
-                // If context history is somehow uninitialized but we are setting the initial welcome context (ID 1),
-                // consider it editable. This is a fallback.
-                isEditable = true; 
             }
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
@@ -585,7 +581,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Keep only last 50 messages to prevent memory issues
             if (systemMessages.size() > 50) {
-                systemMessages.remove(0);
+                systemMessages.removeFirst();
             }
 
             // Update label text (show only the latest message)

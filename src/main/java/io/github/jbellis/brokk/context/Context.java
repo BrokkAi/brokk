@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -29,11 +28,6 @@ import java.util.stream.Stream;
  */
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
-    private static final AtomicInteger idCounter = new AtomicInteger(0);
-
-    static int newId() { // Changed from private to package-private
-        return idCounter.incrementAndGet();
-    }
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Welcome to Brokk";
@@ -54,17 +48,10 @@ public class Context {
     public transient final Future<String> action;
 
     /**
-     * Unique transient identifier for this context instance.
-     * Used to track identity across asynchronous autocontext refresh
-     */
-    transient final int id;
-
-    /**
      * Constructor for initial empty context
      */
     public Context(@NotNull IContextManager contextManager, String initialOutputText) {
-        this(newId(),
-             Objects.requireNonNull(contextManager, "contextManager cannot be null"),
+        this(Objects.requireNonNull(contextManager, "contextManager cannot be null"),
              List.of(),
              List.of(),
              List.of(),
@@ -78,15 +65,7 @@ public class Context {
         return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
     }
 
-    /**
-     * Constructor for initial empty context with empty output. Tests only
-     */
-    Context(@NotNull IContextManager contextManager) { // Made package-private and kept @NotNull
-        this(Objects.requireNonNull(contextManager, "contextManager cannot be null"), "placeholder");
-    }
-
-    Context(int id,
-            @NotNull IContextManager contextManager,
+    Context(@NotNull IContextManager contextManager,
             List<ContextFragment> editableFiles,
             List<ContextFragment> readonlyFiles,
             List<ContextFragment.VirtualFragment> virtualFragments,
@@ -94,14 +73,12 @@ public class Context {
             ContextFragment.TaskFragment parsedOutput,
             Future<String> action)
     {
-        assert id > 0;
         // contextManager is asserted non-null by the caller or public constructor
         assert editableFiles != null;
         assert readonlyFiles != null;
         assert virtualFragments != null;
         assert taskHistory != null;
         assert action != null;
-        this.id = id;
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null in private constructor");
         this.editableFiles = List.copyOf(editableFiles);
         this.readonlyFiles = List.copyOf(readonlyFiles);
@@ -172,8 +149,7 @@ public class Context {
             }
         });
 
-        return new Context(frozen.getId(),
-                           cm,
+        return new Context(cm,
                            List.copyOf(editable),
                            List.copyOf(readonly),
                            List.copyOf(virtuals),
@@ -263,44 +239,6 @@ public class Context {
         return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
     }
 
-    public Context removeBadFragment(ContextFragment f) { // IContextManager is already member
-        if (f.getType().isPathFragment()) {
-            var pf = (ContextFragment.PathFragment) f;
-            var inEditable = editableFiles.contains(pf);
-            var inReadonly = readonlyFiles.contains(pf);
-
-            if (inEditable) {
-                var newEditable = new ArrayList<>(editableFiles);
-                newEditable.remove(pf);
-                return getWithFragments(newEditable, readonlyFiles, virtualFragments,
-                                        "Removed unreadable " + pf.description());
-            } else if (inReadonly) {
-                var newReadonly = new ArrayList<>(readonlyFiles);
-                newReadonly.remove(pf);
-                return getWithFragments(editableFiles, newReadonly, virtualFragments,
-                                        "Removed unreadable " + pf.description());
-            }
-            return this;
-        } else if (f.getType().isVirtualFragment()) {
-            var vf = (ContextFragment.VirtualFragment) f;
-            var newFragments = new ArrayList<>(virtualFragments);
-            if (newFragments.remove(vf)) {
-                return getWithFragments(editableFiles, readonlyFiles, newFragments,
-                                        "Removed unreadable " + vf.description());
-            }
-            return this;
-        } else {
-            // This case should ideally not be reached if all fragments correctly report their type.
-            // However, as a fallback or for future fragment types not yet covered by isPath/isVirtual,
-            // log a warning and attempt a generic removal if possible, or return 'this'.
-            logger.warn("Unknown fragment type encountered in removeBadFragment: {}", f.getClass().getName());
-            // Attempt removal based on object equality if not a known type, though this might not be effective
-            // if the fragment isn't in any of the primary lists or if equality isn't well-defined.
-            // For now, returning 'this' to avoid unexpected behavior.
-            return this;
-        }
-    }
-
     @NotNull
     private Context getWithFragments(List<ContextFragment> newEditableFiles,
                                      List<ContextFragment> newReadonlyFiles,
@@ -334,9 +272,9 @@ public class Context {
         Streams.concat(readonlyFiles.stream(), virtualFragments.stream())
                 .flatMap(f -> f.sources().stream()) // No analyzer
                 .forEach(unit ->
-                         {
-                             weightedSeeds.merge(unit.fqName(), 1.0 / (readonlyFiles.size() + virtualFragments.size()), Double::sum);
-                         });
+        {
+            weightedSeeds.merge(unit.fqName(), 1.0 / (readonlyFiles.size() + virtualFragments.size()), Double::sum);
+        });
 
         // If no seeds, we can't compute pagerank
         if (weightedSeeds.isEmpty()) {
@@ -505,22 +443,18 @@ public class Context {
                                   List<ContextFragment> newReadonlyFiles,
                                   List<ContextFragment.VirtualFragment> newVirtualFragments,
                                   Future<String> action) {
-        return new Context(
-                newId(),
-                contextManager,
+        return new Context(contextManager,
                 newEditableFiles,
                 newReadonlyFiles,
                 newVirtualFragments,
                 taskHistory,
                 null,
-                action
-        );
+                action);
     }
 
     public Context removeAll() {
         String action = "Dropped all context";
-        return new Context(newId(),
-                           contextManager,
+        return new Context(contextManager,
                            List.of(), // editable
                            List.of(), // readonly
                            List.of(), // virtual
@@ -557,8 +491,7 @@ public class Context {
      */
     public Context addHistoryEntry(TaskEntry taskEntry, ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory = Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        return new Context(newId(),
-                           contextManager,
+        return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
                            virtualFragments,
@@ -569,8 +502,7 @@ public class Context {
 
 
     public Context clearHistory() {
-        return new Context(newId(),
-                           contextManager,
+        return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
                            virtualFragments,
@@ -599,13 +531,6 @@ public class Context {
             }
         }
         return SUMMARIZING;
-    }
-
-    /**
-     * Get the unique transient identifier for this context instance.
-     */
-    public int getId() {
-        return id;
     }
 
     public IContextManager getContextManager() {
@@ -638,8 +563,7 @@ public class Context {
     }
 
     public Context withParsedOutput(ContextFragment.TaskFragment parsedOutput, Future<String> action) {
-        return new Context(newId(),
-                           contextManager,
+        return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
                            virtualFragments,
@@ -649,14 +573,14 @@ public class Context {
     }
 
     public Context withAction(Future<String> action) {
-        return new Context(this.id, // Keep same ID as this is just updating the action
-                           contextManager,
-                           editableFiles,
-                           readonlyFiles,
-                           virtualFragments,
-                           taskHistory,
-                           parsedOutput,
-                           action);
+        return new Context( // Keep same ID as this is just updating the action
+                            contextManager,
+                            editableFiles,
+                            readonlyFiles,
+                            virtualFragments,
+                            taskHistory,
+                            parsedOutput,
+                            action);
     }
 
     /**
@@ -667,8 +591,7 @@ public class Context {
      * @return A new Context instance with the updated history.
      */
     public Context withCompressedHistory(List<TaskEntry> newHistory) {
-        return new Context(newId(),
-                           contextManager,
+        return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
                            virtualFragments,
@@ -700,8 +623,7 @@ public class Context {
         var unfrozenVirtualFragments = sourceContext.virtualFragments().map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager)).toList();
 
         // New ID for the reset point
-        return new Context(newId(), // New ID for the reset point
-                           currentContext.contextManager,
+        return new Context(currentContext.contextManager,
                            unfrozenEditableFiles,
                            unfrozenReadonlyFiles,
                            unfrozenVirtualFragments,
@@ -805,53 +727,13 @@ public class Context {
             .map(fragment -> unfreezeFragmentIfNeeded(fragment, this.contextManager))
             .forEach(newVirtualFragments::add);
 
-        return new Context(newId(),
-                           this.contextManager,
+        return new Context(this.contextManager,
                            List.copyOf(newEditableFiles),
                            List.copyOf(newReadonlyFiles),
                            List.copyOf(newVirtualFragments),
                            newHistory,
                            null,
                            CompletableFuture.completedFuture(actionMessage));
-    }
-
-    /**
-     * Calculates the maximum ID from all fragments and task history in this context.
-     * Used to ensure proper ID sequencing when deserializing contexts.
-     */
-    public int getMaxId() {
-        var maxNumericId = 0;
-
-        // Check editable files
-        maxNumericId = Math.max(maxNumericId, editableFiles.stream()
-                .map(ContextFragment::id)
-                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
-                .max()
-                .orElse(0));
-
-        // Check readonly files
-        maxNumericId = Math.max(maxNumericId, readonlyFiles.stream()
-                .map(ContextFragment::id)
-                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
-                .max()
-                .orElse(0));
-
-        // Check virtual fragments
-        maxNumericId = Math.max(maxNumericId, virtualFragments.stream()
-                .map(ContextFragment.VirtualFragment::id)
-                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
-                .max()
-                .orElse(0));
-
-        // Check task history
-        maxNumericId = Math.max(maxNumericId, taskHistory.stream()
-                .filter(t -> t.log() != null)
-                .map(t -> t.log().id())
-                .mapToInt(idStr -> { try { return Integer.parseInt(idStr); } catch (NumberFormatException e) { return 0; } })
-                .max()
-                .orElse(0));
-
-        return maxNumericId;
     }
 
     public record FreezeResult(Context liveContext, Context frozenContext) {
@@ -868,7 +750,6 @@ public class Context {
     public FreezeResult freezeAndCleanup() {
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
-        var badFragments = new ArrayList<ContextFragment>();
 
         for (var fragment : this.editableFiles) {
             try {
@@ -877,7 +758,6 @@ public class Context {
                 frozenEditableFiles.add(frozen);
             } catch (IOException e) {
                 logger.warn("Failed to freeze editable fragment {}: {}", fragment.description(), e.getMessage());
-                badFragments.add(fragment);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e); // we should not be interrupted here
             }
@@ -893,7 +773,6 @@ public class Context {
                 frozenReadonlyFiles.add(frozen);
             } catch (IOException e) {
                 logger.warn("Failed to freeze readonly fragment {}: {}", fragment.description(), e.getMessage());
-                badFragments.add(fragment);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e); // we should not be interrupted here
             }
@@ -909,16 +788,13 @@ public class Context {
                 frozenVirtualFragments.add((ContextFragment.VirtualFragment) frozen);
             } catch (IOException e) {
                 logger.warn("Failed to freeze virtual fragment {}: {}", fragment.description(), e.getMessage());
-                badFragments.add(fragment);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e); // we should not be interrupted here
             }
         }
 
         // Create live context with bad fragments removed
-        int newId = badFragments.isEmpty() ? newId() : this.id;
-        var liveContext = new Context(newId,
-                                      this.contextManager,
+        var liveContext = new Context(this.contextManager,
                                       liveEditableFiles,
                                       liveReadonlyFiles,
                                       liveVirtualFragments,
@@ -927,8 +803,7 @@ public class Context {
                                       this.action);
 
         // Create frozen context
-        var frozenContext = new Context(newId,
-                                        this.contextManager,
+        var frozenContext = new Context(this.contextManager,
                                         frozenEditableFiles,
                                         frozenReadonlyFiles,
                                         frozenVirtualFragments,
@@ -971,16 +846,8 @@ public class Context {
         return fragment;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (o == null || getClass() != o.getClass()) return false;
-        Context context = (Context) o;
-        return id == context.id;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public boolean workspaceEquals(Context other) {
+        return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
     }
 
     public boolean isFrozen() {

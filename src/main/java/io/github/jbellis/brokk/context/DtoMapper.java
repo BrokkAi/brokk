@@ -38,14 +38,14 @@ public class DtoMapper {
     /**
      * Converts a CompactContextDto back to a Context domain object using a pre-populated fragment cache.
      */
-    public static Context fromCompactDto(CompactContextDto dto, IContextManager mgr, Map<String, ContextFragment> fragmentCache, Map<String, byte[]> imageBytesMap) {
+    public static Context fromCompactDto(CompactContextDto dto, IContextManager mgr, Map<String, ContextFragment> fragmentCache) {
         var editableFragments = dto.editable().stream()
-                .map(id -> fragmentCache.get(id)) // Cast needed as map stores ContextFragment
+                .map(fragmentCache::get) // Cast needed as map stores ContextFragment
                 .filter(java.util.Objects::nonNull) // Filter out if ID not found, though ideally all should be present
                 .collect(Collectors.toList());
 
         var readonlyFragments = dto.readonly().stream()
-                .map(id -> fragmentCache.get(id)) // Cast needed
+                .map(fragmentCache::get) // Cast needed
                 .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
 
@@ -86,8 +86,7 @@ public class DtoMapper {
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
 
-        return new Context(Context.newId(), // Generate new transient ID for the live context
-                           mgr,
+        return new Context(mgr,
                            editableFragments,
                            readonlyFragments,
                            virtualFragments,
@@ -105,23 +104,19 @@ public class DtoMapper {
                                                           Map<String, byte[]> imageBytesMap,
                                                           Map<String, ContextFragment> fragmentCacheForRecursion) {
         if (referencedDtos.containsKey(idToResolve)) {
-            return _buildReferencedFragment(referencedDtos.get(idToResolve), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
+            return _buildReferencedFragment(referencedDtos.get(idToResolve), mgr, imageBytesMap);
         }
         if (virtualDtos.containsKey(idToResolve)) {
             return _buildVirtualFragment(virtualDtos.get(idToResolve), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
         }
         if (taskDtos.containsKey(idToResolve)) {
-            return _buildTaskFragment(taskDtos.get(idToResolve), mgr, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
+            return _buildTaskFragment(taskDtos.get(idToResolve), mgr);
         }
         logger.error("Fragment DTO not found for ID: {} during resolveAndBuildFragment", idToResolve);
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve + " during resolveAndBuildFragment");
     }
 
-    private static ContextFragment _buildReferencedFragment(ReferencedFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap,
-                                                           Map<String, ContextFragment> fragmentCacheForRecursion,
-                                                           Map<String, ReferencedFragmentDto> allReferencedDtos,
-                                                           Map<String, VirtualFragmentDto> allVirtualDtos,
-                                                           Map<String, TaskFragmentDto> allTaskDtos) {
+    private static ContextFragment _buildReferencedFragment(ReferencedFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap) {
         if (dto == null) return null;
 
         return switch (dto) {
@@ -153,11 +148,7 @@ public class DtoMapper {
         };
     }
 
-    private static ContextFragment.TaskFragment _buildTaskFragment(TaskFragmentDto dto, IContextManager mgr,
-                                                                  Map<String, ContextFragment> fragmentCacheForRecursion,
-                                                                  Map<String, ReferencedFragmentDto> allReferencedDtos,
-                                                                  Map<String, VirtualFragmentDto> allVirtualDtos,
-                                                                  Map<String, TaskFragmentDto> allTaskDtos) {
+    private static ContextFragment.TaskFragment _buildTaskFragment(TaskFragmentDto dto, IContextManager mgr) {
         if (dto == null) return null;
 
         var messages = dto.messages().stream()
@@ -199,7 +190,7 @@ public class DtoMapper {
                 yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
             case TaskFragmentDto taskDto -> // This case implies a TaskFragmentDto was listed under "virtual"
-                _buildTaskFragment(taskDto, mgr, fragmentCacheForRecursion, allReferencedDtos, allVirtualDtos, allTaskDtos);
+                _buildTaskFragment(taskDto, mgr);
             case StringFragmentDto stringDto ->
                 new ContextFragment.StringFragment(stringDto.id(), mgr, stringDto.text(), stringDto.description(), stringDto.syntaxStyle());
             case SkeletonFragmentDto skeletonDto ->
@@ -418,7 +409,6 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
         return new TaskEntryDto(entry.sequence(), logDto, entry.summary());
     }
 
-    // TaskFragmentDto constructor expects String id
     public static TaskFragmentDto toTaskFragmentDto(ContextFragment.TaskFragment fragment) {
         var messagesDto = fragment.messages().stream()
                 .map(DtoMapper::toChatMessageDto)
@@ -434,31 +424,6 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
         return new ProjectFile(Path.of(dto.repoRoot()), Path.of(dto.relPath()));
     }
 
-    private static ExternalFile fromExternalFileDto(ExternalFileDto dto) {
-        return new ExternalFile(Path.of(dto.absPath()));
-    }
-
-    private static BrokkFile fromPathFragmentDto(PathFragmentDto dto) { // IContextManager not needed for this helper
-        return switch (dto) {
-            case ProjectFileDto pfd -> fromProjectFileDto(pfd);
-            case ExternalFileDto efd -> fromExternalFileDto(efd);
-            case ImageFileDto ifd -> {
-                // For ImageFileDto, we need to determine if it's a ProjectFile or ExternalFile based on the path
-                Path path = Path.of(ifd.absPath());
-                if (path.isAbsolute()) {
-                    yield new ExternalFile(path);
-                } else {
-                    // This is problematic as we don't have the root - for now assume it's external
-                    yield new ExternalFile(path.toAbsolutePath());
-                }
-            }
-            // Assuming ProjectFileDto now takes String ID.
-            // For GitFileFragmentDto, the ID is its hash, but when converting to BrokkFile for CodeUnitDto context,
-            // it's just a file path. "0" string is fine as placeholder if BrokkFile doesn't need an ID here.
-            case GitFileFragmentDto gfd -> fromProjectFileDto(new ProjectFileDto("0", gfd.repoRoot(), gfd.relPath()));
-        };
-    }
-
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto) {
         // Convert role string back to ChatMessage
         return switch (dto.role().toLowerCase()) {
@@ -472,7 +437,6 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
 
     private static CodeUnitDto toCodeUnitDto(CodeUnit codeUnit) { // IContextManager not needed for serialization
         ProjectFile pf = codeUnit.source();
-        // Assuming ProjectFileDto constructor now takes String ID
         ProjectFileDto pfd = new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString());
         return new CodeUnitDto(
                 pfd,
