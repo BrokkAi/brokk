@@ -944,7 +944,7 @@ public class Context {
      *
      * @return A new Context instance with dynamic fragments frozen
      */
-    public Context freezeForTesting() {
+    public Context freezeOnly() {
         return freeze().frozenContext;
     }
 

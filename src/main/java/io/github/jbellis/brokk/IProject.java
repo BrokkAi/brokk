@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.IGitRepo;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -60,8 +61,6 @@ public interface IProject extends AutoCloseable {
     default String getStyleGuide() {
         return "";
     }
-
-    default void updateActiveSession(UUID sessionId) {}
 
     default Path getMasterRootPathForConfig() {
         return null;
@@ -126,7 +125,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+    default SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         throw new UnsupportedOperationException();
     }
 

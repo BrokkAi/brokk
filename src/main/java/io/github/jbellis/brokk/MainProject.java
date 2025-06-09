@@ -1412,31 +1412,20 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+    public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         Path originalHistoryPath = getSessionHistoryPath(originalSessionId);
         if (!Files.exists(originalHistoryPath)) {
-            logger.error("Original session zip {} not found, cannot copy.", originalHistoryPath.getFileName());
-            return null;
+            throw new IOException("Original session %s not found, cannot copy".formatted(originalHistoryPath.getFileName()));
         }
         UUID newSessionId = UUID.randomUUID();
         Path newHistoryPath = getSessionHistoryPath(newSessionId);
         long currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
-        try {
-            Files.createDirectories(newHistoryPath.getParent());
-            Files.copy(originalHistoryPath, newHistoryPath);
-            logger.info("Copied session zip {} to {}", originalHistoryPath.getFileName(), newHistoryPath.getFileName());
-            writeSessionInfoToZip(newHistoryPath, newSessionInfo);
-            logger.info("Updated manifest.json in new session zip {} for session ID {}", newHistoryPath.getFileName(), newSessionId);
-        } catch (IOException e) {
-            logger.error("Error copying session zip from {} to {} or updating its manifest: {}",
-                    originalHistoryPath.getFileName(), newHistoryPath.getFileName(), e.getMessage());
-            try {
-                Files.deleteIfExists(newHistoryPath);
-            } catch (IOException ignored) {
-            }
-            return null;
-        }
+        Files.createDirectories(newHistoryPath.getParent());
+        Files.copy(originalHistoryPath, newHistoryPath);
+        logger.info("Copied session zip {} to {}", originalHistoryPath.getFileName(), newHistoryPath.getFileName());
+        writeSessionInfoToZip(newHistoryPath, newSessionInfo);
+        logger.info("Updated manifest.json in new session zip {} for session ID {}", newHistoryPath.getFileName(), newSessionId);
         return newSessionInfo;
     }
 

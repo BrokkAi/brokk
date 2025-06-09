@@ -308,12 +308,6 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
-    @Override
-    public final void updateActiveSession(UUID sessionId) {
-        SessionRegistry.update(this.root, sessionId);
-        setLastActiveSession(sessionId);
-    }
-
     private Set<ProjectFile> loadDependencyFiles() {
         var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {

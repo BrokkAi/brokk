@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.context.ContextHistory;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -95,10 +96,9 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+    public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         return parent.copySession(originalSessionId, newSessionName);
     }
-
 
     @Override
     public DataRetentionPolicy getDataRetentionPolicy() {

@@ -171,7 +171,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionButton.setMinimumSize(newSessionSize);
         newSessionButton.setMaximumSize(newSessionSize);
         newSessionButton.addActionListener(e -> {
-            contextManager.createNewSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
+            contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
                 SwingUtilities.invokeLater(this::updateSessionComboBox)
             );
         });
@@ -283,7 +283,7 @@ public class HistoryOutputPanel extends JPanel {
             }
         });
 
-        // Set up emoji renderer for first column
+        // Set up icon renderer for first column
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
@@ -291,7 +291,14 @@ public class HistoryOutputPanel extends JPanel {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
 
-                // Center-align the emoji
+                // Set icon and center-align
+                if (value instanceof Icon icon) {
+                    label.setIcon(icon);
+                    label.setText("");
+                } else {
+                    label.setIcon(null);
+                    label.setText(value != null ? value.toString() : "");
+                }
                 label.setHorizontalAlignment(JLabel.CENTER);
 
                 return label;
@@ -468,7 +475,7 @@ public class HistoryOutputPanel extends JPanel {
 
         JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
         newSessionFromWorkspaceItem.addActionListener(event -> {
-            contextManager.createNewSessionFromWorkspaceAsync(context, ContextManager.DEFAULT_SESSION_NAME)
+            contextManager.createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
                 .exceptionally(ex -> {
                     chrome.toolErrorRaw("Failed to create new session from workspace: " + ex.getMessage());
                     return null;
@@ -525,10 +532,10 @@ public class HistoryOutputPanel extends JPanel {
 
             // Add rows for each context in history
             for (var ctx : contextManager.getContextHistoryList()) {
-                // Add emoji for AI responses, empty for user actions
-                String emoji = (ctx.getParsedOutput() != null) ? "🤖" : "";
+                // Add icon for AI responses, null for user actions
+                Icon iconEmoji = (ctx.getParsedOutput() != null) ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
                 historyModel.addRow(new Object[]{
-                        emoji,
+                        iconEmoji,
                         ctx.getAction(),
                         ctx // We store the actual context object in hidden column
                 });
@@ -578,7 +585,7 @@ public class HistoryOutputPanel extends JPanel {
         AutoScroller.install(jsp);
 
         // Add a text change listener to update capture buttons
-        llmStreamArea.addTextChangeListener(() -> chrome.updateCaptureButtons());
+        llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
 
         return jsp;
     }

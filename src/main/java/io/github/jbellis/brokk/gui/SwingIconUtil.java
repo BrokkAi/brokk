@@ -160,6 +160,14 @@ public final class SwingIconUtil
     {
         com.formdev.flatlaf.FlatLightLaf.setup();
         
+        // Register Brokk's custom icons so they appear in the browser
+        try {
+            var dummyFrame = new JFrame();
+            new GuiTheme(dummyFrame, null, null).applyTheme(false); // false = light theme
+        } catch (Exception e) {
+            logger.warn("Failed to register custom icons: {}", e.getMessage());
+        }
+        
         if (args.length > 0 && "icons".equals(args[0])) {
             showLookAndFeelIconFrame();
         } else {
