@@ -233,29 +233,28 @@ public class GitWorktreeTab extends JPanel {
         refreshButton.setToolTipText("Refresh the list of worktrees");
         refreshButton.addActionListener(e -> refresh());
 
-        if (!isWorktreeWindow) { // MainProject context
-            buttonPanel.add(addButton);
-            buttonPanel.add(removeButton);
-            buttonPanel.add(Box.createHorizontalGlue());
-            buttonPanel.add(openButton);
-            buttonPanel.add(refreshButton);
-        } else { // WorktreeProject context
-            addButton.setVisible(false);
-            removeButton.setVisible(false);
+        // Add buttons common to both modes first
+        buttonPanel.add(addButton);
+        buttonPanel.add(removeButton);
+        buttonPanel.add(openButton);
+
+        if (isWorktreeWindow) { // WorktreeProject context
+            // Disable + and - buttons instead of hiding
+            addButton.setEnabled(false);
+            removeButton.setEnabled(false);
 
             var project = contextManager.getProject();
             String wtName = ((WorktreeProject) project).getRoot().getFileName().toString();
             mergeButton = new JButton("Merge " + wtName + " into...");
             mergeButton.setToolTipText("Merge this worktree branch into another branch");
-            mergeButton.setEnabled(true);
+            mergeButton.setEnabled(true); // Merge button is enabled by default in worktree view
             mergeButton.addActionListener(e -> showMergeDialog());
-
-            buttonPanel.add(Box.createHorizontalGlue());
-            buttonPanel.add(openButton);
-            buttonPanel.add(refreshButton);
-            buttonPanel.add(Box.createRigidArea(new Dimension(5, 0)));
             buttonPanel.add(mergeButton);
         }
+        // else: In MainProject context, mergeButton is null and not added.
+
+        buttonPanel.add(Box.createHorizontalGlue()); // Spacer to push refresh to the right
+        buttonPanel.add(refreshButton);
 
         add(buttonPanel, BorderLayout.SOUTH);
 
