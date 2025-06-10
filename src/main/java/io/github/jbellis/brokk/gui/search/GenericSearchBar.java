@@ -24,8 +24,10 @@ public class GenericSearchBar extends JPanel {
         
         // Initialize components
         searchField = new JTextField(20);
-        nextButton = new JButton("↓");
-        previousButton = new JButton("↑");
+        nextButton = new JButton();
+        nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
+        previousButton = new JButton();
+        previousButton.setIcon(UIManager.getIcon("Table.ascendingSortIcon"));
         
         // Build UI
         add(new JLabel("Search:"));
