@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
@@ -33,6 +32,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -356,11 +356,12 @@ public class Brokk {
         }
     }
 
-    private static void createAndShowGui(Path projectPath, ContextManager contextManager) {
+    private static CompletableFuture<Void> createAndShowGui(Path projectPath, ContextManager contextManager) {
         assert SwingUtilities.isEventDispatchThread();
         assert contextManager != null : "ContextManager cannot be null when creating GUI";
 
-        var io = contextManager.createGui();
+        var contextFuture = contextManager.createGui();
+        var io = (Chrome) contextManager.getIo();
 
         // Log the current data retention policy.
         // This is called after any necessary dialog has been shown and policy confirmed.
@@ -382,6 +383,8 @@ public class Brokk {
                 // The main logic has moved to windowClosing
             }
         });
+
+        return contextFuture;
     }
 
     /**
@@ -554,31 +557,37 @@ public class Brokk {
                 }
 
                 hideSplashScreen();
-                createAndShowGui(actualProjectPath, contextManager);
+                var guiFuture = createAndShowGui(actualProjectPath, contextManager);
                 Chrome chromeInstance = openProjectWindows.get(actualProjectPath);
-                if (chromeInstance != null) {
-                    if (project.getParent() != project && project.getParent() instanceof MainProject) {
-                        IProject actualParentProject = project.getParent();
-                        mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
-                        logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
-                    } else if (project instanceof MainProject) {
-                        mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
-                        logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                assert chromeInstance != null : "Chrome instance should be available after createAndShowGui is called";
+
+                // Associate worktree windows. This can happen once chromeInstance is available.
+                if (project instanceof MainProject) {
+                    mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
+                    logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                } else {
+                    IProject actualParentProject = project.getParent();
+                    mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
+                    logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
+                }
+
+                // Chain initialTask execution to guiFuture's completion
+                guiFuture.whenCompleteAsync((result, guiEx) -> {
+                    if (guiEx != null) {
+                        // if we have a half-finished gui we're kind of screwed
+                        throw new RuntimeException(guiEx);
                     }
 
                     if (builder.initialTask != null) {
                         logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());
                         try {
                             builder.initialTask.accept(chromeInstance);
-                        } catch (Exception e) {
-                            logger.error("Error executing initial task for project {}: {}", actualProjectPath.getFileName(), e.getMessage(), e);
-                            JOptionPane.showMessageDialog(chromeInstance.getFrame(),
-                                                          "An error occurred while running the initial task: " + e.getMessage(),
-                                                          "Initial Task Error", JOptionPane.ERROR_MESSAGE);
+                        } catch (Exception taskEx) {
+                            chromeInstance.toolError(taskEx.getMessage());
                         }
                     }
-                }
-                openCompletionFuture.complete(true);
+                    openCompletionFuture.complete(true); // Project opened, GUI ready, initial task (if any) attempted.
+                }, SwingUtilities::invokeLater); // Ensure this block runs on EDT
             }, SwingUtilities::invokeLater)
             .exceptionally(ex -> {
                 logger.error("Exception during project opening pipeline for {}: {}", projectPath, ex.getMessage(), ex);
@@ -628,20 +637,18 @@ public class Brokk {
                     }
                 }
             } else { // Closing a worktree project
-                IProject parentOfWorktree = projectBeingClosed.getParent();
-                if (parentOfWorktree != null) {
-                    List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
-                    if (worktreeListOfMain != null) {
-                        if (worktreeListOfMain.remove(ourChromeInstance)) {
-                             logger.debug("Removed worktree window {} from main project {}'s tracking list.", projectPath.getFileName(), parentOfWorktree.getRoot().getFileName());
-                        }
-                        // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
-                        // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
-                        // However, for cleanliness:
-                        if (worktreeListOfMain.isEmpty()) {
-                            mainToWorktreeChromes.remove(parentOfWorktree);
-                            logger.debug("Removed main project {} from worktree tracking map as its list of worktrees is now empty.", parentOfWorktree.getRoot().getFileName());
-                        }
+                var parentOfWorktree = projectBeingClosed.getParent();
+                List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
+                if (worktreeListOfMain != null) {
+                    if (worktreeListOfMain.remove(ourChromeInstance)) {
+                        logger.debug("Removed worktree window {} from main project {}'s tracking list.", projectPath.getFileName(), parentOfWorktree.getRoot().getFileName());
+                    }
+                    // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
+                    // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
+                    // However, for cleanliness:
+                    if (worktreeListOfMain.isEmpty()) {
+                        mainToWorktreeChromes.remove(parentOfWorktree);
+                        logger.debug("Removed main project {} from worktree tracking map as its list of worktrees is now empty.", parentOfWorktree.getRoot().getFileName());
                     }
                 }
             }

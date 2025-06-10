@@ -6,9 +6,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.ICommitInfo;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.Brokk;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -16,11 +13,7 @@ import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
-import java.awt.event.WindowEvent;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 
 /**
@@ -405,8 +398,8 @@ public final class GitUiUtil
     /**
      * Holds a parsed "owner" and "repo" from a Git remote URL.
      */
-    public record OwnerRepo(String owner, String repo) {
-    }
+    public record OwnerRepo(String owner, String repo) { }
+
     /**
      * Parse a Git remote URL of form:
      * - https://github.com/OWNER/REPO.git
@@ -586,100 +579,6 @@ public final class GitUiUtil
                             compareBranchName, baseBranchName, ex.getMessage(), ex);
                 chrome.toolErrorRaw(String.format("Error capturing diff between %s and %s: %s",
                                                   compareBranchName, baseBranchName, ex.getMessage()));
-            }
-        });
-    }
-
-    /**
-     * Prompts the user and removes a worktree, with options to skip confirmation and/or window close event.
-     *
-     * @param contextManager The ContextManager instance
-     * @param chrome The Chrome instance for UI feedback
-     * @param worktreePath The path to the worktree to remove
-     * @param skipConfirmation Whether to skip the confirmation dialog
-     * @param dispatchWindowCloseEvent Whether to dispatch a window closing event after removal
-     */
-    public static void promptAndRemoveWorktree(ContextManager contextManager,
-                                             Chrome chrome,
-                                             Path worktreePath,
-                                             boolean skipConfirmation,
-                                             boolean dispatchWindowCloseEvent) {
-        IGitRepo repo = contextManager.getProject().getRepo();
-        if (!(repo instanceof GitRepo gitRepo)) {
-            chrome.toolError("Worktree operations are only supported for Git repositories.");
-            return;
-        }
-
-        // Check for uncommitted changes
-        try {
-            Set<GitRepo.ModifiedFile> modifiedFiles = gitRepo.getModifiedFiles();
-            if (!modifiedFiles.isEmpty() && !skipConfirmation) {
-                int dirtyResponse = JOptionPane.showConfirmDialog(
-                        chrome.getFrame(),
-                        "The worktree has uncommitted changes. Are you sure you want to remove it?\n" +
-                        "This will permanently delete the worktree and all uncommitted work.",
-                        "Uncommitted Changes",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
-
-                if (dirtyResponse != JOptionPane.YES_OPTION) {
-                    return; // User cancelled
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Error checking for modified files in worktree {}: {}", worktreePath, e.getMessage());
-            // Continue with removal despite the error
-        }
-
-        if (!skipConfirmation) {
-            int response = JOptionPane.showConfirmDialog(
-                    chrome.getFrame(),
-                    "Are you sure you want to remove the worktree at:\n" + worktreePath +
-                    "\n\nThis will delete the files from disk.",
-                    "Confirm Worktree Removal",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-
-            if (response != JOptionPane.YES_OPTION) {
-                return; // User cancelled
-            }
-        }
-
-        // Perform the removal in the background
-        contextManager.submitUserTask("Removing worktree: " + worktreePath, () -> {
-            try {
-                gitRepo.removeWorktree(worktreePath);
-                chrome.systemOutput("Successfully removed worktree at " + worktreePath);
-
-                SwingUtilities.invokeLater(() -> {
-                    // Find and close the window for this worktree
-                    var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
-                    if (windowToClose != null) {
-                        if (dispatchWindowCloseEvent) {
-                            // Dispatch a window closing event
-                            windowToClose.getFrame().dispatchEvent(
-                                    new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
-                        } else {
-                            // Just dispose the window directly
-                            windowToClose.getFrame().dispose();
-                        }
-                    }
-                });
-
-            } catch (GitAPIException e) {
-                logger.error("Git error while removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() ->
-                    JOptionPane.showMessageDialog(chrome.getFrame(),
-                        "Git error while removing worktree: " + e.getMessage(),
-                        "Git Error",
-                        JOptionPane.ERROR_MESSAGE));
-            } catch (Exception e) {
-                logger.error("Error removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() ->
-                    JOptionPane.showMessageDialog(chrome.getFrame(),
-                        "Error removing worktree: " + e.getMessage(),
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE));
             }
         });
     }
