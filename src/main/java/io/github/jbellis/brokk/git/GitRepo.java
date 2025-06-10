@@ -79,8 +79,10 @@ public class GitRepo implements Closeable, IGitRepo {
         String sanitized = proposedName.trim().toLowerCase();
         // Replace whitespace with hyphens
         sanitized = sanitized.replaceAll("\\s+", "-");
-        // Remove characters not suitable for branch names (keeping only alphanumeric and hyphen)
-        sanitized = sanitized.replaceAll("[^a-z0-9-]", "");
+        // Remove characters not suitable for branch names (keeping only alphanumeric, hyphen, and forward slash)
+        sanitized = sanitized.replaceAll("[^a-z0-9-/]", "");
+        // Replace forward slashes with hyphens
+        sanitized = sanitized.replace('/', '-');
         // Remove leading or trailing hyphens that might result from sanitation
         sanitized = sanitized.replaceAll("^-+|-+$", "");
 
