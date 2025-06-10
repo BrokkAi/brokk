@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.awt.Color;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
@@ -722,55 +723,110 @@ public class GitWorktreeTab extends JPanel {
         contextManager.submitContextTask("Removing worktree(s)", () -> {
             boolean anyFailed = false;
             for (Path worktreePath : pathsToRemove) {
-                // This check is belt-and-suspenders as getSelectedWorktreePaths should filter row 0
                 if (worktreePath.equals(project.getRoot())) {
                     logger.warn("Skipping removal of main project path listed as worktree: {}", worktreePath);
                     continue;
                 }
                 try {
-                    // Pass force=true since we've already confirmed at a higher level for all selected items.
-                    contextManager.submitUserTask("Removing worktree: " + worktreePath, () -> {
-                        try {
-                            repo.removeWorktree(worktreePath);
-                            chrome.systemOutput("Successfully removed worktree at " + worktreePath);
+                    logger.debug("Attempting non-forced removal of worktree {}", worktreePath);
+                    attemptRemoveWorktree(repo, worktreePath, false);
+                } catch (GitRepo.WorktreeNeedsForceException ne) {
+                    logger.warn("Worktree {} removal needs force: {}", worktreePath, ne.getMessage());
 
-                            SwingUtilities.invokeLater(() -> {
-                                // Find and close the window for this worktree
-                                var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
-                                if (windowToClose != null) {
-                                    // Dispatch a window closing event
-                                    windowToClose.getFrame().dispatchEvent(
-                                            new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
-                                }
-                            });
-                        } catch (GitAPIException e) {
-                            logger.error("Git error while removing worktree: " + worktreePath, e);
-                            SwingUtilities.invokeLater(() ->
-                                                               JOptionPane.showMessageDialog(chrome.getFrame(),
-                                                                                             "Git error while removing worktree: " + e.getMessage(),
-                                                                                             "Git Error",
-                                                                                             JOptionPane.ERROR_MESSAGE));
-                        }
+                    final java.util.concurrent.CompletableFuture<Integer> dialogResultFuture = new java.util.concurrent.CompletableFuture<>();
+                    SwingUtilities.invokeLater(() -> {
+                        int result = JOptionPane.showConfirmDialog(
+                                GitWorktreeTab.this,
+                                "Removing worktree '" + worktreePath.getFileName() + "' requires force.\n" +
+                                ne.getMessage() + "\n" +
+                                "Do you want to force delete it?",
+                                "Force Worktree Removal",
+                                JOptionPane.YES_NO_OPTION,
+                                JOptionPane.WARNING_MESSAGE);
+                        dialogResultFuture.complete(result);
                     });
 
-                    chrome.systemOutput("Successfully removed worktree: " + worktreePath.getFileName());
-                } catch (Exception e) {
-                    logger.error("Error removing worktree {}: {}", worktreePath, e.getMessage(), e);
-                    final String pathName = worktreePath.getFileName().toString();
-                    chrome.systemNotify("Error removing worktree " + pathName + ": " + e.getMessage(),
-                                        "Worktree Removal Error",
-                                        JOptionPane.ERROR_MESSAGE);
+                    try {
+                        int forceConfirm = dialogResultFuture.get(); // Block background thread for dialog result
+                        if (forceConfirm == JOptionPane.YES_OPTION) {
+                            try {
+                                logger.debug("Attempting forced removal of worktree {}", worktreePath);
+                                attemptRemoveWorktree(repo, worktreePath, true);
+                            } catch (GitRepo.GitRepoException forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
+                                logger.error("Error during forced removal of worktree {}: {}", worktreePath, forceEx.getMessage(), forceEx);
+                                reportRemoveError(worktreePath, forceEx);
+                                anyFailed = true;
+                            }
+                        } else {
+                            chrome.systemOutput("Force removal of worktree " + worktreePath.getFileName() + " cancelled by user.");
+                        }
+                    } catch (InterruptedException ie) {
+                        throw new RuntimeException(ie);
+                    } catch (ExecutionException ee) {
+                        logger.error("Error obtaining dialog result for force removal of worktree {}: {}", worktreePath, ee.getMessage(), ee);
+                        reportRemoveError(worktreePath, new Exception("Failed to get dialog result for force removal.", ee));
+                        anyFailed = true;
+                    }
+                } catch (GitRepo.GitRepoException ge) {
+                    logger.error("GitRepoException during (non-forced) removal of worktree {}: {}", worktreePath, ge.getMessage(), ge);
+                    reportRemoveError(worktreePath, ge);
                     anyFailed = true;
                 }
             }
-            SwingUtilities.invokeLater(this::loadWorktrees); // Refresh list after all attempts
-            if (anyFailed) {
-                chrome.systemOutput("Completed worktree removal with one or more errors.");
-            } else if (!pathsToRemove.isEmpty()) { // Only log success if something was actually processed
-                chrome.systemOutput("Successfully removed all selected worktrees.");
-            }
+
+            final boolean finalAnyFailed = anyFailed; // Effectively final for lambda
+            SwingUtilities.invokeLater(() -> {
+                loadWorktrees(); // Refresh list after all attempts
+                if (finalAnyFailed) {
+                    chrome.systemOutput("Completed worktree removal with one or more errors.");
+                } else if (!pathsToRemove.isEmpty()) {
+                    chrome.systemOutput("Successfully removed all selected worktrees.");
+                }
+            });
         });
     }
+
+    private void attemptRemoveWorktree(IGitRepo repo, Path worktreePath, boolean force)
+            throws GitRepo.WorktreeNeedsForceException, GitRepo.GitRepoException {
+        try {
+            repo.removeWorktree(worktreePath, force);
+
+            chrome.systemOutput("Successfully " + (force ? "force " : "") + "removed worktree at " + worktreePath);
+
+            SwingUtilities.invokeLater(() -> {
+                var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
+                if (windowToClose != null) {
+                    windowToClose.getFrame().dispatchEvent(
+                            new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
+                }
+            });
+        } catch (GitRepo.WorktreeNeedsForceException wnf) {
+            if (!force) {
+                throw wnf; // Propagate if not forcing, caller will handle UI
+            } else {
+                // If 'force' was true and we still get this, it's an unexpected error.
+                throw new GitRepo.GitRepoException(
+                        "Worktree removal for " + worktreePath.getFileName() + " reported 'needs force' even when force was active.", wnf);
+            }
+        } catch (GitAPIException gae) { // Includes other JGit/GitAPI specific exceptions
+            throw new GitRepo.GitRepoException(
+                    "Git API error during " + (force ? "forced " : "") + "removal of worktree " + worktreePath.getFileName() + ": " + gae.getMessage(), gae);
+        } catch (RuntimeException re) { // Catches GitWrappedIOException or other runtime issues
+            throw new GitRepo.GitRepoException(
+                    "Runtime error during " + (force ? "forced " : "") + "removal of worktree " + worktreePath.getFileName() + ": " + re.getMessage(), re);
+        }
+    }
+
+    private void reportRemoveError(Path worktreePath, Exception e) {
+        final String pathName = worktreePath.getFileName().toString();
+        SwingUtilities.invokeLater(() ->
+            JOptionPane.showMessageDialog(this,
+                    "Error during removal of worktree " + pathName + ":\n" + e.getMessage(),
+                    "Worktree Removal Error",
+                    JOptionPane.ERROR_MESSAGE)
+        );
+    }
+
 
     public void refresh() {
         IGitRepo repo = contextManager.getProject().getRepo();
@@ -1242,8 +1298,16 @@ public class GitWorktreeTab extends JPanel {
                 if (deleteWorktree) {
                     logger.info("Attempting to delete worktree: {}", worktreePath);
                     MainProject.removeFromOpenProjectsListAndClearActiveSession(worktreePath); // Attempt to close if open
-                    parentGitRepo.removeWorktree(worktreePath);
-                    chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
+                    try {
+                        parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
+                        chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
+                    } catch (GitAPIException e) {
+                        String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName() + " during merge cleanup: " + e.getMessage();
+                        logger.error(wtDeleteError, e);
+                        // Inform user, but proceed with other cleanup if possible
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                                wtDeleteError, "Worktree Deletion Failed (Cleanup)", JOptionPane.WARNING_MESSAGE));
+                    }
 
                     if (deleteBranch) {
                         logger.info("Attempting to force delete branch: {}", worktreeBranchName);

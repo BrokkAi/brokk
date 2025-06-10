@@ -1420,13 +1420,19 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public static class GitRepoException extends GitAPIException {
-        protected GitRepoException(String message, Throwable cause) {
+        public GitRepoException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+
+    public static class WorktreeNeedsForceException extends GitRepoException {
+        public WorktreeNeedsForceException(String message, Throwable cause) {
             super(message, cause);
         }
     }
 
     public static class GitStateException extends GitAPIException {
-        protected GitStateException(String message) {
+        public GitStateException(String message) {
             super(message);
         }
     }
@@ -1551,19 +1557,39 @@ public class GitRepo implements Closeable, IGitRepo {
 
     /**
      * Removes the worktree at the specified path.
+     * This method will fail if the worktree is dirty or has other issues preventing a clean removal,
+     * in which case a {@link WorktreeNeedsForceException} will be thrown.
+     * @param path The path to the worktree to remove.
+     * @throws WorktreeNeedsForceException if the worktree cannot be removed without force.
+     * @throws GitAPIException if a different Git error occurs.
      */
     @Override
-    public void removeWorktree(Path path) throws GitAPIException {
+    public void removeWorktree(Path path, boolean force) throws GitAPIException {
         try {
-            // Ensure path is absolute for the command
             var absolutePath = path.toAbsolutePath().normalize();
-            var command = String.format("git worktree remove %s", absolutePath);
+            String command;
+            if (force) {
+                // Use double force as "git worktree lock" requires "remove -f -f" to override
+                command = String.format("git worktree remove --force --force %s", absolutePath).trim();
+            } else {
+                command = String.format("git worktree remove %s", absolutePath).trim();
+            }
             Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
         } catch (Environment.SubprocessException e) {
-            throw new GitRepoException("Failed to remove worktree at " + path + ": " + e.getOutput(), e);
+            String output = e.getOutput();
+            // If 'force' was false and the command failed because force is needed, throw WorktreeNeedsForceException
+            if (!force && output != null && (output.contains("use --force") || output.contains("not empty") || output.contains("dirty") || output.contains("locked working tree"))) {
+                throw new WorktreeNeedsForceException("Worktree at " + path + " requires force for removal: " + output, e);
+            }
+            // Otherwise, throw a general GitRepoException
+            String failMessage = String.format("Failed to remove worktree at %s%s: %s",
+                                               path, (force ? " (with force)" : ""), output);
+            throw new GitRepoException(failMessage, e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GitRepoException("Removing worktree at " + path + " was interrupted", e);
+            String interruptMessage = String.format("Removing worktree at %s%s was interrupted",
+                                                    path, (force ? " (with force)" : ""));
+            throw new GitRepoException(interruptMessage, e);
         }
     }
 

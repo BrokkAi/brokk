@@ -153,7 +153,7 @@ public class GitRepoTest {
         Assertions.assertTrue(Files.exists(worktreePathToRemove.resolve(".git")), "Worktree .git file should exist after add.");
 
         // Remove the worktree
-        repo.removeWorktree(worktreePathToRemove);
+        repo.removeWorktree(worktreePathToRemove, false);
 
         // Verify it was removed
         List<IGitRepo.WorktreeInfo> worktreesAfterRemove = repo.listWorktrees();
@@ -169,6 +169,113 @@ public class GitRepoTest {
         // Depending on the git version and exact state, the top-level directory might linger if it had other files.
         // However, for a freshly added worktree, it should be removed.
         assertFalse(Files.exists(worktreePathToRemove), "Worktree directory should not exist after clean removal.");
+    }
+
+    @Test
+    void testRemoveWorktree_ForceRequiredAndUsed() throws Exception {
+        if (!repo.supportsWorktrees()) {
+            System.out.println("Skipping testRemoveWorktree_ForceRequiredAndUsed as worktrees not supported.");
+            return;
+        }
+
+        String branchName = "dirty-worktree-branch";
+        Path worktreePath = tempDir.resolve("dirty-worktree");
+
+        // 1. Add a worktree
+        repo.addWorktree(branchName, worktreePath);
+        assertTrue(Files.exists(worktreePath), "Worktree directory should exist after add.");
+
+        // 2. Make the worktree "dirty" by adding an uncommitted file
+        // (Simpler than full GitRepo instance for the worktree: just create a file)
+        Path dirtyFile = worktreePath.resolve("uncommitted_change.txt");
+        Files.writeString(dirtyFile, "This file makes the worktree dirty.");
+        assertTrue(Files.exists(dirtyFile), "Dirty file should exist in worktree.");
+
+        // 3. Attempt to remove without force, expect WorktreeNeedsForceException
+        GitRepo.WorktreeNeedsForceException e = Assertions.assertThrows(
+            GitRepo.WorktreeNeedsForceException.class,
+            () -> repo.removeWorktree(worktreePath, false),
+            "Expected WorktreeNeedsForceException when removing dirty worktree without force."
+        );
+        // Check that the exception message indicates that force is required.
+        // The message is now more specific like "Worktree at ... requires force for removal: ..."
+        assertTrue(e.getMessage().toLowerCase().contains("requires force for removal") &&
+                   (e.getMessage().contains("use --force") || e.getMessage().contains("not empty") || e.getMessage().contains("dirty")),
+                   "Exception message should indicate force is required and provide Git's reason. Actual: " + e.getMessage());
+        assertTrue(Files.exists(worktreePath), "Worktree directory should still exist after failed non-force removal.");
+
+        // Get the real path *before* it's removed by the force operation.
+        Path worktreeRealPath = worktreePath.toRealPath();
+
+        // 4. Attempt to remove with force=true, expect success
+        Assertions.assertDoesNotThrow(
+            () -> repo.removeWorktree(worktreePath, true),
+            "Expected no exception when using removeWorktree with force=true on a dirty worktree."
+        );
+
+        // 5. Verify worktree is removed
+        List<IGitRepo.WorktreeInfo> worktreesAfterForceRemove = repo.listWorktrees();
+        Assertions.assertFalse(
+            worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
+            "Force-removed worktree should not be in the list."
+        );
+        assertFalse(Files.exists(worktreePath), "Worktree directory should not exist after successful force removal.");
+    }
+
+    @Test
+    void testRemoveWorktree_ForceRequired_Locked() throws Exception {
+        if (!repo.supportsWorktrees()) {
+            System.out.println("Skipping testRemoveWorktree_ForceRequired_Locked as worktrees not supported.");
+            return;
+        }
+
+        String branchName = "locked-worktree-branch";
+        Path worktreePath = tempDir.resolve("locked-worktree");
+
+        // 1. Add a worktree
+        repo.addWorktree(branchName, worktreePath);
+        assertTrue(Files.exists(worktreePath), "Worktree directory should exist after add.");
+        Path worktreeRealPath = worktreePath.toRealPath(); // Get real path before potential removal
+
+        // 2. Lock the worktree using the git command line
+        try {
+            io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
+                String.format("git worktree lock %s", worktreePath.toAbsolutePath().normalize()),
+                repo.getGitTopLevel(),
+                output -> {}
+            );
+        } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
+            fail("Failed to lock worktree: " + e.getMessage());
+        }
+
+        // 3. Attempt to remove without force, expect WorktreeNeedsForceException
+        GitRepo.WorktreeNeedsForceException e = Assertions.assertThrows(
+            GitRepo.WorktreeNeedsForceException.class,
+            () -> repo.removeWorktree(worktreePath, false),
+            "Expected WorktreeNeedsForceException when removing a locked worktree without force."
+        );
+        // Check that the exception message indicates that force is required due to lock.
+        // Git's output for locked worktrees typically includes "locked working tree" and "use 'remove -f -f'" or similar.
+        String lowerCaseMessage = e.getMessage().toLowerCase();
+        assertTrue(lowerCaseMessage.contains("requires force for removal") &&
+                   (lowerCaseMessage.contains("locked working tree") || lowerCaseMessage.contains("is locked")) && // Check for "locked working tree" or "is locked"
+                   (lowerCaseMessage.contains("use --force") || lowerCaseMessage.contains("use 'remove -f -f'")), // Check for "--force" or "-f -f"
+                   "Exception message should indicate force is required for a locked worktree. Actual: " + e.getMessage());
+        assertTrue(Files.exists(worktreePath), "Worktree directory should still exist after failed non-force removal of locked worktree.");
+
+        // 4. Attempt to remove with force=true, expect success
+        Assertions.assertDoesNotThrow(
+            () -> repo.removeWorktree(worktreePath, true),
+            "Expected no exception when using removeWorktree with force=true on a locked worktree."
+        );
+
+        // 5. Verify worktree is removed
+        List<IGitRepo.WorktreeInfo> worktreesAfterForceRemove = repo.listWorktrees();
+        Assertions.assertFalse(
+            worktreesAfterForceRemove.stream().anyMatch(wt -> wt.path().equals(worktreeRealPath)),
+            "Force-removed locked worktree should not be in the list."
+        );
+        assertFalse(Files.exists(worktreePath), "Worktree directory should not exist after successful force removal of locked worktree.");
     }
 
     // Helper method to create a commit

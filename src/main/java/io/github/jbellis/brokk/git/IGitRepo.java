@@ -83,7 +83,13 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default void removeWorktree(Path path) throws GitAPIException {
+    /**
+     * Removes the worktree at the specified path.
+     * @param path The path to the worktree to remove.
+     * @param force If true, the removal will be forced (equivalent to `git worktree remove --force --force`).
+     * @throws GitAPIException if the Git command fails, or WorktreeNeedsForceException if force is false and removal requires it.
+     */
+    default void removeWorktree(Path path, boolean force) throws GitAPIException {
         throw new UnsupportedOperationException();
     }
 
