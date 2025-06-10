@@ -26,11 +26,9 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.ArrayList;
@@ -474,19 +472,15 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         MainProject.addSettingsChangeListener(this);
         updatePrList(); // async
     }
-
+    
     /**
-     * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     * Tracks a Future that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
-    private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
+    private void trackCancellableFuture(Future<?> future) {
         futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
-
-        Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
-
         if (future != null) {
             futuresToBeCancelledOnGutHubTokenChange.add(future);
         }
-        return future;
     }
 
     @Override
@@ -582,8 +576,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Also fetches CI statuses for these PRs.
      */
     private void updatePrList() {
-        String taskName = "Fetching GitHub Pull Requests";
-        Callable<Void> taskCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
             List<org.kohsuke.github.GHPullRequest> fetchedPrs;
             try {
                 var project = contextManager.getProject();
@@ -636,8 +629,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 filterAndDisplayPrs(); // Apply current filters, which will also trigger CI and file fetching
             });
             return null;
-        };
-        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
     }
 
     private List<String> getAuthorFilterOptions() {
@@ -1115,8 +1108,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         }
 
-        String taskName = "Fetching commits for PR #" + prNumber;
-        Callable<Void> taskCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
                 var project = contextManager.getProject();
@@ -1172,8 +1164,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 });
             }
             return null;
-        };
-        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
     }
 
     private void diffSelectedPr() {

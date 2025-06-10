@@ -31,11 +31,9 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
 
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -102,11 +100,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         this.httpClient = initializeHttpClient(contextManager, chrome);
 
         // Load dynamic statuses after issueService and statusFilter are initialized
-        String initialStatusLoadTaskName = "Load Available Issue Statuses";
-        Callable<Void> initialStatusLoadCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
             List<String> fetchedStatuses = null;
             try {
-                if (this.issueService != null) {
+                if (this.issueService != null) { // Ensure issueService is available
                     fetchedStatuses = this.issueService.listAvailableStatuses();
                 } else {
                     logger.warn("IssueService is null, cannot load available statuses.");
@@ -131,8 +128,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 }
             });
             return null;
-        };
-        submitAndTrackCallableTask(initialStatusLoadTaskName, initialStatusLoadCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
 
         // Split panel with Issues on left (larger) and issue description on right (smaller)
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -438,31 +435,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     /**
-     * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     * Tracks a Future that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
-    private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
+    private void trackCancellableFuture(Future<?> future) {
         futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
-
-        Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
-
         if (future != null) {
             futuresToBeCancelledOnGutHubTokenChange.add(future);
         }
-        return future;
-    }
-
-    /**
-     * Submit a Runnable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
-     */
-    private Future<?> submitAndTrackRunnableTask(String taskName, Runnable actualTaskLogic, BiFunction<String, Runnable, Future<?>> submitFunction) {
-        futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
-
-        Future<?> future = submitFunction.apply(taskName, actualTaskLogic);
-
-        if (future != null) {
-            futuresToBeCancelledOnGutHubTokenChange.add(future);
-        }
-        return future;
     }
 
     @Override
@@ -586,8 +565,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
 
-        String taskName = "Fetching/Rendering Issue Details for " + header.id();
-        Callable<Void> taskCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 String rawBody = details.markdownBody();
@@ -626,16 +604,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 });
             }
             return null;
-        };
-        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
     }
 
     /**
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
-        String taskName = "Fetching GitHub Issues";
-        Callable<Void> taskCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;
             try {
                 // Read filter values on EDT or before submitting task. searchField can be null during early init.
@@ -678,10 +655,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 return null;
             }
 
+            // Perform filtering and display processing in the background
             processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
-        };
-        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
     }
 
     private void triggerClientSideFilterUpdate() {
@@ -877,8 +855,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void captureIssueHeader(IssueHeader header) {
-        String taskName = "Capturing Issue " + header.id();
-        Runnable taskRunnable = () -> {
+        var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 if (details == null) {
@@ -906,8 +883,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 logger.error("Failed to capture all details for issue {}: {}", header.id(), e.getMessage(), e);
                 chrome.toolErrorRaw("Failed to capture all details for issue " + header.id() + ": " + e.getMessage());
             }
-        };
-        submitAndTrackRunnableTask(taskName, taskRunnable, contextManager::submitContextTask);
+        });
+        trackCancellableFuture(future);
     }
 
     private List<ChatMessage> buildIssueTextContentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
@@ -1031,8 +1008,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         }
         IssueHeader header = displayedIssues.get(selectedRow);
 
-        String taskName = "Fetching issue details for copy: " + header.id();
-        Callable<Void> taskCallable = () -> {
+        var future = contextManager.submitBackgroundTask("Fetching issue details for copy: " + header.id(), () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
@@ -1048,8 +1024,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 chrome.toolErrorRaw("Failed to load issue " + header.id() + " details for copy: " + e.getMessage());
             }
             return null;
-        };
-        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
+        });
+        trackCancellableFuture(future);
     }
 
     private void openSelectedIssueInBrowser() {
