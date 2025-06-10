@@ -70,6 +70,12 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
 
+    public static final String ACTION_ARCHITECT = "Architect";
+    public static final String ACTION_CODE = "Code";
+    public static final String ACTION_ASK = "Ask";
+    public static final String ACTION_SEARCH = "Search";
+    public static final String ACTION_RUN = "Run";
+
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
                                                    
@@ -1494,7 +1500,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         }
 
-        submitAction("Architect", goal, () -> {
+        submitAction(ACTION_ARCHITECT, goal, () -> {
             // Proceed with execution using the selected options
             executeAgentCommand(architectModel, goal, options);
         });
@@ -1534,7 +1540,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction("Code", input, () -> executeCodeCommand(modelToUse, input));
+        submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
     }
 
     // Public entry point for default Ask model
@@ -1567,7 +1573,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction("Ask", input, () -> executeAskCommand(modelToUse, input));
+        submitAction(ACTION_ASK, input, () -> executeAskCommand(modelToUse, input));
     }
 
     public void runSearchCommand() {
@@ -1592,7 +1598,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         disableButtons();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction("Search", input, () -> {
+        submitAction(ACTION_SEARCH, input, () -> {
             executeSearchCommand(searchModel, input);
         });
     }
@@ -1607,7 +1613,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         disableButtons();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction("Run", input, () -> executeRunCommand(input));
+        submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
     /**
