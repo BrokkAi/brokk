@@ -76,17 +76,6 @@ public final class GitUiUtil
     }
 
     /**
-     * Show the diff of the uncommitted (working directory) changes for a single file,
-     * comparing HEAD vs the local on-disk version.
-     */
-    public static void showUncommittedFileDiff(ContextManager contextManager,
-                                               Chrome chrome, // Pass Chrome for theme access
-                                               String filePath)
-    {
-        showDiffVsLocal(contextManager, chrome, "HEAD", filePath, false);
-    }
-
-    /**
      * Open a file in the project’s editor.
      */
     public static void editFile
