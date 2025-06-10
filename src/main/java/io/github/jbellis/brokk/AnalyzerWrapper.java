@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
 public class AnalyzerWrapper implements AutoCloseable {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
+    public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
+    public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
+
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
@@ -536,6 +539,13 @@ public class AnalyzerWrapper implements AutoCloseable {
         } catch (ExecutionException e) {
             throw new RuntimeException("Failed to create analyzer", e);
         }
+    }
+
+    /**
+     * @return true if the analyzer is ready for use, false if still building
+     */
+    public boolean isReady() {
+        return getNonBlocking() != null;
     }
 
     public void requestRebuild() {

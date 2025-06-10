@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import com.google.common.collect.Streams;
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.agents.ContextAgent;
@@ -385,6 +386,12 @@ class DeepScanDialog {
 
             contextManager.submitContextTask("Adding Deep Scan recommendations", () -> {
                 if (!filesToSummarize.isEmpty()) {
+                    if (!contextManager.getAnalyzerWrapper().isReady()) {
+                        contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                                          AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                                          JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
                     boolean success = contextManager.addSummaries(filesToSummarize, Set.of());
                     if (!success) {
                         chrome.toolErrorRaw("No summarizable code found in selected files");

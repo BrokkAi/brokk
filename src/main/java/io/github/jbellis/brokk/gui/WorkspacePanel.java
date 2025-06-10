@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
@@ -1185,9 +1186,10 @@ public class WorkspacePanel extends JPanel {
      * Checks if analyzer is ready for operations, shows error message if not.
      */
     private boolean isAnalyzerReady() {
-        var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-        if (analyzer == null) {
-            chrome.systemOutput("Code Intelligence is still being built. Please wait until completion.");
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            chrome.systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                              AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                              JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
         return true;
