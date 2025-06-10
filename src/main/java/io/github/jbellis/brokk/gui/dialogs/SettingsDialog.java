@@ -110,7 +110,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         if (projectTabIndex != -1) {
             tabbedPane.setEnabledAt(projectTabIndex, projectIsOpen);
         }
-        // Also, the "Models" sub-tab in Global settings needs to be updated
+        // Also, the "Default Models" sub-tab in Global settings needs to be updated
         globalSettingsPanel.updateModelsPanelEnablement();
     }
 
@@ -179,7 +179,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         if (targetTabName != null) {
             boolean tabSelected = false;
             // Top-level tabs: "Global", "Project"
-            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Quick Models", "GitHub"
+            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models", "GitHub"
             // Project sub-tabs: "General", "Build", "Data Retention"
 
             // Try to select top-level tab first

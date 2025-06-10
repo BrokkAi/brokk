@@ -30,7 +30,7 @@ import java.util.function.Supplier;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Models"; // Used for targeting this tab
+    public static final String MODELS_TAB_TITLE = "Default Models"; // Used for targeting this tab
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -84,7 +84,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Quick Models Tab
         var quickModelsPanel = createQuickModelsPanel();
-        globalSubTabbedPane.addTab("Quick Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
+        globalSubTabbedPane.addTab("Alternative Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
 
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
