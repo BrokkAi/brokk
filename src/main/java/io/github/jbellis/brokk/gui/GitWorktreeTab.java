@@ -1139,9 +1139,9 @@ public class GitWorktreeTab extends JPanel {
                     chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
 
                     if (deleteBranch) {
-                        logger.info("Attempting to delete branch: {}", worktreeBranchName);
+                        logger.info("Attempting to force delete branch: {}", worktreeBranchName);
                         try {
-                            parentGitRepo.deleteBranch(worktreeBranchName);
+                            parentGitRepo.forceDeleteBranch(worktreeBranchName);
                             chrome.systemOutput("Branch " + worktreeBranchName + " deleted.");
                         } catch (GitAPIException e) {
                             String branchDeleteError = "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
