@@ -413,7 +413,7 @@ public final class IncrementalBlockRenderer {
         
         // Case 3: Actual compaction and UI update.
         int currentComponentCountBeforeUpdate = root.getComponentCount();
-        logger.debug("[COMPACTION][{}] Apply snapshot: Compacting. UI components before update: {}, New data component count: {}",
+        logger.trace("[COMPACTION][{}] Apply snapshot: Compacting. UI components before update: {}, New data component count: {}",
                      roundId, currentComponentCountBeforeUpdate, mergedComponents.size());
         updateUI(mergedComponents); 
         compacted = true;
