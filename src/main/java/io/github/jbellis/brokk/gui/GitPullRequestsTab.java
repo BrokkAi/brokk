@@ -34,7 +34,6 @@ import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.ArrayList;
-import java.util.HashSet;
 
 
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener {
@@ -54,7 +53,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private final ContextManager contextManager;
     private final GitPanel gitPanel;
 
-    private final Set<Future<?>> contextManagedFutures = ConcurrentHashMap.newKeySet();
+    private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
     private JTable prTable;
     private DefaultTableModel prTableModel;
@@ -480,12 +479,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
     private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
-        contextManagedFutures.removeIf(Future::isDone);
+        futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
 
         Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
 
         if (future != null) {
-            contextManagedFutures.add(future);
+            futuresToBeCancelledOnGutHubTokenChange.add(future);
         }
         return future;
     }
@@ -510,8 +509,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 futuresToCancelAndAwait.add(activePrFilesFetcher);
             }
 
-            Set<Future<?>> currentContextManagedFutures = new HashSet<>(contextManagedFutures);
-            futuresToCancelAndAwait.addAll(currentContextManagedFutures);
+            futuresToCancelAndAwait.addAll(futuresToBeCancelledOnGutHubTokenChange);
 
             logger.debug("Attempting to cancel {} futures.", futuresToCancelAndAwait.size());
             for (Future<?> f : futuresToCancelAndAwait) {

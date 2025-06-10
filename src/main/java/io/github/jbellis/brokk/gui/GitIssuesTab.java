@@ -89,7 +89,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private final OkHttpClient httpClient;
     private final IssueService issueService;
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
-    private final Set<Future<?>> contextManagedFutures = ConcurrentHashMap.newKeySet();
+    private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
@@ -441,12 +441,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
     private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
-        contextManagedFutures.removeIf(Future::isDone);
+        futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
 
         Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
 
         if (future != null) {
-            contextManagedFutures.add(future);
+            futuresToBeCancelledOnGutHubTokenChange.add(future);
         }
         return future;
     }
@@ -455,12 +455,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Submit a Runnable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
     private Future<?> submitAndTrackRunnableTask(String taskName, Runnable actualTaskLogic, BiFunction<String, Runnable, Future<?>> submitFunction) {
-        contextManagedFutures.removeIf(Future::isDone);
+        futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
 
         Future<?> future = submitFunction.apply(taskName, actualTaskLogic);
 
         if (future != null) {
-            contextManagedFutures.add(future);
+            futuresToBeCancelledOnGutHubTokenChange.add(future);
         }
         return future;
     }
@@ -480,10 +480,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 searchDebounceTimer.stop();
             }
 
-            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
-
-            Set<Future<?>> currentContextManagedFutures = new HashSet<>(contextManagedFutures);
-            futuresToCancelAndAwait.addAll(currentContextManagedFutures);
+            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>(futuresToBeCancelledOnGutHubTokenChange);
 
             logger.debug("Attempting to cancel {} issue-related futures.", futuresToCancelAndAwait.size());
             for (Future<?> f : futuresToCancelAndAwait) {
@@ -664,7 +661,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
                                  statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
-                
+
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
             } catch (Exception ex) {
