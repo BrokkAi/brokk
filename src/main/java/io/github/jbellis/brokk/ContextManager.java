@@ -1837,7 +1837,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newParsedOutputFragment = new ContextFragment.TaskFragment(this,
                                                                        List.of(SystemMessage.from(newActionDescription)),
                                                                        newActionDescription);
-        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture).freeze();
+        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
     }
 
     /**
