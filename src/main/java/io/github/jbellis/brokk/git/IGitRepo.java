@@ -124,4 +124,5 @@ public interface IGitRepo {
     default List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
         throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
     }
+
 }

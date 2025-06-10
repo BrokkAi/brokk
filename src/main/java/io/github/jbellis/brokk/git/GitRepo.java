@@ -3,11 +3,7 @@ package io.github.jbellis.brokk.git;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.CreateBranchCommand;
-import org.eclipse.jgit.api.CreateBranchCommand;
-import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.ListBranchCommand;
-import org.eclipse.jgit.api.MergeResult;
+import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffFormatter;
 // StashInfo removed
@@ -17,6 +13,7 @@ import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
+import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -1688,5 +1685,150 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitWrappedIOException(e);
         }
         return messages;
+    }
+
+    @Override
+    public String checkMergeConflicts(String worktreeBranchName, String targetBranchName, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+        ObjectId worktreeBranchId = resolve(worktreeBranchName);
+        ObjectId targetBranchId = resolve(targetBranchName);
+
+        if (worktreeBranchId == null) {
+            return String.format("Error: Worktree branch '%s' could not be resolved.", worktreeBranchName);
+        }
+        if (targetBranchId == null) {
+            return String.format("Error: Target branch '%s' could not be resolved.", targetBranchName);
+        }
+
+        String originalBranch = null;
+        String tempBranchNameSuffix = "_" + System.currentTimeMillis();
+
+        try {
+            originalBranch = getCurrentBranch();
+
+            if (mode == io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode.REBASE_MERGE) {
+                String tempRebaseBranchName = "brokk_temp_rebase_check" + tempBranchNameSuffix;
+                logger.debug("Checking rebase conflicts: {} onto {} (using temp branch {})", worktreeBranchName, targetBranchName, tempRebaseBranchName);
+
+                try {
+                    git.branchCreate().setName(tempRebaseBranchName).setStartPoint(worktreeBranchId.getName()).call();
+                    git.checkout().setName(tempRebaseBranchName).call();
+
+                    RebaseResult rebaseResult = git.rebase().setUpstream(targetBranchId.getName()).call();
+                    RebaseResult.Status status = rebaseResult.getStatus();
+                    logger.debug("Rebase simulation result: {}", status);
+
+                    if (status == RebaseResult.Status.CONFLICTS || status == RebaseResult.Status.STOPPED) {
+                        // Get conflicts before aborting, just in case abort clears them from the result object
+                        List<String> conflictingFiles = rebaseResult.getConflicts(); 
+                        try {
+                            git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
+                        } catch (GitAPIException e) {
+                            // Log the abort failure but proceed with conflict reporting if possible
+                            logger.warn("Failed to abort rebase while reporting conflicts: {}", e.getMessage(), e);
+                        }
+                        
+                        if (conflictingFiles != null && !conflictingFiles.isEmpty()) {
+                            return "Rebase conflicts detected in: " + String.join(", ", conflictingFiles);
+                        } else {
+                            // If status is CONFLICTS or STOPPED but getConflicts() is empty,
+                            // it's still a conflict/stop situation.
+                            return "Rebase stopped or conflicted, but no specific files reported by JGit. Manual intervention likely needed.";
+                        }
+                    } else if (status == RebaseResult.Status.FAILED || status == RebaseResult.Status.UNCOMMITTED_CHANGES) {
+                        if (repository.getRepositoryState().isRebasing()) {
+                            try {
+                                git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
+                            } catch (GitAPIException e) {
+                                logger.warn("Error aborting rebase after FAILED/UNCOMMITTED_CHANGES status: {}", e.getMessage());
+                            }
+                        }
+                        return "Rebase pre-check failed: " + status.toString() + ". Ensure working directory is clean.";
+                    }
+                    return null; // OK, FAST_FORWARD, UP_TO_DATE etc.
+                } finally {
+                    if (repository.getRepositoryState().isRebasing()) {
+                        logger.warn("Rebase was still active during cleanup for {}. Aborting.", tempRebaseBranchName);
+                        try {
+                            git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
+                        } catch (GitAPIException e) {
+                            logger.error("Failed to abort rebase during cleanup", e);
+                        }
+                    }
+                    if (originalBranch != null && !originalBranch.equals(getCurrentBranch())) {
+                        git.checkout().setName(originalBranch).call();
+                    }
+                    try {
+                        git.branchDelete().setBranchNames(tempRebaseBranchName).setForce(true).call();
+                    } catch (GitAPIException e) {
+                        logger.warn("Could not delete temporary rebase branch {}: {}", tempRebaseBranchName, e.getMessage());
+                    }
+                }
+            } else { // MERGE_COMMIT or SQUASH_COMMIT
+                String tempMergeBranchName = "brokk_temp_merge_check" + tempBranchNameSuffix;
+                logger.debug("Checking merge conflicts: {} into {} (using temp branch {}) with mode {}", worktreeBranchName, targetBranchName, tempMergeBranchName, mode);
+
+                try {
+                    git.branchCreate().setName(tempMergeBranchName).setStartPoint(targetBranchId.getName()).call();
+                    git.checkout().setName(tempMergeBranchName).call();
+
+                    MergeCommand mergeCmd = git.merge().include(worktreeBranchId);
+                    if (mode == io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode.SQUASH_COMMIT) {
+                        mergeCmd.setSquash(true);
+                    } else { // MERGE_COMMIT
+                        mergeCmd.setSquash(false);
+                        mergeCmd.setCommit(true);
+                        mergeCmd.setMessage("Temporary merge for conflict check");
+                        mergeCmd.setFastForward(MergeCommand.FastForwardMode.NO_FF);
+                    }
+                    MergeResult mergeResult = mergeCmd.call();
+                    MergeResult.MergeStatus status = mergeResult.getMergeStatus();
+                    logger.debug("Merge simulation result: {}", status);
+
+                    if (status == MergeResult.MergeStatus.CONFLICTING) {
+                        return "Merge conflicts detected in: " + String.join(", ", mergeResult.getConflicts().keySet());
+                    } else if (status.isSuccessful()) {
+                        return null; // MERGED, FAST_FORWARD, MERGED_SQUASHED, ALREADY_UP_TO_DATE
+                    } else {
+                        return "Merge pre-check failed: " + status.toString();
+                    }
+                } finally {
+                    RepositoryState repoState = repository.getRepositoryState();
+                    if (repoState == RepositoryState.MERGING || repoState == RepositoryState.MERGING_RESOLVED) {
+                        logger.warn("Merge was still active during cleanup for {}. Resetting HARD.", tempMergeBranchName);
+                        try {
+                            git.reset().setMode(ResetCommand.ResetType.HARD).call();
+                        } catch (GitAPIException e) {
+                            logger.error("Failed to reset hard during merge cleanup", e);
+                        }
+                    }
+                    if (originalBranch != null && !originalBranch.equals(getCurrentBranch())) {
+                        git.checkout().setName(originalBranch).call();
+                    }
+                    try {
+                        git.branchDelete().setBranchNames(tempMergeBranchName).setForce(true).call();
+                    } catch (GitAPIException e) {
+                        logger.warn("Could not delete temporary merge branch {}: {}", tempMergeBranchName, e.getMessage());
+                    }
+                }
+            }
+        } catch (GitAPIException e) {
+            logger.error("GitAPIException during checkMergeConflicts: {}", e.getMessage(), e);
+            if (originalBranch != null) {
+                try {
+                    RepositoryState state = repository.getRepositoryState();
+                    if (state.isRebasing()) {
+                        git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
+                    } else if (state == RepositoryState.MERGING || state == RepositoryState.MERGING_RESOLVED) {
+                        git.reset().setMode(ResetCommand.ResetType.HARD).call();
+                    }
+                    if (!originalBranch.equals(getCurrentBranch())) {
+                        git.checkout().setName(originalBranch).call();
+                    }
+                } catch (GitAPIException cleanupEx) {
+                    logger.warn("Failed to restore original branch or cleanup after overarching error in checkMergeConflicts", cleanupEx);
+                }
+            }
+            throw e;
+        }
     }
 }
