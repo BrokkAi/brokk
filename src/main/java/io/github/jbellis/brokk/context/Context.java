@@ -572,7 +572,7 @@ public class Context {
                            action);
     }
 
-    public Context withAction(String action) {
+    public Context withParsedOutput(ContextFragment.TaskFragment parsedOutput, String action) {
         return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
