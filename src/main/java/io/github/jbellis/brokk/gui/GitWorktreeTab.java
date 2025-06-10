@@ -501,9 +501,19 @@ public class GitWorktreeTab extends JPanel {
             JComboBox<String> branchComboBox = new JComboBox<>(availableBranches.toArray(new String[0]));
             branchComboBox.setEnabled(true);
 
-            JRadioButton createNewBranchRadio = new JRadioButton("Create new branch from current (" + gitRepo.getCurrentBranch() + "):");
-            JTextField newBranchNameField = new JTextField(20);
+            JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:");
+            JTextField newBranchNameField = new JTextField(15); // Slightly smaller to fit
             newBranchNameField.setEnabled(false);
+
+            JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(localBranches.toArray(new String[0]));
+            try {
+                sourceBranchForNewComboBox.setSelectedItem(gitRepo.getCurrentBranch());
+            } catch (GitAPIException ge) {
+                logger.warn("Could not set default source branch for new worktree", ge);
+                // ComboBox will have no selection or first item if current branch not found/error
+            }
+            sourceBranchForNewComboBox.setEnabled(false);
+
 
             ButtonGroup group = new ButtonGroup();
             group.add(useExistingBranchRadio);
@@ -512,18 +522,28 @@ public class GitWorktreeTab extends JPanel {
             useExistingBranchRadio.addActionListener(e -> {
                 branchComboBox.setEnabled(true);
                 newBranchNameField.setEnabled(false);
+                sourceBranchForNewComboBox.setEnabled(false);
             });
             createNewBranchRadio.addActionListener(e -> {
                 branchComboBox.setEnabled(false);
                 newBranchNameField.setEnabled(true);
+                sourceBranchForNewComboBox.setEnabled(true);
             });
 
             panel.add(useExistingBranchRadio, gbc);
             panel.add(branchComboBox, gbc);
             gbc.insets = new Insets(10, 2, 2, 2); // Add some space before the next radio
             panel.add(createNewBranchRadio, gbc);
+
+            // Panel for new branch name and source
+            JPanel newBranchDetailsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            newBranchDetailsPanel.add(new JLabel("Name:"));
+            newBranchDetailsPanel.add(newBranchNameField);
+            newBranchDetailsPanel.add(new JLabel("From:"));
+            newBranchDetailsPanel.add(sourceBranchForNewComboBox);
             gbc.insets = new Insets(2, 2, 2, 2);
-            panel.add(newBranchNameField, gbc);
+            panel.add(newBranchDetailsPanel, gbc);
+
 
             JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
             copyWorkspaceCheckbox.setSelected(false); // Default to false
@@ -535,28 +555,46 @@ public class GitWorktreeTab extends JPanel {
                 return;
             }
 
-            String branchNameToUse;
+            String branchForWorktree; // The branch the worktree will be on
+            String sourceBranchForNew = null; // Source if creating a new branch
             boolean isCreatingNewBranch = createNewBranchRadio.isSelected();
             boolean copyWorkspace = copyWorkspaceCheckbox.isSelected();
 
             if (isCreatingNewBranch) {
-                branchNameToUse = newBranchNameField.getText().trim();
-                if (branchNameToUse.isEmpty()) {
+                branchForWorktree = newBranchNameField.getText().trim();
+                if (branchForWorktree.isEmpty()) {
                     JOptionPane.showMessageDialog(this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
                 // TODO: Add more validation for branch names (e.g., no spaces, special chars)
-            } else {
-                if (branchComboBox.getSelectedItem() == null) {
-                    JOptionPane.showMessageDialog(this, "No branch selected.", "Error", JOptionPane.ERROR_MESSAGE);
+                // Sanitize new branch name
+                try {
+                    branchForWorktree = gitRepo.sanitizeBranchName(branchForWorktree);
+                } catch (GitAPIException e) {
+                    JOptionPane.showMessageDialog(this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                branchNameToUse = (String) branchComboBox.getSelectedItem();
+
+
+                sourceBranchForNew = (String) sourceBranchForNewComboBox.getSelectedItem();
+                if (sourceBranchForNew == null || sourceBranchForNew.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+            } else {
+                if (branchComboBox.getSelectedItem() == null) {
+                    JOptionPane.showMessageDialog(this, "No branch selected to use for the worktree.", "Error", JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                branchForWorktree = (String) branchComboBox.getSelectedItem();
             }
 
-            contextManager.submitUserTask("Adding worktree for branch: " + branchNameToUse, () -> {
+            final String finalBranchForWorktree = branchForWorktree; // Effectively final for lambda
+            final String finalSourceBranchForNew = sourceBranchForNew; // Effectively final for lambda
+
+            contextManager.submitUserTask("Adding worktree for branch: " + finalBranchForWorktree, () -> {
                 try {
-                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchNameToUse, isCreatingNewBranch);
+                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, finalBranchForWorktree, isCreatingNewBranch, finalSourceBranchForNew);
                     Path newWorktreePath = setupResult.worktreePath();
 
                     Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath)
@@ -578,16 +616,16 @@ public class GitWorktreeTab extends JPanel {
                                 SwingUtilities.invokeLater(this::loadWorktrees);
                             });
 
-                    chrome.systemOutput("Successfully created worktree for branch '" + branchNameToUse + "' at " + newWorktreePath);
+                    chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
                 } catch (GitAPIException e) {
-                    logger.error("Git error while adding worktree for branch: " + branchNameToUse, e);
+                    logger.error("Git error while adding worktree for branch: " + finalBranchForWorktree, e);
                     SwingUtilities.invokeLater(() ->
                         JOptionPane.showMessageDialog(this,
                             "Git error while adding worktree: " + e.getMessage(),
                             "Git Error",
                             JOptionPane.ERROR_MESSAGE));
                 } catch (IOException e) {
-                    logger.error("I/O error while adding worktree for branch: " + branchNameToUse, e);
+                    logger.error("I/O error while adding worktree for branch: " + finalBranchForWorktree, e);
                     SwingUtilities.invokeLater(() ->
                         JOptionPane.showMessageDialog(this,
                             "I/O error while adding worktree: " + e.getMessage(),
@@ -692,30 +730,35 @@ public class GitWorktreeTab extends JPanel {
      *
      * @param parentProject The main project.
      * @param gitRepo The GitRepo instance of the main project.
-     * @param branchNameToUse The name of the branch for the new worktree.
+     * @param branchForWorktree The name of the branch the new worktree will be on. If creating a new branch, this is its name.
      * @param isCreatingNewBranch True if a new branch should be created.
+     * @param sourceBranchForNew The branch to create from, if {@code isCreatingNewBranch} is true. Otherwise null.
      * @return A {@link WorktreeSetupResult} containing the path to the newly created worktree and the branch name used.
      * @throws GitAPIException If a Git error occurs.
      * @throws IOException If an I/O error occurs.
      */
-    public static WorktreeSetupResult setupNewGitWorktree(MainProject parentProject, GitRepo gitRepo, String branchNameToUse, boolean isCreatingNewBranch)
-    throws GitAPIException, IOException
-    {
+    public static WorktreeSetupResult setupNewGitWorktree(
+            MainProject parentProject,
+            GitRepo gitRepo,
+            String branchForWorktree,
+            boolean isCreatingNewBranch,
+            String sourceBranchForNew)
+            throws GitAPIException, IOException {
         Path worktreeStorageDir = parentProject.getWorktreeStoragePath();
         Files.createDirectories(worktreeStorageDir); // Ensure base storage directory exists
 
         Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
 
         if (isCreatingNewBranch) {
-            String currentBranch = gitRepo.getCurrentBranch();
-            logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchNameToUse, currentBranch, newWorktreePath);
-            gitRepo.createBranch(branchNameToUse, currentBranch);
+            assert sourceBranchForNew != null : "Source branch must be provided when creating a new branch";
+            logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchForWorktree, sourceBranchForNew, newWorktreePath);
+            gitRepo.createBranch(branchForWorktree, sourceBranchForNew);
         }
 
-        logger.debug("Adding worktree for branch '{}' at path {}", branchNameToUse, newWorktreePath);
-        gitRepo.addWorktree(branchNameToUse, newWorktreePath);
+        logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
+        gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
-        return new WorktreeSetupResult(newWorktreePath, branchNameToUse);
+        return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }
 
     private void showMergeDialog() {

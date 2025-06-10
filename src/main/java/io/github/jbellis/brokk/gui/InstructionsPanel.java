@@ -1366,10 +1366,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String actualBranchName;
 
                 IProject projectForWorktreeSetup = currentProject.getParent();
-                var setupResult = GitWorktreeTab.setupNewGitWorktree((MainProject) projectForWorktreeSetup,
-                                                                     (GitRepo) projectForWorktreeSetup.getRepo(),
+                GitRepo mainGitRepo = (GitRepo) projectForWorktreeSetup.getRepo();
+                String sourceBranchForNew = mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
+
+                var setupResult = GitWorktreeTab.setupNewGitWorktree(
+                                                                     (MainProject) projectForWorktreeSetup,
+                                                                     mainGitRepo,
                                                                      generatedBranchName,
-                                                                     true);
+                                                                     true, // Always creating a new branch in this flow
+                                                                     sourceBranchForNew);
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();
 
