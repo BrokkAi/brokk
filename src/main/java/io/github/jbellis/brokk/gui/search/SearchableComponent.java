@@ -79,4 +79,23 @@ public interface SearchableComponent {
      * @return the underlying JComponent
      */
     JComponent getComponent();
+    
+    /**
+     * Counts the total number of matches for the given search text.
+     * 
+     * @param searchText the text to search for
+     * @param caseSensitive whether the search should be case-sensitive
+     * @return the total number of matches found
+     */
+    int countMatches(String searchText, boolean caseSensitive);
+    
+    /**
+     * Gets the current match index (1-based) after a findNext operation.
+     * Returns 0 if no match is currently selected.
+     * 
+     * @param searchText the text being searched for
+     * @param caseSensitive whether the search is case-sensitive
+     * @return the current match index (1-based), or 0 if no match
+     */
+    int getCurrentMatchIndex(String searchText, boolean caseSensitive);
 }
