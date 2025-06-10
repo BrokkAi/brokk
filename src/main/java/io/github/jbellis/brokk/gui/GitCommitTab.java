@@ -576,11 +576,22 @@ public class GitCommitTab extends JPanel {
             return; // nothing to diff
         }
 
+        // Get selected files to prioritize them
+        var selectedFiles = getSelectedFilesFromTable();
+        
+        // Reorder files: selected files first, then the rest
+        var orderedFiles = new ArrayList<>(selectedFiles);
+        for (var file : allFiles) {
+            if (!selectedFiles.contains(file)) {
+                orderedFiles.add(file);
+            }
+        }
+
         contextManager.submitUserTask("show-uncomitted-files", () -> {
             try {
                 var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
 
-                for (var file : allFiles) {
+                for (var file : orderedFiles) {
                     var rightSource = new BufferSource.FileSource(
                             file.absPath().toFile(), file.getFileName()
                     );
