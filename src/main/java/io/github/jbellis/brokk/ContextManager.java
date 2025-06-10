@@ -280,7 +280,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (liveContext != null) {
                     var fr = liveContext.freezeAndCleanup();
                     liveContext = fr.liveContext();
-                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withAction("Loaded external changes"));
+                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withParsedOutput(null, "Loaded external changes"));
                     // analyzer refresh will call this too, but it will be delayed
                     io.updateWorkspace();
                 }
@@ -293,7 +293,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 if (liveContext != null) {
                     var fr = liveContext.freezeAndCleanup();
                     liveContext = fr.liveContext();
-                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withAction("Updated Code Intelligence"));
+                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withParsedOutput(null, "Updated Code Intelligence"));
                     io.updateWorkspace();
                 }
                 if (externalRebuildRequested && io instanceof Chrome chrome) {
