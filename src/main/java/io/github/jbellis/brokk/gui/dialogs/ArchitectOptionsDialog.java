@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
@@ -33,10 +32,10 @@ public class ArchitectOptionsDialog {
      * Remembers the last selection for the current session.
      *
      * @param chrome         The main application window reference for positioning and theme.
-     * @param contextManager The context manager to check project capabilities (e.g., CPG).
      * @return The selected ArchitectChoices (options + worktree preference), or null if the dialog was cancelled.
      */
-    public static ArchitectChoices showDialogAndWait(Chrome chrome, ContextManager contextManager) {
+    public static ArchitectChoices showDialogAndWait(Chrome chrome) {
+        var contextManager = chrome.getContextManager();
         // Use AtomicReference to capture the result from the EDT lambda
         var resultHolder = new AtomicReference<ArchitectChoices>();
 
@@ -67,12 +66,13 @@ public class ArchitectOptionsDialog {
             BiFunction<String, String, JCheckBox> createCheckbox = (text, description) -> {
                 JCheckBox cb = new JCheckBox("<html>" + text + "<br><i><font size='-2'>" + description + "</font></i></html>");
                 cb.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0)); // Spacing below checkbox
+                cb.setAlignmentX(Component.LEFT_ALIGNMENT);
                 mainPanel.add(cb);
                 return cb;
             };
 
             // Create checkboxes for each option
-            var contextCb = createCheckbox.apply("Deep Scan", "Begin by calling Deep Scan to update the workspace");
+            var contextCb = createCheckbox.apply("Deep Scan", "Begin by calling Deep Scan to update the Workspace");
             contextCb.setSelected(currentOptions.includeContextAgent());
 
             var codeCb = createCheckbox.apply("Code Agent", "Allow invoking the Code Agent to modify files");
@@ -91,15 +91,19 @@ public class ArchitectOptionsDialog {
                 analyzerCb.setToolTipText("Code Intelligence tools for %s are not yet available".formatted(project.getAnalyzerLanguages()));
             }
 
-            var workspaceCb = createCheckbox.apply("Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the workspace");
+            var workspaceCb = createCheckbox.apply("Workspace Management Tools", "Allow adding/removing files, URLs, or text to/from the Workspace");
             workspaceCb.setSelected(currentOptions.includeWorkspaceTools());
 
-            var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current workspace");
+            var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
             searchCb.setSelected(currentOptions.includeSearchAgent());
 
-            // --- Worktree Checkbox ---
+            // Separator before worktree option
+            mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
             mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
-            var worktreeCb = new JCheckBox("Run in New Git Worktree");
+
+            // --- Worktree Checkbox ---
+            var worktreeCb = new JCheckBox("<html>Run in New Git Worktree<br><i><font size='-2'>Create a new Worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
+            worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
             worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
             boolean gitAvailable = project != null && project.hasGit();
             boolean worktreesSupported = gitAvailable && project.getRepo().supportsWorktrees();

@@ -1311,7 +1311,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
 
         // Show the options dialog synchronously on the EDT. This blocks until the user clicks OK/Cancel.
-        ArchitectChoices choices = ArchitectOptionsDialog.showDialogAndWait(chrome, contextManager);
+        ArchitectChoices choices = ArchitectOptionsDialog.showDialogAndWait(chrome);
 
         // If the user cancelled the dialog, choices will be null.
         if (choices == null) {

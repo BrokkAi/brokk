@@ -243,7 +243,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
-    public IProject getProject() {
+    public AbstractProject getProject() {
         return contextManager.getProject();
     }
 

@@ -408,7 +408,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
     
-    public IProject getProject() {
+    public AbstractProject getProject() {
         return project;
     }
 
