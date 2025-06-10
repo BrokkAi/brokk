@@ -31,6 +31,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -48,6 +49,7 @@ import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -1296,7 +1298,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var searchModel = contextManager.getSearchModel(); // For architect's sub-agents
 
         // Check vision capabilities only if running in current project
-        // If running in worktree, this check will happen in the new project's context
         if (contextHasImages()) {
             var nonVisionModels = Stream.of(architectModel, codeModel, searchModel) // Check all models Architect might use
                                         .filter(m -> !models.supportsVision(m))
@@ -1389,43 +1390,36 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     newWorktreeIP.runArchitectCommand(originalInstructions, options);
                 };
 
-                MainProject mainProjectParent = (currentProject instanceof MainProject)
+                MainProject mainProject = (currentProject instanceof MainProject)
                                                 ? (MainProject) currentProject
                                                 : (MainProject) currentProject.getParent();
-                if (mainProjectParent == null) {
-                     chrome.hideOutputSpinner();
-                     chrome.toolErrorRaw("Cannot determine main project for opening worktree.");
-                     repopulateInstructionsArea(originalInstructions);
-                     return;
-                }
+                assert mainProject != null;
 
                 new Brokk.OpenProjectBuilder(newWorktreePath)
-                        .parent(mainProjectParent)
+                        .parent(mainProject)
                         .initialTask(initialArchitectTask)
                         .sourceContextForSession(cm.topContext())
                         .open()
-                        .thenAccept(success -> {
+                        .thenAccept(success ->
+                {
                     if (Boolean.TRUE.equals(success)) {
-                        chrome.systemOutput("New worktree project opened. Architect will start there.");
+                        chrome.systemOutput("New worktree opened for Architect");
                     } else {
                         chrome.toolErrorRaw("Failed to open the new worktree project for Architect.");
-                        repopulateInstructionsArea(originalInstructions); // Restore on failure to open
+                        repopulateInstructionsArea(originalInstructions);
                     }
                 }).exceptionally(ex -> {
-                    logger.error("Exception opening new worktree project", ex);
                     chrome.toolErrorRaw("Error opening new worktree project: " + ex.getMessage());
-                    repopulateInstructionsArea(originalInstructions); // Restore on exception
+                    repopulateInstructionsArea(originalInstructions);
                     return null;
                 });
-
             } catch (InterruptedException e) {
                 logger.warn("Architect worktree setup interrupted.", e);
                 chrome.systemOutput("Architect worktree setup was cancelled.");
-                repopulateInstructionsArea(originalInstructions); // Restore if interrupted
-            } catch (Exception ex) {
-                logger.error("Failed to setup Architect worktree", ex);
+                repopulateInstructionsArea(originalInstructions);
+            } catch (GitAPIException | IOException | ExecutionException ex) {
                 chrome.toolErrorRaw("Error setting up worktree: " + ex.getMessage());
-                repopulateInstructionsArea(originalInstructions); // Restore on general failure
+                repopulateInstructionsArea(originalInstructions);
             } finally {
                 chrome.hideOutputSpinner();
             }
@@ -1442,24 +1436,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         var architectModel = contextManager.getArchitectModel();
-        var codeModel = contextManager.getCodeModel(); // For sub-agents
-        var searchModel = contextManager.getSearchModel(); // For sub-agents
-
-        // Vision check (applies if Architect is run directly, not in new worktree)
-        // If in new worktree, the check happens in *that* instance's runArchitectCommand.
-        if (contextHasImages()) {
-            var models = contextManager.getService();
-            var nonVisionModels = Stream.of(architectModel, codeModel, searchModel)
-                    .filter(m -> !models.supportsVision(m))
-                    .map(models::nameOf)
-                    .distinct()
-                    .toList();
-            if (!nonVisionModels.isEmpty()) {
-                showVisionSupportErrorDialog(String.join(", ", nonVisionModels));
-                enableButtons(); // Re-enable if we abort here
-                return;
-            }
-        }
 
         submitAction("Architect", goal, () -> {
             // Proceed with execution using the selected options

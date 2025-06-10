@@ -102,7 +102,7 @@ public class ArchitectOptionsDialog {
             mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
 
             // --- Worktree Checkbox ---
-            var worktreeCb = new JCheckBox("<html>Run in New Git Worktree<br><i><font size='-2'>Create a new Worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
+            var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
             worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
             worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
             boolean gitAvailable = project != null && project.hasGit();

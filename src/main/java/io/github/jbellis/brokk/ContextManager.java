@@ -1786,6 +1786,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var newSessionInfo = project.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
         var ctx = newContextFrom(sourceFrozenContext);
+        // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in later
         var ch = new ContextHistory();
         ch.setInitialContext(ctx);
         project.saveHistory(ch, newSessionInfo.id());
