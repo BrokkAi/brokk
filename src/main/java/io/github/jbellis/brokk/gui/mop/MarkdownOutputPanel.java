@@ -564,7 +564,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
 
         if (renderersToCompact.isEmpty()) {
-            logger.debug("[COMPACTION][{}] No renderers to compact.", roundId);
+            logger.trace("[COMPACTION][{}] No renderers to compact.", roundId);
             completionFuture.complete(null);
             return;
         }
@@ -597,7 +597,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
                 }
                 revalidate();
                 repaint();
-                logger.debug("[COMPACTION][{}] Compacted all messages and applied to UI.", roundId);
+                logger.trace("[COMPACTION][{}] Compacted all messages and applied to UI.", roundId);
                 completionFuture.complete(null);
             });
         }, this.compactExec).exceptionally(ex -> {

@@ -281,8 +281,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getRepo().refresh();
                 if (liveContext != null) {
                     var fr = liveContext.freezeAndCleanup();
-                    liveContext = fr.liveContext();
-                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withParsedOutput(null, "Loaded external changes"));
+                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                    if (!topContext().workspaceEquals(fr.frozenContext())) {
+                        pushContext(ctx -> fr.liveContext().withParsedOutput(null, "Loaded external changes"));
+                    }
                     // analyzer refresh will call this too, but it will be delayed
                     io.updateWorkspace();
                 }
@@ -294,8 +296,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // possible for analyzer build to finish before context load does
                 if (liveContext != null) {
                     var fr = liveContext.freezeAndCleanup();
-                    liveContext = fr.liveContext();
-                    pushContext(ctx -> ctx.workspaceEquals(fr.frozenContext()) ? ctx : fr.frozenContext().withParsedOutput(null, "Updated Code Intelligence"));
+                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                    if (!topContext().workspaceEquals(fr.frozenContext())) {
+                        pushContext(ctx -> fr.liveContext().withParsedOutput(null, "Code Intelligence changes"));
+                    }
                     io.updateWorkspace();
                 }
                 if (externalRebuildRequested && io instanceof Chrome chrome) {
@@ -1294,6 +1298,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         var updatedLiveContext = contextGenerator.apply(liveContext);
+        assert !updatedLiveContext.isFrozen() : updatedLiveContext;
         if (updatedLiveContext == liveContext) {
             // No change occurred
             return liveContext;

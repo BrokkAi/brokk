@@ -631,7 +631,7 @@ public final class Service {
      */
     public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
         String location = modelLocations.get(modelName);
-        logger.debug("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
+        logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
         if (location == null) {
             logger.error("Location not found for model name: {}", modelName);
