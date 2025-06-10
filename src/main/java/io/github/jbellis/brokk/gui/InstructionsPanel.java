@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 // import io.github.jbellis.brokk.gui.components.SplitButton; // No longer needed for Architect
@@ -1371,12 +1372,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                      return;
                 }
 
-                var setupResult = GitWorktreeTab.setupNewGitWorktree(
-                        (MainProject) projectForWorktreeSetup,
-                        (io.github.jbellis.brokk.git.GitRepo) projectForWorktreeSetup.getRepo(),
-                        generatedBranchName,
-                        true,
-                        null
+                var setupResult = GitWorktreeTab.setupNewGitWorktree((MainProject) projectForWorktreeSetup,
+                                                                     (GitRepo) projectForWorktreeSetup.getRepo(),
+                                                                     generatedBranchName,
+                                                                     true
                 );
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();

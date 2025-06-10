@@ -556,7 +556,7 @@ public class GitWorktreeTab extends JPanel {
 
             contextManager.submitUserTask("Adding worktree for branch: " + branchNameToUse, () -> {
                 try {
-                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchNameToUse, isCreatingNewBranch, null);
+                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchNameToUse, isCreatingNewBranch);
                     Path newWorktreePath = setupResult.worktreePath();
 
                     Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath)
@@ -694,15 +694,14 @@ public class GitWorktreeTab extends JPanel {
      * @param gitRepo The GitRepo instance of the main project.
      * @param branchNameToUse The name of the branch for the new worktree.
      * @param isCreatingNewBranch True if a new branch should be created.
-     * @param worktreeStorageDirOverride Optional override for worktree storage directory. If null, uses parentProject.getWorktreeStoragePath().
      * @return A {@link WorktreeSetupResult} containing the path to the newly created worktree and the branch name used.
      * @throws GitAPIException If a Git error occurs.
      * @throws IOException If an I/O error occurs.
      */
-    public static WorktreeSetupResult setupNewGitWorktree(MainProject parentProject, GitRepo gitRepo, String branchNameToUse, boolean isCreatingNewBranch, @org.jetbrains.annotations.Nullable Path worktreeStorageDirOverride)
+    public static WorktreeSetupResult setupNewGitWorktree(MainProject parentProject, GitRepo gitRepo, String branchNameToUse, boolean isCreatingNewBranch)
     throws GitAPIException, IOException
     {
-        Path worktreeStorageDir = worktreeStorageDirOverride != null ? worktreeStorageDirOverride : parentProject.getWorktreeStoragePath();
+        Path worktreeStorageDir = parentProject.getWorktreeStoragePath();
         Files.createDirectories(worktreeStorageDir); // Ensure base storage directory exists
 
         Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
