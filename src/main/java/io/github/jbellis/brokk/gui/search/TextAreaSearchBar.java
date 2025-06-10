@@ -18,6 +18,7 @@ import java.awt.event.KeyEvent;
  */
 public class TextAreaSearchBar extends JPanel {
     private final JTextField searchField;
+    private final JToggleButton caseSensitiveButton;
     private final JButton nextButton;
     private final JButton previousButton;
     private final RTextArea targetTextComponent;
@@ -28,6 +29,9 @@ public class TextAreaSearchBar extends JPanel {
         
         // Initialize components
         searchField = new JTextField(20);
+        caseSensitiveButton = new JToggleButton("Cc");
+        caseSensitiveButton.setToolTipText("Case sensitive search");
+        caseSensitiveButton.setMargin(new Insets(2, 4, 2, 4));
         nextButton = new JButton();
         nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
         previousButton = new JButton();
@@ -36,12 +40,16 @@ public class TextAreaSearchBar extends JPanel {
         // Build UI
         add(new JLabel("Search:"));
         add(searchField);
+        add(caseSensitiveButton);
         add(previousButton);
         add(nextButton);
         
         // Setup event handlers
         setupEventHandlers();
         setupKeyboardShortcuts();
+        
+        // Initialize tooltip
+        updateTooltip();
     }
     
     private void setupEventHandlers() {
@@ -69,6 +77,10 @@ public class TextAreaSearchBar extends JPanel {
         // Button actions
         nextButton.addActionListener(e -> findNext(true));
         previousButton.addActionListener(e -> findNext(false));
+        caseSensitiveButton.addActionListener(e -> {
+            updateTooltip();
+            updateSearchHighlights(false);
+        });
     }
     
     private void setupKeyboardShortcuts() {
@@ -92,6 +104,14 @@ public class TextAreaSearchBar extends JPanel {
                 findNext(false);
             }
         });
+    }
+    
+    private void updateTooltip() {
+        if (caseSensitiveButton.isSelected()) {
+            caseSensitiveButton.setToolTipText("Case sensitive search is ON");
+        } else {
+            caseSensitiveButton.setToolTipText("Case sensitive search is OFF");
+        }
     }
     
     /**
@@ -166,7 +186,7 @@ public class TextAreaSearchBar extends JPanel {
         }
         
         SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
+        context.setMatchCase(caseSensitiveButton.isSelected());
         context.setMarkAll(true);
         context.setWholeWord(false);
         context.setRegularExpression(false);
@@ -203,7 +223,7 @@ public class TextAreaSearchBar extends JPanel {
         }
         
         SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
+        context.setMatchCase(caseSensitiveButton.isSelected());
         context.setMarkAll(true);
         context.setWholeWord(false);
         context.setRegularExpression(false);
@@ -258,5 +278,20 @@ public class TextAreaSearchBar extends JPanel {
     public void clearSearch() {
         searchField.setText("");
         clearHighlights();
+    }
+    
+    /**
+     * Gets the case-sensitive search state.
+     */
+    public boolean isCaseSensitive() {
+        return caseSensitiveButton.isSelected();
+    }
+    
+    /**
+     * Sets the case-sensitive search state.
+     */
+    public void setCaseSensitive(boolean caseSensitive) {
+        caseSensitiveButton.setSelected(caseSensitive);
+        updateTooltip();
     }
 }
