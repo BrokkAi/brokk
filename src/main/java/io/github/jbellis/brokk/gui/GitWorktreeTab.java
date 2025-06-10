@@ -413,7 +413,7 @@ public class GitWorktreeTab extends JPanel {
 
         MainProject parentProject = (MainProject) contextManager.getProject().getParent();
 
-        contextManager.submitUserTask("Opening/focusing worktree(s)", () -> {
+        contextManager.submitContextTask("Opening/focusing worktree(s)", () -> {
             for (Path worktreePath : worktreePaths) {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
@@ -592,7 +592,7 @@ public class GitWorktreeTab extends JPanel {
             final String finalBranchForWorktree = branchForWorktree; // Effectively final for lambda
             final String finalSourceBranchForNew = sourceBranchForNew; // Effectively final for lambda
 
-            contextManager.submitUserTask("Adding worktree for branch: " + finalBranchForWorktree, () -> {
+            contextManager.submitContextTask("Adding worktree for branch: " + finalBranchForWorktree, () -> {
                 try {
                     WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, finalBranchForWorktree, isCreatingNewBranch, finalSourceBranchForNew);
                     Path newWorktreePath = setupResult.worktreePath();
@@ -676,7 +676,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        contextManager.submitUserTask("Removing worktree(s)", () -> {
+        contextManager.submitContextTask("Removing worktree(s)", () -> {
             boolean anyFailed = false;
             for (Path worktreePath : pathsToRemove) {
                 // This check is belt-and-suspenders as getSelectedWorktreePaths should filter row 0
