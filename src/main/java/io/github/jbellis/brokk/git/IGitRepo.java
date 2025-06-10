@@ -107,4 +107,21 @@ public interface IGitRepo {
     default boolean supportsWorktrees() {
         return false;
     }
+
+    /**
+     * Checks for merge conflicts between a worktree branch and a target branch using a specified merge mode.
+     *
+     * @param worktreeBranch The branch of the worktree to be merged.
+     * @param targetBranch   The branch to merge into.
+     * @param mode           The merge strategy (MergeMode enum from GitWorktreeTab).
+     * @return A string describing conflicts if any, or null/empty if no conflicts.
+     * @throws GitAPIException if a Git error occurs during the check.
+     */
+    default String checkMergeConflicts(String worktreeBranch, String targetBranch, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+        throw new UnsupportedOperationException("checkMergeConflicts not implemented");
+    }
+
+    default List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
+        throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
+    }
 }
