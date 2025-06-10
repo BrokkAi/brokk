@@ -493,16 +493,14 @@ public class GitWorktreeTab extends JPanel {
             // UI for branch selection / creation
             JPanel panel = new JPanel(new GridBagLayout());
             GridBagConstraints gbc = new GridBagConstraints();
-            gbc.gridwidth = GridBagConstraints.REMAINDER;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.insets = new Insets(2, 2, 2, 2);
+            gbc.insets = new Insets(5, 5, 5, 5); // Default insets
 
             JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:", true);
             JComboBox<String> branchComboBox = new JComboBox<>(availableBranches.toArray(new String[0]));
             branchComboBox.setEnabled(true);
 
             JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:");
-            JTextField newBranchNameField = new JTextField(15); // Slightly smaller to fit
+            JTextField newBranchNameField = new JTextField(15);
             newBranchNameField.setEnabled(false);
 
             JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(localBranches.toArray(new String[0]));
@@ -510,10 +508,8 @@ public class GitWorktreeTab extends JPanel {
                 sourceBranchForNewComboBox.setSelectedItem(gitRepo.getCurrentBranch());
             } catch (GitAPIException ge) {
                 logger.warn("Could not set default source branch for new worktree", ge);
-                // ComboBox will have no selection or first item if current branch not found/error
             }
             sourceBranchForNewComboBox.setEnabled(false);
-
 
             ButtonGroup group = new ButtonGroup();
             group.add(useExistingBranchRadio);
@@ -530,24 +526,80 @@ public class GitWorktreeTab extends JPanel {
                 sourceBranchForNewComboBox.setEnabled(true);
             });
 
+            // Row 0: Use existing branch radio
+            gbc.gridx = 0;
+            gbc.gridy = 0;
+            gbc.gridwidth = 2;
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
             panel.add(useExistingBranchRadio, gbc);
+
+            // Row 1: Existing branch combo box
+            gbc.gridx = 0; // Aligned with radio, could be column 1 for tighter indent
+            gbc.gridy = 1;
+            gbc.gridwidth = 2; // Span fully or use 1 and adjust insets/gridx
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.weightx = 1.0;
+            gbc.insets = new Insets(2, 25, 5, 5); // Indent
             panel.add(branchComboBox, gbc);
-            gbc.insets = new Insets(10, 2, 2, 2); // Add some space before the next radio
+            gbc.weightx = 0.0; // Reset weightx
+            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
+
+            // Row 2: Create new branch radio
+            gbc.gridx = 0;
+            gbc.gridy = 2;
+            gbc.gridwidth = 2;
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.insets = new Insets(10, 5, 2, 5); // Top margin
             panel.add(createNewBranchRadio, gbc);
+            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
 
-            // Panel for new branch name and source
-            JPanel newBranchDetailsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-            newBranchDetailsPanel.add(new JLabel("Name:"));
-            newBranchDetailsPanel.add(newBranchNameField);
-            newBranchDetailsPanel.add(new JLabel("From:"));
-            newBranchDetailsPanel.add(sourceBranchForNewComboBox);
-            gbc.insets = new Insets(2, 2, 2, 2);
-            panel.add(newBranchDetailsPanel, gbc);
+            // Row 3: New branch name label and field
+            gbc.gridx = 0;
+            gbc.gridy = 3;
+            gbc.gridwidth = 1;
+            gbc.anchor = GridBagConstraints.EAST;
+            gbc.fill = GridBagConstraints.NONE;
+            gbc.insets = new Insets(2, 25, 2, 5); // Indent, padding
+            panel.add(new JLabel("Name:"), gbc);
 
+            gbc.gridx = 1;
+            gbc.gridy = 3;
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.weightx = 1.0;
+            gbc.insets = new Insets(2, 0, 2, 5); // Padding
+            panel.add(newBranchNameField, gbc);
+            gbc.weightx = 0.0; // Reset
 
+            // Row 4: New branch source label and combo box
+            gbc.gridx = 0;
+            gbc.gridy = 4;
+            gbc.anchor = GridBagConstraints.EAST;
+            gbc.fill = GridBagConstraints.NONE;
+            gbc.insets = new Insets(2, 25, 5, 5); // Indent, padding
+            panel.add(new JLabel("From:"), gbc);
+
+            gbc.gridx = 1;
+            gbc.gridy = 4;
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.weightx = 1.0;
+            gbc.insets = new Insets(2, 0, 5, 5); // Padding
+            panel.add(sourceBranchForNewComboBox, gbc);
+            gbc.weightx = 0.0; // Reset
+            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
+
+            // Row 5: Copy workspace checkbox
             JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
-            copyWorkspaceCheckbox.setSelected(false); // Default to false
-            gbc.insets = new Insets(10, 2, 2, 2); // Add some space before the checkbox
+            copyWorkspaceCheckbox.setSelected(false);
+            gbc.gridx = 0;
+            gbc.gridy = 5;
+            gbc.gridwidth = 2;
+            gbc.anchor = GridBagConstraints.WEST;
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+            gbc.insets = new Insets(10, 5, 5, 5); // Top margin
             panel.add(copyWorkspaceCheckbox, gbc);
 
             int result = JOptionPane.showConfirmDialog(this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
