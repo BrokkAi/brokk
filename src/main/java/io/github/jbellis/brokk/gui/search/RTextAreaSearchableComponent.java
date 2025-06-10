@@ -13,9 +13,6 @@ import java.awt.*;
 
 /**
  * Implementation of SearchableComponent for RTextArea components.
- * This adapter allows RTextArea (including RSyntaxTextArea) to work
- * with the generic search bar while leveraging RTextArea's built-in
- * search capabilities.
  */
 public class RTextAreaSearchableComponent implements SearchableComponent {
     private final RTextArea textArea;
@@ -175,12 +172,6 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         return 0; // No current match
     }
 
-    /**
-     * Factory method to create a SearchableComponent from an RTextArea.
-     *
-     * @param textArea the RTextArea to wrap
-     * @return a SearchableComponent that can be used with GenericSearchBar
-     */
     public static SearchableComponent wrap(RTextArea textArea) {
         return new RTextAreaSearchableComponent(textArea);
     }
