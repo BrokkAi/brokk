@@ -338,7 +338,7 @@ public class GitCommitTab extends JPanel {
         JButton createPrButton = new JButton("Create PR");
         createPrButton.setToolTipText("Create a pull request");
         createPrButton.addActionListener(e -> {
-            CreatePullRequestDialog.show(chrome.getFrame(), chrome);
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
         });
         buttonPanel.add(createPrButton);
 
