@@ -569,7 +569,7 @@ public class HistoryOutputPanel extends JPanel {
         AutoScroller.install(jsp);
 
         // Add a text change listener to update capture buttons
-        llmStreamArea.addTextChangeListener(() -> chrome.updateCaptureButtons());
+        llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
 
         return jsp;
     }
@@ -804,7 +804,7 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.setText(output);
             
             // Use shared utility method to create searchable content panel (without navigation for detached window)
-            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), false);
+            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel));
             
             // Add the content panel to the frame
             add(contentPanel);

@@ -566,7 +566,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Keep only last 50 messages to prevent memory issues
             if (systemMessages.size() > 50) {
-                systemMessages.remove(0);
+                systemMessages.removeFirst();
             }
 
             // Update label text (show only the latest message)
@@ -637,10 +637,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * This is shared functionality used by both preview windows and detached output windows.
      *
      * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
-     * @param showNavigation Whether to show navigation buttons and result counter
      * @return A JPanel containing the search bar and content
      */
-    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, boolean showNavigation) {
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
@@ -649,7 +648,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JComponent contentComponent;
         var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
-            var scrollPane = new JScrollPane(markdownPanels.get(0));
+            var scrollPane = new JScrollPane(markdownPanels.getFirst());
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
@@ -679,7 +678,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         searchCallback.setSearchBarPanel(searchBarPanel);
         componentsWithChatBackground.add(searchBarPanel);
 
-        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.get(0).getBackground()));
+        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
         
         // Add components to content panel
         contentPanel.add(searchBarPanel, BorderLayout.NORTH);
@@ -883,7 +882,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, false);
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels);
 
                 // When all panels are compacted, scroll to the top
                 CompletableFuture
@@ -1382,20 +1381,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JFrame frame = new JFrame(title);
         applyIcon(frame);
         return frame;
-    }
-
-    /**
-     * Creates a new JDialog with the Brokk icon set properly.
-     *
-     * @param owner The parent Frame for this dialog
-     * @param title The title for the new dialog
-     * @param modal Whether the dialog should be modal
-     * @return A configured JDialog with the application icon
-     */
-    public static JDialog newDialog(Frame owner, String title, boolean modal) {
-        JDialog dialog = new JDialog(owner, title, modal);
-        applyIcon(dialog);
-        return dialog;
     }
 
     /**
