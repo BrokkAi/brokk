@@ -44,6 +44,7 @@ public class GitCommitTab extends JPanel {
     private JButton commitButton;
     private JButton stashButton;
     private final Map<ProjectFile, String> fileStatusMap = new HashMap<>();
+    private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
@@ -125,7 +126,8 @@ public class GitCommitTab extends JPanel {
                     if (row >= 0) {
                         // keep the visual feedback
                         uncommittedFilesTable.setRowSelectionInterval(row, row);
-                        openDiffForAllUncommittedFiles();
+                        var clickedFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
+                        openDiffForAllUncommittedFiles(clickedFile);
                     }
                 }
             }
@@ -156,8 +158,14 @@ public class GitCommitTab extends JPanel {
                     var point = MouseInfo.getPointerInfo().getLocation();
                     SwingUtilities.convertPointFromScreen(point, uncommittedFilesTable);
                     int row = uncommittedFilesTable.rowAtPoint(point);
-                    if (row >= 0 && !uncommittedFilesTable.isRowSelected(row)) {
-                        uncommittedFilesTable.setRowSelectionInterval(row, row);
+                    if (row >= 0) {
+                        // Store the right-clicked file for later use
+                        rightClickedFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
+                        if (!uncommittedFilesTable.isRowSelected(row)) {
+                            uncommittedFilesTable.setRowSelectionInterval(row, row);
+                        }
+                    } else {
+                        rightClickedFile = null;
                     }
                     // Update menu items
                     updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem);
@@ -174,7 +182,10 @@ public class GitCommitTab extends JPanel {
         });
 
         // Context menu actions:
-        viewDiffItem.addActionListener(e -> openDiffForAllUncommittedFiles());
+        viewDiffItem.addActionListener(e -> {
+            // Use the stored right-clicked file as priority
+            openDiffForAllUncommittedFiles(rightClickedFile);
+        });
 
         captureDiffItem.addActionListener(e -> {
             // Unified call:
@@ -569,21 +580,41 @@ public class GitCommitTab extends JPanel {
 
     /**
      * Opens a diff view for all uncommitted files in the table.
+     * @param priorityFile File to show first (e.g., the double-clicked file), or null for default ordering
      */
-    private void openDiffForAllUncommittedFiles() {
+    private void openDiffForAllUncommittedFiles(ProjectFile priorityFile) {
         var allFiles = getAllFilesFromTable();
         if (allFiles.isEmpty()) {
             return; // nothing to diff
         }
 
-        // Get selected files to prioritize them
-        var selectedFiles = getSelectedFilesFromTable();
+        // Reorder files based on priority
+        var orderedFiles = new ArrayList<ProjectFile>();
         
-        // Reorder files: selected files first, then the rest
-        var orderedFiles = new ArrayList<>(selectedFiles);
-        for (var file : allFiles) {
-            if (!selectedFiles.contains(file)) {
-                orderedFiles.add(file);
+        if (priorityFile != null && allFiles.contains(priorityFile)) {
+            // Priority file goes first
+            orderedFiles.add(priorityFile);
+            // Then selected files (excluding the priority file if it's already selected)
+            var selectedFiles = getSelectedFilesFromTable();
+            for (var file : selectedFiles) {
+                if (!file.equals(priorityFile)) {
+                    orderedFiles.add(file);
+                }
+            }
+            // Finally, all other files
+            for (var file : allFiles) {
+                if (!file.equals(priorityFile) && !selectedFiles.contains(file)) {
+                    orderedFiles.add(file);
+                }
+            }
+        } else {
+            // No priority file, use selected files first, then the rest
+            var selectedFiles = getSelectedFilesFromTable();
+            orderedFiles.addAll(selectedFiles);
+            for (var file : allFiles) {
+                if (!selectedFiles.contains(file)) {
+                    orderedFiles.add(file);
+                }
             }
         }
 
