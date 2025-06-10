@@ -1365,19 +1365,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 Path newWorktreePath;
                 String actualBranchName;
 
-                IProject projectForWorktreeSetup = currentProject.getParent() != null ? currentProject.getParent() : currentProject;
-                if (!(projectForWorktreeSetup instanceof MainProject)) {
-                     chrome.hideOutputSpinner();
-                     chrome.toolErrorRaw("Cannot determine main project for worktree setup.");
-                     repopulateInstructionsArea(originalInstructions);
-                     return;
-                }
-
+                IProject projectForWorktreeSetup = currentProject.getParent();
                 var setupResult = GitWorktreeTab.setupNewGitWorktree((MainProject) projectForWorktreeSetup,
                                                                      (GitRepo) projectForWorktreeSetup.getRepo(),
                                                                      generatedBranchName,
-                                                                     true
-                );
+                                                                     true);
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();
 

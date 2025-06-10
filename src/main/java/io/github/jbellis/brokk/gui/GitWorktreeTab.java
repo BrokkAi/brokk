@@ -411,7 +411,7 @@ public class GitWorktreeTab extends JPanel {
             return;
         }
 
-        MainProject parentProject = (MainProject) contextManager.getProject();
+        MainProject parentProject = (MainProject) contextManager.getProject().getParent();
 
         contextManager.submitUserTask("Opening/focusing worktree(s)", () -> {
             for (Path worktreePath : worktreePaths) {
@@ -763,29 +763,24 @@ public class GitWorktreeTab extends JPanel {
         // Populate targetBranchComboBox
         if (project instanceof WorktreeProject wp) {
             MainProject parentProject = wp.getParent();
-            if (parentProject != null) {
-                IGitRepo iParentRepo = parentProject.getRepo();
-                if (iParentRepo instanceof GitRepo parentGitRepo) {
-                    try {
-                        List<String> localBranches = parentGitRepo.listLocalBranches();
-                        localBranches.forEach(targetBranchComboBox::addItem);
-                        String currentParentBranch = parentGitRepo.getCurrentBranch();
-                        targetBranchComboBox.setSelectedItem(currentParentBranch);
-                    } catch (GitAPIException e) {
-                        logger.error("Failed to get parent project branches", e);
-                        targetBranchComboBox.addItem("Error loading branches");
-                        targetBranchComboBox.setEnabled(false);
-                    }
-                } else if (iParentRepo != null) {
-                    logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
-                    targetBranchComboBox.addItem("Unsupported parent repo type");
-                    targetBranchComboBox.setEnabled(false);
-                } else {
-                    targetBranchComboBox.addItem("Parent repo not available");
+            IGitRepo iParentRepo = parentProject.getRepo();
+            if (iParentRepo instanceof GitRepo parentGitRepo) {
+                try {
+                    List<String> localBranches = parentGitRepo.listLocalBranches();
+                    localBranches.forEach(targetBranchComboBox::addItem);
+                    String currentParentBranch = parentGitRepo.getCurrentBranch();
+                    targetBranchComboBox.setSelectedItem(currentParentBranch);
+                } catch (GitAPIException e) {
+                    logger.error("Failed to get parent project branches", e);
+                    targetBranchComboBox.addItem("Error loading branches");
                     targetBranchComboBox.setEnabled(false);
                 }
+            } else if (iParentRepo != null) {
+                logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
+                targetBranchComboBox.addItem("Unsupported parent repo type");
+                targetBranchComboBox.setEnabled(false);
             } else {
-                targetBranchComboBox.addItem("Parent project not found");
+                targetBranchComboBox.addItem("Parent repo not available");
                 targetBranchComboBox.setEnabled(false);
             }
         } else {
@@ -928,49 +923,22 @@ public class GitWorktreeTab extends JPanel {
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground")); // Default color
 
         var project = contextManager.getProject();
-        IGitRepo gitRepo = null;
-        String worktreeBranchForCheck = worktreeBranchName;
+        assert project instanceof WorktreeProject;
 
-        if (project instanceof WorktreeProject wp) {
-            MainProject parentProject = wp.getParent();
-            if (parentProject != null) {
-                gitRepo = parentProject.getRepo();
-            }
-        } else if (project instanceof MainProject) {
-            logger.warn("checkConflictsAsync called unexpectedly from a MainProject context for merge dialog.");
-            conflictStatusLabel.setText("Cannot check conflicts: not in a worktree context.");
-            conflictStatusLabel.setForeground(Color.RED);
-            // okButton is already disabled, or null if not found
-            return;
-        }
-
-        if (gitRepo == null) {
-            conflictStatusLabel.setText("Repository not available for conflict check.");
-            conflictStatusLabel.setForeground(Color.RED);
-            // okButton is already disabled, or null if not found
-            return;
-        }
-
-        if (!(gitRepo instanceof GitRepo)) {
-            conflictStatusLabel.setText("Conflict check not supported for this repository type.");
-            conflictStatusLabel.setForeground(Color.RED);
-            logger.warn("Conflict check attempted on non-GitRepo type: {}", gitRepo.getClass().getName());
-            // okButton is already disabled, or null if not found
-            return;
-        }
-        final IGitRepo finalGitRepo = gitRepo;
+        var parentProject = project.getParent();
+        IGitRepo gitRepo = parentProject.getRepo();
 
         final String finalSelectedTargetBranch = selectedTargetBranch;
         final MergeMode finalSelectedMergeMode = selectedMergeMode;
 
         contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
-            String conflictResultString = null;
+            String conflictResultString;
             try {
-                if (finalSelectedTargetBranch.equals(worktreeBranchForCheck)) {
+                if (finalSelectedTargetBranch.equals(worktreeBranchName)) {
                     conflictResultString = "Cannot merge a branch into itself.";
                 } else {
-                    conflictResultString = finalGitRepo.checkMergeConflicts(
-                        worktreeBranchForCheck,
+                    conflictResultString = gitRepo.checkMergeConflicts(
+                            worktreeBranchName,
                         finalSelectedTargetBranch,
                         finalSelectedMergeMode
                     );
@@ -1011,21 +979,7 @@ public class GitWorktreeTab extends JPanel {
         }
 
         MainProject parentProject = worktreeProject.getParent();
-        if (parentProject == null) {
-            logger.error("WorktreeProject {} does not have a parent.", worktreeProject.getRoot());
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                    "Cannot perform merge: Parent project not found.", "Merge Error", JOptionPane.ERROR_MESSAGE));
-            return;
-        }
-
-        IGitRepo iParentRepo = parentProject.getRepo();
-        if (!(iParentRepo instanceof GitRepo parentGitRepo)) {
-            logger.error("Parent project's repository is not a GitRepo instance: {}",
-                         iParentRepo != null ? iParentRepo.getClass().getSimpleName() : "null");
-            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
-                    "Merge operations require a Git repository for the parent project.", "Merge Error", JOptionPane.ERROR_MESSAGE));
-            return;
-        }
+        var parentGitRepo = (GitRepo) parentProject.getRepo();
 
         Path worktreePath = worktreeProject.getRoot();
 
@@ -1042,8 +996,9 @@ public class GitWorktreeTab extends JPanel {
                     logger.info("Performing merge commit of {} into {}", worktreeBranchName, targetBranch);
                     org.eclipse.jgit.api.MergeResult mergeResult = parentGitRepo.mergeIntoHead(worktreeBranchName);
                     if (!mergeResult.getMergeStatus().isSuccessful()) {
-                        String conflictDetails = mergeResult.getConflicts() != null ?
-                            mergeResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "unknown conflicts";
+                        String conflictDetails = mergeResult.getConflicts() != null
+                                                 ? String.join(", ", mergeResult.getConflicts().keySet())
+                                                 : "unknown conflicts";
                         String errorMessage = "Merge commit failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
                         logger.error(errorMessage);
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
@@ -1068,8 +1023,9 @@ public class GitWorktreeTab extends JPanel {
                         .call();
 
                     if (!squashResult.getMergeStatus().isSuccessful()) {
-                        String conflictDetails = squashResult.getConflicts() != null ?
-                            squashResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "unknown conflicts";
+                        String conflictDetails = squashResult.getConflicts() != null
+                                                 ? String.join(", ", squashResult.getConflicts().keySet())
+                                                 : "unknown conflicts";
                         String errorMessage = "Squash merge failed with status: " + squashResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
                         logger.error(errorMessage);
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Squash Merge Failed", JOptionPane.ERROR_MESSAGE));

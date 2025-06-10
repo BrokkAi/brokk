@@ -134,7 +134,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public MainProject getParent() {
-        return null; // MainProject is the top-level project context
+        return this;
     }
 
     @Override

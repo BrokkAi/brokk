@@ -562,13 +562,13 @@ public class Brokk {
                 assert chromeInstance != null : "Chrome instance should be available after createAndShowGui is called";
 
                 // Associate worktree windows. This can happen once chromeInstance is available.
-                if (project.getParent() != project && project.getParent() instanceof MainProject) {
+                if (project instanceof MainProject) {
+                    mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
+                    logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                } else {
                     IProject actualParentProject = project.getParent();
                     mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
                     logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
-                } else if (project instanceof MainProject) {
-                    mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
-                    logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
                 }
 
                 // Chain initialTask execution to guiFuture's completion
@@ -637,20 +637,18 @@ public class Brokk {
                     }
                 }
             } else { // Closing a worktree project
-                IProject parentOfWorktree = projectBeingClosed.getParent();
-                if (parentOfWorktree != null) {
-                    List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
-                    if (worktreeListOfMain != null) {
-                        if (worktreeListOfMain.remove(ourChromeInstance)) {
-                             logger.debug("Removed worktree window {} from main project {}'s tracking list.", projectPath.getFileName(), parentOfWorktree.getRoot().getFileName());
-                        }
-                        // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
-                        // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
-                        // However, for cleanliness:
-                        if (worktreeListOfMain.isEmpty()) {
-                            mainToWorktreeChromes.remove(parentOfWorktree);
-                            logger.debug("Removed main project {} from worktree tracking map as its list of worktrees is now empty.", parentOfWorktree.getRoot().getFileName());
-                        }
+                var parentOfWorktree = projectBeingClosed.getParent();
+                List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
+                if (worktreeListOfMain != null) {
+                    if (worktreeListOfMain.remove(ourChromeInstance)) {
+                        logger.debug("Removed worktree window {} from main project {}'s tracking list.", projectPath.getFileName(), parentOfWorktree.getRoot().getFileName());
+                    }
+                    // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
+                    // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
+                    // However, for cleanliness:
+                    if (worktreeListOfMain.isEmpty()) {
+                        mainToWorktreeChromes.remove(parentOfWorktree);
+                        logger.debug("Removed main project {} from worktree tracking map as its list of worktrees is now empty.", parentOfWorktree.getRoot().getFileName());
                     }
                 }
             }
