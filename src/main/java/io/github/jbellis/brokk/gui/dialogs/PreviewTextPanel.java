@@ -48,6 +48,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
+import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -58,9 +60,7 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
-    private final JTextField searchField;
-    private final JButton nextButton;
-    private final JButton previousButton;
+    private final GenericSearchBar searchBar;
     private JButton editButton;
     private JButton captureButton;
     private JButton saveButton;
@@ -94,24 +94,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         this.contentBeforeSave = content; // Store initial content
         this.fragment = fragment;
 
-        // === Top search/action bar ===
-        JPanel topPanel = new JPanel(new BorderLayout(8, 4)); // Use BorderLayout
-        JPanel searchControlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0)); // Panel for search items
-
-        searchField = new JTextField(20);
-        nextButton = new JButton("↓");
-        previousButton = new JButton("↑");
-
-        searchControlsPanel.add(new JLabel("Search:"));
-        searchControlsPanel.add(searchField);
-        searchControlsPanel.add(previousButton);
-        searchControlsPanel.add(nextButton);
-
-        topPanel.add(searchControlsPanel, BorderLayout.CENTER); // Search controls on the left/center
-
         // === Text area with syntax highlighting ===
-        // Initialize textArea *before* action buttons that might reference it
+        // Initialize textArea *before* search bar that references it
         textArea = new PreviewTextArea(content, syntaxStyle, file != null);
+        
+        // === Top search/action bar ===
+        JPanel topPanel = new JPanel(new BorderLayout(8, 4));
+        searchBar = new GenericSearchBar(RTextAreaSearchableComponent.wrap(textArea));
+        topPanel.add(searchBar, BorderLayout.CENTER);
 
         // Button panel for actions on the right
         JPanel actionButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0)); // Use FlowLayout, add some spacing
@@ -199,80 +189,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         add(topPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
 
+        // Register global shortcuts for the search bar
+        searchBar.registerGlobalShortcuts(this);
+        
         // Request focus for the text area after the panel is initialized and visible
-        SwingUtilities.invokeLater(() -> textArea.requestFocusInWindow());
-
-        // === Hook up the search as you type ===
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-        });
-
-        // === Enter key in search field triggers next match ===
-        searchField.addActionListener(e -> findNext(true));
-
-        // === Arrow keys for navigation ===
-        InputMap inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
-        ActionMap actionMap = searchField.getActionMap();
-
-        // Down arrow for next match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findNext");
-        actionMap.put("findNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext(true);
-            }
-        });
-
-        // Up arrow for previous match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "findPrevious");
-        actionMap.put("findPrevious", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext(false);
-            }
-        });
-
-        // === Next / Previous buttons ===
-        nextButton.addActionListener(e -> findNext(true));
-
-        previousButton.addActionListener(e -> findNext(false));
-
-        // === Cmd/Ctrl+F focuses the search field ===
-        KeyStroke ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(ctrlF, "focusSearch");
-        getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String selected = textArea.getSelectedText();
-                if (selected != null && !selected.isEmpty()) {
-                    searchField.setText(selected);
-                }
-                searchField.selectAll();
-                searchField.requestFocusInWindow();
-                // If there's text in the search field, re-highlight matches
-                // without changing the caret position
-                String query = searchField.getText();
-                if (query != null && !query.trim().isEmpty()) {
-                    int originalCaretPosition = textArea.getCaretPosition();
-                    updateSearchHighlights(false);
-                    textArea.setCaretPosition(originalCaretPosition);
-                }
-            }
-        });
-
+        SwingUtilities.invokeLater(textArea::requestFocusInWindow);
+        
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
 
@@ -302,13 +224,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         guiTheme.applyCurrentThemeToComponent(textArea);
     }
 
-    /**
-     * Constructs a new PreviewPanel with the given content and syntax style.
-     *
-     * @param content     The text content to display
-     * @param syntaxStyle For example, SyntaxConstants.SYNTAX_STYLE_JAVA
-     * @param guiTheme    The theme manager to use for styling the text area
-     */
     /**
      * Custom RSyntaxTextArea implementation for preview panels with custom popup menu
      */
@@ -864,40 +779,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Registers ESC key to first clear search highlights if search field has focus,
-     * otherwise close the preview panel
+     * Registers ESC key to close the preview panel
      */
     private void registerEscapeKey() {
-        // Register ESC handling for the search field
         KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-
-        // Add ESC handler to search field to clear highlights and defocus it
-        searchField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "defocusSearch");
-        searchField.getActionMap().put("defocusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Clear all highlights but keep search text
-                SearchContext context = new SearchContext();
-                context.setMarkAll(false);
-                SearchEngine.markAll(textArea, context);
-                // Clear the current selection/highlight as well
-                textArea.setCaretPosition(textArea.getCaretPosition());
-                textArea.requestFocusInWindow();
-            }
-        });
-
-        // Add ESC handler to panel to close window when search is not focused
+        
+        // Add ESC handler to panel to close window
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
         getActionMap().put("closePreview", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                // Only try to close if search field doesn't have focus
-                if (!searchField.hasFocus()) {
-                    if (confirmClose()) {
-                        Window window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                        if (window != null) {
-                            window.dispose();
-                        }
+                if (confirmClose()) {
+                    Window window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                    if (window != null) {
+                        window.dispose();
                     }
                 }
             }
@@ -970,68 +865,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /**
-     * Called whenever the user types in the search field, to highlight all matches (case-insensitive).
-     *
-     * @param jumpToFirst If true, jump to the first occurrence; if false, maintain current position
-     */
-    private void updateSearchHighlights(boolean jumpToFirst) {
-        String query = searchField.getText();
-        if (query == null || query.trim().isEmpty()) {
-            // Clear all highlights if query is empty
-            SearchContext clearContext = new SearchContext();
-            clearContext.setMarkAll(false);
-            SearchEngine.markAll(textArea, clearContext);
-            return;
-        }
-
-        SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
-        context.setMarkAll(true);
-        context.setWholeWord(false);
-        context.setRegularExpression(false);
-        context.setSearchForward(true);
-        context.setSearchWrap(true);
-
-        // Mark all occurrences
-        SearchEngine.markAll(textArea, context);
-
-        if (jumpToFirst) {
-            // Jump to the first occurrence as the user types
-            int originalCaretPosition = textArea.getCaretPosition();
-            textArea.setCaretPosition(0); // Start search from beginning
-            SearchResult result = SearchEngine.find(textArea, context);
-            if (!result.wasFound() && originalCaretPosition > 0) {
-                // If not found from beginning, restore caret position
-                textArea.setCaretPosition(originalCaretPosition);
-            } else if (result.wasFound()) {
-                // Center the match in the viewport
-                centerCurrentMatchInView();
-            }
-        }
-    }
-
-    /**
-     * Centers the current match in the viewport
-     */
-    private void centerCurrentMatchInView() {
-        try {
-            Rectangle matchRect = textArea.modelToView(textArea.getCaretPosition());
-            JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
-            if (viewport != null && matchRect != null) {
-                // Calculate the target Y position (1/3 from the top)
-                int viewportHeight = viewport.getHeight();
-                int targetY = Math.max(0, (int) (matchRect.y - viewportHeight * 0.33));
-
-                // Create a new point for scrolling
-                Rectangle viewRect = viewport.getViewRect();
-                viewRect.y = targetY;
-                textArea.scrollRectToVisible(viewRect);
-            }
-        } catch (Exception ex) {
-            // Silently ignore any view transformation errors
-        }
-    }
 
     /**
      * Performs the file save operation, updating history and disabling the save button.
@@ -1092,29 +925,4 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
     }
 
-    /**
-     * Finds the next or previous match relative to the current caret position.
-     *
-     * @param forward true = next match; false = previous match
-     */
-    private void findNext(boolean forward) {
-        String query = searchField.getText();
-        if (query == null || query.trim().isEmpty()) {
-            return;
-        }
-
-        // Our context for next/previous. We'll ignore case, no regex, wrap around.
-        SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
-        context.setMarkAll(true);
-        context.setWholeWord(false);
-        context.setRegularExpression(false);
-        context.setSearchForward(forward);
-        context.setSearchWrap(true);
-
-        SearchResult result = SearchEngine.find(textArea, context);
-        if (result.wasFound()) {
-            centerCurrentMatchInView();
-        }
-    }
 }
