@@ -40,7 +40,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Used as the default text for the background tasks label
-    private final String BGTASK_EMPTY = "No background tasks";
+    private final String BGTASK_EMPTY = "No background tasks 123";
     private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
@@ -722,9 +722,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                         ? UIManager.getColor("chat_background")
                                         : Color.WHITE);
 
-        // Set initial default close operation. This will be checked/modified by the WindowListener.
-        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
         var project = contextManager.getProject();
         assert project != null;
         var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
@@ -752,8 +749,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
-        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
+        // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
+        if (contentComponent instanceof PreviewTextPanel) {
+            previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
         var rootPane = previewFrame.getRootPane();
