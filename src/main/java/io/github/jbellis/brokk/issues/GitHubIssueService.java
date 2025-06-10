@@ -28,17 +28,13 @@ public class GitHubIssueService implements IssueService {
     private static final Logger logger = LogManager.getLogger(GitHubIssueService.class);
 
     private final IProject project;
-    private GitHubAuth gitHubAuth; // Initialized lazily
 
     public GitHubIssueService(IProject project) {
         this.project = project;
     }
 
     private GitHubAuth getAuth() throws IOException {
-        if (this.gitHubAuth == null) {
-            this.gitHubAuth = GitHubAuth.getOrCreateInstance(this.project);
-        }
-        return this.gitHubAuth;
+        return GitHubAuth.getOrCreateInstance(this.project);
     }
 
     @Override
