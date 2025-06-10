@@ -40,7 +40,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Used as the default text for the background tasks label
-    private final String BGTASK_EMPTY = "No background tasks 123";
+    private final String BGTASK_EMPTY = "No background tasks";
     private final String SYSMSG_EMPTY = "Ready";
 
     // is a setContext updating the MOP?
