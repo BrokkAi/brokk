@@ -59,7 +59,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
-    private final ExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
+    private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>();
 
     // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
@@ -97,7 +97,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
     // Multiple of these can run concurrently
-    private final ExecutorService contextActionExecutor = createLoggingExecutorService(
+    private final LoggingExecutorService contextActionExecutor = createLoggingExecutorService(
             new ThreadPoolExecutor(2, 2,
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue
@@ -106,7 +106,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Internal background tasks (unrelated to user actions)
     // Lots of threads allowed since AutoContext updates get dropped here
     // Use unbounded queue to prevent task rejection
-    private final ExecutorService backgroundTasks = createLoggingExecutorService(
+    private final LoggingExecutorService backgroundTasks = createLoggingExecutorService(
             new ThreadPoolExecutor(2, max(8, Runtime.getRuntime().availableProcessors()),
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
@@ -233,8 +233,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Called from Brokk to finish wiring up references to Chrome and Coder
+     *
+     * Returns the future doing off-EDT context loading
      */
-    public Chrome createGui() {
+    public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
@@ -305,7 +307,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
 
         // Load saved context history or create a new one
-        submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
+        var contextTask = submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
@@ -314,7 +316,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         io.getInstructionsPanel().checkBalanceAndNotify();
 
-        return (Chrome) this.io;
+        return contextTask;
     }
 
     /**
@@ -500,10 +502,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Returns the configured Edit model, falling back to the system model if unavailable.
-     */
-
-    /**
      * Returns the configured Search model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getSearchModel() {
@@ -544,11 +542,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return quickModel;
     }
 
-    public Future<?> submitUserTask(String description, Runnable task) {
+    public CompletableFuture<Void> submitUserTask(String description, Runnable task) {
         return submitUserTask(description, false, task);
     }
 
-    public Future<?> submitUserTask(String description, boolean isLlmTask, Runnable task) {
+    public CompletableFuture<Void> submitUserTask(String description, boolean isLlmTask, Runnable task) {
         return userActionExecutor.submit(() -> {
             userActionThread.set(Thread.currentThread());
             io.disableActionButtons();
@@ -1432,16 +1430,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Asynchronously determines the best verification command based on the user goal,
-     * workspace summary, and stored BuildDetails. Uses the quickest model.
-     * <p>
-     * /**
      * Submits a background task to the internal background executor (non-user actions).
      */
     @Override
-    public <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         assert taskDescription != null;
-        Future<T> future = backgroundTasks.submit(() -> {
+        var future = backgroundTasks.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1475,7 +1469,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param task            the task to execute
      * @return a {@link Future} representing pending completion of the task
      */
-    public Future<?> submitBackgroundTask(String taskDescription, Runnable task) {
+    public CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
         return submitBackgroundTask(taskDescription, () -> {
             task.run();
             return null;
@@ -1753,7 +1747,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> createSessionAsync(String name) {
         // No explicit exclusivity check for new session, as it gets a new unique ID.
-        var future = submitUserTask("Creating new session: " + name, () -> {
+        return submitUserTask("Creating new session: " + name, () -> {
             var newSessionInfo = project.newSession(name);
             updateActiveSession(newSessionInfo.id()); // Mark as active for this project
             logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
@@ -1766,13 +1760,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(liveContext);
-        });
-        return CompletableFuture.runAsync(() -> {
-            try {
-                future.get();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create new session", e);
-            }
         });
     }
 
