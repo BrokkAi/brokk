@@ -31,10 +31,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import java.awt.event.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -97,9 +94,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
         textArea = new PreviewTextArea(content, syntaxStyle, file != null);
-        
+
         // === Top search/action bar ===
-        JPanel topPanel = new JPanel(new BorderLayout(8, 4));
+        var topPanel = new JPanel(new BorderLayout(8, 4));
         searchBar = new GenericSearchBar(RTextAreaSearchableComponent.wrap(textArea));
         topPanel.add(searchBar, BorderLayout.CENTER);
 
@@ -191,10 +188,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // Register global shortcuts for the search bar
         searchBar.registerGlobalShortcuts(this);
-        
+
         // Request focus for the text area after the panel is initialized and visible
         SwingUtilities.invokeLater(textArea::requestFocusInWindow);
-        
+
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
 
@@ -782,15 +779,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * Registers ESC key to close the preview panel
      */
     private void registerEscapeKey() {
-        KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        
+        var escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+
         // Add ESC handler to panel to close window
         getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
         getActionMap().put("closePreview", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 if (confirmClose()) {
-                    Window window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                    var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                     if (window != null) {
                         window.dispose();
                     }

@@ -33,8 +33,10 @@ public class GenericSearchBar extends JPanel {
         caseSensitiveButton.setMargin(new Insets(2, 4, 2, 4));
         nextButton = new JButton();
         nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
+        nextButton.setEnabled(false);
         previousButton = new JButton();
         previousButton.setIcon(UIManager.getIcon("Table.ascendingSortIcon"));
+        previousButton.setEnabled(false);
         matchCountLabel = new JLabel("");
         matchCountLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
 
@@ -74,11 +76,11 @@ public class GenericSearchBar extends JPanel {
         });
 
         // Enter key triggers next match
-        searchField.addActionListener(e -> findNext(true));
+        searchField.addActionListener(e -> findNext());
 
         // Button actions
-        nextButton.addActionListener(e -> findNext(true));
-        previousButton.addActionListener(e -> findNext(false));
+        nextButton.addActionListener(e -> findNext());
+        previousButton.addActionListener(e -> findPrevious());
         caseSensitiveButton.addActionListener(e -> {
             updateTooltip();
             updateSearchHighlights(false);
@@ -86,15 +88,15 @@ public class GenericSearchBar extends JPanel {
     }
 
     private void setupKeyboardShortcuts() {
-        InputMap inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
-        ActionMap actionMap = searchField.getActionMap();
+        var inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
+        var actionMap = searchField.getActionMap();
 
         // Down arrow for next match
         inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findNext");
         actionMap.put("findNext", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                findNext(true);
+                findNext();
             }
         });
 
@@ -103,7 +105,7 @@ public class GenericSearchBar extends JPanel {
         actionMap.put("findPrevious", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                findNext(false);
+                findPrevious();
             }
         });
     }
@@ -123,7 +125,7 @@ public class GenericSearchBar extends JPanel {
      */
     public void registerGlobalShortcuts(JComponent parentComponent) {
         // Cmd/Ctrl+F focuses the search field
-        KeyStroke ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F,
+        var ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F,
             Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         parentComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(ctrlF, "focusSearch");
         parentComponent.getActionMap().put("focusSearch", new AbstractAction() {
@@ -134,7 +136,7 @@ public class GenericSearchBar extends JPanel {
         });
 
         // ESC key clears search highlights when search field has focus
-        KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+        var escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
         searchField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "clearHighlights");
         searchField.getActionMap().put("clearHighlights", new AbstractAction() {
             @Override
@@ -187,7 +189,7 @@ public class GenericSearchBar extends JPanel {
 
         // Highlight all occurrences
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
-        
+
         // Count total matches
         totalMatches = targetComponent.countMatches(query, caseSensitiveButton.isSelected());
 
@@ -211,8 +213,22 @@ public class GenericSearchBar extends JPanel {
             // Update current match index without jumping
             currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
         }
-        
+
         updateMatchCount(currentMatchIndex, totalMatches);
+    }
+
+    /**
+     * Finds the next match relative to the current caret position.
+     */
+    private void findNext() {
+        findMatch(true);
+    }
+
+    /**
+     * Finds the previous match relative to the current caret position.
+     */
+    private void findPrevious() {
+        findMatch(false);
     }
 
     /**
@@ -220,7 +236,7 @@ public class GenericSearchBar extends JPanel {
      *
      * @param forward true = next match; false = previous match
      */
-    private void findNext(boolean forward) {
+    private void findMatch(boolean forward) {
         String query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             return;
@@ -233,7 +249,7 @@ public class GenericSearchBar extends JPanel {
             updateMatchCount(currentMatchIndex, totalMatches);
         }
     }
-    
+
     /**
      * Updates the match count display.
      *
@@ -243,8 +259,12 @@ public class GenericSearchBar extends JPanel {
     private void updateMatchCount(int currentMatch, int totalMatches) {
         if (totalMatches == 0) {
             matchCountLabel.setText("");
+            nextButton.setEnabled(false);
+            previousButton.setEnabled(false);
         } else {
             matchCountLabel.setText(currentMatch + "/" + totalMatches);
+            nextButton.setEnabled(true);
+            previousButton.setEnabled(true);
         }
     }
 
