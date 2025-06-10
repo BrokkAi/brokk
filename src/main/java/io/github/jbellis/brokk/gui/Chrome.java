@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.prefs.Preferences;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 
@@ -196,6 +197,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Listen for context changes (Chrome already implements IContextManager.ContextListener)
         contextManager.addContextListener(this);
+
+        // Check for first build completion and show settings dialog if needed
+        var prefs = Preferences.userRoot();
+        SwingUtilities.invokeLater(() -> {
+            if (prefs.getBoolean("first-build-complete", false)) {
+                prefs.putBoolean("first-build-complete", false); // Reset flag
+                io.github.jbellis.brokk.gui.dialogs.SettingsDialog.showBuildTab(this);
+            }
+        });
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));

@@ -28,6 +28,9 @@ import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.prefs.Preferences;
+import javax.swing.UIManager;
+import javax.swing.BorderFactory;
 
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
@@ -90,6 +93,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JPasswordField jiraApiTokenField;
     private JButton testJiraConnectionButton;
 
+    // Banner for first build completion
+    private static final String PREF_BANNER_SHOWN = "build-banner-shown";
+    private final JPanel bannerPanel;
+
 
     public SettingsProjectPanel(Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -97,10 +104,39 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         this.okButtonParent = okButton;
         this.cancelButtonParent = cancelButton;
         this.applyButtonParent = applyButton;
+        this.bannerPanel = createBanner(); // Initialize banner
 
         setLayout(new BorderLayout());
         initComponents();
         loadSettings(); // Load settings after components are initialized
+    }
+
+    private JPanel createBanner() {
+        var p = new JPanel(new BorderLayout(5, 0));
+        Color infoBackground = UIManager.getColor("info");
+        p.setBackground(infoBackground != null ? infoBackground : new Color(255, 255, 204)); // Pale yellow fallback
+        p.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+
+        var msg = new JLabel("""
+            Build Agent has completed inspecting your project, \
+            please review the build configuration.
+        """);
+        p.add(msg, BorderLayout.CENTER);
+
+        var close = new JButton("×");
+        close.setMargin(new Insets(0, 4, 0, 4));
+        close.addActionListener(e -> {
+            p.setVisible(false);
+            Preferences.userRoot().putBoolean(PREF_BANNER_SHOWN, true);
+        });
+        p.add(close, BorderLayout.EAST);
+        p.setVisible(false); // Initially hidden
+        return p;
+    }
+
+    private void maybeShowBanner() {
+        boolean alreadyShown = Preferences.userRoot().getBoolean(PREF_BANNER_SHOWN, false);
+        bannerPanel.setVisible(!alreadyShown);
     }
 
     private void initComponents() {
@@ -488,6 +524,17 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         int row = 0;
+
+        // Add banner at the top
+        gbc.gridx = 0; gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(bannerPanel, gbc);
+        gbc.gridwidth = 1; // Reset gridwidth
+        // Check if banner should be shown
+        maybeShowBanner();
+
 
         buildCleanCommandField = new JTextField();
         allTestsCommandField = new JTextField();

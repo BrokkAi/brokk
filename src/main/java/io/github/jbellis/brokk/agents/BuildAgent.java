@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.prefs.Preferences;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -281,6 +282,7 @@ public class BuildAgent {
 
             this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
             logger.debug("reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+            Preferences.userRoot().putBoolean("first-build-complete", true);
             return "Build details report received and processed.";
         }
 

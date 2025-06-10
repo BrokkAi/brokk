@@ -233,6 +233,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.setVisible(true);
     }
 
+    public static void showBuildTab(Chrome chrome) {
+        showSettingsDialog(chrome, "Build");
+    }
+
     public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {
         assert project.isDataShareAllowed() : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 

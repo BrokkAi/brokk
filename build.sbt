@@ -82,7 +82,6 @@ libraryDependencies ++= Seq(
   "org.junit.jupiter" % "junit-jupiter" % "5.10.2" % Test,
   "org.junit.jupiter" % "junit-jupiter-engine"  % "5.10.2" % Test,
   "com.github.sbt.junit" % "jupiter-interface"  % "0.13.3" % Test,
-  "org.mockito" % "mockito-junit-jupiter" % "5.12.0" % Test,
 
   // Java Decompiler
   "com.jetbrains.intellij.java" % "java-decompiler-engine" % "243.25659.59",
@@ -116,9 +115,4 @@ javaOptions ++= Seq(
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
-
-dependencyOverrides ++= Seq(
-  "net.bytebuddy" % "byte-buddy" % "1.14.16",
-  "net.bytebuddy" % "byte-buddy-agent" % "1.14.16"
-)
 
