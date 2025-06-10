@@ -757,6 +757,8 @@ public class Context {
      *         liveContext + frozenContext
      */
     public FreezeResult freezeAndCleanup() {
+        assert !isFrozen();
+
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
 
@@ -803,13 +805,21 @@ public class Context {
         }
 
         // Create live context with bad fragments removed
-        var liveContext = new Context(this.contextManager,
+        Context liveContext;
+        if (!liveEditableFiles.equals(editableFiles)
+                || !liveReadonlyFiles.equals(readonlyFiles)
+                || !liveVirtualFragments.equals(virtualFragments))
+        {
+            liveContext = new Context(this.contextManager,
                                       liveEditableFiles,
                                       liveReadonlyFiles,
                                       liveVirtualFragments,
                                       this.taskHistory,
                                       this.parsedOutput,
                                       this.action);
+        } else {
+            liveContext = this;
+        }
 
         // Create frozen context
         var frozenContext = new Context(this.contextManager,
