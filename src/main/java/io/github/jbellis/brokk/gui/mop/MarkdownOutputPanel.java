@@ -273,7 +273,8 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_ai");
                 break;
             case USER:
-                if (message instanceof UserMessage userMessage && userMessage.name() != null && !userMessage.name().isEmpty()) {
+                if (message instanceof UserMessage userMessage && userMessage.name() != null 
+                        && !userMessage.name().isEmpty() && !userMessage.name().contains("MODE")) {
                     title = userMessage.name();
                 } else {
                     title = "You";

@@ -163,7 +163,13 @@ public class SplitButton extends JButton {
             super.paint(g, c); // Paint the main button part using FlatButtonUI, which will use adjusted margins
             sb.setInSuperPaint(false);
     
-            // Arrow and separator are always painted, but their color depends on the enabled state.
+            // The isBorderPainted() check was problematic with FlatLaf as it might be false
+            // even if a border is painted by the L&F.
+            // Only check if the button is enabled for painting the arrow.
+            if (!sb.isEnabled()) {
+                return;
+            }
+    
             var g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
     
@@ -171,45 +177,24 @@ public class SplitButton extends JButton {
             int height = c.getHeight();
     
             // Draw separator line
-            Color separatorColor;
-            Color arrowColor;
-
-            if (sb.isEnabled()) {
-                separatorColor = UIManager.getColor("SplitPane.dividerFocusColor");
+            var separatorColor = UIManager.getColor("SplitPane.dividerFocusColor");
+            if (separatorColor == null) {
+                separatorColor = UIManager.getColor("Button.shadow"); // Fallback
                 if (separatorColor == null) {
-                    separatorColor = UIManager.getColor("Button.shadow"); // Fallback
-                    if (separatorColor == null) {
-                        separatorColor = Color.GRAY; // Ultimate fallback
-                    }
-                }
-                arrowColor = UIManager.getColor("Button.foreground");
-                if (arrowColor == null) {
-                    arrowColor = sb.getForeground(); // Fallback
-                    if (arrowColor == null) {
-                        arrowColor = Color.BLACK; // Ultimate fallback
-                    }
-                }
-            } else {
-                separatorColor = UIManager.getColor("Component.disabledBorderColor");
-                if (separatorColor == null) {
-                    separatorColor = UIManager.getColor("Button.disabledBorderColor"); // Alternative FlatLaf key
-                     if (separatorColor == null) {
-                        separatorColor = Color.LIGHT_GRAY; // Fallback for disabled separator
-                    }
-                }
-                arrowColor = UIManager.getColor("Button.disabledText");
-                if (arrowColor == null) {
-                    arrowColor = UIManager.getColor("Label.disabledForeground"); // Fallback
-                    if (arrowColor == null) {
-                        arrowColor = Color.GRAY; // Ultimate fallback for disabled arrow
-                    }
+                    separatorColor = Color.GRAY; // Ultimate fallback
                 }
             }
-
             g2.setColor(separatorColor);
             g2.drawLine(width - ARROW_WIDTH, 2, width - ARROW_WIDTH, height - 3); // Small margin
     
             // Draw arrow triangle
+            var arrowColor = UIManager.getColor("Button.foreground");
+            if (arrowColor == null) {
+                arrowColor = sb.getForeground(); // Fallback
+                if (arrowColor == null) {
+                    arrowColor = Color.BLACK; // Ultimate fallback
+                }
+            }
             g2.setColor(arrowColor);
             int triangleMargin = (ARROW_WIDTH - ARROW_ICON_SIZE) / 2;
             int[] xPoints = {

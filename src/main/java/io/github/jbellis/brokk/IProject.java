@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.IGitRepo;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -60,8 +61,6 @@ public interface IProject extends AutoCloseable {
     default String getStyleGuide() {
         return "";
     }
-
-    default void updateActiveSession(UUID sessionId) {}
 
     default Path getMasterRootPathForConfig() {
         return null;
@@ -126,7 +125,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+    default SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         throw new UnsupportedOperationException();
     }
 
@@ -198,6 +197,63 @@ public interface IProject extends AutoCloseable {
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
+
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#projectKey()} instead.
+     */
+    @Deprecated
+    default String getJiraProjectKey() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraProjectKey(String projectKey) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#baseUrl()} instead.
+     */
+    @Deprecated
+    default String getJiraBaseUrl() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraBaseUrl(String baseUrl) {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#apiToken()} instead.
+     */
+    @Deprecated
+    default String getJiraApiToken() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * @deprecated Use {@link #setIssuesProvider(io.github.jbellis.brokk.IssueProvider)} with a {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig} instead.
+     */
+    @Deprecated
+    default void setJiraApiToken(String token) {
+        throw new UnsupportedOperationException();
+    }
+
+    // New methods for the IssueProvider record
+    default io.github.jbellis.brokk.IssueProvider getIssuesProvider() { // Method name clash is intentional record migration
+        throw new UnsupportedOperationException();
+    }
+
+    default void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+        throw new UnsupportedOperationException();
+    }
 
     enum CpgRefresh {
         AUTO,

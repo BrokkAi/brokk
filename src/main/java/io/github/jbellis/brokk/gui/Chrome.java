@@ -5,6 +5,8 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -229,6 +231,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    /**
+     * Sends a desktop notification if the main window is not active.
+     * @param notification Notification
+     */
+    public void notifyActionComplete(String notification) {
+        SwingUtilities.invokeLater(() -> {
+            // 'frame' is the JFrame member of Chrome
+            if (frame != null && frame.isShowing() && !frame.isActive()) {
+                Environment.instance.sendNotificationAsync(notification);
+            }
+        });
+    }
+
     public IProject getProject() {
         return contextManager.getProject();
     }
@@ -373,10 +388,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert ctx != null;
 
-        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
+        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
 
-        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !isSkipNextUpdateOutputPanelOnContextChange());
+        final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
         setSkipNextUpdateOutputPanelOnContextChange(false);
         activeContext = ctx;
 
@@ -387,10 +402,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             Context latestContext = contextManager.getContextHistory().topContext();
             if (latestContext != null) {
                 isEditable = ctx.equals(latestContext);
-            } else if (ctx.getId() == 1) { 
-                // If context history is somehow uninitialized but we are setting the initial welcome context (ID 1),
-                // consider it editable. This is a fallback.
-                isEditable = true; 
             }
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
@@ -410,6 +421,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     public void switchTheme(boolean isDark) {
         themeManager.applyTheme(isDark);
+    }
+
+    public GuiTheme getTheme() {
+        return themeManager;
     }
 
     @Override
@@ -738,26 +753,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
         previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        
-        // Add a WindowListener to handle the close ('X') button click
-        previewFrame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Check if the content is a PreviewTextPanel and if it has unsaved changes
-                if (contentComponent instanceof PreviewTextPanel ptp) {
-                    if (ptp.confirmClose()) {
-                        // If confirmClose returns true (Save/Don't Save), finalize history and dispose.
-                        ptp.finalizeHistoryEntry(); // Create history entry if needed
-                        previewFrame.dispose();
-                    }
-                    // If confirmClose returns false (user cancelled), do nothing - window stays open
-                } else {
-                    // If not a PreviewTextPanel, just dispose the window
-                    previewFrame.dispose();
-                }
-            }
-        });
-
 
         // Add ESC key binding to close the window (delegates to windowClosing)
         var rootPane = previewFrame.getRootPane();
@@ -837,14 +832,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var latestCtx = contextManager.getContextHistory().topContext();
             boolean isCurrentContext = latestCtx != null
                     && latestCtx.allFragments()
-                    .anyMatch(f -> f.id() == fragment.id());
+                    .anyMatch(f -> f.id().equals(fragment.id()));
 
             // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
             // a true PathFragment instance (gives us access to BrokkFile, etc.).
             ContextFragment workingFragment;
             if (isCurrentContext
                     && fragment.getType().isPathFragment()
-                    && fragment instanceof io.github.jbellis.brokk.context.FrozenFragment frozen) {
+                    && fragment instanceof FrozenFragment frozen)
+            {
                 workingFragment = frozen.unfreeze(contextManager);
             } else {
                 workingFragment = fragment;
@@ -1442,6 +1438,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void showMessageDialog(String message, String title, int messageType) {
         JOptionPane.showMessageDialog(frame, message, title, messageType);
+    }
+
+    @Override
+    public void systemNotify(String message, String title, int messageType) {
+        SwingUtilities.invokeLater(() -> {
+            showMessageDialog(message, title, messageType);
+        });
     }
 
     /**

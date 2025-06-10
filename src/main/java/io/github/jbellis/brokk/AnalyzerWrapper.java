@@ -20,6 +20,9 @@ import java.util.stream.Collectors;
 public class AnalyzerWrapper implements AutoCloseable {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
+    public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
+    public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
+
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
@@ -223,6 +226,8 @@ public class AnalyzerWrapper implements AutoCloseable {
         int totalDeclarations = 0;
         boolean allEmpty = true;
 
+        boolean needsRebuild = false;
+        
         if (projectLangs.size() == 1) {
             Language lang = projectLangs.iterator().next();
             assert lang != Language.NONE;
@@ -234,9 +239,18 @@ public class AnalyzerWrapper implements AutoCloseable {
                 logger.debug("First startup for language {}: timing Analyzer creation", lang.name());
                 resultAnalyzer = lang.createAnalyzer(project);
             } else {
-                resultAnalyzer = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                if (resultAnalyzer == null) {
-                    logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
+                    // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
+                    resultAnalyzer = cachedResult.analyzer;
+                    if (isInitialLoad) {
+                        needsRebuild = cachedResult.needsRebuild;
+                    }
+                    logger.debug("Using {} cached analyzer for {}", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
+                } else {
+                    // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
+                    String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
+                    logger.debug("Creating fresh {} analyzer for {} ({})", lang.name(), project.getRoot(), reason);
                     resultAnalyzer = lang.createAnalyzer(project);
                 }
             }
@@ -259,9 +273,18 @@ public class AnalyzerWrapper implements AutoCloseable {
                 if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
                      delegate = lang.createAnalyzer(project);
                 } else {
-                    delegate = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                    if (delegate == null) {
-                        logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                    var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                    if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
+                        // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
+                        delegate = cachedResult.analyzer;
+                        if (isInitialLoad) {
+                            needsRebuild = needsRebuild || cachedResult.needsRebuild;
+                        }
+                        logger.debug("Using {} cached {} analyzer", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
+                    } else {
+                        // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
+                        String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
+                        logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
                         delegate = lang.createAnalyzer(project);
                     }
                 }
@@ -283,7 +306,13 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // Notify listener after each build, once currentAnalyzer is set
         if (listener != null) {
-            listener.afterEachBuild();
+            listener.afterEachBuild(externalRebuildRequested);
+        }
+
+        // Schedule background rebuild if using stale cached analyzer
+        if (needsRebuild) {
+            logger.debug("Scheduling background rebuild for stale analyzer");
+            rebuild();
         }
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
@@ -355,20 +384,20 @@ public class AnalyzerWrapper implements AutoCloseable {
         return currentAnalyzer.isCpg();
     }
 
-    /** Load a cached analyzer for a single language if it is up to date; otherwise, or on any loading error, return null. */
-    private IAnalyzer loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
+    /** Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding. */
+    private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
         if (analyzerPath == null || !Files.exists(analyzerPath)) {
-            return null;
+            return new CachedAnalyzerResult(null, false);
         }
 
         // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
             logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
-                return lang.loadAnalyzer(project);
+                return new CachedAnalyzerResult(lang.loadAnalyzer(project), false);
             } catch (Throwable th) {
                 logger.info("Error loading {} analyzer from {}: {}", lang.name(), analyzerPath, th.getMessage());
-                return null;
+                return new CachedAnalyzerResult(null, false);
             }
         }
 
@@ -381,7 +410,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         if (trackedFiles.isEmpty() && lang.isCpg()) { // No files for this CPG language, cache might be irrelevant or stale
              logger.debug("No tracked files for language {}, considering cache {} stale.", lang.name(), analyzerPath);
-             return null;
+             return new CachedAnalyzerResult(null, false);
         }
 
         long cpgMTime;
@@ -389,9 +418,10 @@ public class AnalyzerWrapper implements AutoCloseable {
             cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
-            return null; // Cannot determine if cache is fresh
+            return new CachedAnalyzerResult(null, false); // Cannot determine if cache is fresh
         }
 
+        boolean isStale = false;
         for (ProjectFile rf : trackedFiles) {
             try {
                 if (!Files.exists(rf.absPath())) continue; // File might have been deleted
@@ -399,22 +429,29 @@ public class AnalyzerWrapper implements AutoCloseable {
                 if (fileMTime > cpgMTime) {
                     logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
                                  rf.absPath(), lang.name(), analyzerPath, fileMTime, cpgMTime);
-                    return null; // Cache is stale
+                    isStale = true;
+                    break; // Cache is stale, but we'll still try to load it
                 }
             } catch (IOException e) {
                 logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
                 // If we can't check a file, assume cache might be stale to be safe
-                return null;
+                isStale = true;
+                break;
             }
         }
 
-        // Saved analyzer is up to date for this language
+        // Try to load the analyzer regardless of staleness
         try {
-            logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
-            return lang.loadAnalyzer(project);
+            IAnalyzer analyzer = lang.loadAnalyzer(project);
+            if (isStale) {
+                logger.debug("Using stale cached analyzer for {} from {} - will rebuild in background", lang.name(), analyzerPath);
+            } else {
+                logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
+            }
+            return new CachedAnalyzerResult(analyzer, isStale);
         } catch (Throwable th) {
             logger.warn("Error loading cached {} analyzer from {}; falling back to full rebuild for this language: {}", lang.name(), analyzerPath, th.getMessage());
-            return null;
+            return new CachedAnalyzerResult(null, false);
         }
     }
 
@@ -502,6 +539,13 @@ public class AnalyzerWrapper implements AutoCloseable {
         } catch (ExecutionException e) {
             throw new RuntimeException("Failed to create analyzer", e);
         }
+    }
+
+    /**
+     * @return true if the analyzer is ready for use, false if still building
+     */
+    public boolean isReady() {
+        return getNonBlocking() != null;
     }
 
     public void requestRebuild() {
@@ -646,5 +690,8 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
     
     private record FileChangeEvent(EventType type, Path path) {
+    }
+    
+    private record CachedAnalyzerResult(IAnalyzer analyzer, boolean needsRebuild) {
     }
 }

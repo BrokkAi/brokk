@@ -33,6 +33,8 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -67,12 +69,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     // Theme manager reference
     private GuiTheme themeManager;
 
-    // State for history tracking on close
-    private String contentBeforeFirstSave = null;
-
     // Nullable
     private final ProjectFile file;
-    private final String initialContent; // Store initial content for comparison on close
+    private final String contentBeforeSave;
     private final ContextFragment fragment;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
     private Future<Set<CodeUnit>> fileDeclarations;
@@ -92,7 +91,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         this.contextManager = contextManager;
         this.themeManager = guiTheme;
         this.file = file;
-        this.initialContent = content; // Store initial content
+        this.contentBeforeSave = content; // Store initial content
         this.fragment = fragment;
 
         // === Text area with syntax highlighting ===
@@ -203,6 +202,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         registerEscapeKey();
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
+        // Setup custom window close handler
+        setupWindowCloseHandler();
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
@@ -799,6 +800,30 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called.
+     */
+    private void setupWindowCloseHandler() {
+        SwingUtilities.invokeLater(() -> {
+            Window ancestor = SwingUtilities.getWindowAncestor(this);
+            // Set default close operation to DO_NOTHING_ON_CLOSE so we can handle it
+            if (ancestor instanceof JFrame frame) {
+                frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+            } else if (ancestor instanceof JDialog dialog) {
+                dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+            }
+
+            ancestor.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    if (confirmClose()) {
+                        ancestor.dispose();
+                    }
+                }
+            });
+        });
+    }
+
+    /**
      * Checks for unsaved changes and prompts the user to save, discard, or cancel closing.
      *
      * @return true if the window should close, false otherwise.
@@ -816,17 +841,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 JOptionPane.YES_NO_CANCEL_OPTION,
                 JOptionPane.WARNING_MESSAGE);
 
-        switch (choice) {
-            case JOptionPane.YES_OPTION:
-                performSave(saveButton); // Save the changes
-                return true; // Allow closing
-            case JOptionPane.NO_OPTION:
-                return true; // Allow closing, discard changes
-            case JOptionPane.CANCEL_OPTION:
-            case JOptionPane.CLOSED_OPTION:
-            default:
-                return false; // Prevent closing
-        }
+        return switch (choice) {
+            case JOptionPane.YES_OPTION -> performSave(saveButton);
+            case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
+            default -> false; // Prevent closing
+        };
     }
 
     /**
@@ -851,74 +870,58 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * Performs the file save operation, updating history and disabling the save button.
      *
      * @param buttonToDisable The save button instance to disable after a successful save.
+     * @return true if the save was successful, false otherwise.
      */
-    private void performSave(JButton buttonToDisable) {
-        if (file == null) {
-            logger.warn("Attempted to save but no ProjectFile is associated with this panel.");
-            return;
-        }
+    private boolean performSave(JButton buttonToDisable) {
+        assert file != null : "Attempted to save but no ProjectFile is associated with this panel.";
         String newContent = textArea.getText();
-        try {
-            // Capture the state before the *first* save for the history entry
-            if (contentBeforeFirstSave == null) {
-                contentBeforeFirstSave = file.exists() ? file.read() : "";
-            }
 
-            // Write the new content to the file
-            file.write(newContent);
-            buttonToDisable.setEnabled(false); // Disable after successful save
-            quickEditMessages.clear(); // Clear any quick edit messages after save
-            logger.debug("File saved: " + file);
-        } catch (IOException ex) {
-            logger.error("Error saving file {}", file, ex);
-            // Re-enable button on error? Maybe not, state might be inconsistent.
-            // Show error message
-            JOptionPane.showMessageDialog(this,
-                                          "Error saving file: " + ex.getMessage(),
-                                          "Save Error",
-                                          JOptionPane.ERROR_MESSAGE);
-        }
-    }
+        boolean contentChangedFromInitial = !newContent.equals(contentBeforeSave);
 
-    /**
-     * Should be called by the containing window just before disposal.
-     * Creates a single history entry if a save occurred and the content changed
-     * from the state before the first save.
-     */
-    public void finalizeHistoryEntry() {
-        // Only create history if a save actually happened and we have a file context
-        if (file == null || contentBeforeFirstSave == null) {
-            return;
-        }
-
-        String finalContent = textArea.getText();
-
-        // Only add history if the final content is different from the state before the first save
-        if (!finalContent.equals(contentBeforeFirstSave)) {
+        if (contentChangedFromInitial) {
             try {
-                // Generate a unified diff from the state *before the first save* to the final state
-                List<String> originalLines = contentBeforeFirstSave.lines().collect(Collectors.toList());
-                List<String> newLines = finalContent.lines().collect(Collectors.toList());
+                // Generate a unified diff from the initial state to the current state
+                List<String> originalLines = contentBeforeSave.lines().collect(Collectors.toList());
+                List<String> newLines = newContent.lines().collect(Collectors.toList());
                 Patch<String> patch = DiffUtils.diff(originalLines, newLines);
                 List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(file.toString(),
                                                                                 file.toString(),
                                                                                 originalLines,
                                                                                 patch,
-
                                                                                 3);
                 // Create the SessionResult representing the net change
                 String actionDescription = "Edited " + file;
-                quickEditMessages.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
+                // Include quick edit messages accumulated since last save + the current diff
+                List<ChatMessage> messagesForHistory = new ArrayList<>(quickEditMessages);
+                messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                 var saveResult = new TaskResult(contextManager,
                                                 actionDescription,
-                                                quickEditMessages,
-                                                Map.of(file, contentBeforeFirstSave),
+                                                messagesForHistory,
+                                                Map.of(file, contentBeforeSave),
                                                 TaskResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);
             } catch (Exception e) {
                 logger.error("Failed to generate diff or add history entry for {}", file, e);
             }
+        }
+
+        try {
+            // Write the new content to the file, regardless of whether it matched initial content,
+            // because saveButton being enabled implies it's different from last saved state.
+            file.write(newContent);
+            buttonToDisable.setEnabled(false); // Disable after successful save
+            quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+            logger.debug("File saved: " + file);
+            return true; // Save successful
+        } catch (IOException ex) {
+            // If save fails, button remains enabled and messages are not cleared.
+            logger.error("Error saving file {}", file, ex);
+            JOptionPane.showMessageDialog(this,
+                                          "Error saving file: " + ex.getMessage(),
+                                          "Save Error",
+                                          JOptionPane.ERROR_MESSAGE);
+            return false; // Save failed
         }
     }
 

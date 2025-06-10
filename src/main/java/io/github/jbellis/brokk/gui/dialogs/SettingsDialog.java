@@ -17,6 +17,8 @@ import java.awt.event.WindowEvent;
 public class SettingsDialog extends JDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
+    public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
+
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
     private SettingsGlobalPanel globalSettingsPanel;
@@ -238,7 +240,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         var dialog = new JDialog(owner, "Data Retention Policy Required", true);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-        dialog.setSize(600, 300); // Adjusted size
+        dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);
 
         // Create a temporary SettingsProjectPanel just for its DataRetentionPanel inner class logic

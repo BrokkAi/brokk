@@ -88,26 +88,32 @@ public class ArchitectAgent {
      * A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent.
      */
     @Tool("Provide a final answer to the multi-step project. Use this when you're done or have everything you need.")
-    public void projectFinished(
+    public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
             String finalExplanation
     )
     {
-        logger.debug("Architect complete: %s".formatted(finalExplanation));
-        io.llmOutput(finalExplanation, ChatMessageType.AI);
+        var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI);
+
+        return finalExplanation;
     }
 
     /**
      * A tool to abort the plan if you cannot proceed or if it is irrelevant.
      */
     @Tool("Abort the entire project. Use this if the tasks are impossible or out of scope.")
-    public void abortProject(
+    public String abortProject(
             @P("Explain why the project must be aborted.")
             String reason
     )
     {
-        var msg = "Architect Agent project aborted: %s".formatted(reason);
-        io.systemOutput(msg);
+        var msg = "# Architect aborted\n\n%s".formatted(reason);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI);
+
+        return reason;
     }
 
     private class FatalLlmException extends RuntimeException {

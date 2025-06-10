@@ -1,12 +1,12 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.ContextFragment.StringFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -62,6 +62,8 @@ public class GitPullRequestsTab extends JPanel {
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
     private FilterBox reviewFilter;
+
+    private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
     private List<org.kohsuke.github.GHPullRequest> allPrsFromApi = new ArrayList<>();
     private List<org.kohsuke.github.GHPullRequest> displayedPrs = new ArrayList<>();
@@ -138,18 +140,27 @@ public class GitPullRequestsTab extends JPanel {
         splitPane.setResizeWeight(0.6); // 60% for PR list, 40% for commits
 
         // --- Left side - Pull Requests table and filters ---
-        // This mainPrAreaPanel will hold filters on WEST and table+buttons on CENTER
-        JPanel mainPrAreaPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        JPanel mainPrAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Use BorderLayout for overall structure
         mainPrAreaPanel.setBorder(BorderFactory.createTitledBorder("Pull Requests"));
 
+        // Panel for missing token message
+        gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
+        JPanel tokenPanelWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        tokenPanelWrapper.add(gitHubTokenMissingPanel);
+        mainPrAreaPanel.add(tokenPanelWrapper, BorderLayout.NORTH);
+
+        // Panel to hold filters (WEST) and table+buttons (CENTER)
+        JPanel centerContentPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+
         // Vertical Filter Panel
-        JPanel verticalFilterPanel = new JPanel();
-        verticalFilterPanel.setLayout(new BoxLayout(verticalFilterPanel, BoxLayout.Y_AXIS));
+        JPanel verticalFilterPanel = new JPanel(new BorderLayout());
+        JPanel filtersContainer = new JPanel();
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        verticalFilterPanel.add(filterLabel);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
+        filtersContainer.add(filterLabel);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
         statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
         statusFilter.setToolTipText("Filter by PR status");
@@ -158,35 +169,34 @@ public class GitPullRequestsTab extends JPanel {
             // Status filter change triggers a new API fetch
             updatePrList();
         });
-        verticalFilterPanel.add(statusFilter);
+        filtersContainer.add(statusFilter);
 
         authorFilter = new FilterBox(this.chrome, "Author", this::getAuthorFilterOptions);
         authorFilter.setToolTipText("Filter by author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(authorFilter);
+        filtersContainer.add(authorFilter);
 
         labelFilter = new FilterBox(this.chrome, "Label", this::getLabelFilterOptions);
         labelFilter.setToolTipText("Filter by label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(labelFilter);
+        filtersContainer.add(labelFilter);
 
         assigneeFilter = new FilterBox(this.chrome, "Assignee", this::getAssigneeFilterOptions);
         assigneeFilter.setToolTipText("Filter by assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(assigneeFilter);
+        filtersContainer.add(assigneeFilter);
 
         reviewFilter = new FilterBox(this.chrome, "Review", () -> REVIEW_FILTER_OPTIONS);
         reviewFilter.setToolTipText("Filter by review status (Note: Some options may be placeholders)");
         reviewFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         reviewFilter.addPropertyChangeListener("value", e -> filterAndDisplayPrs());
-        verticalFilterPanel.add(reviewFilter);
+        filtersContainer.add(reviewFilter);
 
-        verticalFilterPanel.add(Box.createVerticalGlue()); // Pushes filters to the top
-
-        mainPrAreaPanel.add(verticalFilterPanel, BorderLayout.WEST);
+        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
+        centerContentPanel.add(verticalFilterPanel, BorderLayout.WEST);
 
         // Panel for PR Table (CENTER) and PR Buttons (SOUTH)
         JPanel prTableAndButtonsPanel = new JPanel(new BorderLayout());
@@ -290,7 +300,8 @@ public class GitPullRequestsTab extends JPanel {
         prButtonPanel.add(refreshPrButton);
 
         prTableAndButtonsPanel.add(prButtonPanel, BorderLayout.SOUTH);
-        mainPrAreaPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER);
+        centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER); // Add to centerContentPanel
+        mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
 
         // Right side - Commits in the selected PR
         JPanel prCommitsPanel = new JPanel(new BorderLayout());

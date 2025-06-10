@@ -35,8 +35,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import io.github.jbellis.brokk.util.Environment;
@@ -65,6 +63,44 @@ public class GitRepo implements Closeable, IGitRepo {
         FileRepositoryBuilder builder = new FileRepositoryBuilder();
         builder.findGitDir(dir.toFile());
         return builder.getGitDir() != null;
+    }
+
+    /**
+     * Sanitizes a proposed branch name and ensures it is unique by appending a numerical suffix if necessary.
+     * If the initial sanitization results in an empty string, "branch" is used as the base.
+     *
+     * @param proposedName The desired branch name.
+     * @return A sanitized and unique branch name.
+     * @throws GitAPIException if an error occurs while listing local branches.
+     */
+    public String sanitizeBranchName(String proposedName) throws GitAPIException {
+        String sanitized = proposedName.trim().toLowerCase();
+        // Replace whitespace with hyphens
+        sanitized = sanitized.replaceAll("\\s+", "-");
+        // Remove characters not suitable for branch names (keeping only alphanumeric and hyphen)
+        sanitized = sanitized.replaceAll("[^a-z0-9-]", "");
+        // Remove leading or trailing hyphens that might result from sanitation
+        sanitized = sanitized.replaceAll("^-+|-+$", "");
+
+        if (sanitized.isEmpty()) {
+            sanitized = "branch"; // Default base name if sanitization results in an empty string
+        }
+
+        List<String> localBranches = listLocalBranches();
+
+        if (!localBranches.contains(sanitized)) {
+            return sanitized;
+        }
+
+        String baseCandidate = sanitized;
+        int N = 2;
+        String nextCandidate;
+        do {
+            nextCandidate = baseCandidate + "-" + N;
+            N++;
+        } while (localBranches.contains(nextCandidate));
+
+        return nextCandidate;
     }
 
     /**
@@ -1453,7 +1489,11 @@ public class GitRepo implements Closeable, IGitRepo {
                         currentHead = null;
                         currentBranch = null;
                     }
-                    currentPath = Path.of(line.substring("worktree ".length())).toAbsolutePath().normalize();
+                    try {
+                        currentPath = Path.of(line.substring("worktree ".length())).toRealPath();
+                    } catch (IOException e) {
+                        throw new GitRepoException("Failed to resolve worktree path: " + line.substring("worktree ".length()), e);
+                    }
                 } else if (line.startsWith("HEAD ")) {
                     currentHead = line.substring("HEAD ".length());
                 } else if (line.startsWith("branch ")) {
@@ -1527,17 +1567,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Returns the path of this worktree if it is a worktree, null otherwise.
-     */
-    @Override
-    public Path getWorktreePath() {
-        if (isWorktree()) {
-            return repository.getWorkTree().toPath().toAbsolutePath().normalize();
-        }
-        return null;
-    }
-
-    /**
      * Returns true if this repository is a Git worktree.
      */
     @Override
@@ -1554,6 +1583,30 @@ public class GitRepo implements Closeable, IGitRepo {
                 .map(WorktreeInfo::branch)
                 .filter(branch -> branch != null && !branch.isEmpty())
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Determines the next available path for a new worktree in the specified storage directory.
+     * It looks for paths named "wt1", "wt2", etc., and returns the first one that doesn't exist.
+     *
+     * @param worktreeStorageDir The directory where worktrees are stored.
+     * @return A Path for the new worktree.
+     * @throws IOException if an I/O error occurs when checking for directory existence.
+     */
+    @Override
+    public Path getNextWorktreePath(Path worktreeStorageDir) throws IOException {
+        Files.createDirectories(worktreeStorageDir); // Ensure base directory exists
+        int nextWorktreeNum = 1;
+        Path newWorktreePath;
+        while (true) {
+            Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
+            if (!Files.exists(potentialPath)) {
+                newWorktreePath = potentialPath;
+                break;
+            }
+            nextWorktreeNum++;
+        }
+        return newWorktreePath;
     }
 
     @Override

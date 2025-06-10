@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -18,6 +19,10 @@ public interface IGitRepo {
 
     default String diff() throws GitAPIException {
         return "";
+    }
+
+    default String sanitizeBranchName(String proposedName) throws GitAPIException {
+        return proposedName;
     }
 
     default Path getGitTopLevel() {
@@ -82,15 +87,15 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default Path getWorktreePath() {
-        return null;
-    }
-
     default boolean isWorktree() {
         return false;
     }
 
     default Set<String> getBranchesInWorktrees() throws GitAPIException {
+        throw new UnsupportedOperationException();
+    }
+
+    default Path getNextWorktreePath(Path worktreeStorageDir) throws IOException {
         throw new UnsupportedOperationException();
     }
 

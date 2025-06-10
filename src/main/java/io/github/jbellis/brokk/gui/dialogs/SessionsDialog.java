@@ -1,11 +1,15 @@
-package io.github.jbellis.brokk.gui;
+package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.HistoryOutputPanel;
+import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -20,7 +24,7 @@ import java.util.UUID;
 /**
  * Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview
  */
-public class ManageSessionsDialog extends JDialog {
+public class SessionsDialog extends JDialog {
     private final HistoryOutputPanel historyOutputPanel;
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -38,12 +42,9 @@ public class ManageSessionsDialog extends JDialog {
     private WorkspacePanel workspacePanel;
     private MarkdownOutputPanel markdownOutputPanel;
     private JScrollPane markdownScrollPane;
-
-    // Current session context for previewing
-    private ContextHistory currentSessionHistory;
     private Context selectedActivityContext;
 
-    public ManageSessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
+    public SessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
         super(chrome.getFrame(), "Manage Sessions", true);
         this.historyOutputPanel = historyOutputPanel;
         this.chrome = chrome;
@@ -126,14 +127,24 @@ public class ManageSessionsDialog extends JDialog {
             }
         });
 
-        // Set up emoji renderer for first column of activity table
+        // Set up icon renderer for first column of activity table
         activityTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                                                           boolean isSelected, boolean hasFocus, int row, int column) {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
+
+                // Set icon and center-align
+                if (value instanceof Icon icon) {
+                    label.setIcon(icon);
+                    label.setText("");
+                } else {
+                    label.setIcon(null);
+                    label.setText(value != null ? value.toString() : "");
+                }
                 label.setHorizontalAlignment(JLabel.CENTER);
+
                 return label;
             }
         });
@@ -155,7 +166,7 @@ public class ManageSessionsDialog extends JDialog {
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
-        markdownOutputPanel.updateTheme(chrome.themeManager != null && chrome.themeManager.isDarkTheme());
+        markdownOutputPanel.updateTheme(chrome.getTheme().isDarkTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -244,7 +255,7 @@ public class ManageSessionsDialog extends JDialog {
             }
         });
 
-        // Add mouse listener for right-click context menu on sessions table
+        // Add mouse listener for right-click context menu and double-click on sessions table
         sessionsTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
@@ -257,6 +268,17 @@ public class ManageSessionsDialog extends JDialog {
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     showSessionContextMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = sessionsTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(row, 2);
+                        renameSession(sessionInfo);
+                    }
                 }
             }
         });
@@ -285,7 +307,6 @@ public class ManageSessionsDialog extends JDialog {
         // Load session history asynchronously
         contextManager.loadSessionHistoryAsync(sessionId).thenAccept(history -> {
             SwingUtilities.invokeLater(() -> {
-                currentSessionHistory = history;
                 populateActivityTable(history);
             });
         }).exceptionally(throwable -> {
@@ -306,10 +327,10 @@ public class ManageSessionsDialog extends JDialog {
 
         // Add rows for each context in history
         for (var ctx : history.getHistory()) {
-            // Add emoji for AI responses, empty for user actions
-            String emoji = (ctx.getParsedOutput() != null) ? "🤖" : "";
+            // Add icon for AI responses, null for user actions
+            Icon iconEmoji = (ctx.getParsedOutput() != null) ? SwingUtil.uiIcon("Brokk.ai-robot") : null;
             activityTableModel.addRow(new Object[]{
-                    emoji,
+                    iconEmoji,
                     ctx.getAction(),
                     ctx // Store the actual context object in hidden column
             });
@@ -406,28 +427,16 @@ public class ManageSessionsDialog extends JDialog {
         popup.addSeparator();
 
         JMenuItem renameItem = new JMenuItem("Rename");
-        renameItem.addActionListener(event -> {
-            String newName = JOptionPane.showInputDialog(ManageSessionsDialog.this,
-                "Enter new name for session '" + sessionInfo.name() + "':",
-                sessionInfo.name());
-            if (newName != null && !newName.trim().isBlank()) {
-                contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
-                    SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    })
-                );
-            }
-        });
+        renameItem.addActionListener(event -> renameSession(sessionInfo));
         popup.add(renameItem);
 
         JMenuItem deleteItem = new JMenuItem("Delete");
         deleteItem.addActionListener(event -> {
-            int confirm = JOptionPane.showConfirmDialog(ManageSessionsDialog.this,
-                "Are you sure you want to delete session '" + sessionInfo.name() + "'?",
-                "Confirm Delete",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+            int confirm = JOptionPane.showConfirmDialog(SessionsDialog.this,
+                                                        "Are you sure you want to delete session '" + sessionInfo.name() + "'?",
+                                                        "Confirm Delete",
+                                                        JOptionPane.YES_NO_OPTION,
+                                                        JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 contextManager.deleteSessionAsync(sessionInfo.id()).thenRun(() ->
                     SwingUtilities.invokeLater(() -> {
@@ -449,11 +458,23 @@ public class ManageSessionsDialog extends JDialog {
         popup.add(copyItem);
 
         // Register popup with theme manager
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popup);
-        }
+        chrome.getTheme().registerPopupMenu(popup);
 
         popup.show(sessionsTable, e.getX(), e.getY());
+    }
+
+    private void renameSession(MainProject.SessionInfo sessionInfo) {
+        String newName = JOptionPane.showInputDialog(SessionsDialog.this,
+                                                     "Enter new name for session '" + sessionInfo.name() + "':",
+                                                     sessionInfo.name());
+        if (newName != null && !newName.trim().isBlank()) {
+            contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
+                SwingUtilities.invokeLater(() -> {
+                    refreshSessionsTable();
+                    historyOutputPanel.updateSessionComboBox();
+                })
+            );
+        }
     }
 
     @Override

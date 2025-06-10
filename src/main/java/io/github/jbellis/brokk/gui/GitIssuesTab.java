@@ -4,30 +4,35 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.issues.JiraIssueService;
+import io.github.jbellis.brokk.issues.GitHubIssueService;
+import io.github.jbellis.brokk.issues.IssueHeader;
+import io.github.jbellis.brokk.issues.IssueService;
+import io.github.jbellis.brokk.util.HtmlUtil;
 import io.github.jbellis.brokk.util.ImageUtil;
-import io.github.jbellis.brokk.util.MarkdownImageParser;
+import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.kohsuke.github.*;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.ActionEvent;
+import javax.swing.Timer;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 
 public class GitIssuesTab extends JPanel {
@@ -54,9 +59,13 @@ public class GitIssuesTab extends JPanel {
     private JButton captureButton;
 
     private FilterBox statusFilter;
+    private FilterBox resolutionFilter;
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
+    private JTextField searchField;
+    private Timer searchDebounceTimer;
+    private static final int SEARCH_DEBOUNCE_DELAY = 300; // ms for search debounce
 
     // Context Menu for Issue Table
     private JPopupMenu issueContextMenu;
@@ -66,72 +75,182 @@ public class GitIssuesTab extends JPanel {
     private Action openInBrowserAction;
     private Action captureAction;
 
-    private List<GHIssue> allIssuesFromApi = new ArrayList<>();
-    private List<GHIssue> displayedIssues = new ArrayList<>();
+    private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
+    private List<IssueHeader> displayedIssues = new ArrayList<>();
 
     // Store default options for static filters to easily reset them
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
+    private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
+    private final IssueService issueService;
+    private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
 
-    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.issueService = issueService;
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient(contextManager, chrome);
+
+        // Load dynamic statuses after issueService and statusFilter are initialized
+        contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
+            List<String> fetchedStatuses = null;
+            try {
+                if (this.issueService != null) { // Ensure issueService is available
+                    fetchedStatuses = this.issueService.listAvailableStatuses();
+                } else {
+                    logger.warn("IssueService is null, cannot load available statuses.");
+                }
+            } catch (IOException e) {
+                logger.error("Failed to load available issue statuses. Falling back to defaults.", e);
+            }
+
+            final List<String> finalFetchedStatuses = fetchedStatuses;
+            SwingUtilities.invokeLater(() -> {
+                synchronized (actualStatusFilterOptions) {
+                    actualStatusFilterOptions.clear();
+                    if (finalFetchedStatuses != null && !finalFetchedStatuses.isEmpty()) {
+                        actualStatusFilterOptions.addAll(finalFetchedStatuses);
+                    } else {
+                        actualStatusFilterOptions.addAll(STATUS_FILTER_OPTIONS); // Fallback
+                    }
+                }
+                if (statusFilter != null) {
+                    // If FilterBox needs an explicit update method, it should be called here.
+                    // For now, assuming it might re-fetch from its optionsProvider when next opened.
+                }
+            });
+            return null;
+        });
 
         // Split panel with Issues on left (larger) and issue description on right (smaller)
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
         splitPane.setResizeWeight(0.6); // 60% for Issue list, 40% for details
 
         // --- Left side - Issues table and filters ---
-        // This mainIssueAreaPanel will hold filters on WEST and table+buttons on CENTER
-        JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        JPanel mainIssueAreaPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Main panel for left side
         mainIssueAreaPanel.setBorder(BorderFactory.createTitledBorder("Issues"));
 
-        // Vertical Filter Panel
-        JPanel verticalFilterPanel = new JPanel();
-        verticalFilterPanel.setLayout(new BoxLayout(verticalFilterPanel, BoxLayout.Y_AXIS));
+        // Panel to hold token message (if any) and search bar
+        JPanel topContentPanel = new JPanel();
+        topContentPanel.setLayout(new BoxLayout(topContentPanel, BoxLayout.Y_AXIS));
+
+        gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
+        JPanel tokenPanelWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+        tokenPanelWrapper.add(gitHubTokenMissingPanel);
+        topContentPanel.add(tokenPanelWrapper);
+
+        // Search Panel
+        JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
+        searchField = new JTextField();
+        searchField.setToolTipText("Search issues (Ctrl+F to focus)");
+        searchPanel.add(new JLabel("Search: "), BorderLayout.WEST);
+        searchPanel.add(searchField, BorderLayout.CENTER);
+        topContentPanel.add(searchPanel);
+
+        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); // Add combined top panel
+
+        searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
+            logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchField.getText());
+            updateIssueList();
+        });
+        searchDebounceTimer.setRepeats(false);
+
+        searchField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { changed(); }
+            @Override public void removeUpdate(DocumentEvent e) { changed(); }
+            @Override public void changedUpdate(DocumentEvent e) { changed(); }
+            private void changed() {
+                if (searchDebounceTimer.isRunning()) {
+                    searchDebounceTimer.restart();
+                } else {
+                    searchDebounceTimer.start();
+                }
+            }
+        });
+
+        // Ctrl+F shortcut
+        InputMap inputMap = mainIssueAreaPanel.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap actionMap = mainIssueAreaPanel.getActionMap();
+        String ctrlFKey = "control F";
+        inputMap.put(KeyStroke.getKeyStroke(ctrlFKey), "focusSearchField");
+        actionMap.put("focusSearchField", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                searchField.requestFocusInWindow();
+                searchField.selectAll();
+            }
+        });
+
+        // Panel to hold filters (WEST) and table+buttons (CENTER)
+        JPanel filtersAndTablePanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+
+        // Vertical Filter Panel with BorderLayout to keep filters at top
+        JPanel verticalFilterPanel = new JPanel(new BorderLayout());
+
+        // Container for the actual filters
+        JPanel filtersContainer = new JPanel();
+        filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        verticalFilterPanel.add(filterLabel);
-        verticalFilterPanel.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
+        filtersContainer.add(filterLabel);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP)); // Space after label
 
-        statusFilter = new FilterBox(this.chrome, "Status", () -> STATUS_FILTER_OPTIONS, "Open");
-        statusFilter.setToolTipText("Filter by issue status");
+        if (this.issueService instanceof JiraIssueService) {
+            resolutionFilter = new FilterBox(this.chrome, "Resolution", () -> List.of("Resolved", "Unresolved"), "Unresolved");
+            resolutionFilter.setToolTipText("Filter by Jira issue resolution");
+            resolutionFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
+            // API call needed when resolution changes
+            resolutionFilter.addPropertyChangeListener("value", e -> updateIssueList());
+            filtersContainer.add(resolutionFilter); // Add to filtersContainer
+            filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
+
+
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, null); // No default for Jira status
+            statusFilter.setToolTipText("Filter by Jira issue status");
+        } else { // GitHub or default
+            statusFilter = new FilterBox(this.chrome, "Status", () -> actualStatusFilterOptions, "Open"); // Default "Open" for GitHub
+            statusFilter.setToolTipText("Filter by GitHub issue status");
+        }
         statusFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
         statusFilter.addPropertyChangeListener("value", e -> {
-            // Status filter change triggers a new API fetch
+            // Status filter change triggers a new API fetch and subsequent processing.
             updateIssueList();
         });
-        verticalFilterPanel.add(statusFilter);
+        filtersContainer.add(statusFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         authorFilter = new FilterBox(this.chrome, "Author", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "author"));
-        authorFilter.setToolTipText("Filter by author");
+        authorFilter.setToolTipText("Filter by issue author");
         authorFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        authorFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(authorFilter);
+        authorFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        filtersContainer.add(authorFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         labelFilter = new FilterBox(this.chrome, "Label", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "label"));
-        labelFilter.setToolTipText("Filter by label");
+        labelFilter.setToolTipText("Filter by issue label");
         labelFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        labelFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(labelFilter);
+        labelFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        filtersContainer.add(labelFilter);
+        filtersContainer.add(Box.createVerticalStrut(Constants.V_GAP));
 
         assigneeFilter = new FilterBox(this.chrome, "Assignee", () -> generateFilterOptionsFromIssues(allIssuesFromApi, "assignee"));
-        assigneeFilter.setToolTipText("Filter by assignee");
+        assigneeFilter.setToolTipText("Filter by issue assignee");
         assigneeFilter.setAlignmentX(Component.LEFT_ALIGNMENT);
-        assigneeFilter.addPropertyChangeListener("value", e -> filterAndDisplayIssues());
-        verticalFilterPanel.add(assigneeFilter);
+        assigneeFilter.addPropertyChangeListener("value", e -> triggerClientSideFilterUpdate());
+        filtersContainer.add(assigneeFilter);
 
-        verticalFilterPanel.add(Box.createVerticalGlue()); // Pushes filters to the top
+        // Add the filters container to the north of the panel to keep them at the top
+        verticalFilterPanel.add(filtersContainer, BorderLayout.NORTH);
 
-        mainIssueAreaPanel.add(verticalFilterPanel, BorderLayout.WEST);
+        filtersAndTablePanel.add(verticalFilterPanel, BorderLayout.WEST);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout());
@@ -217,7 +336,9 @@ public class GitIssuesTab extends JPanel {
         issueButtonPanel.add(refreshButton);
 
         issueTableAndButtonsPanel.add(issueButtonPanel, BorderLayout.SOUTH);
-        mainIssueAreaPanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
+        filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
+        mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
+
 
         // Right side - Details of the selected issue
         JPanel issueDetailPanel = new JPanel(new BorderLayout());
@@ -293,8 +414,8 @@ public class GitIssuesTab extends JPanel {
                         disableIssueActionsAndClearDetails();
                         return;
                     }
-                    GHIssue selectedIssue = displayedIssues.get(modelRow);
-                    loadAndRenderIssueBody(selectedIssue);
+                    IssueHeader selectedHeader = displayedIssues.get(modelRow);
+                    loadAndRenderIssueBodyFromHeader(selectedHeader);
                     copyDescriptionAction.setEnabled(true);
                     openInBrowserAction.setEnabled(true);
                     captureAction.setEnabled(true);
@@ -309,20 +430,53 @@ public class GitIssuesTab extends JPanel {
         updateIssueList(); // async
     }
 
+    public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+        this(chrome, contextManager, gitPanel, createDefaultIssueService(contextManager));
+    }
+
+    private static IssueService createDefaultIssueService(ContextManager contextManager) {
+        IProject project = contextManager.getProject();
+        // This line will cause a compile error until IProject.getIssuesProvider() is added. This is expected.
+        io.github.jbellis.brokk.issues.IssueProviderType providerType = project.getIssuesProvider().type();
+        Logger staticLogger = LogManager.getLogger(GitIssuesTab.class);
+
+        switch (providerType) {
+            case JIRA:
+                staticLogger.info("Using JiraIssueService for project {} (provider: JIRA)", project.getRoot().getFileName());
+                return new JiraIssueService(project);
+            case GITHUB:
+            case NONE: // Explicitly handle NONE, though it might default to GitHub or a NoOp service later
+            default: // Default to GitHub if enum is somehow null or unexpected value, or NONE
+                staticLogger.info("Using GitHubIssueService for project {} (provider: {})", project.getRoot().getFileName(), providerType);
+                return new GitHubIssueService(project);
+        }
+    }
+
     private OkHttpClient initializeHttpClient(ContextManager contextManager, Chrome chrome) {
         OkHttpClient client;
         try {
-            GitHubAuth auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-            client = auth.authenticatedClient();
+            // Attempt to get the client from the already initialized issueService
+            if (this.issueService == null) {
+                // This case should ideally not happen if constructor order is correct,
+                // but as a safeguard:
+                logger.error("IssueService is null during httpClient initialization. Falling back to unauthenticated client.");
+                throw new IOException("IssueService not available for HTTP client setup.");
+            }
+            client = this.issueService.httpClient(); // This can throw IOException
+            logger.info("Successfully initialized HTTP client from IssueService: {}", this.issueService.getClass().getSimpleName());
         } catch (IOException e) {
-            logger.error("Failed to initialize authenticated GitHub client for GitIssuesTab, falling back to unauthenticated client.", e);
+            logger.error("Failed to initialize authenticated client from IssueService ({}) for GitIssuesTab, falling back to unauthenticated client. Error: {}",
+                         (this.issueService != null ? this.issueService.getClass().getSimpleName() : "null"), e.getMessage(), e);
             client = new OkHttpClient.Builder()
                     .connectTimeout(5, TimeUnit.SECONDS)
                     .readTimeout(10, TimeUnit.SECONDS)
                     .writeTimeout(5, TimeUnit.SECONDS)
                     .followRedirects(true)
                     .build();
-            chrome.toolErrorRaw("Could not authenticate with GitHub for image downloads. Private images may not load.");
+            // Avoid calling chrome.toolErrorRaw if chrome might not be fully initialized or if on a background thread.
+            // The caller or a more appropriate UI update mechanism should handle user notification if needed.
+            // For now, logging is sufficient here.
+            // Consider if a generic "Issue provider http client setup failed" message is needed for the user via chrome.toolErrorRaw if appropriate.
         }
         return client;
     }
@@ -337,41 +491,53 @@ public class GitIssuesTab extends JPanel {
         issueBodyTextPane.setText("");
     }
 
-    private void loadAndRenderIssueBody(GHIssue issue) {
+    private void loadAndRenderIssueBodyFromHeader(IssueHeader header) {
         assert SwingUtilities.isEventDispatchThread();
 
-        if (issue == null) {
+        if (header == null) {
             issueBodyTextPane.setContentType("text/html");
             issueBodyTextPane.setText("");
             return;
         }
 
-        String rawMarkdownBody = issue.getBody();
-
-        if (rawMarkdownBody == null || rawMarkdownBody.isBlank()) {
-            issueBodyTextPane.setContentType("text/html");
-            issueBodyTextPane.setText("<html><body><p>No description provided.</p></body></html>");
-            return;
-        }
-
-        // Show loading message
         issueBodyTextPane.setContentType("text/html");
-        issueBodyTextPane.setText("<html><body><p><i>Loading description...</i></p></body></html>");
+        issueBodyTextPane.setText("<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
 
-        contextManager.submitBackgroundTask("Rendering Issue Description", () -> {
+        contextManager.submitBackgroundTask("Fetching/Rendering Issue Details", () -> {
             try {
-                String htmlBody = this.gfmRenderer.render(rawMarkdownBody);
-                SwingUtilities.invokeLater(() -> {
-                    issueBodyTextPane.setContentType("text/html");
-                    issueBodyTextPane.setText(htmlBody);
-                    issueBodyTextPane.setCaretPosition(0); // Scroll to top
-                });
+                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                String rawBody = details.markdownBody();
+
+                if (rawBody == null || rawBody.isBlank()) {
+                    SwingUtilities.invokeLater(() -> {
+                        issueBodyTextPane.setContentType("text/html");
+                        issueBodyTextPane.setText("<html><body><p>No description provided.</p></body></html>");
+                    });
+                    return null;
+                }
+
+                if (this.issueService instanceof JiraIssueService) {
+                    // For Jira, rawBody is HTML.
+                    SwingUtilities.invokeLater(() -> {
+                        issueBodyTextPane.setContentType("text/html");
+                        issueBodyTextPane.setText(rawBody);
+                        issueBodyTextPane.setCaretPosition(0); // Scroll to top
+                    });
+                } else {
+                    // For GitHub or other Markdown-based services, render Markdown to HTML.
+                    String htmlBody = this.gfmRenderer.render(rawBody);
+                    SwingUtilities.invokeLater(() -> {
+                        issueBodyTextPane.setContentType("text/html");
+                        issueBodyTextPane.setText(htmlBody);
+                        issueBodyTextPane.setCaretPosition(0); // Scroll to top
+                    });
+                }
+
             } catch (Exception e) {
-                logger.error("Failed to render markdown for issue #{}: {}", issue.getNumber(), e.getMessage(), e);
+                logger.error("Failed to load/render details for issue {}: {}", header.id(), e.getMessage(), e);
                 SwingUtilities.invokeLater(() -> {
-                    // Display raw markdown with an error message
-                    issueBodyTextPane.setContentType("text/plain"); // Switch to plain text for raw markdown
-                    issueBodyTextPane.setText("Failed to render description. Showing raw markdown:\n\n" + rawMarkdownBody);
+                    issueBodyTextPane.setContentType("text/plain");
+                    issueBodyTextPane.setText("Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
                     issueBodyTextPane.setCaretPosition(0);
                 });
             }
@@ -384,29 +550,36 @@ public class GitIssuesTab extends JPanel {
      */
     private void updateIssueList() {
         contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
-            List<GHIssue> fetchedIssues;
+            List<IssueHeader> fetchedIssueHeaders;
             try {
-                var project = contextManager.getProject();
-                GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
+                // Read filter values on EDT or before submitting task. searchField can be null during early init.
+                final String currentSearchQuery = (searchField != null) ? searchField.getText().strip() : "";
+                final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
-                String selectedStatusOption = statusFilter.getSelected();
-                GHIssueState apiState;
-                if ("Open".equals(selectedStatusOption)) {
-                    apiState = GHIssueState.OPEN;
-                } else if ("Closed".equals(selectedStatusOption)) {
-                    apiState = GHIssueState.CLOSED;
-                } else { // null or any other string implies ALL for safety, though options are limited
-                    apiState = GHIssueState.ALL;
+                final String statusVal = getBaseFilterValue(statusFilter.getSelected());
+                final String authorVal = getBaseFilterValue(authorFilter.getSelected()); // For GitHub server-side search
+                final String labelVal = getBaseFilterValue(labelFilter.getSelected());   // For GitHub server-side search
+                final String assigneeVal = getBaseFilterValue(assigneeFilter.getSelected());// For GitHub server-side search
+
+
+                io.github.jbellis.brokk.issues.FilterOptions apiFilterOptions;
+                if (this.issueService instanceof JiraIssueService) {
+                    String resolutionVal = (resolutionFilter != null) ? getBaseFilterValue(resolutionFilter.getSelected()) : "Unresolved";
+                    // For Jira, author/label/assignee are client-filtered. Query is passed for server-side text search.
+                    apiFilterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(statusVal, resolutionVal, null, null, null, queryForApi);
+                    logger.debug("Jira API filters: Status='{}', Resolution='{}', Query='{}'", statusVal, resolutionVal, queryForApi);
+                } else { // GitHub or default
+                    // For GitHub, all filters including query are passed for server-side search if query is present.
+                    // If query is null, service handles client-side filtering for author/label/assignee.
+                    apiFilterOptions = new io.github.jbellis.brokk.issues.GitHubFilterOptions(statusVal, authorVal, labelVal, assigneeVal, queryForApi);
+                    logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
+                                 statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
 
-                // This method needs to be added to GitHubAuth.java
-                fetchedIssues = auth.listIssues(apiState)
-                        .stream()
-                        .filter(issue -> !issue.isPullRequest())
-                        .toList();
-                logger.debug("Fetched {} issues", fetchedIssues.size());
+                fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
+                logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
             } catch (Exception ex) {
-                logger.error("Failed to fetch issues", ex);
+                logger.error("Failed to fetch issues via IssueService", ex);
                 SwingUtilities.invokeLater(() -> {
                     allIssuesFromApi.clear();
                     displayedIssues.clear();
@@ -419,60 +592,157 @@ public class GitIssuesTab extends JPanel {
                 return null;
             }
 
-            // Process fetched issues on EDT
-            List<GHIssue> finalFetchedIssues = fetchedIssues;
-            SwingUtilities.invokeLater(() -> {
-                allIssuesFromApi = new ArrayList<>(finalFetchedIssues);
-                filterAndDisplayIssues(); // Apply current filters
-            });
+            // Perform filtering and display processing in the background
+            processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
         });
     }
 
-    private List<String> generateFilterOptionsFromIssues(List<GHIssue> issues, String filterType) {
-        if (issues.isEmpty()) {
+    private void triggerClientSideFilterUpdate() {
+        // This method is called when author, label, or assignee filters change.
+        // It re-filters the existing 'allIssuesFromApi' list.
+        if (allIssuesFromApi == null || (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() > 0 && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues"))) {
+            logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
+            return;
+        }
+
+        final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
+
+        contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
+            logger.debug("Client-side filter update triggered. Processing {} issues from current API list.", currentIssuesToFilter.size());
+            processAndDisplayWorker(currentIssuesToFilter, false); // 'false' means don't update allIssuesFromApi, just displayedIssues
+            return null;
+        });
+    }
+
+
+    private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
+        // This method runs on a background thread.
+        logger.debug("processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}", sourceList.size(), isFullUpdate);
+
+        // Read filter values. These are assumed to be safe to read from a background thread
+        // as FilterBox.getSelected() should be a simple getter.
+        String selectedAuthorActual = getBaseFilterValue(authorFilter.getSelected());
+        String selectedLabelActual = getBaseFilterValue(labelFilter.getSelected());
+        String selectedAssigneeActual = getBaseFilterValue(assigneeFilter.getSelected());
+        logger.debug("processAndDisplayWorker: Filters - Author: '{}', Label: '{}', Assignee: '{}'",
+                     selectedAuthorActual, selectedLabelActual, selectedAssigneeActual);
+
+        List<IssueHeader> filteredIssues = new ArrayList<>();
+        if (sourceList != null) { // Guard against null sourceList
+            for (var header : sourceList) {
+                boolean matches = true;
+                if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
+                    matches = false;
+                }
+                if (matches && selectedLabelActual != null) {
+                    if (header.labels() == null || header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
+                        matches = false;
+                    }
+                }
+                if (matches && selectedAssigneeActual != null) {
+                    if (header.assignees() == null || header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
+                        matches = false;
+                    }
+                }
+                if (matches) {
+                    filteredIssues.add(header);
+                }
+            }
+        }
+        logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
+
+        // Sort issues by update date, newest first
+        filteredIssues.sort(Comparator.comparing(IssueHeader::updated, Comparator.nullsLast(Comparator.reverseOrder())));
+        logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
+
+        // Data for EDT update
+        final List<IssueHeader> finalSourceListForApiField = (isFullUpdate && sourceList != null) ? new ArrayList<>(sourceList) : null;
+        final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
+
+        SwingUtilities.invokeLater(() -> {
+            // This part runs on the EDT
+            logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
+            if (isFullUpdate && finalSourceListForApiField != null) {
+                allIssuesFromApi = finalSourceListForApiField;
+                logger.debug("processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.", allIssuesFromApi.size());
+                // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
+                // when the user interacts with them.
+            }
+            displayedIssues = finalFilteredIssuesForDisplay;
+            logger.debug("processAndDisplayWorker (EDT): Set displayedIssues with {} issues.", displayedIssues.size());
+
+            // Update table model
+            issueTableModel.setRowCount(0);
+            var today = LocalDate.now();
+            if (displayedIssues.isEmpty()) {
+                issueTableModel.addRow(new Object[]{"", "No matching issues found", "", "", "", "", ""});
+                disableIssueActions();
+            } else {
+                for (var header : displayedIssues) {
+                    String formattedUpdated = (header.updated() != null) ? gitPanel.formatCommitDate(header.updated(), today) : "";
+                    String labelsStr = (header.labels() != null) ? String.join(", ", header.labels()) : "";
+                    String assigneesStr = (header.assignees() != null) ? String.join(", ", header.assignees()) : "";
+
+                    issueTableModel.addRow(new Object[]{
+                            header.id(), header.title(), header.author(), formattedUpdated,
+                            labelsStr, assigneesStr, header.status()
+                    });
+                }
+            }
+            logger.debug("processAndDisplayWorker (EDT): Table model updated.");
+
+            // Manage button states based on selection
+            if (issueTable.getSelectedRow() == -1) {
+                disableIssueActions();
+            } else {
+                // Trigger selection listener to update button states correctly for the (potentially new) selection
+                // This ensures that if the selection is still valid, actions are enabled.
+                issueTable.getSelectionModel().setValueIsAdjusting(true);
+                issueTable.getSelectionModel().setValueIsAdjusting(false);
+            }
+            logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
+        });
+    }
+
+    private List<String> generateFilterOptionsFromIssues(List<IssueHeader> issueHeaders, String filterType) {
+        if (issueHeaders == null || issueHeaders.isEmpty()) { // Added null check
             return List.of();
         }
 
         Map<String, Integer> counts = new HashMap<>();
-        
+
         switch (filterType) {
             case "author" -> {
-                for (var issue : issues) {
-                    try {
-                        GHUser user = issue.getUser();
-                        if (user != null) {
-                            String login = user.getLogin();
-                            if (login != null && !login.isBlank()) {
-                                counts.merge(login, 1, Integer::sum);
-                            }
-                        }
-                    } catch (IOException e) {
-                        logger.warn("Could not get user or login for issue #{}", issue.getNumber(), e);
+                for (var header : issueHeaders) {
+                    if (header.author() != null && !header.author().isBlank() && !"N/A".equalsIgnoreCase(header.author())) {
+                        counts.merge(header.author(), 1, Integer::sum);
                     }
                 }
             }
             case "label" -> {
-                for (var issue : issues) {
-                    for (GHLabel label : issue.getLabels()) {
-                        if (!label.getName().isBlank()) {
-                            counts.merge(label.getName(), 1, Integer::sum);
+                for (var header : issueHeaders) {
+                    if (header.labels() != null) { // Added null check
+                        for (String label : header.labels()) {
+                            if (!label.isBlank()) {
+                                counts.merge(label, 1, Integer::sum);
+                            }
                         }
                     }
                 }
             }
             case "assignee" -> {
-                for (var issue : issues) {
-                    for (GHUser assignee : issue.getAssignees()) {
-                        String login = assignee.getLogin(); // Does not throw IOException
-                        if (login != null && !login.isBlank()) {
-                            counts.merge(login, 1, Integer::sum);
+                for (var header : issueHeaders) {
+                    if (header.assignees() != null) { // Added null check
+                        for (String assignee : header.assignees()) {
+                            if (assignee != null && !assignee.isBlank() && !"N/A".equalsIgnoreCase(assignee)) {
+                                counts.merge(assignee, 1, Integer::sum);
+                            }
                         }
                     }
                 }
             }
         }
-        
         return generateFilterOptionsList(counts);
     }
 
@@ -485,104 +755,6 @@ public class GitIssuesTab extends JPanel {
             options.add(String.format("%s (%d)", item, counts.get(item)));
         }
         return options;
-    }
-
-    private void filterAndDisplayIssues() {
-        assert SwingUtilities.isEventDispatchThread();
-        displayedIssues.clear();
-        String selectedAuthorDisplay = authorFilter.getSelected();
-        String selectedLabelDisplay = labelFilter.getSelected();
-        String selectedAssigneeDisplay = assigneeFilter.getSelected();
-
-        String selectedAuthorActual = getBaseFilterValue(selectedAuthorDisplay);
-        String selectedLabelActual = getBaseFilterValue(selectedLabelDisplay);
-        String selectedAssigneeActual = getBaseFilterValue(selectedAssigneeDisplay);
-
-        for (var issue : allIssuesFromApi) {
-            boolean matches = true;
-            try {
-                // Author filter
-                if (selectedAuthorActual != null && (issue.getUser() == null || !selectedAuthorActual.equals(issue.getUser().getLogin()))) {
-                    matches = false;
-                }
-                // Label filter
-                if (matches && selectedLabelActual != null) {
-                    matches = issue.getLabels().stream().anyMatch(l -> selectedLabelActual.equals(l.getName()));
-                }
-                // Assignee filter
-                if (matches && selectedAssigneeActual != null) {
-                    boolean assigneeMatch = false;
-                    for (GHUser assignee : issue.getAssignees()) {
-                        String login = assignee.getLogin(); // Can throw IOException
-                        if (selectedAssigneeActual.equals(login)) {
-                            assigneeMatch = true;
-                            break;
-                        }
-                    }
-                    matches = assigneeMatch;
-                }
-            } catch (IOException e) {
-                logger.warn("Error accessing issue data during filtering for issue #{}", issue.getNumber(), e);
-                matches = false; // Skip issue if data can't be accessed
-            }
-
-            if (matches) {
-                displayedIssues.add(issue);
-            }
-        }
-
-        // Update table model
-        issueTableModel.setRowCount(0);
-        var today = LocalDate.now();
-        if (displayedIssues.isEmpty()) {
-            issueTableModel.addRow(new Object[]{"", "No matching issues found", "", "", "", "", ""});
-            disableIssueActions();
-        } else {
-            // Sort issues by update date, newest first
-            displayedIssues.sort(Comparator.comparing(issue -> {
-                try {
-                    return issue.getUpdatedAt();
-                } catch (IOException e) {
-                    return new Date(0); // Oldest on error
-                }
-            }, Comparator.nullsLast(Comparator.reverseOrder())));
-
-            for (var issue : displayedIssues) {
-                String author = "";
-                String formattedUpdated = "";
-                String labels = "";
-                String assignees = "";
-                String statusValue = "";
-                try {
-                    if (issue.getUser() != null) author = issue.getUser().getLogin();
-                    if (issue.getUpdatedAt() != null) {
-                        formattedUpdated = gitPanel.formatCommitDate(issue.getUpdatedAt(), today);
-                    }
-                    labels = issue.getLabels().stream().map(GHLabel::getName).collect(Collectors.joining(", "));
-                    assignees = issue.getAssignees().stream()
-                            .map(GHUser::getLogin) // GHUser.getLogin() does not throw IOException
-                            .filter(login -> login != null && !login.isBlank())
-                            .collect(Collectors.joining(", "));
-                    statusValue = issue.getState().toString();
-                } catch (
-                        IOException ex) { // This catch is for outer operations like issue.getUser(), issue.getUpdatedAt() etc.
-                    logger.warn("Could not get metadata for issue #{}", issue.getNumber(), ex);
-                }
-
-                issueTableModel.addRow(new Object[]{
-                        "#" + issue.getNumber(), issue.getTitle(), author, formattedUpdated,
-                        labels, assignees, statusValue
-                });
-            }
-        }
-        // Buttons state will be managed by selection listener or if selection is empty
-        if (issueTable.getSelectedRow() == -1) {
-            disableIssueActions();
-        } else {
-            // Trigger selection listener to update button states correctly for the (potentially new) selection
-            issueTable.getSelectionModel().setValueIsAdjusting(true); // force re-evaluation
-            issueTable.getSelectionModel().setValueIsAdjusting(false);
-        }
     }
 
     private String getBaseFilterValue(String displayOptionWithCount) {
@@ -614,108 +786,77 @@ public class GitIssuesTab extends JPanel {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        GHIssue issue = displayedIssues.get(selectedRow);
-        captureIssue(issue);
+        IssueHeader header = displayedIssues.get(selectedRow);
+        captureIssueHeader(header);
     }
 
-    private void captureIssue(GHIssue issue) {
-        contextManager.submitContextTask("Capturing Issue #" + issue.getNumber(), () -> {
+    private void captureIssueHeader(IssueHeader header) {
+        contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
-                // 1. Fetch metadata
-                String authorLogin = getAuthorLogin(issue);
-                String labels = getCollectedLabels(issue);
-                String assignees = getCollectedAssignees(issue);
-                String originalMarkdownBody = (issue.getBody() == null || issue.getBody().isBlank()) ? "*No description provided.*" : issue.getBody();
+                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                if (details == null) {
+                    logger.error("Failed to load details for issue {}", header.id());
+                    chrome.toolErrorRaw("Failed to load details for issue " + header.id());
+                    return;
+                }
 
-                // 2. Build main issue content and create TaskFragment
-                List<ChatMessage> issueTextMessages = buildIssueTextContent(issue, authorLogin, labels, assignees, originalMarkdownBody);
-                ContextFragment.TaskFragment issueTextFragment = createIssueTextFragment(issue, issueTextMessages);
+                List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
+                ContextFragment.TaskFragment issueTextFragment = createIssueTextFragmentFromDetails(details, issueTextMessages);
                 contextManager.addVirtualFragment(issueTextFragment);
 
-                // 3. Fetch comments
-                List<GHIssueComment> ghCommentsList;
-                try {
-                    ghCommentsList = issue.getComments();
-                } catch (IOException e) {
-                    logger.error("Could not fetch comments for issue #{}", issue.getNumber(), e);
-                    chrome.toolErrorRaw("Failed to download comments for #" + issue.getNumber() + ": " + e.getMessage());
-                    ghCommentsList = List.of(); // Use an empty list if fetching fails
-                }
-
-                // Process comments into ChatMessages
-                List<ChatMessage> commentChatMessages = buildChatMessagesFromGhComments(ghCommentsList, issue);
+                List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments(), header.id());
                 if (!commentChatMessages.isEmpty()) {
-                    contextManager.addVirtualFragment(createCommentsFragment(issue, commentChatMessages));
+                    contextManager.addVirtualFragment(createCommentsFragmentFromDetails(details, commentChatMessages));
                 }
 
-                // 4. Process and capture images from issue body and comments
-                int capturedImageCount = processAndCaptureImages(issue, originalMarkdownBody, ghCommentsList);
+                int capturedImageCount = processAndCaptureImagesFromDetails(details);
 
-                // 5. Report success
-                String commentMessage = ghCommentsList.isEmpty() ? "" : " with " + ghCommentsList.size() + " comment(s)";
+                String commentMessage = details.comments().isEmpty() ? "" : " with " + details.comments().size() + " comment(s)";
                 String imageMessage = capturedImageCount == 0 ? "" : " and " + capturedImageCount + " image(s)";
-                chrome.systemOutput("Issue #" + issue.getNumber() + " captured to workspace" + commentMessage + imageMessage + ".");
+                chrome.systemOutput("Issue " + header.id() + " captured to workspace" + commentMessage + imageMessage + ".");
 
-            } catch (Exception e) { // Catches any unexpected exceptions from GHIssue API
-                logger.error("Failed to capture all details for issue #{}", issue.getNumber(), e);
-                chrome.toolErrorRaw("Failed to capture all details for issue #" + issue.getNumber() + ": " + e.getMessage());
+            } catch (Exception e) { // General catch for robustness
+                logger.error("Failed to capture all details for issue {}: {}", header.id(), e.getMessage(), e);
+                chrome.toolErrorRaw("Failed to capture all details for issue " + header.id() + ": " + e.getMessage());
             }
         });
     }
 
-    private String getAuthorLogin(GHIssue issue) {
-        try {
-            if (issue.getUser() != null) {
-                String login = issue.getUser().getLogin();
-                return (login != null && !login.isBlank()) ? login : "N/A";
-            }
-        } catch (java.io.IOException e) { // Though GHIssue.getUser() itself doesn't declare IOException
-            logger.warn("Could not retrieve author for issue #{}", issue.getNumber(), e);
+    private List<ChatMessage> buildIssueTextContentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
+        IssueHeader header = details.header();
+        String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
+        if (this.issueService instanceof JiraIssueService && bodyForCapture != null) {
+            bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
         }
-        return "N/A"; // Fallback
-    }
-
-    private String getCollectedLabels(GHIssue issue) {
-        return issue.getLabels().stream()
-                .map(GHLabel::getName)
-                .collect(Collectors.joining(", "));
-    }
-
-    private String getCollectedAssignees(GHIssue issue) {
-        return issue.getAssignees().stream()
-                .map(GHUser::getLogin) // GHUser.getLogin() does not throw IOException
-                .filter(login -> login != null && !login.isBlank())
-                .collect(Collectors.joining(", "));
-    }
-
-    private List<ChatMessage> buildIssueTextContent(GHIssue issue, String authorLogin, String labels, String assignees, String markdownBody) {
+        bodyForCapture = (bodyForCapture == null || bodyForCapture.isBlank()) ? "*No description provided.*" : bodyForCapture;
         String content = String.format("""
-                                       # Issue #%d: %s
-                                       
+                                       # Issue #%s: %s
+
                                        **Author:** %s
                                        **Status:** %s
                                        **URL:** %s
                                        **Labels:** %s
                                        **Assignees:** %s
-                                       
+
                                        ---
-                                       
+
                                        %s
                                        """.stripIndent(),
-                                       issue.getNumber(),
-                                       issue.getTitle(),
-                                       authorLogin,
-                                       issue.getState().toString(),
-                                       issue.getHtmlUrl().toString(),
-                                       labels.isEmpty() ? "None" : labels,
-                                       assignees.isEmpty() ? "None" : assignees,
-                                       markdownBody
+                                       header.id(),
+                                       header.title(),
+                                       header.author(),
+                                       header.status(),
+                                       header.htmlUrl().toString(),
+                                       header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
+                                       header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
+                                       bodyForCapture
         );
         return List.of(new CustomMessage(Map.of("text", content)));
     }
 
-    private ContextFragment.TaskFragment createIssueTextFragment(GHIssue issue, List<ChatMessage> messages) {
-        String description = String.format("GitHub Issue #%d: %s", issue.getNumber(), issue.getTitle());
+    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details, List<ChatMessage> messages) {
+        IssueHeader header = details.header();
+        String description = String.format("Issue %s: %s", header.id(), header.title());
         return new ContextFragment.TaskFragment(
                 this.contextManager,
                 messages,
@@ -724,42 +865,28 @@ public class GitIssuesTab extends JPanel {
         );
     }
 
-    private List<ChatMessage> buildChatMessagesFromGhComments(List<GHIssueComment> ghCommentsList, GHIssue issue) {
+    private List<ChatMessage> buildChatMessagesFromDtoComments(List<io.github.jbellis.brokk.issues.Comment> dtoComments, String issueId) {
         List<ChatMessage> chatMessages = new ArrayList<>();
-        for (GHIssueComment c : ghCommentsList) {
-            String author = "unknown";
-            String commentBody = c.getBody(); // Does not throw IOException
-            String commentIdStr = String.valueOf(c.getId()); // Does not throw
+        if (dtoComments == null) return chatMessages;
 
-            try {
-                GHUser user = c.getUser(); // Can throw IOException
-                if (user != null) {
-                    String login = user.getLogin(); // Does not throw IOException
-                    if (login != null && !login.isBlank()) {
-                        author = login;
-                    }
-                }
-            } catch (IOException e_user) {
-                // issue.getNumber() does not throw IOException
-                String issueNumStr = String.valueOf(issue.getNumber());
-                logger.warn("IOException getting user for comment_id:{} on issue #{}: {}", commentIdStr, issueNumStr, e_user.getMessage());
-                // author remains "unknown"
-            } catch (Exception e_other_user) { // Catch any other unexpected exception from getUser/getLogin logic
-                // issue.getNumber() does not throw IOException
-                String issueNumStr = String.valueOf(issue.getNumber());
-                logger.error("Unexpected error getting user for comment_id:{} on issue #{}: {}", commentIdStr, issueNumStr, e_other_user.getMessage(), e_other_user);
-                // author remains "unknown"
+        for (io.github.jbellis.brokk.issues.Comment comment : dtoComments) {
+            String author = (comment.author() == null || comment.author().isBlank()) ? "unknown" : comment.author();
+            String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
+            String commentBodyForCapture = originalCommentBody;
+            if (this.issueService instanceof JiraIssueService && originalCommentBody != null) {
+                commentBodyForCapture = HtmlUtil.convertToMarkdown(originalCommentBody);
             }
 
-            if (commentBody != null && !commentBody.isBlank()) {
-                chatMessages.add(UserMessage.from(author, commentBody));
+            if (commentBodyForCapture != null && !commentBodyForCapture.isBlank()) {
+                chatMessages.add(UserMessage.from(author, commentBodyForCapture));
             }
         }
         return chatMessages;
     }
 
-    private ContextFragment.TaskFragment createCommentsFragment(GHIssue issue, List<ChatMessage> commentMessages) {
-        String description = String.format("GitHub Issue #%d: Comments", issue.getNumber());
+    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details, List<ChatMessage> commentMessages) {
+        IssueHeader header = details.header();
+        String description = String.format("Issue %s: Comments", header.id());
         return new ContextFragment.TaskFragment(
                 this.contextManager,
                 commentMessages,
@@ -768,73 +895,42 @@ public class GitIssuesTab extends JPanel {
         );
     }
 
-    // Record to hold image data before fragment creation
-    private int processAndCaptureImages(GHIssue issue, String issueBodyMarkdown, List<GHIssueComment> comments) {
-        Set<String> allImageUrls = new LinkedHashSet<>();
-
-        // 1. Extract from issue body
-        if (issueBodyMarkdown != null && !issueBodyMarkdown.isBlank()) {
-            allImageUrls.addAll(MarkdownImageParser.extractImageUrls(issueBodyMarkdown));
-        }
-
-        // 2. Extract from comments
-        Map<String, String> commentAuthors = new HashMap<>(); // To store author for description
-        for (GHIssueComment comment : comments) {
-            String commentBody = comment.getBody();
-            if (commentBody != null && !commentBody.isBlank()) {
-                Set<String> commentImageUrls = MarkdownImageParser.extractImageUrls(commentBody);
-                allImageUrls.addAll(commentImageUrls);
-                // Store author for URLs found in this comment
-                String author = "unknown";
-                try {
-                    GHUser user = comment.getUser(); // This can throw IOException
-                    if (user != null) {
-                        String login = user.getLogin(); // This does not throw IOException
-                        if (login != null && !login.isBlank()) {
-                            author = login;
-                        }
-                    }
-                } catch (IOException e) {
-                    logger.warn("Could not get author for comment id {} on issue #{}", comment.getId(), String.valueOf(issue.getNumber()), e);
-                }
-                for (String url : commentImageUrls) {
-                    // Associate the URL with this comment's author, potentially overwriting if URL is in multiple comments (rare)
-                    // or if already seen in issue body (issue body takes precedence later).
-                    commentAuthors.putIfAbsent(url, author);
-                }
-            }
+    private int processAndCaptureImagesFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
+        IssueHeader header = details.header();
+        List<URI> attachmentUris = details.attachmentUrls(); // Already extracted by IssueService
+        if (attachmentUris == null || attachmentUris.isEmpty()) {
+            return 0;
         }
 
         int capturedImageCount = 0;
-        for (String imageUrl : allImageUrls) {
+        OkHttpClient clientToUse;
+        try {
+            clientToUse = issueService.httpClient(); // Use authenticated client from service
+        } catch (IOException e) {
+            logger.error("Failed to get authenticated client from IssueService for image download, falling back. Error: {}", e.getMessage());
+            // Fallback to the one initialized in GitIssuesTab constructor (might be unauthenticated)
+            clientToUse = this.httpClient; // Assumes this.httpClient is still available and initialized
+            chrome.toolErrorRaw("Could not get authenticated client for image download. Private images might not load. Error: " + e.getMessage());
+        }
+
+
+        for (URI imageUri : attachmentUris) {
             try {
-                URI imageUri = new URI(imageUrl);
-                if (ImageUtil.isImageUri(imageUri, this.httpClient)) {
-                    chrome.systemOutput("Downloading image: " + imageUrl);
-                    java.awt.Image image = ImageUtil.downloadImage(imageUri, this.httpClient);
+                if (ImageUtil.isImageUri(imageUri, clientToUse)) {
+                    chrome.systemOutput("Downloading image: " + imageUri.toString());
+                    java.awt.Image image = ImageUtil.downloadImage(imageUri, clientToUse);
                     if (image != null) {
-                        String description;
-                        // Determine if the image URL was primarily from the issue body or a comment for description
-                        boolean inIssueBody = issueBodyMarkdown != null && !issueBodyMarkdown.isBlank() && MarkdownImageParser.extractImageUrls(issueBodyMarkdown).contains(imageUrl);
-                        if (inIssueBody) {
-                            description = String.format("GitHub issue #%s: Image from Issue", issue.getNumber());
-                        } else {
-                            String commentAuthor = commentAuthors.getOrDefault(imageUrl, "unknown author");
-                            description = String.format("GitHub issue #%s: Image from comment by %s", issue.getNumber(), commentAuthor);
-                        }
+                        String description = String.format("Issue %s: Image", header.id());
                         contextManager.addPastedImageFragment(image, description);
                         capturedImageCount++;
                     } else {
-                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUrl);
-                        chrome.toolErrorRaw("Failed to download image: " + imageUrl);
+                        logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
+                        chrome.toolErrorRaw("Failed to download image: " + imageUri.toString());
                     }
                 }
-            } catch (URISyntaxException e) {
-                logger.warn("Invalid image URI syntax: {}", imageUrl, e);
-                chrome.toolErrorRaw("Invalid image URL: " + imageUrl);
-            } catch (Exception e) { // General catch for robustness during image processing
-                logger.error("Unexpected error processing image {}: {}", imageUrl, e.getMessage(), e);
-                chrome.toolErrorRaw("Error processing image " + imageUrl + ": " + e.getMessage());
+            } catch (Exception e) {
+                logger.error("Unexpected error processing image {}: {}", imageUri.toString(), e.getMessage(), e);
+                chrome.toolErrorRaw("Error processing image " + imageUri.toString() + ": " + e.getMessage());
             }
         }
         return capturedImageCount;
@@ -845,15 +941,25 @@ public class GitIssuesTab extends JPanel {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        GHIssue issue = displayedIssues.get(selectedRow);
-        String body = issue.getBody();
-        if (body != null && !body.isBlank()) {
-            StringSelection stringSelection = new StringSelection(body);
-            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
-            chrome.systemOutput("Issue #" + issue.getNumber() + " description copied to clipboard.");
-        } else {
-            chrome.systemOutput("Issue #" + issue.getNumber() + " has no description to copy.");
-        }
+        IssueHeader header = displayedIssues.get(selectedRow);
+
+        contextManager.submitBackgroundTask("Fetching issue details for copy", () -> {
+            try {
+                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                String body = details.markdownBody();
+                if (body != null && !body.isBlank()) {
+                    StringSelection stringSelection = new StringSelection(body);
+                    Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
+                    chrome.systemOutput("Issue " + header.id() + " description copied to clipboard.");
+                } else {
+                    chrome.systemOutput("Issue " + header.id() + " has no description to copy.");
+                }
+            } catch (IOException e) {
+                logger.error("Failed to load issue details for copy: {}", header.id(), e);
+                chrome.toolErrorRaw("Failed to load issue " + header.id() + " details for copy: " + e.getMessage());
+            }
+            return null;
+        });
     }
 
     private void openSelectedIssueInBrowser() {
@@ -861,11 +967,11 @@ public class GitIssuesTab extends JPanel {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        GHIssue issue = displayedIssues.get(selectedRow);
+        IssueHeader header = displayedIssues.get(selectedRow);
         try {
-            String url = issue.getHtmlUrl().toString();
+            URI url = header.htmlUrl();
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(new java.net.URI(url));
+                Desktop.getDesktop().browse(url);
             } else {
                 chrome.toolError("Cannot open browser. Desktop API not supported.");
                 logger.warn("Desktop.Action.BROWSE not supported, cannot open issue URL: {}", url);

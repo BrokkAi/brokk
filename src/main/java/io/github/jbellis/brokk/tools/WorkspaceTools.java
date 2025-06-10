@@ -203,7 +203,7 @@ public class WorkspaceTools {
         var idsToDropSet = new HashSet<>(fragmentIds);
 
         var toDrop = allFragments.stream()
-                .filter(frag -> idsToDropSet.contains(frag.id()))
+                .filter(frag -> idsToDropSet.contains(frag.id())) // idsToDropSet should be Set<String>
                 .toList();
 
         if (!toDrop.isEmpty()) {

@@ -69,7 +69,7 @@ public class GitRepoTest {
         Assertions.assertEquals(1, worktrees.size());
         
         var worktreeInfo = worktrees.get(0);
-        Assertions.assertEquals(projectRoot.toAbsolutePath().normalize(), worktreeInfo.path());
+        Assertions.assertEquals(projectRoot.toRealPath(), worktreeInfo.path());
         
         String expectedBranch = repo.getCurrentBranch();
         Assertions.assertEquals(expectedBranch, worktreeInfo.branch());
@@ -98,8 +98,9 @@ public class GitRepoTest {
         List<IGitRepo.WorktreeInfo> worktrees = repo.listWorktrees();
         Assertions.assertEquals(2, worktrees.size(), "Should be two worktrees after adding one.");
 
+        Path newWorktreePathReal = newWorktreePath.toRealPath();
         Optional<IGitRepo.WorktreeInfo> addedWorktreeOpt = worktrees.stream()
-                .filter(wt -> wt.path().equals(newWorktreePath.toAbsolutePath().normalize()))
+                .filter(wt -> wt.path().equals(newWorktreePathReal))
                 .findFirst();
 
         Assertions.assertTrue(addedWorktreeOpt.isPresent(), "Newly added worktree not found in list.");
@@ -128,8 +129,9 @@ public class GitRepoTest {
         // Verify it was added
         List<IGitRepo.WorktreeInfo> worktreesAfterAdd = repo.listWorktrees();
         Assertions.assertEquals(2, worktreesAfterAdd.size(), "Should be two worktrees after adding one for removal.");
+        Path worktreePathToRemoveReal = worktreePathToRemove.toRealPath();
         Assertions.assertTrue(
-            worktreesAfterAdd.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemove.toAbsolutePath().normalize())),
+            worktreesAfterAdd.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
             "Newly added worktree (for removal) not found in list."
         );
         Assertions.assertTrue(Files.exists(worktreePathToRemove), "Worktree directory should exist after add.");
@@ -142,7 +144,7 @@ public class GitRepoTest {
         List<IGitRepo.WorktreeInfo> worktreesAfterRemove = repo.listWorktrees();
         Assertions.assertEquals(1, worktreesAfterRemove.size(), "Should be one worktree after removing one.");
         Assertions.assertFalse(
-            worktreesAfterRemove.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemove.toAbsolutePath().normalize())),
+            worktreesAfterRemove.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
             "Removed worktree should not be found in list."
         );
         // The `git worktree remove` command should remove the directory if it's clean.
