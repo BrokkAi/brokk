@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
@@ -333,6 +334,13 @@ public class GitCommitTab extends JPanel {
             });
         });
         buttonPanel.add(commitButton);
+
+        JButton createPrButton = new JButton("Create PR");
+        createPrButton.setToolTipText("Create a pull request");
+        createPrButton.addActionListener(e -> {
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome);
+        });
+        buttonPanel.add(createPrButton);
 
         // Commit message area => enable/disable commit/stash buttons
         commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
