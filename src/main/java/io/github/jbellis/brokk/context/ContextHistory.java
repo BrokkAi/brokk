@@ -15,7 +15,7 @@ import java.util.*;
  * locking.</p>
  *
  * <p><strong>Contract:</strong> every {@code Context} handed to this class
- * <em>must already be frozen</em> (see {@link Context#freeze()}).  This class
+ * <em>must already be frozen</em> (see {@link Context#freezeAndCleanup()}).  This class
  * never calls {@code freeze()} on its own.</p>
  */
 public class ContextHistory {
@@ -56,7 +56,7 @@ public class ContextHistory {
             selected = ctx;
             return true;
         }
-        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx.getId());
+        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx);
         return false;
     }
 
@@ -76,12 +76,6 @@ public class ContextHistory {
         truncateHistory();
         redo.clear();
         selected = frozen;
-    }
-
-    public synchronized void updateTopContext(Context ctx) {
-        assert ctx.isFrozen();
-        history.removeLast();
-        history.addLast(ctx);
     }
 
     /* ─────────────── undo / redo  ────────────── */

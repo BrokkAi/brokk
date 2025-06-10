@@ -15,7 +15,11 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import javax.swing.event.MenuEvent;
+import javax.swing.event.MenuListener;
 
 public class MenuBar {
     /**
@@ -45,14 +49,18 @@ public class MenuBar {
         });
         fileMenu.add(openProjectItem);
 
-        var reopenProjectItem = new JMenuItem("Reopen `%s`".formatted(chrome.getProject().getRoot().getFileName()));
-        reopenProjectItem.setEnabled(hasProject);
-        reopenProjectItem.addActionListener(e -> {
-            if (chrome.contextManager != null) {
+        JMenuItem reopenProjectItem;
+        if (hasProject) {
+            String projectName = chrome.getProject().getRoot().getFileName().toString();
+            reopenProjectItem = new JMenuItem("Reopen `%s`".formatted(projectName));
+            reopenProjectItem.addActionListener(e -> {
                 var currentPath = chrome.getProject().getRoot();
                 Brokk.reOpenProject(currentPath);
-            }
-        });
+            });
+        } else {
+            reopenProjectItem = new JMenuItem("Reopen Project");
+        }
+        reopenProjectItem.setEnabled(hasProject);
         fileMenu.add(reopenProjectItem);
 
         var recentProjectsMenu = new JMenu("Recent Projects");
@@ -254,6 +262,76 @@ public class MenuBar {
         contextMenu.add(dropAllItem);
 
         menuBar.add(contextMenu);
+
+        // Window menu
+        var windowMenu = new JMenu("Window");
+        windowMenu.addMenuListener(new MenuListener() {
+            @Override
+            public void menuSelected(MenuEvent e) {
+                windowMenu.removeAll();
+                Window currentChromeWindow = chrome.getFrame();
+                List<JMenuItem> menuItemsList = new ArrayList<>();
+
+                for (Window window : Window.getWindows()) {
+                    if (!window.isVisible()) {
+                        continue;
+                    }
+
+                    // We are interested in Frames and non-modal Dialogs
+                    if (!(window instanceof Frame || window instanceof Dialog)) {
+                        continue;
+                    }
+
+                    if (window instanceof JDialog dialog && dialog.isModal()) {
+                        continue;
+                    }
+
+                    String title = null;
+                    if (window instanceof Frame frame) {
+                        title = frame.getTitle();
+                    } else {
+                        title = ((Dialog) window).getTitle();
+                    }
+
+                    if (title == null || title.trim().isEmpty()) {
+                        continue;
+                    }
+
+                    JMenuItem menuItem;
+                    if (window == currentChromeWindow) {
+                        menuItem = new JCheckBoxMenuItem(title, true);
+                        menuItem.setEnabled(false); // Current window item is selected but disabled
+                    } else {
+                        menuItem = new JMenuItem(title);
+                        final Window windowToFocus = window; // final variable for lambda
+                        menuItem.addActionListener(actionEvent -> {
+                            if (windowToFocus instanceof Frame frame) {
+                                frame.setState(Frame.NORMAL);
+                            }
+                            windowToFocus.toFront();
+                            windowToFocus.requestFocus();
+                        });
+                    }
+                    menuItemsList.add(menuItem);
+                }
+
+                menuItemsList.sort(Comparator.comparing(JMenuItem::getText));
+                for (JMenuItem item : menuItemsList) {
+                    windowMenu.add(item);
+                }
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent e) {
+                // No action needed
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent e) {
+                // No action needed
+            }
+        });
+        menuBar.add(windowMenu);
 
         // Help menu
         var helpMenu = new JMenu("Help");

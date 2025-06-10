@@ -1110,12 +1110,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 project.setDataRetentionPolicy(selectedPolicy);
                 if (selectedPolicy != oldPolicy) {
                      logger.debug("Applied Data Retention Policy: {}", selectedPolicy);
-                     // Trigger model list refresh in parent dialog or chrome context manager
-                     parentProjectPanel.parentDialog.getChrome().getContextManager().reloadModelsAsync();
-                     // Also need to refresh model selection UI in SettingsGlobalPanel
-                     parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
+                     if (parentProjectPanel != null) {
+                         // Trigger model list refresh in parent dialog or chrome context manager
+                         parentProjectPanel.parentDialog.getChrome().getContextManager().reloadModelsAsync();
+                         // Also need to refresh model selection UI in SettingsGlobalPanel
+                         parentProjectPanel.parentDialog.refreshGlobalModelsPanelPostPolicyChange();
+                     }
                 }
-            }
+            } // else this is standalone data retention dialog
         }
     }
 }

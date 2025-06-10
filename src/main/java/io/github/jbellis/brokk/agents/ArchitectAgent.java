@@ -93,8 +93,10 @@ public class ArchitectAgent {
             String finalExplanation
     )
     {
-        logger.debug("Architect complete: %s".formatted(finalExplanation));
-        io.llmOutput(finalExplanation, ChatMessageType.AI);
+        var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI);
+
         return finalExplanation;
     }
 
@@ -107,8 +109,10 @@ public class ArchitectAgent {
             String reason
     )
     {
-        var msg = "Architect Agent project aborted: %s".formatted(reason);
-        io.systemOutput(msg);
+        var msg = "# Architect aborted\n\n%s".formatted(reason);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI);
+
         return reason;
     }
 

@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.FragmentUtils;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -13,84 +14,72 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
+
 /**
- * A frozen representation of a ContextFragment that captures its state at a point in time
+ * A frozen representation of a dynamic ContextFragment that captures its state at a point in time
  * without depending on the filesystem or analyzer. This allows ContextHistory to accurately
  * represent what the Workspace looked like when the entry was created.
+ * The ID of a FrozenFragment is its content hash.
+ *
+ * FrozenFragments are never created for non-dynamic ContextFragments, which are already content-addressable.
  */
 public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     private static final ConcurrentMap<String, FrozenFragment> INTERN_POOL = new ConcurrentHashMap<>();
-    
-    private static final ThreadLocal<MessageDigest> SHA256_DIGEST_THREAD_LOCAL = ThreadLocal.withInitial(() -> {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException("SHA-256 algorithm not found", e);
-        }
-    });
 
-    // Captured fragment state
-    private final String contentHash; // SHA-256 hash of the content-defining fields
+    // Captured fragment state for behavior and unfreezing
     private final ContextFragment.FragmentType originalType;
-    private final String description; // Full description
+    private final String descriptionContent; // Full description
     private final String shortDescriptionContent; // Short description
-    private final String textContent;
-    private final byte[] imageBytesContent;
+    private final String textContent; // Null if image fragment
+    private final byte[] imageBytesContent; // Null if text fragment
     private final boolean isTextFragment;
     private final String syntaxStyle;
-    private final Set<ProjectFile> files;
-    
+    private final Set<ProjectFile> files; // Files associated at time of freezing
+
     // Metadata for unfreezing
     private final String originalClassName;
-    private final Map<String, String> meta;
-    
+    private final Map<String, String> meta; // Type-specific metadata for reconstruction
+
     /**
      * Private constructor for creating FrozenFragment instances.
-     *
-     * @param contentHash The pre-computed SHA-256 hash of content-defining fields.
+     * The ID (contentHash) is passed to the super constructor.
      */
-    private FrozenFragment(String contentHash,
-                           int existingId, IContextManager contextManager,
+    private FrozenFragment(String contentHashAsId, IContextManager contextManager,
                            ContextFragment.FragmentType originalType,
-                           String description, // Full description
-                           String shortDescription, // Short description
+                           String description,
+                           String shortDescription,
                            String textContent,
                            byte[] imageBytesContent,
                            boolean isTextFragment,
                            String syntaxStyle,
                            Set<ProjectFile> files,
                            String originalClassName,
-                           Map<String, String> meta)
-    {
-        super(existingId, contextManager);
-        this.contentHash = contentHash;
+                           Map<String, String> meta) {
+        super(Objects.requireNonNull(contentHashAsId), contextManager); // ID is the content hash, must not be null
         this.originalType = originalType;
-        this.description = description;
+        this.descriptionContent = description;
         this.shortDescriptionContent = shortDescription;
         this.textContent = textContent;
         this.imageBytesContent = imageBytesContent;
         this.isTextFragment = isTextFragment;
         this.syntaxStyle = syntaxStyle;
-        this.files = Set.copyOf(files);
+        this.files = Set.copyOf(files); // Ensure immutability
         this.originalClassName = originalClassName;
-        this.meta = Map.copyOf(meta);
+        this.meta = Map.copyOf(meta); // Ensure immutability
     }
-    
+
     @Override
     public ContextFragment.FragmentType getType() {
         return originalType;
@@ -100,12 +89,12 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     public String shortDescription() {
         return shortDescriptionContent;
     }
-    
+
     @Override
     public String description() {
-        return description;
+        return descriptionContent;
     }
-    
+
     @Override
     public String text() {
         if (isTextFragment) {
@@ -130,12 +119,15 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     @Override
     public String format() {
         return """
-               <frozen fragmentid="%d" description="%s" originalType="%s">
+               <frozen fragmentid="%s" description="%s" originalType="%s">
                %s
                </frozen>
-               """.stripIndent().formatted(id(), description, originalType.name(), text());
+               """.stripIndent().formatted(id(), descriptionContent, originalType.name(), text());
     }
-    
+
+    // id() is inherited from VirtualFragment and returns the contentHash.
+    // equals() and hashCode() are inherited from VirtualFragment and use id().
+
     @Override
     public boolean isDynamic() {
         return false;
@@ -192,7 +184,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return The content hash string.
      */
     public String getContentHash() {
-        return contentHash;
+        return id(); // The ID of a FrozenFragment is its content hash.
     }
 
     /**
@@ -204,44 +196,44 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
         return imageBytesContent;
     }
 
+
     /**
      * Factory method for creating FrozenFragment from DTO data.
-     * Note: This does not participate in interning; primarily for deserialization.
-     * If interning of deserialized objects is desired, this would need enhancement.
+     * The provided 'id' from the DTO is expected to be the content hash.
+     * Note: This does not participate in interning by default; primarily for deserialization.
+     * If interning of deserialized objects is desired, one might call freeze() on the result,
+     * or enhance this to use the INTERN_POOL.
      *
-     * @param id The fragment ID
-     * @param contextManager The context manager
-     * @param originalType The original fragment type
-     * @param description The fragment description
-     * @param textContent The text content (null for image fragments)
-     * @param imageBytesContent The image bytes (null for text fragments)
-     * @param isTextFragment Whether this is a text fragment
-     * @param syntaxStyle The syntax style
-     * @param files The project files
-     * @param originalClassName The original class name
-     * @param meta The metadata map
-     * @return A new FrozenFragment instance
+     * @param idFromDto The fragment ID from DTO (expected to be the content hash).
+     * @param contextManager The context manager.
+     * @param originalType The original fragment type.
+     * @param description The fragment description.
+     * @param shortDescription The short description.
+     * @param textContent The text content (null for image fragments).
+     * @param imageBytesContent The image bytes (null for text fragments).
+     * @param isTextFragment Whether this is a text fragment.
+     * @param syntaxStyle The syntax style.
+     * @param files The project files.
+     * @param originalClassName The original class name.
+     * @param meta The metadata map.
+     * @return A new FrozenFragment instance.
      */
-    public static FrozenFragment fromDto(int id, IContextManager contextManager,
+    public static FrozenFragment fromDto(String idFromDto, IContextManager contextManager, // id is String
                                          ContextFragment.FragmentType originalType,
                                          String description, String shortDescription, String textContent, byte[] imageBytesContent,
                                          boolean isTextFragment, String syntaxStyle,
                                          Set<ProjectFile> files,
-                                         String originalClassName, Map<String, String> meta)
-    {
-        String calculatedHash = calculateContentHash(originalType, description, shortDescription, textContent, imageBytesContent,
-                                                     isTextFragment, syntaxStyle, files,
-                                                     originalClassName, meta);
-        return new FrozenFragment(calculatedHash, id, contextManager, originalType, description, shortDescription, textContent,
-                                  imageBytesContent, isTextFragment, syntaxStyle, files,
-                                  originalClassName, meta);
+                                         String originalClassName, Map<String, String> meta) {
+        // idFromDto is the contentHash. Use INTERN_POOL to ensure global uniqueness.
+        return INTERN_POOL.computeIfAbsent(idFromDto,
+                                           hashAsKey -> new FrozenFragment(hashAsKey, contextManager, originalType, description, shortDescription, textContent,
+                                                                           imageBytesContent, isTextFragment, syntaxStyle, files,
+                                                                           originalClassName, meta));
     }
 
     /**
      * Creates a frozen, potentially interned, representation of the given live Fragment.
      *
-     * Non-dynamic Fragments are returned unchanged.
-     * 
      * @param liveFragment The live fragment to freeze
      * @param contextManagerForFrozenFragment The context manager for the frozen fragment
      * @return A frozen representation of the fragment
@@ -249,23 +241,27 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @throws InterruptedException If interrupted while reading fragment content
      */
     public static ContextFragment freeze(ContextFragment liveFragment, IContextManager contextManagerForFrozenFragment)
-    throws IOException, InterruptedException
-    {
+    throws IOException, InterruptedException {
+        if (liveFragment instanceof FrozenFragment ff) {
+            return ff; // Already frozen
+        }
+
+        // Only freeze dynamic fragments. Non-dynamic fragments are already content-addressable.
         if (!liveFragment.isDynamic()) {
             return liveFragment;
         }
 
         try {
-            // Capture basic fragment data
             var type = liveFragment.getType();
             String fullDescription = liveFragment.description();
             String shortDescription = liveFragment.shortDescription();
             var isText = liveFragment.isText();
             var syntaxStyle = liveFragment.syntaxStyle();
-            var files = liveFragment.files();     // These are live files
+            var files = liveFragment.files().stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
             var originalClassName = liveFragment.getClass().getName();
 
-            // Capture content
             String textContent = null;
             byte[] imageBytesContent = null;
 
@@ -276,16 +272,13 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 imageBytesContent = imageToBytes(image);
             }
 
-            // Build metadata for unfreezing (specific to the original live fragment type)
             var meta = new HashMap<String, String>();
             switch (liveFragment) {
                 case ProjectPathFragment pf -> {
                     meta.put("repoRoot", pf.file().getRoot().toString());
                     meta.put("relPath", pf.file().getRelPath().toString());
                 }
-                case ExternalPathFragment ef -> {
-                    meta.put("absPath", ef.file().absPath().toString());
-                }
+                case ExternalPathFragment ef -> meta.put("absPath", ef.file().absPath().toString());
                 case ImageFileFragment iff -> {
                     meta.put("absPath", iff.file().absPath().toString());
                     if (iff.file() instanceof ProjectFile pf) {
@@ -294,123 +287,55 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                         meta.put("relPath", pf.getRelPath().toString());
                     }
                 }
-                case SkeletonFragment sf -> {
-                    meta.put("targetIdentifiers", String.join(";", sf.getTargetIdentifiers()));
-                    meta.put("summaryType", sf.getSummaryType().name());
-                }
-                case UsageFragment uf -> {
-                    meta.put("targetIdentifier", uf.targetIdentifier());
-                }
-                case CallGraphFragment cgf -> {
-                    meta.put("methodName", cgf.getMethodName());
-                    meta.put("depth", String.valueOf(cgf.getDepth()));
-                    meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
-                }
                 case GitFileFragment gff -> {
                     meta.put("repoRoot", gff.file().getRoot().toString());
                     meta.put("relPath", gff.file().getRelPath().toString());
                     meta.put("revision", gff.revision());
                 }
-                default -> {
-                    // For fragment types that don't require specific metadata for unfreezing,
-                    // the meta map remains empty. The FrozenFragment constructor captures
-                    // originalClassName, which unfreeze() uses, and other standard fields.
+                case SkeletonFragment skelf -> {
+                    meta.put("targetIdentifiers", String.join(";", skelf.getTargetIdentifiers()));
+                    meta.put("summaryType", skelf.getSummaryType().name());
                 }
+                case UsageFragment uf -> meta.put("targetIdentifier", uf.targetIdentifier());
+                case CallGraphFragment cgf -> {
+                    meta.put("methodName", cgf.getMethodName());
+                    meta.put("depth", String.valueOf(cgf.getDepth()));
+                    meta.put("isCalleeGraph", String.valueOf(cgf.isCalleeGraph()));
+                }
+                default -> { /* No type-specific meta beyond what's standard for hashing */ }
             }
 
-            // Calculate content hash based on all identifying fields *except* the live fragment's ID.
-            String contentHash = calculateContentHash(type, fullDescription, shortDescription, textContent, imageBytesContent,
-                                                      isText, syntaxStyle, files,
-                                                      originalClassName, meta);
+            String contentHash = FragmentUtils.calculateContentHash(type, fullDescription, shortDescription, textContent, imageBytesContent,
+                                                                    isText, syntaxStyle, files,
+                                                                    originalClassName, meta);
 
-            // Include the live fragment's ID in the intern key to ensure each fragment gets its own frozen copy
-            String internKey = contentHash + ":" + liveFragment.id();
-            final String finalFullDescription = fullDescription; 
+            final String finalFullDescription = fullDescription;
             final String finalShortDescription = shortDescription;
             final String finalTextContent = textContent;
             final byte[] finalImageBytesContent = imageBytesContent;
             final Set<ProjectFile> finalFiles = files;
-            final Map<String,String> finalMeta = meta;
+            final Map<String, String> finalMeta = meta;
 
-            return INTERN_POOL.computeIfAbsent(internKey, k -> new FrozenFragment(contentHash, // Still store the plain hash
-                                                                                    liveFragment.id(),
-                                                                                    contextManagerForFrozenFragment,
-                                                                                    type,
-                                                                                    finalFullDescription,
-                                                                                    finalShortDescription,
-                                                                                    finalTextContent,
-                                                                                    finalImageBytesContent,
-                                                                                    isText,
-                                                                                    syntaxStyle,
-                                                                                    finalFiles,
-                                                                                    originalClassName,
-                                                                                    finalMeta));
+            return INTERN_POOL.computeIfAbsent(contentHash,
+                                               k -> new FrozenFragment(k, // k is contentHash, used as ID
+                                                                       contextManagerForFrozenFragment,
+                                                                       type,
+                                                                       finalFullDescription,
+                                                                       finalShortDescription,
+                                                                       finalTextContent,
+                                                                       finalImageBytesContent,
+                                                                       isText,
+                                                                       syntaxStyle,
+                                                                       finalFiles,
+                                                                       originalClassName,
+                                                                       finalMeta));
         } catch (UncheckedIOException e) {
-            throw new IOException(e);
+            throw new IOException(e.getCause() != null ? e.getCause() : e);
         } catch (CancellationException e) {
-            throw new InterruptedException(e.getMessage());
+            var interrupted = new InterruptedException(e.getMessage());
+            interrupted.initCause(e);
+            throw interrupted;
         }
-    }
-
-    private static String calculateContentHash(ContextFragment.FragmentType originalType,
-                                               String description, // Full description
-                                               String shortDescription, // Short description
-                                               String textContent, byte[] imageBytesContent,
-                                               boolean isTextFragment, String syntaxStyle,
-                                               Set<ProjectFile> files,
-                                               String originalClassName, Map<String, String> meta) {
-        MessageDigest md = SHA256_DIGEST_THREAD_LOCAL.get();
-        md.reset(); // Reset the digest for reuse
-
-            // Helper to update digest with a string
-            BiConsumer<MessageDigest, String> updateWithString = (digest, str) -> {
-                if (str != null) {
-                    digest.update(str.getBytes(StandardCharsets.UTF_8));
-                }
-                digest.update((byte) 0); // Delimiter for null vs empty string
-            };
-
-            updateWithString.accept(md, originalType.name());
-            updateWithString.accept(md, description); // Full description
-            updateWithString.accept(md, shortDescription); // Short description
-            md.update(isTextFragment ? (byte) 1 : (byte) 0);
-            updateWithString.accept(md, syntaxStyle);
-
-            if (isTextFragment) {
-                updateWithString.accept(md, textContent);
-            } else {
-                if (imageBytesContent != null) {
-                    md.update(imageBytesContent);
-                }
-                md.update((byte) 0); // Delimiter
-            }
-
-            updateWithString.accept(md, originalClassName);
-
-            // For Set<ProjectFile>: Sort by absolute path for stability
-            String filesString = files.stream()
-                                      .map(pf -> pf.absPath().toString())
-                                      .sorted()
-                                      .collect(Collectors.joining(","));
-            updateWithString.accept(md, filesString);
-
-            // For Map<String, String> meta: Sort by key, then "key=value"
-            String metaString = meta.entrySet().stream()
-                                    .sorted(Map.Entry.comparingByKey())
-                                    .map(e -> e.getKey() + "=" + e.getValue())
-                                    .collect(Collectors.joining(","));
-            updateWithString.accept(md, metaString);
-
-            byte[] digestBytes = md.digest();
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : digestBytes) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) {
-                    hexString.append('0');
-                }
-                hexString.append(hex);
-            }
-        return hexString.toString();
     }
 
     /**
@@ -430,7 +355,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     throw new IllegalArgumentException("Missing metadata for ProjectPathFragment");
                 }
                 var file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
-                yield ContextFragment.ProjectPathFragment.withId(file, this.id(), cm);
+                yield new ContextFragment.ProjectPathFragment(file, cm);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment" -> {
                 var absPath = meta.get("absPath");
@@ -438,14 +363,14 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                     throw new IllegalArgumentException("Missing metadata for ExternalPathFragment");
                 }
                 var file = new ExternalFile(Path.of(absPath));
-                yield ContextFragment.ExternalPathFragment.withId(file, this.id(), cm);
+                yield new ContextFragment.ExternalPathFragment(file, cm); 
             }
             case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment" -> {
                 var absPath = meta.get("absPath");
                 if (absPath == null) {
                     throw new IllegalArgumentException("Missing metadata for ImageFileFragment");
                 }
-                
+
                 BrokkFile file;
                 if ("true".equals(meta.get("isProjectFile"))) {
                     var repoRoot = meta.get("repoRoot");
@@ -457,7 +382,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 } else {
                     file = new ExternalFile(Path.of(absPath));
                 }
-                yield ContextFragment.ImageFileFragment.withId(file, this.id(), cm);
+                yield new ContextFragment.ImageFileFragment(file, cm); 
             }
             case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment" -> {
                 var targetIdentifiersStr = meta.get("targetIdentifiers");
@@ -467,14 +392,14 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var targetIdentifiers = Arrays.asList(targetIdentifiersStr.split(";"));
                 var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                yield new ContextFragment.SkeletonFragment(this.id(), cm, targetIdentifiers, summaryType);
+                yield new ContextFragment.SkeletonFragment(cm, targetIdentifiers, summaryType); 
             }
             case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment" -> {
                 var targetIdentifier = meta.get("targetIdentifier");
                 if (targetIdentifier == null) {
                     throw new IllegalArgumentException("Missing metadata for UsageFragment");
                 }
-                yield new ContextFragment.UsageFragment(this.id(), cm, targetIdentifier);
+                yield new ContextFragment.UsageFragment(cm, targetIdentifier);
             }
             case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment" -> {
                 var methodName = meta.get("methodName");
@@ -485,28 +410,11 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                 }
                 var depth = Integer.parseInt(depthStr);
                 var isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                yield new ContextFragment.CallGraphFragment(this.id(), cm, methodName, depth, isCalleeGraph);
-            }
-            case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment" -> {
-                var repoRoot = meta.get("repoRoot");
-                var relPath = meta.get("relPath");
-                var revision = meta.get("revision");
-                // The 'content' is part of textContent if it was a text fragment,
-                // or imageBytesContent if it was an image.
-                // For GitFileFragment, it's always text.
-                if (repoRoot == null || relPath == null || revision == null) {
-                    throw new IllegalArgumentException("Missing metadata for GitFileFragment (repoRoot, relPath, or revision)");
-                }
-                if (!isTextFragment || textContent == null) {
-                     throw new IllegalArgumentException("Missing text content for GitFileFragment in frozen state");
-                }
-                var file = new ProjectFile(Path.of(repoRoot), Path.of(relPath));
-                // Use the stored textContent as the file content for unfreezing.
-                yield ContextFragment.GitFileFragment.withId(file, revision, textContent, this.id());
+                yield new ContextFragment.CallGraphFragment(cm, methodName, depth, isCalleeGraph); 
             }
             default -> {
-                 throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName +
-                                                   ". Implement unfreezing logic if this type needs to become live.");
+                throw new IllegalArgumentException("Unhandled original class for unfreezing: " + originalClassName +
+                                                           ". Implement unfreezing logic if this type needs to become live.");
             }
         };
     }
@@ -525,7 +433,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return PNG bytes, or null if image is null
      * @throws IOException If conversion fails
      */
-    private static byte[] imageToBytes(Image image) throws IOException {
+    public static byte[] imageToBytes(Image image) throws IOException {
         if (image == null) {
             return null;
         }
@@ -557,7 +465,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return The converted image, or null if bytes is null
      * @throws IOException If conversion fails
      */
-    private static Image bytesToImage(byte[] bytes) throws IOException {
+    public static Image bytesToImage(byte[] bytes) throws IOException {
         if (bytes == null) {
             return null;
         }

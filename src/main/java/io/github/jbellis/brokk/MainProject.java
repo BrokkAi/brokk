@@ -24,6 +24,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.Set;
@@ -64,6 +65,8 @@ public final class MainProject extends AbstractProject {
 
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+
+    private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT = """
                                                                The commit message should be structured as follows: <type>: <description>
@@ -732,19 +735,40 @@ public final class MainProject extends AbstractProject {
             if (ch.getHistory().isEmpty()) {
                 return ch;
             }
-            int maxId = 0;
+            // Resetting nextId based on loaded fragments.
+            // Only consider numeric IDs for dynamic fragments.
+            // Hashes will not parse to int and will be skipped by this logic.
+            int maxNumericId = 0;
             for (Context ctx : ch.getHistory()) {
                 for (ContextFragment fragment : ctx.allFragments().toList()) {
-                    maxId = Math.max(maxId, fragment.id());
+                    try {
+                        maxNumericId = Math.max(maxNumericId, Integer.parseInt(fragment.id()));
+                    } catch (NumberFormatException e) {
+                        // Ignore non-numeric IDs (hashes)
+                    }
                 }
                 for (TaskEntry taskEntry : ctx.getTaskHistory()) {
                     if (taskEntry.log() != null) {
-                        maxId = Math.max(maxId, taskEntry.log().id());
+                        try {
+                            // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
+                            // If some TaskFragments had numeric IDs historically, this would catch them.
+                            maxNumericId = Math.max(maxNumericId, Integer.parseInt(taskEntry.log().id()));
+                        } catch (NumberFormatException e) {
+                            // Ignore non-numeric IDs
+                        }
                     }
                 }
             }
-            ContextFragment.setNextId(maxId + 1);
-            logger.debug("Restored fragment ID counter to {}", maxId + 1);
+            // ContextFragment.nextId is an AtomicInteger, its value is the *next* ID to be assigned.
+            // If maxNumericId found is, say, 10, nextId should be set to 10 so that getAndIncrement() yields 11.
+            // If setNextId ensures nextId will be value+1, then passing maxNumericId is correct.
+            // Current ContextFragment.setNextId: if (value >= nextId.get()) { nextId.set(value); }
+            // Then nextId.getAndIncrement() will use `value` and then increment it.
+            // So we should set it to maxNumericId found.
+            if (maxNumericId > 0) { // Only set if we found any numeric IDs
+                 ContextFragment.setMinimumId(maxNumericId + 1);
+                 logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
+            }
             return ch;
         } catch (IOException e) {
             logger.error("Error loading context history for session {}: {}", sessionId, e.getMessage());
@@ -784,6 +808,17 @@ public final class MainProject extends AbstractProject {
             props.setProperty(GITHUB_TOKEN_KEY, token.trim());
         }
         saveGlobalProperties(props);
+        notifyGitHubTokenChanged();
+    }
+
+    private static void notifyGitHubTokenChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.gitHubTokenChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
     }
 
     public static String getGitHubToken() {
@@ -904,6 +939,14 @@ public final class MainProject extends AbstractProject {
         isDataShareAllowedCache = allowed;
         logger.info("Data sharing allowed for organization: {}", allowed);
         return allowed;
+    }
+
+    public static void addSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.add(listener);
+    }
+
+    public static void removeSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.remove(listener);
     }
 
     public enum DataRetentionPolicy {

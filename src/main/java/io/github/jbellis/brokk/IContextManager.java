@@ -52,11 +52,17 @@ public interface IContextManager {
         return "";
     }
 
-    default Context topContext() {
+    /**
+     * @return the live, unfrozen context that we can edit
+     */
+    default Context liveContext() {
         throw new UnsupportedOperationException();
     }
 
-    default Context liveContext() {
+    /**
+     * @return the frozen counterpart of liveContext
+     */
+    default Context topContext() {
         throw new UnsupportedOperationException();
     }
 
