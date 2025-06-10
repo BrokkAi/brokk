@@ -1,8 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment.StringFragment;
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
@@ -27,12 +26,18 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
+import java.util.Set;
+import java.util.ArrayList;
+import java.util.HashSet;
 
 
-public class GitPullRequestsTab extends JPanel {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
 
@@ -48,6 +53,8 @@ public class GitPullRequestsTab extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitPanel gitPanel;
+
+    private final Set<Future<?>> contextManagedFutures = ConcurrentHashMap.newKeySet();
 
     private JTable prTable;
     private DefaultTableModel prTableModel;
@@ -465,7 +472,76 @@ public class GitPullRequestsTab extends JPanel {
             }
         });
 
+        MainProject.addSettingsChangeListener(this);
         updatePrList(); // async
+    }
+
+    /**
+     * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     */
+    private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
+        contextManagedFutures.removeIf(Future::isDone);
+
+        Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
+
+        if (future != null) {
+            contextManagedFutures.add(future);
+        }
+        return future;
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
+    }
+
+    @Override
+    public void gitHubTokenChanged() {
+        SwingUtilities.invokeLater(() -> {
+            logger.debug("GitHub token changed. Initiating cancellation of active tasks and scheduling refresh.");
+
+            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
+
+            if (activeCiFetcher != null && !activeCiFetcher.isDone()) {
+                futuresToCancelAndAwait.add(activeCiFetcher);
+            }
+            if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+                futuresToCancelAndAwait.add(activePrFilesFetcher);
+            }
+
+            Set<Future<?>> currentContextManagedFutures = new HashSet<>(contextManagedFutures);
+            futuresToCancelAndAwait.addAll(currentContextManagedFutures);
+
+            logger.debug("Attempting to cancel {} futures.", futuresToCancelAndAwait.size());
+            for (Future<?> f : futuresToCancelAndAwait) {
+                if (!f.isDone()) {
+                    f.cancel(true);
+                    logger.trace("Requested cancellation for future: {}", f.toString());
+                }
+            }
+
+            if (futuresToCancelAndAwait.isEmpty()) {
+                logger.debug("No active tasks to wait for. Proceeding with PR list refresh directly.");
+                updatePrList();
+                return;
+            }
+
+            // Wait for the futures to complete or be cancelled to avoid potential race conditions
+            contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                logger.debug("Waiting for {} futures to complete cancellation.", futuresToCancelAndAwait.size());
+                for (Future<?> f : futuresToCancelAndAwait) {
+                    try {
+                        f.get();
+                    } catch (Exception e) {
+                        logger.trace("Task cancellation confirmed for: {}", f.toString());
+                    }
+                }
+                logger.debug("All identified tasks have completed cancellation. Scheduling PR list refresh.");
+                SwingUtilities.invokeLater(this::updatePrList);
+                return null;
+            });
+        });
     }
 
     private void disablePrButtonsAndClearCommits() {
@@ -508,7 +584,8 @@ public class GitPullRequestsTab extends JPanel {
      * Also fetches CI statuses for these PRs.
      */
     private void updatePrList() {
-        contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
+        String taskName = "Fetching GitHub Pull Requests";
+        Callable<Void> taskCallable = () -> {
             List<org.kohsuke.github.GHPullRequest> fetchedPrs;
             try {
                 var project = contextManager.getProject();
@@ -561,7 +638,8 @@ public class GitPullRequestsTab extends JPanel {
                 filterAndDisplayPrs(); // Apply current filters, which will also trigger CI and file fetching
             });
             return null;
-        });
+        };
+        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
     }
 
     private List<String> getAuthorFilterOptions() {
@@ -1039,8 +1117,9 @@ public class GitPullRequestsTab extends JPanel {
             }
         }
 
-        contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
-            List<ICommitInfo> newCommitList = new ArrayList<>(); // Create a new list in the background
+        String taskName = "Fetching commits for PR #" + prNumber;
+        Callable<Void> taskCallable = () -> {
+            List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -1095,7 +1174,8 @@ public class GitPullRequestsTab extends JPanel {
                 });
             }
             return null;
-        });
+        };
+        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
     }
 
     private void diffSelectedPr() {

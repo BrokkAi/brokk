@@ -3,8 +3,7 @@ package io.github.jbellis.brokk.gui;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.GitHubIssueService;
@@ -32,10 +31,14 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiFunction;
 
 
-public class GitIssuesTab extends JPanel {
+public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
     // Issue Table Column Indices
@@ -86,6 +89,7 @@ public class GitIssuesTab extends JPanel {
     private final OkHttpClient httpClient;
     private final IssueService issueService;
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
+    private final Set<Future<?>> contextManagedFutures = ConcurrentHashMap.newKeySet();
 
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
@@ -98,10 +102,11 @@ public class GitIssuesTab extends JPanel {
         this.httpClient = initializeHttpClient(contextManager, chrome);
 
         // Load dynamic statuses after issueService and statusFilter are initialized
-        contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
+        String initialStatusLoadTaskName = "Load Available Issue Statuses";
+        Callable<Void> initialStatusLoadCallable = () -> {
             List<String> fetchedStatuses = null;
             try {
-                if (this.issueService != null) { // Ensure issueService is available
+                if (this.issueService != null) {
                     fetchedStatuses = this.issueService.listAvailableStatuses();
                 } else {
                     logger.warn("IssueService is null, cannot load available statuses.");
@@ -126,7 +131,8 @@ public class GitIssuesTab extends JPanel {
                 }
             });
             return null;
-        });
+        };
+        submitAndTrackCallableTask(initialStatusLoadTaskName, initialStatusLoadCallable, contextManager::submitBackgroundTask);
 
         // Split panel with Issues on left (larger) and issue description on right (smaller)
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -427,7 +433,87 @@ public class GitIssuesTab extends JPanel {
             }
         });
 
+        MainProject.addSettingsChangeListener(this);
         updateIssueList(); // async
+    }
+
+    /**
+     * Submit a Callable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     */
+    private <T> Future<T> submitAndTrackCallableTask(String taskName, Callable<T> actualTaskLogic, BiFunction<String, Callable<T>, Future<T>> submitFunction) {
+        contextManagedFutures.removeIf(Future::isDone);
+
+        Future<T> future = submitFunction.apply(taskName, actualTaskLogic);
+
+        if (future != null) {
+            contextManagedFutures.add(future);
+        }
+        return future;
+    }
+
+    /**
+     * Submit a Runnable that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     */
+    private Future<?> submitAndTrackRunnableTask(String taskName, Runnable actualTaskLogic, BiFunction<String, Runnable, Future<?>> submitFunction) {
+        contextManagedFutures.removeIf(Future::isDone);
+
+        Future<?> future = submitFunction.apply(taskName, actualTaskLogic);
+
+        if (future != null) {
+            contextManagedFutures.add(future);
+        }
+        return future;
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        MainProject.removeSettingsChangeListener(this);
+    }
+
+    @Override
+    public void gitHubTokenChanged() {
+        SwingUtilities.invokeLater(() -> {
+            logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
+
+            if (searchDebounceTimer != null && searchDebounceTimer.isRunning()) {
+                searchDebounceTimer.stop();
+            }
+
+            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>();
+
+            Set<Future<?>> currentContextManagedFutures = new HashSet<>(contextManagedFutures);
+            futuresToCancelAndAwait.addAll(currentContextManagedFutures);
+
+            logger.debug("Attempting to cancel {} issue-related futures.", futuresToCancelAndAwait.size());
+            for (Future<?> f : futuresToCancelAndAwait) {
+                if (!f.isDone()) {
+                    f.cancel(true);
+                    logger.trace("Requested cancellation for issue-related future: {}", f.toString());
+                }
+            }
+
+            if (futuresToCancelAndAwait.isEmpty()) {
+                logger.debug("No active issue tasks to wait for. Proceeding with issue list refresh directly.");
+                updateIssueList();
+                return;
+            }
+
+            // Wait for the futures to complete or be cancelled to avoid potential race conditions
+            contextManager.submitBackgroundTask("Finalizing issue task cancellations and refreshing data", () -> {
+                logger.debug("Waiting for {} issue-related futures to complete cancellation.", futuresToCancelAndAwait.size());
+                for (Future<?> f : futuresToCancelAndAwait) {
+                    try {
+                        f.get();
+                    } catch (Exception e) {
+                        logger.trace("Issue task cancellation confirmed for: {}", f.toString());
+                    }
+                }
+                logger.debug("All identified issue tasks have completed cancellation. Scheduling issue list refresh.");
+                SwingUtilities.invokeLater(this::updateIssueList);
+                return null;
+            });
+        });
     }
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
@@ -503,7 +589,8 @@ public class GitIssuesTab extends JPanel {
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
 
-        contextManager.submitBackgroundTask("Fetching/Rendering Issue Details", () -> {
+        String taskName = "Fetching/Rendering Issue Details for " + header.id();
+        Callable<Void> taskCallable = () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 String rawBody = details.markdownBody();
@@ -542,14 +629,16 @@ public class GitIssuesTab extends JPanel {
                 });
             }
             return null;
-        });
+        };
+        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
     }
 
     /**
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
-        contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
+        String taskName = "Fetching GitHub Issues";
+        Callable<Void> taskCallable = () -> {
             List<IssueHeader> fetchedIssueHeaders;
             try {
                 // Read filter values on EDT or before submitting task. searchField can be null during early init.
@@ -575,7 +664,7 @@ public class GitIssuesTab extends JPanel {
                     logger.debug("GitHub API filters: Status='{}', Author='{}', Label='{}', Assignee='{}', Query='{}'",
                                  statusVal, authorVal, labelVal, assigneeVal, queryForApi);
                 }
-
+                
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
             } catch (Exception ex) {
@@ -592,10 +681,10 @@ public class GitIssuesTab extends JPanel {
                 return null;
             }
 
-            // Perform filtering and display processing in the background
             processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
-        });
+        };
+        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
     }
 
     private void triggerClientSideFilterUpdate() {
@@ -791,7 +880,8 @@ public class GitIssuesTab extends JPanel {
     }
 
     private void captureIssueHeader(IssueHeader header) {
-        contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
+        String taskName = "Capturing Issue " + header.id();
+        Runnable taskRunnable = () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 if (details == null) {
@@ -819,7 +909,8 @@ public class GitIssuesTab extends JPanel {
                 logger.error("Failed to capture all details for issue {}: {}", header.id(), e.getMessage(), e);
                 chrome.toolErrorRaw("Failed to capture all details for issue " + header.id() + ": " + e.getMessage());
             }
-        });
+        };
+        submitAndTrackRunnableTask(taskName, taskRunnable, contextManager::submitContextTask);
     }
 
     private List<ChatMessage> buildIssueTextContentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
@@ -943,7 +1034,8 @@ public class GitIssuesTab extends JPanel {
         }
         IssueHeader header = displayedIssues.get(selectedRow);
 
-        contextManager.submitBackgroundTask("Fetching issue details for copy", () -> {
+        String taskName = "Fetching issue details for copy: " + header.id();
+        Callable<Void> taskCallable = () -> {
             try {
                 io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
@@ -959,7 +1051,8 @@ public class GitIssuesTab extends JPanel {
                 chrome.toolErrorRaw("Failed to load issue " + header.id() + " details for copy: " + e.getMessage());
             }
             return null;
-        });
+        };
+        submitAndTrackCallableTask(taskName, taskCallable, contextManager::submitBackgroundTask);
     }
 
     private void openSelectedIssueInBrowser() {
