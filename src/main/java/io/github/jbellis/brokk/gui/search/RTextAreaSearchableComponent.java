@@ -116,6 +116,62 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         return textArea;
     }
     
+    @Override
+    public int countMatches(String searchText, boolean caseSensitive) {
+        if (searchText == null || searchText.trim().isEmpty()) {
+            return 0;
+        }
+        
+        String text = getText();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        
+        // Use regex to count matches
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            java.util.regex.Pattern.quote(searchText), 
+            caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
+    }
+    
+    @Override
+    public int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
+        if (searchText == null || searchText.trim().isEmpty()) {
+            return 0;
+        }
+        
+        String text = getText();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        
+        int caretPos = getCaretPosition();
+        
+        // Use regex to find all matches and determine current position
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            java.util.regex.Pattern.quote(searchText), 
+            caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        
+        int index = 0;
+        while (matcher.find()) {
+            index++;
+            if (caretPos >= matcher.start() && caretPos <= matcher.end()) {
+                return index;
+            }
+        }
+        
+        return 0; // No current match
+    }
+    
     /**
      * Factory method to create a SearchableComponent from an RTextArea.
      * 

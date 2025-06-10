@@ -21,7 +21,10 @@ public class TextAreaSearchBar extends JPanel {
     private final JToggleButton caseSensitiveButton;
     private final JButton nextButton;
     private final JButton previousButton;
+    private final JLabel matchCountLabel;
     private final RTextArea targetTextComponent;
+    private int currentMatchIndex = 0;
+    private int totalMatches = 0;
 
     public TextAreaSearchBar(RTextArea targetTextComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -36,6 +39,8 @@ public class TextAreaSearchBar extends JPanel {
         nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
         previousButton = new JButton();
         previousButton.setIcon(UIManager.getIcon("Table.ascendingSortIcon"));
+        matchCountLabel = new JLabel("");
+        matchCountLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         
         // Build UI
         add(new JLabel("Search:"));
@@ -43,6 +48,7 @@ public class TextAreaSearchBar extends JPanel {
         add(caseSensitiveButton);
         add(previousButton);
         add(nextButton);
+        add(matchCountLabel);
         
         // Setup event handlers
         setupEventHandlers();
@@ -182,6 +188,7 @@ public class TextAreaSearchBar extends JPanel {
         String query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
+            updateMatchCount(0, 0);
             return;
         }
         
@@ -196,6 +203,9 @@ public class TextAreaSearchBar extends JPanel {
         // Mark all occurrences
         SearchEngine.markAll(targetTextComponent, context);
         
+        // Count total matches
+        totalMatches = countMatches(query, caseSensitiveButton.isSelected());
+        
         if (jumpToFirst) {
             // Jump to the first occurrence as the user types
             int originalCaretPosition = targetTextComponent.getCaretPosition();
@@ -204,11 +214,20 @@ public class TextAreaSearchBar extends JPanel {
             if (!result.wasFound() && originalCaretPosition > 0) {
                 // If not found from beginning, restore caret position
                 targetTextComponent.setCaretPosition(originalCaretPosition);
+                currentMatchIndex = 0;
             } else if (result.wasFound()) {
                 // Center the match in the viewport
                 centerCurrentMatchInView();
+                currentMatchIndex = getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
+            } else {
+                currentMatchIndex = 0;
             }
+        } else {
+            // Update current match index without jumping
+            currentMatchIndex = getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
         }
+        
+        updateMatchCount(currentMatchIndex, totalMatches);
     }
     
     /**
@@ -233,6 +252,8 @@ public class TextAreaSearchBar extends JPanel {
         SearchResult result = SearchEngine.find(targetTextComponent, context);
         if (result.wasFound()) {
             centerCurrentMatchInView();
+            currentMatchIndex = getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
+            updateMatchCount(currentMatchIndex, totalMatches);
         }
     }
     
@@ -278,6 +299,7 @@ public class TextAreaSearchBar extends JPanel {
     public void clearSearch() {
         searchField.setText("");
         clearHighlights();
+        updateMatchCount(0, 0);
     }
     
     /**
@@ -293,5 +315,76 @@ public class TextAreaSearchBar extends JPanel {
     public void setCaseSensitive(boolean caseSensitive) {
         caseSensitiveButton.setSelected(caseSensitive);
         updateTooltip();
+    }
+    
+    /**
+     * Counts the total number of matches for the given search text.
+     */
+    private int countMatches(String searchText, boolean caseSensitive) {
+        if (searchText == null || searchText.trim().isEmpty()) {
+            return 0;
+        }
+        
+        String text = targetTextComponent.getText();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        
+        // Use regex to count matches
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            java.util.regex.Pattern.quote(searchText), 
+            caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        
+        int count = 0;
+        while (matcher.find()) {
+            count++;
+        }
+        return count;
+    }
+    
+    /**
+     * Gets the current match index (1-based) after a findNext operation.
+     */
+    private int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
+        if (searchText == null || searchText.trim().isEmpty()) {
+            return 0;
+        }
+        
+        String text = targetTextComponent.getText();
+        if (text.isEmpty()) {
+            return 0;
+        }
+        
+        int caretPos = targetTextComponent.getCaretPosition();
+        
+        // Use regex to find all matches and determine current position
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(
+            java.util.regex.Pattern.quote(searchText), 
+            caseSensitive ? 0 : java.util.regex.Pattern.CASE_INSENSITIVE
+        );
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        
+        int index = 0;
+        while (matcher.find()) {
+            index++;
+            if (caretPos >= matcher.start() && caretPos <= matcher.end()) {
+                return index;
+            }
+        }
+        
+        return 0; // No current match
+    }
+    
+    /**
+     * Updates the match count display.
+     */
+    private void updateMatchCount(int currentMatch, int totalMatches) {
+        if (totalMatches == 0) {
+            matchCountLabel.setText("");
+        } else {
+            matchCountLabel.setText(currentMatch + "/" + totalMatches);
+        }
     }
 }

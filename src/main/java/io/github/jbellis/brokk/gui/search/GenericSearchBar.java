@@ -17,7 +17,10 @@ public class GenericSearchBar extends JPanel {
     private final JToggleButton caseSensitiveButton;
     private final JButton nextButton;
     private final JButton previousButton;
+    private final JLabel matchCountLabel;
     private final SearchableComponent targetComponent;
+    private int currentMatchIndex = 0;
+    private int totalMatches = 0;
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -32,6 +35,8 @@ public class GenericSearchBar extends JPanel {
         nextButton.setIcon(UIManager.getIcon("Table.descendingSortIcon"));
         previousButton = new JButton();
         previousButton.setIcon(UIManager.getIcon("Table.ascendingSortIcon"));
+        matchCountLabel = new JLabel("");
+        matchCountLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
 
         // Build UI
         add(new JLabel("Search:"));
@@ -39,6 +44,7 @@ public class GenericSearchBar extends JPanel {
         add(caseSensitiveButton);
         add(previousButton);
         add(nextButton);
+        add(matchCountLabel);
 
         // Setup event handlers
         setupEventHandlers();
@@ -175,11 +181,15 @@ public class GenericSearchBar extends JPanel {
         String query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
+            updateMatchCount(0, 0);
             return;
         }
 
         // Highlight all occurrences
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
+        
+        // Count total matches
+        totalMatches = targetComponent.countMatches(query, caseSensitiveButton.isSelected());
 
         if (jumpToFirst) {
             // Jump to the first occurrence as the user types
@@ -189,11 +199,20 @@ public class GenericSearchBar extends JPanel {
             if (!found && originalCaretPosition > 0) {
                 // If not found from beginning, restore caret position
                 targetComponent.setCaretPosition(originalCaretPosition);
+                currentMatchIndex = 0;
             } else if (found) {
                 // Center the match in the viewport
                 targetComponent.centerCaretInView();
+                currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
+            } else {
+                currentMatchIndex = 0;
             }
+        } else {
+            // Update current match index without jumping
+            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
         }
+        
+        updateMatchCount(currentMatchIndex, totalMatches);
     }
 
     /**
@@ -210,6 +229,22 @@ public class GenericSearchBar extends JPanel {
         boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
         if (found) {
             targetComponent.centerCaretInView();
+            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
+            updateMatchCount(currentMatchIndex, totalMatches);
+        }
+    }
+    
+    /**
+     * Updates the match count display.
+     *
+     * @param currentMatch the current match index (1-based)
+     * @param totalMatches the total number of matches
+     */
+    private void updateMatchCount(int currentMatch, int totalMatches) {
+        if (totalMatches == 0) {
+            matchCountLabel.setText("");
+        } else {
+            matchCountLabel.setText(currentMatch + "/" + totalMatches);
         }
     }
 
@@ -233,6 +268,7 @@ public class GenericSearchBar extends JPanel {
     public void clearSearch() {
         searchField.setText("");
         clearHighlights();
+        updateMatchCount(0, 0);
     }
 
     /**
