@@ -56,10 +56,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     /**
      * Sets whether updates to the output panel should be skipped on context changes.
-     * @param skipNextUpdateOutputPanelOnContextChange true to skip updates, false otherwise
+     * @param skipNextUpdateOutputPanelOnContextChangeFoo true to skip updates, false otherwise
      */
-    public void setSkipNextUpdateOutputPanelOnContextChange(boolean skipNextUpdateOutputPanelOnContextChange) {
-        this.skipNextUpdateOutputPanelOnContextChange = skipNextUpdateOutputPanelOnContextChange;
+    public void setSkipNextUpdateOutputPanelOnContextChange(boolean skipNextUpdateOutputPanelOnContextChangeFoo) {
+        this.skipNextUpdateOutputPanelOnContextChange = skipNextUpdateOutputPanelOnContextChangeFoo;
     }
 
     // Dependencies:
