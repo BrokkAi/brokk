@@ -32,6 +32,7 @@ public class GitWorktreeTab extends JPanel {
     private JButton addButton;
     private JButton removeButton;
     private JButton openButton; // Added
+    private JButton refreshButton; // Added
 
     public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
@@ -57,6 +58,8 @@ public class GitWorktreeTab extends JPanel {
         // Ensure buttons (if they were somehow initialized) are disabled
         if (addButton != null) addButton.setEnabled(false);
         if (removeButton != null) removeButton.setEnabled(false);
+        if (openButton != null) openButton.setEnabled(false); // Ensure openButton is also handled
+        if (refreshButton != null) refreshButton.setEnabled(false); // Disable refresh button
         revalidate();
         repaint();
     }
@@ -64,10 +67,18 @@ public class GitWorktreeTab extends JPanel {
     private void buildWorktreeTabUI() {
         // Main panel for the table
         JPanel tablePanel = new JPanel(new BorderLayout());
-        worktreeTableModel = new DefaultTableModel(new Object[]{"Path", "Branch", "Session"}, 0) {
+        worktreeTableModel = new DefaultTableModel(new Object[]{"\u2713", "Path", "Branch", "Session"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 0) {
+                    return Boolean.class;
+                }
+                return super.getColumnClass(columnIndex);
             }
         };
         worktreeTable = new JTable(worktreeTableModel) {
@@ -118,12 +129,57 @@ public class GitWorktreeTab extends JPanel {
                 return c;
             }
         });
+
+        // Configure the "Active" column (checkmark)
+        var activeColumn = worktreeTable.getColumnModel().getColumn(0);
+        activeColumn.setPreferredWidth(25);
+        activeColumn.setMaxWidth(30);
+        activeColumn.setMinWidth(20);
+        activeColumn.setResizable(false);
+        activeColumn.setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                                                       boolean hasFocus, int row, int col) {
+                JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, col);
+                label.setHorizontalAlignment(SwingConstants.CENTER);
+
+                if (Boolean.TRUE.equals(value)) {
+                    label.setText("\u2713"); // Heavy Check Mark
+                    label.setToolTipText("This is the currently active Brokk project window");
+                } else {
+                    label.setText("");
+                    label.setToolTipText(null);
+                }
+
+                // Apply visual styling consistent with the main row renderer for row 0
+                if (row == 0) {
+                    label.setForeground(Color.GRAY);
+                    // Match background handling of the default renderer for row 0 selection
+                    if (isSelected && table.isFocusOwner() && table.isRowSelected(row)) {
+                        label.setBackground(table.getBackground());
+                    } else {
+                        label.setBackground(table.getBackground());
+                    }
+                    label.setEnabled(false); 
+                } else {
+                    // For other rows, ensure foreground/background reflects selection state
+                    // The super call usually handles this, but setText can sometimes reset it.
+                    label.setForeground(isSelected && table.isFocusOwner() ? table.getSelectionForeground() : table.getForeground());
+                    label.setBackground(isSelected && table.isFocusOwner() ? table.getSelectionBackground() : table.getBackground());
+                    label.setEnabled(true);
+                }
+                return label;
+            }
+        });
+
         tablePanel.add(new JScrollPane(worktreeTable), BorderLayout.CENTER);
 
         add(tablePanel, BorderLayout.CENTER);
 
-        // Button panel for add/remove
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        // Button panel for actions
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS));
+
         addButton = new JButton("+");
         addButton.setToolTipText("Add new worktree");
         addButton.addActionListener(e -> addWorktree());
@@ -146,6 +202,13 @@ public class GitWorktreeTab extends JPanel {
         removeButton.addActionListener(e -> removeWorktree());
         buttonPanel.add(removeButton);
 
+        buttonPanel.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
+
+        refreshButton = new JButton("Refresh");
+        refreshButton.setToolTipText("Refresh the list of worktrees");
+        refreshButton.addActionListener(e -> refresh());
+        buttonPanel.add(refreshButton);
+
         add(buttonPanel, BorderLayout.SOUTH);
 
         worktreeTable.getSelectionModel().addListSelectionListener(e -> {
@@ -160,7 +223,8 @@ public class GitWorktreeTab extends JPanel {
                 if (e.getClickCount() == 2) {
                     int row = worktreeTable.rowAtPoint(e.getPoint());
                     if (row > 0 && row < worktreeTableModel.getRowCount()) { // row > 0 to exclude main repo
-                        String pathString = (String) worktreeTableModel.getValueAt(row, 0);
+                        // Path is now in column 1
+                        String pathString = (String) worktreeTableModel.getValueAt(row, 1);
                         handleOpenOrFocusWorktrees(List.of(Path.of(pathString)));
                     }
                 }
@@ -208,7 +272,8 @@ public class GitWorktreeTab extends JPanel {
         for (int row : selectedRows) {
             if (row == 0) continue; // Skip main repo
             if (row >= 0 && row < worktreeTableModel.getRowCount()) { // Check bounds
-                String pathString = (String) worktreeTableModel.getValueAt(row, 0);
+                // Path is now in column 1
+                String pathString = (String) worktreeTableModel.getValueAt(row, 1);
                 paths.add(Path.of(pathString));
             }
         }
@@ -230,12 +295,18 @@ public class GitWorktreeTab extends JPanel {
                 IGitRepo repo = contextManager.getProject().getRepo();
                 if (repo instanceof GitRepo gitRepo) {
                     List<IGitRepo.WorktreeInfo> worktrees = gitRepo.listWorktrees();
+                    // Normalize the current project's root path for reliable comparison
+                    Path currentProjectRoot = contextManager.getProject().getRoot().toRealPath();
+
                     SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0); // Clear existing rows
                         for (IGitRepo.WorktreeInfo wt : worktrees) {
                             String sessionTitle = MainProject.getActiveSessionTitle(wt.path())
                                     .orElse("(no session)");
+                            // wt.path() is already a real path from GitRepo.listWorktrees()
+                            boolean isActive = currentProjectRoot.equals(wt.path());
                             worktreeTableModel.addRow(new Object[]{
+                                    isActive, // For the "✓" column
                                     wt.path().toString(),
                                     wt.branch(),
                                     sessionTitle
@@ -291,23 +362,16 @@ public class GitWorktreeTab extends JPanel {
                         Brokk.focusProjectWindow(worktreePath);
                     } else {
                         logger.info("Opening worktree {}...", worktreePath);
-                        Brokk.openProject(worktreePath, parentProject)
-                            .thenAccept(success -> {
-                                if (success) {
-                                    chrome.systemOutput("Successfully opened worktree: " + worktreePath.getFileName());
-                                } else {
-                                    // This branch might be hit if openProject itself determines not to open (e.g. concurrent attempt)
-                                    chrome.systemOutput("Could not open worktree (it might be opening, or an issue occurred): " + worktreePath.getFileName());
-                                }
-                                // Refresh list to update session info
-                                SwingUtilities.invokeLater(this::loadWorktrees);
-                            })
-                            .exceptionally(ex -> {
-                                logger.error("Error opening worktree {}", worktreePath, ex);
-                                chrome.toolErrorRaw("Error opening worktree " + worktreePath.getFileName() + ": " + ex.getMessage());
-                                SwingUtilities.invokeLater(this::loadWorktrees); // Refresh list
-                                return null;
-                            });
+                        new Brokk.OpenProjectBuilder(worktreePath)
+                                .parent(parentProject)
+                                .open()
+                                .thenAccept(success -> {
+                                    if (Boolean.TRUE.equals(success)) {
+                                        chrome.systemOutput("Successfully opened worktree: " + worktreePath.getFileName());
+                                    } else {
+                                        chrome.toolErrorRaw("Error opening worktree " + worktreePath.getFileName());
+                                    }
+                                });
                     }
                 } catch (Exception e) {
                     logger.error("Error during open/focus for worktree {}: {}", worktreePath, e.getMessage(), e);
@@ -327,12 +391,12 @@ public class GitWorktreeTab extends JPanel {
         // Get Project and IGitRepo instances
         MainProject project = (MainProject) contextManager.getProject();
         IGitRepo repo = project.getRepo();
-        
+
         // Verify that IGitRepo is an instance of GitRepo
         if (!(repo instanceof GitRepo gitRepo)) {
-            JOptionPane.showMessageDialog(this, 
-                "Worktree operations are only supported for Git repositories.", 
-                "Error", 
+            JOptionPane.showMessageDialog(this,
+                "Worktree operations are only supported for Git repositories.",
+                "Error",
                 JOptionPane.ERROR_MESSAGE);
             return;
         }
@@ -341,16 +405,16 @@ public class GitWorktreeTab extends JPanel {
             // Branch Selection Logic
             List<String> localBranches = gitRepo.listLocalBranches();
             Set<String> branchesInWorktrees = gitRepo.getBranchesInWorktrees();
-            
+
             // Determine available branches
             List<String> availableBranches = localBranches.stream()
                 .filter(branch -> !branchesInWorktrees.contains(branch))
                 .toList();
-            
+
             if (availableBranches.isEmpty()) {
-                JOptionPane.showMessageDialog(this, 
-                    "No available branches to create a worktree from.", 
-                    "Info", 
+                JOptionPane.showMessageDialog(this,
+                    "No available branches to create a worktree from.",
+                    "Info",
                     JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
@@ -390,6 +454,11 @@ public class GitWorktreeTab extends JPanel {
             gbc.insets = new Insets(2, 2, 2, 2);
             panel.add(newBranchNameField, gbc);
 
+            JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
+            copyWorkspaceCheckbox.setSelected(false); // Default to false
+            gbc.insets = new Insets(10, 2, 2, 2); // Add some space before the checkbox
+            panel.add(copyWorkspaceCheckbox, gbc);
+
             int result = JOptionPane.showConfirmDialog(this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
             if (result != JOptionPane.OK_OPTION) {
                 return;
@@ -397,6 +466,7 @@ public class GitWorktreeTab extends JPanel {
 
             String branchNameToUse;
             boolean isCreatingNewBranch = createNewBranchRadio.isSelected();
+            boolean copyWorkspace = copyWorkspaceCheckbox.isSelected();
 
             if (isCreatingNewBranch) {
                 branchNameToUse = newBranchNameField.getText().trim();
@@ -404,7 +474,7 @@ public class GitWorktreeTab extends JPanel {
                     JOptionPane.showMessageDialog(this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
                     return;
                 }
-                // Potentially add more validation for branch names if needed
+                // TODO: Add more validation for branch names (e.g., no spaces, special chars)
             } else {
                 if (branchComboBox.getSelectedItem() == null) {
                     JOptionPane.showMessageDialog(this, "No branch selected.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -413,69 +483,36 @@ public class GitWorktreeTab extends JPanel {
                 branchNameToUse = (String) branchComboBox.getSelectedItem();
             }
 
-            // Path Generation Logic
-            Path worktreeStorageDir = project.getWorktreeStoragePath();
-            
-            // Ensure worktree storage directory exists
-            try {
-                Files.createDirectories(worktreeStorageDir);
-            } catch (IOException e) {
-                JOptionPane.showMessageDialog(this, "Failed to create worktree storage directory: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
-            
-            // Determine the next worktree directory name
-            int nextWorktreeNum = 1;
-            Path newWorktreePath;
-            while (true) {
-                Path potentialPath = worktreeStorageDir.resolve("wt" + nextWorktreeNum);
-                if (!Files.exists(potentialPath)) {
-                    newWorktreePath = potentialPath;
-                    break;
-                }
-                nextWorktreeNum++;
-            }
-
             contextManager.submitUserTask("Adding worktree for branch: " + branchNameToUse, () -> {
                 try {
-                    if (isCreatingNewBranch) {
-                        String currentBranch = gitRepo.getCurrentBranch();
-                        logger.info("Creating new branch '{}' from '{}'", branchNameToUse, currentBranch);
-                        gitRepo.createBranch(branchNameToUse, currentBranch);
-                        // Branch created but main repo stays on current branch
+                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchNameToUse, isCreatingNewBranch, null);
+                    Path newWorktreePath = setupResult.worktreePath();
+
+                    Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath)
+                            .parent(project);
+
+                    if (copyWorkspace) {
+                        logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
+                        openProjectBuilder.sourceContextForSession(contextManager.topContext());
                     }
 
-                    gitRepo.addWorktree(branchNameToUse, newWorktreePath);
+                    openProjectBuilder.open()
+                            .thenAccept(success -> {
+                                if (Boolean.TRUE.equals(success)) {
+                                    chrome.systemOutput("Successfully opened worktree: " + newWorktreePath.getFileName());
+                                } else {
+                                    chrome.toolErrorRaw("Error opening worktree " + newWorktreePath.getFileName());
+                                }
+                                // Refresh worktree list regardless of open success, as the worktree itself was created.
+                                SwingUtilities.invokeLater(this::loadWorktrees);
+                            });
 
-                    Path sourceWorkspaceProps = project.getRoot().resolve(".brokk").resolve("workspace.properties");
-                    Path newWorktreeBrokkDir = newWorktreePath.resolve(".brokk");
-                    Path destWorkspaceProps = newWorktreeBrokkDir.resolve("workspace.properties");
-
-                    if (Files.exists(sourceWorkspaceProps)) {
-                        Files.createDirectories(newWorktreeBrokkDir);
-                        Files.copy(sourceWorkspaceProps, destWorkspaceProps);
-                        logger.info("Copied workspace.properties from {} to new worktree: {}", project.getRoot().getFileName(), destWorkspaceProps);
-                    }
-
-                    // Create Project instance for the new worktree to manage its session
-                    var newWorktreeProject = new WorktreeProject(newWorktreePath, project);
-                    String sessionName = "Worktree: " + branchNameToUse;
-                    MainProject.SessionInfo newSession = newWorktreeProject.newSession(sessionName);
-                    newWorktreeProject.setLastActiveSession(newSession.id());
-                    newWorktreeProject.saveWorkspaceProperties(); // Save the session id
-                    newWorktreeProject.close(); // Release resources
-
-                    final MainProject parentProject = project;
-                    SwingUtilities.invokeLater(() -> Brokk.openProject(newWorktreePath, parentProject));
-
-                    SwingUtilities.invokeLater(this::loadWorktrees);
                     chrome.systemOutput("Successfully created worktree for branch '" + branchNameToUse + "' at " + newWorktreePath);
-
                 } catch (GitAPIException e) {
                     logger.error("Git error while adding worktree for branch: " + branchNameToUse, e);
-                    SwingUtilities.invokeLater(() -> 
-                        JOptionPane.showMessageDialog(this, 
-                            "Git error while adding worktree: " + e.getMessage(), 
+                    SwingUtilities.invokeLater(() ->
+                        JOptionPane.showMessageDialog(this,
+                            "Git error while adding worktree: " + e.getMessage(),
                             "Git Error",
                             JOptionPane.ERROR_MESSAGE));
                 } catch (IOException e) {
@@ -490,9 +527,9 @@ public class GitWorktreeTab extends JPanel {
 
         } catch (GitAPIException e) { // Catches exceptions from gitRepo.getCurrentBranch() or .listLocalBranches()
             logger.error("Error preparing for worktree addition", e);
-            JOptionPane.showMessageDialog(this, 
-                "Error fetching branch information: " + e.getMessage(), 
-                "Git Error", 
+            JOptionPane.showMessageDialog(this,
+                "Error fetching branch information: " + e.getMessage(),
+                "Git Error",
                 JOptionPane.ERROR_MESSAGE);
         }
     }
@@ -575,5 +612,39 @@ public class GitWorktreeTab extends JPanel {
         } else {
             buildUnsupportedUI();
         }
+    }
+
+    public record WorktreeSetupResult(Path worktreePath, String branchName) {}
+
+    /**
+     * Sets up a new Git worktree.
+     *
+     * @param parentProject The main project.
+     * @param gitRepo The GitRepo instance of the main project.
+     * @param branchNameToUse The name of the branch for the new worktree.
+     * @param isCreatingNewBranch True if a new branch should be created.
+     * @param worktreeStorageDirOverride Optional override for worktree storage directory. If null, uses parentProject.getWorktreeStoragePath().
+     * @return A {@link WorktreeSetupResult} containing the path to the newly created worktree and the branch name used.
+     * @throws GitAPIException If a Git error occurs.
+     * @throws IOException If an I/O error occurs.
+     */
+    public static WorktreeSetupResult setupNewGitWorktree(MainProject parentProject, GitRepo gitRepo, String branchNameToUse, boolean isCreatingNewBranch, @org.jetbrains.annotations.Nullable Path worktreeStorageDirOverride)
+    throws GitAPIException, IOException
+    {
+        Path worktreeStorageDir = worktreeStorageDirOverride != null ? worktreeStorageDirOverride : parentProject.getWorktreeStoragePath();
+        Files.createDirectories(worktreeStorageDir); // Ensure base storage directory exists
+
+        Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
+
+        if (isCreatingNewBranch) {
+            String currentBranch = gitRepo.getCurrentBranch();
+            logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchNameToUse, currentBranch, newWorktreePath);
+            gitRepo.createBranch(branchNameToUse, currentBranch);
+        }
+
+        logger.debug("Adding worktree for branch '{}' at path {}", branchNameToUse, newWorktreePath);
+        gitRepo.addWorktree(branchNameToUse, newWorktreePath);
+
+        return new WorktreeSetupResult(newWorktreePath, branchNameToUse);
     }
 }

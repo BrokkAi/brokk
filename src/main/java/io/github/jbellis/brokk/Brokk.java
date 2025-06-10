@@ -4,20 +4,22 @@ import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.ModelSupport;
 import com.github.tjake.jlama.safetensors.DType;
 import com.github.tjake.jlama.safetensors.SafeTensorSupport;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
-import io.github.jbellis.brokk.git.GitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.WindowEvent;
-import javax.swing.border.Border;
 import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -26,11 +28,13 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 
 public class Brokk {
@@ -43,6 +47,13 @@ public class Brokk {
     public static final CompletableFuture<AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
+
+    // Helper record for argument parsing result
+    private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, String projectPathArg) {}
+
+    // Helper record for key validation result
+    private record KeyValidationResult(boolean isValid, Path dialogProjectPath) {}
+
 
     static {
         embeddingModelFuture = CompletableFuture.supplyAsync(() -> {
@@ -67,25 +78,16 @@ public class Brokk {
         });
     }
 
-    /**
-     * Main entry point: Start up Brokk with no project loaded,
-     * then check if there's a "most recent" project to open.
-     */
-    public static void main(String[] args) {
-        logger.debug("Brokk starting");
-
-        // Set macOS system properties (non-UI, can be immediate)
+    private static void setupSystemPropertiesAndIcon() {
         System.setProperty("apple.laf.useScreenMenuBar", "true");
         if (System.getProperty("os.name").toLowerCase().contains("mac")) {
             System.setProperty("apple.awt.application.name", "Brokk");
         }
 
-        // Set up thread violation checker for dev mode
         if (Boolean.getBoolean("brokk.devmode")) {
             RepaintManager.setCurrentManager(new CheckThreadViolationRepaintManager());
         }
 
-        // Set application icon
         var iconUrl = Brokk.class.getResource(ICON_RESOURCE);
         if (iconUrl != null) {
             var icon = new ImageIcon(iconUrl);
@@ -98,27 +100,32 @@ public class Brokk {
                 }
             }
         }
+    }
 
-        // Ensure L&F is set on EDT before any UI is created, then show splash screen.
+    private static void initializeLookAndFeelAndSplashScreen(boolean isDark) {
         try {
             SwingUtilities.invokeAndWait(() -> {
                 try {
-                    com.formdev.flatlaf.FlatLightLaf.setup();
+                    if (isDark) {
+                        com.formdev.flatlaf.FlatDarkLaf.setup();
+                    } else {
+                        com.formdev.flatlaf.FlatLightLaf.setup();
+                    }
                 } catch (Exception e) {
                     logger.warn("Failed to set LAF, using default", e);
                 }
                 showSplashScreen();
             });
         } catch (Exception e) { // Catches InterruptedException and InvocationTargetException
-            logger.fatal("Failed to initialize Look and Feel or SplashScreen on EDT. Exiting.", e);
+            logger.fatal("Failed to initialize SplashScreen. Exiting.", e);
             System.exit(1);
         }
+    }
 
-        // Argument parsing and initial validation (off-EDT / main thread)
+    private static ParsedArgs parseArguments(String[] args) {
         boolean noProjectFlag = false;
         boolean noKeyFlag = false;
         String projectPathArg = null;
-
         for (String arg : args) {
             if (arg.equals("--no-project")) {
                 noProjectFlag = true;
@@ -128,9 +135,13 @@ public class Brokk {
                 projectPathArg = arg;
             }
         }
+        return new ParsedArgs(noProjectFlag, noKeyFlag, projectPathArg);
+    }
 
-        // Validate Brokk Key first
+    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, Path initialDialogPath) {
         boolean keyIsValid = false;
+        Path currentDialogPath = initialDialogPath;
+
         if (!noKeyFlag) {
             String currentBrokkKey = MainProject.getBrokkKey();
             if (!currentBrokkKey.isEmpty()) {
@@ -140,142 +151,156 @@ public class Brokk {
                 } catch (IOException e) {
                     logger.warn("Network error validating existing Brokk key at startup. Assuming valid for now.", e);
                     keyIsValid = true; // Allow offline use
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                    final Path finalCurrentDialogPath = currentDialogPath;
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(finalCurrentDialogPath != null ? findOpenProjectWindow(finalCurrentDialogPath).getFrame() : null,
                                                                                   "Network error validating Brokk key. AI services may be unavailable.",
                                                                                   "Network Validation Warning", JOptionPane.WARNING_MESSAGE));
                 } catch (IllegalArgumentException e) {
                     logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
                 }
             }
+        } else {
+            keyIsValid = true; // --no-key implies key is not needed for validation
         }
 
-        // Determine projects to open
-        List<Path> projectsToAttemptOpen = new ArrayList<>();
-        Path initialDialogPath = null; // For StartupDialog if needed
+        while (!keyIsValid) {
+            SwingUtil.runOnEdt(Brokk::hideSplashScreen);
+            final Path dialogPathForLambda = currentDialogPath; // Capture for lambda
+            Path newKeyPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), false, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_KEY_ONLY), null);
+            if (newKeyPath == null) { // User quit dialog
+                logger.info("Startup dialog (key entry) was closed. Shutting down.");
+                return new KeyValidationResult(false, dialogPathForLambda);
+            }
+            // Assume key was validated by dialog. If it returned a path, that's the new project context.
+            keyIsValid = true;
+            currentDialogPath = newKeyPath; // Update dialog path if user selected a project
+        }
+        return new KeyValidationResult(true, currentDialogPath);
+    }
 
-        if (projectPathArg != null) {
-            Path pathFromArg = Path.of(projectPathArg).toAbsolutePath().normalize();
+    private static List<Path> determineInitialProjectsToOpen(ParsedArgs parsedArgs, Path dialogProjectPathFromKey) {
+        List<Path> projectsToAttemptOpen = new ArrayList<>();
+        if (parsedArgs.projectPathArg != null) {
+            Path pathFromArg = Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize();
             if (isValidDirectory(pathFromArg)) {
                 projectsToAttemptOpen.add(pathFromArg);
-                initialDialogPath = pathFromArg;
             } else {
                 SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-                System.err.printf("Specified project path `%s` does not appear to be a valid directory%n", projectPathArg);
-                System.exit(1);
+                System.err.printf("Specified project path `%s` does not appear to be a valid directory%n", parsedArgs.projectPathArg);
+                System.exit(1); // Exit if specified path is invalid
             }
-        } else if (!noProjectFlag) {
+        } else if (dialogProjectPathFromKey != null && isValidDirectory(dialogProjectPathFromKey)) {
+            // If a project was selected during key validation, prioritize it
+            projectsToAttemptOpen.add(dialogProjectPathFromKey);
+        } else if (!parsedArgs.noProjectFlag) {
             projectsToAttemptOpen.addAll(MainProject.getOpenProjects());
-            if (!projectsToAttemptOpen.isEmpty()) {
-                initialDialogPath = projectsToAttemptOpen.getFirst(); // Use first for dialog context if needed
+        }
+        return projectsToAttemptOpen;
+    }
+
+    private static boolean attemptOpenProjects(List<Path> projectsToAttemptOpen) {
+        Map<Boolean, List<Path>> partitionedProjects = projectsToAttemptOpen.stream()
+                .filter(Brokk::isValidDirectory)
+                .peek(p -> { if (!isValidDirectory(p)) logger.warn("Skipping invalid path: {}", p); })
+                .collect(Collectors.partitioningBy(p -> {
+                    if (GitRepo.hasGitRepo(p)) {
+                        try (GitRepo tempR = new GitRepo(p)) {
+                            return tempR.isWorktree();
+                        } catch (Exception e) {
+                            logger.warn("Error checking worktree status for {}: {}. Assuming not a worktree for ordering.", p, e.getMessage());
+                            return false;
+                        }
+                    }
+                    return false;
+                }));
+
+        List<Path> mainRepoPaths = partitionedProjects.get(false); // Paths that are not worktrees (or error)
+        List<Path> worktreePaths = partitionedProjects.get(true);  // Paths that are worktrees
+
+        boolean successfulOpenOccurred = false;
+
+        for (Path mainPath : mainRepoPaths) {
+            try {
+                if (new OpenProjectBuilder(mainPath).open().get()) {
+                    successfulOpenOccurred = true;
+                }
+            } catch (Exception e) {
+                logger.error("Failed to open main project {}: {}", mainPath, e.getMessage(), e);
             }
         }
 
-        // Main application loop: process key, then projects
-        boolean successfulOpenOccurred = false;
-        while (true) {
-            if (!keyIsValid) {
-                SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-                final Path currentInitialDialogPathForKey = initialDialogPath; // Capture for lambda
-                Path newKeyPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), false, currentInitialDialogPathForKey, StartupDialog.DialogMode.REQUIRE_KEY_ONLY), null);
-                if (newKeyPath == null) { // User quit dialog
-                    logger.info("Startup dialog (key entry) was closed. Shutting down.");
-                    System.exit(0);
-                }
-                keyIsValid = true; // Assume key was validated by dialog
-                // newKeyPath might be a project path if user also selected one, use it for initialDialogPath next iteration
-                initialDialogPath = newKeyPath; 
-                // If projectsToAttemptOpen was empty and dialog provided one, add it.
-                if (projectsToAttemptOpen.isEmpty() && initialDialogPath != null && isValidDirectory(initialDialogPath)) {
-                    projectsToAttemptOpen.add(initialDialogPath);
+        for (Path worktreePath : worktreePaths) {
+            MainProject parentProject = null;
+            if (GitRepo.hasGitRepo(worktreePath)) { // Redundant check, but safe
+                try (GitRepo wtRepo = new GitRepo(worktreePath)) { // isWorktree already confirmed by partitioning
+                    Path gitTopLevel = wtRepo.getGitTopLevel();
+                    parentProject = (MainProject) findOpenProjectByPath(gitTopLevel);
+                    if (parentProject == null) {
+                        logger.warn("During startup, could not find an already open parent project for worktree {} (expected at {}). " +
+                                        "Worktree will attempt to find/open its parent or open standalone if necessary.",
+                                worktreePath.getFileName(), gitTopLevel.getFileName());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Error determining parent for worktree {} during startup: {}. Proceeding without explicit parent.", worktreePath.getFileName(), e.getMessage());
                 }
             }
+            try {
+                if (new OpenProjectBuilder(worktreePath).parent(parentProject).open().get()) {
+                    successfulOpenOccurred = true;
+                }
+            } catch (Exception e) {
+                logger.error("Failed to open worktree project {}: {}", worktreePath, e.getMessage(), e);
+            }
+        }
+        return successfulOpenOccurred;
+    }
 
+
+    /**
+     * Main entry point.
+     */
+    public static void main(String[] args) {
+        logger.debug("Brokk starting");
+        setupSystemPropertiesAndIcon();
+        ParsedArgs parsedArgs = parseArguments(args);
+
+        boolean isDark = MainProject.getTheme().equals("dark");
+        initializeLookAndFeelAndSplashScreen(isDark);
+
+        Path initialDialogPath = parsedArgs.projectPathArg != null ? Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize() : null;
+        KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag, initialDialogPath);
+
+        if (!keyResult.isValid()) {
+            System.exit(0); // User cancelled key dialog or validation failed critically
+        }
+        initialDialogPath = keyResult.dialogProjectPath(); // Path might have been selected during key validation
+
+        List<Path> projectsToAttemptOpen = determineInitialProjectsToOpen(parsedArgs, initialDialogPath);
+        Path currentDialogContextPath = initialDialogPath; // Path to suggest to StartupDialog if needed
+
+        boolean successfulOpenOccurred = false;
+        while (true) {
             if (projectsToAttemptOpen.isEmpty()) {
-                SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-                final Path currentInitialDialogPathForProject = initialDialogPath; // Capture for lambda
-                Path selectedPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), true, currentInitialDialogPathForProject, StartupDialog.DialogMode.REQUIRE_PROJECT_ONLY), null);
+                SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Hide splash before project selection dialog
+                final Path dialogPathForLambda = currentDialogContextPath;
+                Path selectedPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), true, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_PROJECT_ONLY), null);
                 if (selectedPath == null) { // User quit dialog
                     logger.info("Startup dialog (project selection) was closed. Shutting down.");
                     System.exit(0);
                 }
                 projectsToAttemptOpen.add(selectedPath);
-            }
-            
-            // Partition projects into main and worktrees
-            List<Path> mainRepoPaths = new ArrayList<>();
-            List<Path> worktreePaths = new ArrayList<>();
-            for (Path p : projectsToAttemptOpen) {
-                if (!isValidDirectory(p)) {
-                    logger.warn("Skipping invalid path from open projects list: {}", p);
-                    continue;
-                }
-                boolean isWorktree = false;
-                if (GitRepo.hasGitRepo(p)) {
-                    try (GitRepo tempR = new GitRepo(p)) {
-                        isWorktree = tempR.isWorktree();
-                    } catch (Exception e) {
-                        logger.warn("Error checking worktree status for {}: {}. Assuming not a worktree for ordering.", p, e.getMessage());
-                    }
-                }
-                if (isWorktree) {
-                    worktreePaths.add(p);
-                } else {
-                    mainRepoPaths.add(p);
-                }
+                currentDialogContextPath = selectedPath; // Update context for next potential dialog
             }
 
-            // Attempt to open main repositories first
-            for (Path mainPath : mainRepoPaths) {
-                try {
-                    if (openProject(mainPath, null).get()) {
-                        successfulOpenOccurred = true;
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to open main project {}: {}", mainPath, e.getMessage(), e);
-                }
-            }
-
-            // Then attempt to open worktrees
-            for (Path worktreePath : worktreePaths) {
-                MainProject parentProject = null;
-                // Ensure it's a git repo and actually a worktree before trying to find its parent
-                if (GitRepo.hasGitRepo(worktreePath)) {
-                    try (GitRepo wtRepo = new GitRepo(worktreePath)) {
-                        if (wtRepo.isWorktree()) {
-                            Path gitTopLevel = wtRepo.getGitTopLevel();
-                            parentProject = (MainProject) Brokk.findOpenProjectByPath(gitTopLevel);
-                            if (parentProject == null) {
-                                logger.warn("During startup, could not find an already open parent project for worktree {} (expected at {}). " +
-                                            "The worktree will attempt to find its parent upon initialization, or may open as a standalone project if the parent isn't available.",
-                                            worktreePath.getFileName(), gitTopLevel.getFileName());
-                            } else {
-                                logger.debug("Found explicit parent {} for worktree {} during startup.", parentProject.getRoot().getFileName(), worktreePath.getFileName());
-                            }
-                        }
-                    } catch (Exception e) {
-                        logger.warn("Error determining parent project for worktree {} during startup: {}. Proceeding without explicit parent.", worktreePath.getFileName(), e.getMessage());
-                        // parentProject remains null
-                    }
-                }
-
-                try {
-                    // Pass the found parentProject (which might be null if parent wasn't open or an error occurred)
-                    if (openProject(worktreePath, parentProject).get()) {
-                        successfulOpenOccurred = true;
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to open worktree project {}: {}", worktreePath, e.getMessage(), e);
-                }
-            }
+            successfulOpenOccurred = attemptOpenProjects(projectsToAttemptOpen);
 
             if (successfulOpenOccurred) {
                 break; // At least one project opened, exit the startup loop
             } else {
-                // All attempts failed, clear lists and let loop restart for dialog
-                projectsToAttemptOpen.clear();
-                initialDialogPath = null; // Force full dialog
-                keyIsValid = false; // Re-check key too, in case it was the issue indirectly
+                projectsToAttemptOpen.clear(); // All attempts failed, clear list to re-trigger dialog
                 logger.warn("No projects were successfully opened. Retrying with startup dialog.");
+                // currentDialogContextPath remains for the next dialog iteration.
+                // Key validation is not repeated here as it passed earlier.
             }
         }
     }
@@ -288,9 +313,9 @@ public class Brokk {
         splashScreen = new JWindow();
         Chrome.applyIcon(splashScreen); // Sets window icon for taskbar if applicable
 
-        var panel = new JPanel(new BorderLayout(0, 10)); // Vertical gap
+        var panel = new JPanel(new BorderLayout(15, 0)); // Horizontal gap
         Border lineBorder = BorderFactory.createLineBorder(Color.GRAY);
-        Border emptyBorder = BorderFactory.createEmptyBorder(30, 50, 30, 50); // Increased padding
+        Border emptyBorder = BorderFactory.createEmptyBorder(30, 50, 30, 50); // Padding
         panel.setBorder(BorderFactory.createCompoundBorder(lineBorder, emptyBorder));
 
         var iconUrl = Brokk.class.getResource(ICON_RESOURCE);
@@ -298,11 +323,11 @@ public class Brokk {
             var icon = new ImageIcon(iconUrl);
             // Scale icon to a reasonable size for splash, e.g., 64x64
             Image scaledImage = icon.getImage().getScaledInstance(64, 64, Image.SCALE_SMOOTH);
-            JLabel iconLabel = new JLabel(new ImageIcon(scaledImage), SwingConstants.CENTER);
-            panel.add(iconLabel, BorderLayout.NORTH);
+            JLabel iconLabel = new JLabel(new ImageIcon(scaledImage)); // Alignment handled by BorderLayout
+            panel.add(iconLabel, BorderLayout.WEST);
         }
 
-        var label = new JLabel("Connecting to Brokk...", SwingConstants.CENTER);
+        var label = new JLabel("Brokk " + BuildInfo.version(), SwingConstants.LEFT); // Align text left
         label.setFont(label.getFont().deriveFont(Font.BOLD, 18f)); // Larger font
         panel.add(label, BorderLayout.CENTER);
 
@@ -336,11 +361,10 @@ public class Brokk {
         assert contextManager != null : "ContextManager cannot be null when creating GUI";
 
         var io = contextManager.createGui();
-        var project = contextManager.getProject();
 
         // Log the current data retention policy.
         // This is called after any necessary dialog has been shown and policy confirmed.
-        io.systemOutput("Data Retention Policy set to: " + project.getDataRetentionPolicy());
+        io.systemOutput("Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
 
         openProjectWindows.put(projectPath, io);
 
@@ -360,14 +384,6 @@ public class Brokk {
         });
     }
 
-    /**
-     * Opens the given project folder in Brokk, or brings existing window to front.
-     *
-     * @param path The path to the project.
-     * @param isInternalOperation true if Brokk is opening this project as part of an internal process.
-     * @param explicitParent If this project is a worktree being opened by its parent, this is the parent Project.
-     * @return A CompletableFuture that completes with true if the project was opened successfully, false otherwise.
-     */
     /**
      * Checks if a project window is already open for the given path.
      * @param path The project path.
@@ -398,7 +414,7 @@ public class Brokk {
     /**
      * Finds the Chrome window for a given project path by checking all open windows.
      * This method searches through all open project windows and compares their project root paths.
-     * 
+     *
      * @param projectPath The project path to search for
      * @return The Chrome window for the project, or null if not found
      */
@@ -407,11 +423,25 @@ public class Brokk {
             return null;
         }
         Path normalizedPath = projectPath.toAbsolutePath().normalize();
+        // Check direct map first for exact path match
+        Chrome directMatch = openProjectWindows.get(normalizedPath);
+        if (directMatch != null) {
+            // Verify the project root just in case, though it should match if the key matches
+            ContextManager cm = directMatch.getContextManager();
+            if (cm != null) {
+                var p = cm.getProject();
+                if (p != null && p.getRoot() != null &&
+                    p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                    return directMatch;
+                }
+            }
+        }
+        // Fallback: Iterate if direct match is not conclusive or not found (e.g. path aliases)
         for (Map.Entry<Path, Chrome> entry : openProjectWindows.entrySet()) {
             ContextManager cm = entry.getValue().getContextManager();
             if (cm != null) {
                 var p = cm.getProject();
-                if (p != null && p.getRoot() != null && 
+                if (p != null && p.getRoot() != null &&
                     p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
                     return entry.getValue();
                 }
@@ -421,66 +451,131 @@ public class Brokk {
     }
 
     public static IProject findOpenProjectByPath(Path path) {
-        Chrome chrome = openProjectWindows.get(path); // Check direct path first
-        if (chrome != null) {
-            return chrome.getContextManager().getProject();
+        Path normalizedPath = path.toAbsolutePath().normalize();
+        Chrome chrome = openProjectWindows.get(normalizedPath); // Check direct path first
+        if (chrome != null && chrome.getContextManager() != null) {
+            IProject project = chrome.getContextManager().getProject();
+            if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                 return project;
+            }
+        }
+        // Fallback if direct match is not conclusive or path is for parent of worktree
+        for (Chrome openChrome : openProjectWindows.values()) {
+            if (openChrome.getContextManager() != null) {
+                IProject project = openChrome.getContextManager().getProject();
+                if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                    return project;
+                }
+            }
         }
         return null;
     }
 
-    public static CompletableFuture<Boolean> openProject(Path path, @Nullable MainProject parent) {
-        final Path projectPath = path.toAbsolutePath().normalize();
-        logger.debug("Attempting to open project at {}: arent: {})", projectPath, parent != null ? parent.getRoot() : "null");
+    /**
+     * Builder for opening projects.
+     */
+    public static class OpenProjectBuilder {
+        private final Path path;
+        private MainProject parent;
+        private @Nullable Consumer<Chrome> initialTask;
+        private Context sourceContextForSession;
+
+        public OpenProjectBuilder(Path path) {
+            this.path = path;
+        }
+
+        public OpenProjectBuilder parent(@Nullable MainProject parent) {
+            this.parent = parent;
+            return this;
+        }
+
+        public OpenProjectBuilder initialTask(@Nullable Consumer<Chrome> initialTask) {
+            this.initialTask = initialTask;
+            return this;
+        }
+
+        public OpenProjectBuilder sourceContextForSession(@Nullable Context sourceContextForSession) {
+            this.sourceContextForSession = sourceContextForSession;
+            return this;
+        }
+
+        public CompletableFuture<Boolean> open() {
+            return Brokk.doOpenProject(this);
+        }
+
+        @Override
+        public String toString() {
+            return "OpenProjectBuilder{" +
+                    "path=" + path +
+                    ", parent=" + parent +
+                    ", initialTask=" + initialTask +
+                    ", sourceContextForSession=" + sourceContextForSession +
+                    '}';
+        }
+    }
+
+    private static CompletableFuture<Boolean> doOpenProject(OpenProjectBuilder builder) {
+        final Path projectPath = builder.path.toAbsolutePath().normalize();
+        logger.debug("Attempting to open project with {}", builder);
 
         var existingWindow = openProjectWindows.get(projectPath);
         if (existingWindow != null) {
             focusProjectWindow(projectPath);
+            if (builder.initialTask != null) {
+                 logger.warn("Initial task provided for already open project {}, task will not be run.", projectPath);
+            }
             return CompletableFuture.completedFuture(true);
         }
 
         CompletableFuture<Boolean> openCompletionFuture = new CompletableFuture<>();
 
-        // Stage 1: Initialize Project and ContextManager (off-EDT)
-        CompletableFuture.supplyAsync(() -> initializeProjectAndContextManager(projectPath, parent), ForkJoinPool.commonPool())
-            .thenAcceptAsync(contextManagerOpt -> { // Stage 2: Handle policy dialog and GUI creation (on-EDT)
+        initializeProjectAndContextManager(builder)
+            .thenAcceptAsync(contextManagerOpt -> {
                 if (contextManagerOpt.isEmpty()) {
-                    SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Ensure splash is hidden on failure
+                    SwingUtil.runOnEdt(Brokk::hideSplashScreen);
                     openCompletionFuture.complete(false);
                     return;
                 }
 
                 ContextManager contextManager = contextManagerOpt.get();
                 var project = contextManager.getProject();
-                Path actualProjectPath = project.getRoot(); // Use path from Project instance
+                Path actualProjectPath = project.getRoot();
 
-                // Check and show data retention dialog if needed
                 if (project.getDataRetentionPolicy() == MainProject.DataRetentionPolicy.UNSET) {
                     logger.debug("Project {} has no Data Retention Policy set. Showing dialog.", actualProjectPath.getFileName());
-                    boolean policySetAndConfirmed = SettingsDialog.showStandaloneDataRetentionDialog(project, null); // Parent frame is null
-
+                    boolean policySetAndConfirmed = SettingsDialog.showStandaloneDataRetentionDialog(project, null);
                     if (!policySetAndConfirmed) {
                         logger.info("Data retention dialog cancelled for project {}. Aborting open.", actualProjectPath.getFileName());
                         hideSplashScreen();
                         openCompletionFuture.complete(false);
                         return;
                     }
-                    // Policy set and OK'd by dialog; project object is updated.
                     logger.info("Data Retention Policy set to: {} for project {}", project.getDataRetentionPolicy(), actualProjectPath.getFileName());
                 }
 
-                // If policy was already set, or was set and OK'd by the dialog
-                hideSplashScreen(); // Hide splash just before showing the main GUI
+                hideSplashScreen();
                 createAndShowGui(actualProjectPath, contextManager);
-                Chrome chromeInstance = openProjectWindows.get(actualProjectPath); // Get the newly created Chrome instance
+                Chrome chromeInstance = openProjectWindows.get(actualProjectPath);
                 if (chromeInstance != null) {
-                    if (project.getParent() != project && project.getParent() instanceof MainProject) { // It's a worktree with a MainProject parent
+                    if (project.getParent() != project && project.getParent() instanceof MainProject) {
                         IProject actualParentProject = project.getParent();
                         mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
                         logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
-                    } else if (project instanceof MainProject) { // It's a main project
-                        // Ensure an entry exists for this main project, even if it has no worktrees opened *yet*
+                    } else if (project instanceof MainProject) {
                         mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
                         logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                    }
+
+                    if (builder.initialTask != null) {
+                        logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());
+                        try {
+                            builder.initialTask.accept(chromeInstance);
+                        } catch (Exception e) {
+                            logger.error("Error executing initial task for project {}: {}", actualProjectPath.getFileName(), e.getMessage(), e);
+                            JOptionPane.showMessageDialog(chromeInstance.getFrame(),
+                                                          "An error occurred while running the initial task: " + e.getMessage(),
+                                                          "Initial Task Error", JOptionPane.ERROR_MESSAGE);
+                        }
                     }
                 }
                 openCompletionFuture.complete(true);
@@ -500,8 +595,8 @@ public class Brokk {
                                                   errorMessage,
                                                   "Project Open Error", JOptionPane.ERROR_MESSAGE);
                 });
-                openCompletionFuture.complete(false); // Signify failure
-                return null; // Required for exceptionally's Function<Throwable, ? extends T>
+                openCompletionFuture.complete(false);
+                return null;
             });
 
         return openCompletionFuture;
@@ -566,7 +661,7 @@ public class Brokk {
                         return null;
                     });
 
-            openProject(projectPath, null).whenCompleteAsync((success, reopenEx) -> {
+            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((success, reopenEx) -> {
                 reOpeningProjects.remove(projectPath);
                 if (reopenEx != null) {
                     logger.error("Exception occurred while trying to reopen project: {}", projectPath, reopenEx);
@@ -609,25 +704,24 @@ public class Brokk {
         }
     }
 
-    private static java.util.Optional<ContextManager> initializeProjectAndContextManager(Path projectPath, @Nullable MainProject parent) {
+    private static CompletableFuture<Optional<ContextManager>> initializeProjectAndContextManager(OpenProjectBuilder builder) {
+        Path projectPath = builder.path;
+        MainProject parent = builder.parent;
+
         try {
             MainProject.updateRecentProject(projectPath);
-
             var project = AbstractProject.createProject(projectPath, parent);
 
-            // Prevent users from directly opening a worktree as a primary project,
-            // *unless* it's an internal operation (like auto-opening associated worktrees or from GitWorktreeTab).
             if (project.getRepo().isWorktree() && parent == null) {
-                logger.warn("User attempted to open a worktree ({}) directly as a project. Denying.", projectPath);
-                final Path finalProjectPath = projectPath; // for lambda
+                logger.warn("User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.", projectPath);
+                final Path finalProjectPath = projectPath;
                 SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                         null,
                         "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n" +
-                        "Worktrees should be managed via the 'Worktrees' tab in the main repository window.\n" +
-                        "Brokk will open them automatically when created there.",
+                        "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
                         "Cannot Open Worktree Directly",
                         JOptionPane.WARNING_MESSAGE));
-                return java.util.Optional.empty(); // Prevent this worktree from being opened by direct user action
+                return CompletableFuture.completedFuture(Optional.empty());
             }
 
             if (!project.hasGit()) {
@@ -645,8 +739,7 @@ public class Brokk {
                     try {
                         logger.info("Initializing Git repository at {}...", project.getRoot());
                         io.github.jbellis.brokk.git.GitRepo.initRepo(project.getRoot());
-                        // Re-create project to reflect new .git dir; pass existing explicitParent if any.
-                        project = AbstractProject.createProject(projectPath, parent);
+                        project = AbstractProject.createProject(projectPath, parent); // Re-create project
                         logger.info("Git repository initialized successfully at {}.", project.getRoot());
                     } catch (Exception e) {
                         logger.error("Failed to initialize Git repository at {}: {}", project.getRoot(), e.getMessage(), e);
@@ -657,11 +750,9 @@ public class Brokk {
                                 "\nThe project will be opened as read-only.",
                                 "Git Initialization Error",
                                 JOptionPane.ERROR_MESSAGE));
-                        // Continue as read-only with the non-Git project instance
                     }
                 } else {
                     logger.info("User declined Git initialization for project {}. Proceeding as read-only.", project.getRoot());
-                    // Continue as read-only
                 }
             }
 
@@ -669,9 +760,16 @@ public class Brokk {
                 mp.reserveSessionsForKnownWorktrees();
             }
 
-            return java.util.Optional.of(new ContextManager(project));
+            // TODO nothing is actually async here
+            var contextManager = new ContextManager(project); // Project must be final or effectively final for lambda
+            if (builder.sourceContextForSession != null) {
+                // Asynchronously create session from workspace, then complete the future
+                String newSessionName = "Architect Session (" + project.getRoot().getFileName() + ")"; // Or generate based on branch
+                contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
+            }
+            return CompletableFuture.completedFuture(Optional.of(contextManager));
         } catch (Exception e) {
-            logger.error("Failed to initialize project and ContextManager for path {}: {}", projectPath, e.getMessage(), e);
+            logger.error("Failed to initialize project for path {}: {}", projectPath, e.getMessage(), e);
             final String errorMsg = e.getMessage();
             SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                     null,
@@ -679,7 +777,7 @@ public class Brokk {
                     "\nPlease check the logs for more details.",
                     "Project Initialization Failed",
                     JOptionPane.ERROR_MESSAGE));
-            return java.util.Optional.empty();
+            return CompletableFuture.completedFuture(Optional.empty());
         }
     }
 
@@ -700,8 +798,8 @@ public class Brokk {
             var frame = openProjectWindows.get(projectPath).getFrame();
             frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
         } else {
-            // If not open, just open it directly. Pass null for explicitParent.
-            openProject(projectPath, null).whenCompleteAsync((success, ex) -> {
+            // If not open, just open it directly.
+            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((success, ex) -> {
                 if (ex != null) {
                     logger.error("Error reopening project {}: {}", projectPath, ex);
                 } else if (success == null || !success) {

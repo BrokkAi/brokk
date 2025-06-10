@@ -2,10 +2,13 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.util.Date;
 import java.util.HashMap;
@@ -112,6 +115,34 @@ public class GitPanel extends JPanel
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
+
+        updateBorderTitle(); // Set initial title with branch name
+    }
+
+    private String getCurrentBranchName() {
+        try {
+            var project = contextManager.getProject();
+            IGitRepo repo = project.getRepo();
+            return ((GitRepo) repo).getCurrentBranch();
+        } catch (Exception e) {
+            logger.warn("Could not get current branch name", e);
+        }
+        return "";
+    }
+
+    private void updateBorderTitle() {
+        var branchName = getCurrentBranchName();
+        SwingUtilities.invokeLater(() -> {
+            var border = getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String newTitle = branchName != null && !branchName.isBlank()
+                                  ? "Git (" + branchName + ") ▼"
+                                  : "Git ▼";
+                titledBorder.setTitle(newTitle);
+                revalidate();
+                repaint();
+            }
+        });
     }
 
     /**
@@ -130,6 +161,7 @@ public class GitPanel extends JPanel
         if (gitWorktreeTab != null) {
             gitWorktreeTab.refresh();
         }
+        updateBorderTitle(); // Refresh title on repo update
     }
 
     /**

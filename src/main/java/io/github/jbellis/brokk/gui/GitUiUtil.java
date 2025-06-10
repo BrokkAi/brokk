@@ -4,6 +4,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
+import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.Brokk;
@@ -168,8 +170,8 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
-                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(commitContent, commitId, file.toString()))
+                            .leftSource(new BufferSource.StringSource(parentContent, parentCommitId, file.toString()))
+                            .rightSource(new BufferSource.StringSource(commitContent, commitId, file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
@@ -300,7 +302,7 @@ public final class GitUiUtil
                     chrome.toolError("Git repository not available.");
                     return;
                 }
-    
+
                     var diffs = files.stream()
                             .map(file -> {
                                 try {
@@ -388,8 +390,8 @@ public final class GitUiUtil
 
                 SwingUtilities.invokeLater(() -> {
                     var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.themeManager, cm)
-                            .leftSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString()))
-                            .rightSource(new io.github.jbellis.brokk.difftool.ui.BufferSource.FileSource(file.absPath().toFile(), file.toString()))
+                            .leftSource(new BufferSource.StringSource(finalOldContent, finalBaseCommitTitle, file.toString()))
+                            .rightSource(new BufferSource.FileSource(file.absPath().toFile(), file.toString()))
                             .build();
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
@@ -469,6 +471,90 @@ public final class GitUiUtil
      * @param baseBranchName   The name of the base branch for comparison (e.g., "HEAD", or a specific branch name).
      * @param compareBranchName The name of the branch to compare against the base.
      */
+    /**
+     * Open a BrokkDiffPanel showing all file changes in the specified commit.
+     */
+    public static void openCommitDiffPanel(
+            ContextManager cm,
+            Chrome chrome,
+            io.github.jbellis.brokk.git.ICommitInfo commitInfo
+    ) {
+        var repo = cm.getProject().getRepo();
+        if (repo == null) {
+            chrome.toolError("Git repository not available.");
+            return;
+        }
+
+        cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
+            try {
+                var files = commitInfo.changedFiles();
+                if (files == null || files.isEmpty()) {
+                    chrome.systemOutput("No files changed in this commit.");
+                    return;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, cm);
+                var parentId = commitInfo.id() + "^";
+
+                for (var file : files) {
+                    var oldContent = getFileContentOrEmpty(repo, parentId, file);
+                    var newContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+
+                    builder.addComparison(
+                        new BufferSource.StringSource(oldContent, parentId, file.getFileName()),
+                        new BufferSource.StringSource(newContent, commitInfo.id(), file.getFileName())
+                    );
+                }
+
+                var title = "Commit Diff: %s (%s)".formatted(
+                        commitInfo.message().lines().findFirst().orElse(""),
+                        commitInfo.id().substring(0, 7)
+                );
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+            } catch (Exception ex) {
+                chrome.toolErrorRaw("Error opening commit diff: " + ex.getMessage());
+            }
+        });
+    }
+
+    private static String getFileContentOrEmpty(io.github.jbellis.brokk.git.IGitRepo repo, String commitId, ProjectFile file) {
+        try {
+            return repo.getFileContent(commitId, file);
+        } catch (Exception e) {
+            return ""; // File may be new or deleted
+        }
+    }
+
+    public static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
+        contextManager.submitUserTask("Opening multi-file diff to local", () -> {
+            try {
+                var changedFiles = commitInfo.changedFiles();
+                if (changedFiles.isEmpty()) {
+                    chrome.systemOutput("No files changed in this commit");
+                    return;
+                }
+
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+                var repo = contextManager.getProject().getRepo();
+                var shortId = commitInfo.id().substring(0, 7);
+
+                for (var file : changedFiles) {
+                    String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
+                    var leftSource = new BufferSource.StringSource(commitContent, shortId, file.getFileName());
+                    var rightSource = new BufferSource.FileSource(file.absPath().toFile(), file.getFileName());
+                    builder.addComparison(leftSource, rightSource);
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    var panel = builder.build();
+                    panel.showInFrame("Compare " + shortId + " to Local");
+                });
+            } catch (Exception ex) {
+                chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+            }
+        });
+    }
+
     public static void captureDiffBetweenBranches
     (
             ContextManager cm,
@@ -506,16 +592,16 @@ public final class GitUiUtil
 
     /**
      * Prompts the user and removes a worktree, with options to skip confirmation and/or window close event.
-     * 
+     *
      * @param contextManager The ContextManager instance
      * @param chrome The Chrome instance for UI feedback
      * @param worktreePath The path to the worktree to remove
      * @param skipConfirmation Whether to skip the confirmation dialog
      * @param dispatchWindowCloseEvent Whether to dispatch a window closing event after removal
      */
-    public static void promptAndRemoveWorktree(ContextManager contextManager, 
-                                             Chrome chrome, 
-                                             Path worktreePath, 
+    public static void promptAndRemoveWorktree(ContextManager contextManager,
+                                             Chrome chrome,
+                                             Path worktreePath,
                                              boolean skipConfirmation,
                                              boolean dispatchWindowCloseEvent) {
         IGitRepo repo = contextManager.getProject().getRepo();
@@ -548,7 +634,7 @@ public final class GitUiUtil
         if (!skipConfirmation) {
             int response = JOptionPane.showConfirmDialog(
                     chrome.getFrame(),
-                    "Are you sure you want to remove the worktree at:\n" + worktreePath + 
+                    "Are you sure you want to remove the worktree at:\n" + worktreePath +
                     "\n\nThis will delete the files from disk.",
                     "Confirm Worktree Removal",
                     JOptionPane.YES_NO_OPTION,
@@ -582,17 +668,17 @@ public final class GitUiUtil
 
             } catch (GitAPIException e) {
                 logger.error("Git error while removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() -> 
-                    JOptionPane.showMessageDialog(chrome.getFrame(), 
-                        "Git error while removing worktree: " + e.getMessage(), 
-                        "Git Error", 
+                SwingUtilities.invokeLater(() ->
+                    JOptionPane.showMessageDialog(chrome.getFrame(),
+                        "Git error while removing worktree: " + e.getMessage(),
+                        "Git Error",
                         JOptionPane.ERROR_MESSAGE));
             } catch (Exception e) {
                 logger.error("Error removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() -> 
-                    JOptionPane.showMessageDialog(chrome.getFrame(), 
-                        "Error removing worktree: " + e.getMessage(), 
-                        "Error", 
+                SwingUtilities.invokeLater(() ->
+                    JOptionPane.showMessageDialog(chrome.getFrame(),
+                        "Error removing worktree: " + e.getMessage(),
+                        "Error",
                         JOptionPane.ERROR_MESSAGE));
             }
         });

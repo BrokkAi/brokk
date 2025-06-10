@@ -24,6 +24,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.Set;
@@ -42,6 +43,15 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
+    // New key for the IssueProvider record as JSON
+    private static final String ISSUES_PROVIDER_JSON_KEY = "issuesProviderJson";
+
+    // Old keys for migration
+    private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
+    private static final String JIRA_PROJECT_BASE_URL_KEY = "jiraProjectBaseUrl";
+    private static final String JIRA_PROJECT_API_TOKEN_KEY = "jiraProjectApiToken";
+    private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
+
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig, String oldModelNameKey,
                                  String oldReasoningKey) {
     }
@@ -56,11 +66,14 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
 
+    private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
+
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT = """
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
                                                                """.stripIndent();
     private static volatile Boolean isDataShareAllowedCache = null;
+    private static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -79,7 +92,7 @@ public final class MainProject extends AbstractProject {
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
-    public static record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
+    public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {
             if (openWorktrees == null) {
                 openWorktrees = List.of();
@@ -115,6 +128,8 @@ public final class MainProject extends AbstractProject {
             logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
             projectProps.clear();
         }
+        // Initialize cache and trigger migration/defaulting if necessary
+        this.issuesProviderCache = getIssuesProvider();
     }
 
     @Override
@@ -127,19 +142,26 @@ public final class MainProject extends AbstractProject {
         return this.masterRootPathForConfig;
     }
 
-    private static Properties loadGlobalProperties() {
+    private static synchronized Properties loadGlobalProperties() {
+        if (globalPropertiesCache != null) {
+            return (Properties) globalPropertiesCache.clone();
+        }
+        
         var props = new Properties();
         if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
             try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
                 props.load(reader);
             } catch (IOException e) {
                 logger.warn("Unable to read global properties file: {}", e.getMessage());
+                globalPropertiesCache = (Properties) props.clone();
                 return props;
             }
         }
         boolean migrated = migrateOldModelConfigsIfNecessary(props);
         if (migrated) {
             saveGlobalProperties(props);
+        } else {
+            globalPropertiesCache = (Properties) props.clone();
         }
         return props;
     }
@@ -182,22 +204,16 @@ public final class MainProject extends AbstractProject {
         return changed;
     }
 
-    private static void saveGlobalProperties(Properties props) {
+    private static synchronized void saveGlobalProperties(Properties props) {
         try {
-            if (Files.exists(GLOBAL_PROPERTIES_PATH)) {
-                Properties existingProps = new Properties();
-                try (var reader = Files.newBufferedReader(GLOBAL_PROPERTIES_PATH)) {
-                    existingProps.load(reader);
-                } catch (IOException e) {
-                    // Ignore
-                }
-                if (AbstractProject.propsEqual(existingProps, props)) { // Use AbstractProject.propsEqual
-                    return;
-                }
+            if (loadGlobalProperties().equals(props)) {
+                return;
             }
             AtomicWrites.atomicSaveProperties(GLOBAL_PROPERTIES_PATH, props, "Brokk global configuration");
+            globalPropertiesCache = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
+            globalPropertiesCache = null; // Invalidate cache on error
         }
     }
 
@@ -435,6 +451,121 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
+    private volatile io.github.jbellis.brokk.IssueProvider issuesProviderCache = null;
+
+    @Override
+    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+        if (issuesProviderCache != null) {
+            return issuesProviderCache;
+        }
+
+        String json = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
+        if (json != null && !json.isBlank()) {
+            try {
+                issuesProviderCache = objectMapper.readValue(json, io.github.jbellis.brokk.IssueProvider.class);
+                return issuesProviderCache;
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.", json, e);
+            }
+        }
+
+        // Migration from old properties
+        String oldProviderEnumName = projectProps.getProperty(OLD_ISSUE_PROVIDER_ENUM_KEY);
+        if (oldProviderEnumName != null) {
+            io.github.jbellis.brokk.issues.IssueProviderType oldType = io.github.jbellis.brokk.issues.IssueProviderType.fromString(oldProviderEnumName);
+            if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.JIRA) {
+                String baseUrl = projectProps.getProperty(JIRA_PROJECT_BASE_URL_KEY, "");
+                String apiToken = projectProps.getProperty(JIRA_PROJECT_API_TOKEN_KEY, "");
+                String projectKey = projectProps.getProperty(JIRA_PROJECT_KEY_KEY, "");
+                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.jira(baseUrl, apiToken, projectKey);
+            } else if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.GITHUB) {
+                // Old GitHub had no specific config, so it's the default GitHub config
+                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
+            }
+            // If migrated, save new format and remove old keys
+            if (issuesProviderCache != null) {
+                setIssuesProvider(issuesProviderCache); // This will save and clear old keys
+                logger.info("Migrated issue provider settings from old format for project {}", getRoot().getFileName());
+                return issuesProviderCache;
+            }
+        }
+
+        // Defaulting logic if no JSON and no old properties
+        if (isGitHubRepo()) {
+            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
+        } else {
+            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.none();
+        }
+        // Save the default so it's persisted
+        setIssuesProvider(issuesProviderCache);
+        logger.info("Defaulted issue provider to {} for project {}", issuesProviderCache.type(), getRoot().getFileName());
+        return issuesProviderCache;
+    }
+
+    @Override
+    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+        if (provider == null) {
+            provider = io.github.jbellis.brokk.IssueProvider.none(); // Default to NONE if null is passed
+        }
+        try {
+            String json = objectMapper.writeValueAsString(provider);
+            projectProps.setProperty(ISSUES_PROVIDER_JSON_KEY, json);
+            issuesProviderCache = provider;
+
+            // Remove old keys after successful new key storage
+            boolean removedOld = projectProps.remove(OLD_ISSUE_PROVIDER_ENUM_KEY) != null;
+            removedOld |= projectProps.remove(JIRA_PROJECT_BASE_URL_KEY) != null;
+            removedOld |= projectProps.remove(JIRA_PROJECT_API_TOKEN_KEY) != null;
+            removedOld |= projectProps.remove(JIRA_PROJECT_KEY_KEY) != null;
+            if (removedOld) {
+                logger.debug("Removed old issue provider properties after setting new JSON format.");
+            }
+
+            saveProjectProperties();
+            logger.info("Set issue provider to type '{}' for project {}", provider.type(), getRoot().getFileName());
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize IssueProvider to JSON: {}. Settings not saved.", provider, e);
+            throw new RuntimeException("Failed to serialize IssueProvider", e);
+        }
+    }
+
+
+    @Override
+    @Deprecated
+    public String getJiraProjectKey() {
+        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
+        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
+            return jiraConfig.projectKey();
+        }
+        return "";
+    }
+
+    @Override
+    @Deprecated
+    public void setJiraProjectKey(String projectKey) {
+        String trimmedValue = (projectKey == null) ? "" : projectKey.trim();
+        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
+        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
+            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
+            ? jc : null;
+
+        if (currentJiraConfig != null) { // Current provider is JIRA
+            if (!Objects.equals(trimmedValue, currentJiraConfig.projectKey())) {
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
+                    currentJiraConfig.baseUrl(), currentJiraConfig.apiToken(), trimmedValue);
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+        } else { // Current provider is NOT JIRA
+            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira project key
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig("", "", trimmedValue);
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+            // If trimmedValue is empty and current provider is not JIRA, do nothing.
+        }
+    }
+
     public void saveProjectProperties() {
         // Use AbstractProject's saveProperties for consistency if it were public static or passed instance
         // For now, keep local implementation matching AbstractProject's logic.
@@ -446,7 +577,7 @@ public final class MainProject extends AbstractProject {
                     existingProps.load(reader);
                 } catch (IOException e) { /* ignore */ }
 
-                if (AbstractProject.propsEqual(existingProps, projectProps)) { // Use AbstractProject.propsEqual
+                if (Objects.equals(existingProps, projectProps)) { // Use AbstractProject.propsEqual
                     return;
                 }
             }
@@ -656,11 +787,92 @@ public final class MainProject extends AbstractProject {
             props.setProperty(GITHUB_TOKEN_KEY, token.trim());
         }
         saveGlobalProperties(props);
+        notifyGitHubTokenChanged();
+    }
+
+    private static void notifyGitHubTokenChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.gitHubTokenChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of GitHub token change", e);
+            }
+        }
     }
 
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
+    }
+
+    @Override
+    @Deprecated
+    public String getJiraBaseUrl() {
+        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
+        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
+            return jiraConfig.baseUrl();
+        }
+        return "";
+    }
+
+    @Override
+    @Deprecated
+    public void setJiraBaseUrl(String baseUrl) {
+        String trimmedValue = (baseUrl == null) ? "" : baseUrl.trim();
+        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
+        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
+            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
+            ? jc : null;
+
+        if (currentJiraConfig != null) { // Current provider is JIRA
+            if (!Objects.equals(trimmedValue, currentJiraConfig.baseUrl())) {
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
+                    trimmedValue, currentJiraConfig.apiToken(), currentJiraConfig.projectKey());
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+        } else { // Current provider is NOT JIRA
+            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira base URL
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(trimmedValue, "", "");
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+        }
+    }
+
+    @Override
+    @Deprecated
+    public String getJiraApiToken() {
+        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
+        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
+            return jiraConfig.apiToken();
+        }
+        return "";
+    }
+
+    @Override
+    @Deprecated
+    public void setJiraApiToken(String token) {
+        String trimmedValue = (token == null) ? "" : token.trim();
+        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
+        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
+            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
+             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
+            ? jc : null;
+
+        if (currentJiraConfig != null) { // Current provider is JIRA
+            if (!Objects.equals(trimmedValue, currentJiraConfig.apiToken())) {
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
+                    currentJiraConfig.baseUrl(), trimmedValue, currentJiraConfig.projectKey());
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+        } else { // Current provider is NOT JIRA
+            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira API token
+                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig("", trimmedValue, "");
+                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
+            }
+        }
     }
 
     public static String getTheme() {
@@ -706,6 +918,14 @@ public final class MainProject extends AbstractProject {
         isDataShareAllowedCache = allowed;
         logger.info("Data sharing allowed for organization: {}", allowed);
         return allowed;
+    }
+
+    public static void addSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.add(listener);
+    }
+
+    public static void removeSettingsChangeListener(SettingsChangeListener listener) {
+        settingsChangeListeners.remove(listener);
     }
 
     public enum DataRetentionPolicy {
@@ -1214,31 +1434,20 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public SessionInfo copySession(UUID originalSessionId, String newSessionName) {
+    public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         Path originalHistoryPath = getSessionHistoryPath(originalSessionId);
         if (!Files.exists(originalHistoryPath)) {
-            logger.error("Original session zip {} not found, cannot copy.", originalHistoryPath.getFileName());
-            return null;
+            throw new IOException("Original session %s not found, cannot copy".formatted(originalHistoryPath.getFileName()));
         }
         UUID newSessionId = UUID.randomUUID();
         Path newHistoryPath = getSessionHistoryPath(newSessionId);
         long currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(newSessionId, newSessionName, currentTime, currentTime);
-        try {
-            Files.createDirectories(newHistoryPath.getParent());
-            Files.copy(originalHistoryPath, newHistoryPath);
-            logger.info("Copied session zip {} to {}", originalHistoryPath.getFileName(), newHistoryPath.getFileName());
-            writeSessionInfoToZip(newHistoryPath, newSessionInfo);
-            logger.info("Updated manifest.json in new session zip {} for session ID {}", newHistoryPath.getFileName(), newSessionId);
-        } catch (IOException e) {
-            logger.error("Error copying session zip from {} to {} or updating its manifest: {}",
-                    originalHistoryPath.getFileName(), newHistoryPath.getFileName(), e.getMessage());
-            try {
-                Files.deleteIfExists(newHistoryPath);
-            } catch (IOException ignored) {
-            }
-            return null;
-        }
+        Files.createDirectories(newHistoryPath.getParent());
+        Files.copy(originalHistoryPath, newHistoryPath);
+        logger.info("Copied session zip {} to {}", originalHistoryPath.getFileName(), newHistoryPath.getFileName());
+        writeSessionInfoToZip(newHistoryPath, newSessionInfo);
+        logger.info("Updated manifest.json in new session zip {} for session ID {}", newHistoryPath.getFileName(), newSessionId);
         return newSessionInfo;
     }
 

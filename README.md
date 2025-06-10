@@ -51,7 +51,7 @@ When you start Brokk, you’ll see five main areas:
 As you edit your instructions and add context, Brokk will automatically suggest related files that you
 may wish to add to the Workspace. This helps the LLM avoid hallucinations when
 reasoning about your code.  This is the row of blue filenames you see below the Instructions.
-[To get more precise recommendations, use Deep Scan](https://brokk.ai/blog/lean-context-lightning-development).
+[To get more precise recommendations, use Deep Scan](https://blog.brokk.ai/lean-context-lightning-development).
 
 ## Primary Actions
 
@@ -167,4 +167,12 @@ If you have `sbtn` installed it can be used to run commands such as `sbtn run` w
 startup overhead so using the repl or `sbtn` is recommended.)
 
 If you change the build definition, run `reload` to start using the changes.
+
+## Icon Browser
+
+To explore available Look and Feel icons for UI development:
+- GUI browser: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil icons"`
+- Console list: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil"`
+
+Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
 

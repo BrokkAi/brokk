@@ -248,6 +248,14 @@ public class Context {
     }
 
     public Context addVirtualFragment(ContextFragment.VirtualFragment fragment) { // IContextManager is already member
+        // Check if a fragment with the same text content already exists
+        boolean duplicateByText = virtualFragments.stream()
+                .anyMatch(vf -> Objects.equals(vf.text(), fragment.text()));
+
+        if (duplicateByText) {
+            return this; // Fragment with same text content already present, no change
+        }
+
         var newFragments = new ArrayList<>(virtualFragments);
         newFragments.add(fragment);
 
@@ -400,7 +408,8 @@ public class Context {
     }
 
     public Stream<ContextFragment.VirtualFragment> virtualFragments() {
-        return virtualFragments.stream();
+        // this.virtualFragments is guaranteed to be non-null and deduplicated by the constructor.
+        return this.virtualFragments.stream();
     }
 
     /**
@@ -935,7 +944,7 @@ public class Context {
      *
      * @return A new Context instance with dynamic fragments frozen
      */
-    public Context freezeForTesting() {
+    public Context freezeOnly() {
         return freeze().frozenContext;
     }
 
