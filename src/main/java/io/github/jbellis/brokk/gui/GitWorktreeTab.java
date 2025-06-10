@@ -457,234 +457,201 @@ public class GitWorktreeTab extends JPanel {
         });
     }
 
+    private record AddWorktreeDialogResult(
+            String selectedBranch, // For "use existing" or "new branch name" (raw)
+            String sourceBranchForNew,
+            boolean isCreatingNewBranch,
+            boolean copyWorkspace,
+            boolean okPressed
+    ) {}
 
     private void addWorktree() {
-        // Get Project and IGitRepo instances
         MainProject project = (MainProject) contextManager.getProject();
-        IGitRepo repo = project.getRepo();
+        IGitRepo repo = project.getRepo(); // This repo instance is effectively final for the lambda
 
-        // Verify that IGitRepo is an instance of GitRepo
-        if (!(repo instanceof GitRepo gitRepo)) {
-            JOptionPane.showMessageDialog(this,
-                "Worktree operations are only supported for Git repositories.",
-                "Error",
-                JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
-        try {
-            // Branch Selection Logic
-            List<String> localBranches = gitRepo.listLocalBranches();
-            Set<String> branchesInWorktrees = gitRepo.getBranchesInWorktrees();
-
-            // Determine available branches
-            List<String> availableBranches = localBranches.stream()
-                .filter(branch -> !branchesInWorktrees.contains(branch))
-                .toList();
-
-            if (availableBranches.isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                    "No available branches to create a worktree from.",
-                    "Info",
-                    JOptionPane.INFORMATION_MESSAGE);
+        contextManager.submitContextTask("Preparing to add worktree...", () -> {
+            if (!(repo instanceof GitRepo gitRepo)) {
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                        "Worktree operations are only supported for Git repositories.",
+                        "Error", JOptionPane.ERROR_MESSAGE));
                 return;
             }
-            
-            // UI for branch selection / creation
-            JPanel panel = new JPanel(new GridBagLayout());
-            GridBagConstraints gbc = new GridBagConstraints();
-            gbc.insets = new Insets(5, 5, 5, 5); // Default insets
 
-            JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:", true);
-            JComboBox<String> branchComboBox = new JComboBox<>(availableBranches.toArray(new String[0]));
-            branchComboBox.setEnabled(true);
+            List<String> localBranches;
+            Set<String> branchesInWorktrees;
+            String currentGitBranch;
+            List<String> availableBranches;
 
-            JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:");
-            JTextField newBranchNameField = new JTextField(15);
-            newBranchNameField.setEnabled(false);
-
-            JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(localBranches.toArray(new String[0]));
             try {
-                sourceBranchForNewComboBox.setSelectedItem(gitRepo.getCurrentBranch());
-            } catch (GitAPIException ge) {
-                logger.warn("Could not set default source branch for new worktree", ge);
-            }
-            sourceBranchForNewComboBox.setEnabled(false);
+                localBranches = gitRepo.listLocalBranches();
+                branchesInWorktrees = gitRepo.getBranchesInWorktrees();
+                currentGitBranch = gitRepo.getCurrentBranch();
 
-            ButtonGroup group = new ButtonGroup();
-            group.add(useExistingBranchRadio);
-            group.add(createNewBranchRadio);
+                availableBranches = localBranches.stream()
+                        .filter(branch -> !branchesInWorktrees.contains(branch))
+                        .toList();
 
-            useExistingBranchRadio.addActionListener(e -> {
-                branchComboBox.setEnabled(true);
-                newBranchNameField.setEnabled(false);
-                sourceBranchForNewComboBox.setEnabled(false);
-            });
-            createNewBranchRadio.addActionListener(e -> {
-                branchComboBox.setEnabled(false);
-                newBranchNameField.setEnabled(true);
-                sourceBranchForNewComboBox.setEnabled(true);
-            });
-
-            // Row 0: Use existing branch radio
-            gbc.gridx = 0;
-            gbc.gridy = 0;
-            gbc.gridwidth = 2;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            panel.add(useExistingBranchRadio, gbc);
-
-            // Row 1: Existing branch combo box
-            gbc.gridx = 0; // Aligned with radio, could be column 1 for tighter indent
-            gbc.gridy = 1;
-            gbc.gridwidth = 2; // Span fully or use 1 and adjust insets/gridx
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.weightx = 1.0;
-            gbc.insets = new Insets(2, 25, 5, 5); // Indent
-            panel.add(branchComboBox, gbc);
-            gbc.weightx = 0.0; // Reset weightx
-            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
-
-            // Row 2: Create new branch radio
-            gbc.gridx = 0;
-            gbc.gridy = 2;
-            gbc.gridwidth = 2;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.insets = new Insets(10, 5, 2, 5); // Top margin
-            panel.add(createNewBranchRadio, gbc);
-            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
-
-            // Row 3: New branch name label and field
-            gbc.gridx = 0;
-            gbc.gridy = 3;
-            gbc.gridwidth = 1;
-            gbc.anchor = GridBagConstraints.EAST;
-            gbc.fill = GridBagConstraints.NONE;
-            gbc.insets = new Insets(2, 25, 2, 5); // Indent, padding
-            panel.add(new JLabel("Name:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.gridy = 3;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.weightx = 1.0;
-            gbc.insets = new Insets(2, 0, 2, 5); // Padding
-            panel.add(newBranchNameField, gbc);
-            gbc.weightx = 0.0; // Reset
-
-            // Row 4: New branch source label and combo box
-            gbc.gridx = 0;
-            gbc.gridy = 4;
-            gbc.anchor = GridBagConstraints.EAST;
-            gbc.fill = GridBagConstraints.NONE;
-            gbc.insets = new Insets(2, 25, 5, 5); // Indent, padding
-            panel.add(new JLabel("From:"), gbc);
-
-            gbc.gridx = 1;
-            gbc.gridy = 4;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.weightx = 1.0;
-            gbc.insets = new Insets(2, 0, 5, 5); // Padding
-            panel.add(sourceBranchForNewComboBox, gbc);
-            gbc.weightx = 0.0; // Reset
-            gbc.insets = new Insets(5, 5, 5, 5); // Reset insets
-
-            // Row 5: Copy workspace checkbox
-            JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
-            copyWorkspaceCheckbox.setSelected(false);
-            gbc.gridx = 0;
-            gbc.gridy = 5;
-            gbc.gridwidth = 2;
-            gbc.anchor = GridBagConstraints.WEST;
-            gbc.fill = GridBagConstraints.HORIZONTAL;
-            gbc.insets = new Insets(10, 5, 5, 5); // Top margin
-            panel.add(copyWorkspaceCheckbox, gbc);
-
-            int result = JOptionPane.showConfirmDialog(this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-            if (result != JOptionPane.OK_OPTION) {
+                if (availableBranches.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                            "No available branches to create a worktree from.",
+                            "Info", JOptionPane.INFORMATION_MESSAGE));
+                    return;
+                }
+            } catch (GitAPIException e) {
+                logger.error("Error fetching initial branch information for add worktree", e);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this,
+                        "Error fetching branch information: " + e.getMessage(),
+                        "Git Error", JOptionPane.ERROR_MESSAGE));
                 return;
             }
 
-            String branchForWorktree; // The branch the worktree will be on
-            String sourceBranchForNew = null; // Source if creating a new branch
-            boolean isCreatingNewBranch = createNewBranchRadio.isSelected();
-            boolean copyWorkspace = copyWorkspaceCheckbox.isSelected();
+            final java.util.concurrent.CompletableFuture<AddWorktreeDialogResult> dialogFuture = new java.util.concurrent.CompletableFuture<>();
+            final List<String> finalAvailableBranches = availableBranches; // Effectively final for EDT lambda
+            final List<String> finalLocalBranches = localBranches; // Effectively final for EDT lambda
+            final String finalCurrentGitBranch = currentGitBranch; // Effectively final for EDT lambda
 
-            if (isCreatingNewBranch) {
-                branchForWorktree = newBranchNameField.getText().trim();
-                if (branchForWorktree.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                // TODO: Add more validation for branch names (e.g., no spaces, special chars)
-                // Sanitize new branch name
-                try {
-                    branchForWorktree = gitRepo.sanitizeBranchName(branchForWorktree);
-                } catch (GitAPIException e) {
-                    JOptionPane.showMessageDialog(this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
+            SwingUtilities.invokeLater(() -> {
+                JPanel panel = new JPanel(new GridBagLayout());
+                GridBagConstraints gbc = new GridBagConstraints();
+                gbc.insets = new Insets(5, 5, 5, 5);
 
+                JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:", true);
+                JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
+                branchComboBox.setEnabled(true);
 
-                sourceBranchForNew = (String) sourceBranchForNewComboBox.getSelectedItem();
-                if (sourceBranchForNew == null || sourceBranchForNew.isEmpty()) {
-                    JOptionPane.showMessageDialog(this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-            } else {
-                if (branchComboBox.getSelectedItem() == null) {
-                    JOptionPane.showMessageDialog(this, "No branch selected to use for the worktree.", "Error", JOptionPane.ERROR_MESSAGE);
-                    return;
-                }
-                branchForWorktree = (String) branchComboBox.getSelectedItem();
-            }
+                JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:");
+                JTextField newBranchNameField = new JTextField(15);
+                newBranchNameField.setEnabled(false);
 
-            final String finalBranchForWorktree = branchForWorktree; // Effectively final for lambda
-            final String finalSourceBranchForNew = sourceBranchForNew; // Effectively final for lambda
+                JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(finalLocalBranches.toArray(new String[0]));
+                sourceBranchForNewComboBox.setSelectedItem(finalCurrentGitBranch);
+                sourceBranchForNewComboBox.setEnabled(false);
 
-            contextManager.submitContextTask("Adding worktree for branch: " + finalBranchForWorktree, () -> {
-                try {
-                    WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, finalBranchForWorktree, isCreatingNewBranch, finalSourceBranchForNew);
-                    Path newWorktreePath = setupResult.worktreePath();
+                ButtonGroup group = new ButtonGroup();
+                group.add(useExistingBranchRadio);
+                group.add(createNewBranchRadio);
 
-                    Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath)
-                            .parent(project);
+                useExistingBranchRadio.addActionListener(eL -> {
+                    branchComboBox.setEnabled(true);
+                    newBranchNameField.setEnabled(false);
+                    sourceBranchForNewComboBox.setEnabled(false);
+                });
+                createNewBranchRadio.addActionListener(eL -> {
+                    branchComboBox.setEnabled(false);
+                    newBranchNameField.setEnabled(true);
+                    sourceBranchForNewComboBox.setEnabled(true);
+                });
 
-                    if (copyWorkspace) {
-                        logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
-                        openProjectBuilder.sourceContextForSession(contextManager.topContext());
+                gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL;
+                panel.add(useExistingBranchRadio, gbc);
+                gbc.gridx = 0; gbc.gridy = 1; gbc.insets = new Insets(2, 25, 5, 5); gbc.weightx = 1.0;
+                panel.add(branchComboBox, gbc);
+                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.gridx = 0; gbc.gridy = 2; gbc.insets = new Insets(10, 5, 2, 5);
+                panel.add(createNewBranchRadio, gbc);
+                gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 2, 5);
+                panel.add(new JLabel("Name:"), gbc);
+                gbc.gridx = 1; gbc.gridy = 3; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 2, 5);
+                panel.add(newBranchNameField, gbc);
+                gbc.weightx = 0.0;
+                gbc.gridx = 0; gbc.gridy = 4; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 5, 5);
+                panel.add(new JLabel("From:"), gbc);
+                gbc.gridx = 1; gbc.gridy = 4; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 5, 5);
+                panel.add(sourceBranchForNewComboBox, gbc);
+                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
+
+                JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
+                copyWorkspaceCheckbox.setSelected(false);
+                gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.insets = new Insets(10, 5, 5, 5);
+                panel.add(copyWorkspaceCheckbox, gbc);
+
+                int result = JOptionPane.showConfirmDialog(GitWorktreeTab.this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+                if (result == JOptionPane.OK_OPTION) {
+                    String selectedBranchName;
+                    if (createNewBranchRadio.isSelected()) {
+                        selectedBranchName = newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
+                    } else {
+                        selectedBranchName = (String) branchComboBox.getSelectedItem();
                     }
-
-                    openProjectBuilder.open()
-                            .thenAccept(success -> {
-                                if (Boolean.TRUE.equals(success)) {
-                                    chrome.systemOutput("Successfully opened worktree: " + newWorktreePath.getFileName());
-                                } else {
-                                    chrome.toolErrorRaw("Error opening worktree " + newWorktreePath.getFileName());
-                                }
-                                // Refresh worktree list regardless of open success, as the worktree itself was created.
-                                SwingUtilities.invokeLater(this::loadWorktrees);
-                            });
-
-                    chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
-                } catch (GitAPIException | IOException e) {
-                    logger.error("Error while adding worktree for branch: " + finalBranchForWorktree, e);
-                    SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                            "Git error while adding worktree: " + e.getMessage(),
-                            "Git Error",
-                            JOptionPane.ERROR_MESSAGE));
+                    dialogFuture.complete(new AddWorktreeDialogResult(
+                            selectedBranchName,
+                            (String) sourceBranchForNewComboBox.getSelectedItem(),
+                            createNewBranchRadio.isSelected(),
+                            copyWorkspaceCheckbox.isSelected(),
+                            true
+                    ));
+                } else {
+                    dialogFuture.complete(new AddWorktreeDialogResult(null, null, false, false, false));
                 }
             });
-        } catch (GitAPIException e) { // Catches exceptions from gitRepo.getCurrentBranch() or .listLocalBranches()
-            logger.error("Error preparing for worktree addition", e);
-            JOptionPane.showMessageDialog(this,
-                "Error fetching branch information: " + e.getMessage(),
-                "Git Error",
-                JOptionPane.ERROR_MESSAGE);
-        }
+
+            try {
+                AddWorktreeDialogResult dialogResult = dialogFuture.get(); // Wait for dialog on background thread
+                if (!dialogResult.okPressed()) {
+                    chrome.systemOutput("Add worktree cancelled by user.");
+                    return;
+                }
+
+                String branchForWorktree = dialogResult.selectedBranch();
+                String sourceBranchForNew = dialogResult.sourceBranchForNew();
+                boolean isCreatingNewBranch = dialogResult.isCreatingNewBranch();
+                boolean copyWorkspace = dialogResult.copyWorkspace();
+
+                if (isCreatingNewBranch) {
+                    if (branchForWorktree == null || branchForWorktree.isEmpty()) {
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE));
+                        return;
+                    }
+                    try {
+                        branchForWorktree = gitRepo.sanitizeBranchName(branchForWorktree); // Sanitize on background thread
+                    } catch (GitAPIException e) {
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+                        return;
+                    }
+                    if (sourceBranchForNew == null || sourceBranchForNew.isEmpty()) {
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE));
+                        return;
+                    }
+                } else { // Using existing branch
+                    if (branchForWorktree == null) {
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "No branch selected to use for the worktree.", "Error", JOptionPane.ERROR_MESSAGE));
+                        return;
+                    }
+                }
+                
+                chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
+
+                WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
+                Path newWorktreePath = setupResult.worktreePath();
+
+                Brokk.OpenProjectBuilder openProjectBuilder = new Brokk.OpenProjectBuilder(newWorktreePath).parent(project);
+                if (copyWorkspace) {
+                    logger.info("Copying current workspace to new worktree session for {}", newWorktreePath);
+                    openProjectBuilder.sourceContextForSession(contextManager.topContext());
+                }
+
+                final String finalBranchForWorktree = branchForWorktree; // for lambda
+                openProjectBuilder.open().thenAccept(success -> {
+                    if (Boolean.TRUE.equals(success)) {
+                        chrome.systemOutput("Successfully opened worktree: " + newWorktreePath.getFileName());
+                    } else {
+                        chrome.toolErrorRaw("Error opening worktree " + newWorktreePath.getFileName());
+                    }
+                    SwingUtilities.invokeLater(this::loadWorktrees);
+                });
+                chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
+
+            } catch (InterruptedException | ExecutionException e) {
+                logger.error("Error during add worktree dialog processing or future execution", e);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                        "Error processing worktree addition: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+            } catch (GitAPIException | IOException e) { // Catches from setupNewGitWorktree or sanitizeBranchName
+                logger.error("Error creating worktree", e);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                        "Error creating worktree: " + e.getMessage(), "Git Error", JOptionPane.ERROR_MESSAGE));
+            }
+        });
     }
 
     private void removeWorktree() {
