@@ -137,30 +137,17 @@ public class Decompiler {
                     decompiler.decompileContext();
                     logger.info("Decompilation process finished.");
 
+
                     // 6. Fix common decompilation syntax issues
-                    logger.info("Fixing common decompilation syntax issues...");
+                    logger.debug("Fixing common decompilation syntax issues...");
                     fixDecompiledSyntaxIssues(outputDir);
-                    logger.info("Syntax fixes completed.");
+                    logger.debug("Syntax fixes completed.");
 
                     // Notify user of success and refresh analyzer
-                    io.systemOutput("Decompilation completed. Refreshing code intelligence...");
+                    io.systemOutput("Decompilation completed. Reopen project to incorporate the new source files.");
                     logger.info("Decompilation completed successfully for {} to {}", jarPath, outputDir);
 
-                    // Request analyzer refresh to include decompiled files
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            io.getContextManager().getAnalyzerWrapper().requestRebuild();
-                            io.systemOutput("Code intelligence refreshed. Decompiled files are now available for analysis.");
-                            logger.info("Analyzer refresh requested after decompilation of {}", jarPath);
-                        } catch (Exception e) {
-                            logger.warn("Failed to refresh analyzer after decompilation", e);
-                            io.systemOutput("Decompilation completed, but code intelligence refresh failed. " +
-                                           "You may need to reopen the project to analyze decompiled files.");
-                        }
-                    });
-
-                    // Log final directory structure for troubleshooting and count decompiled files
-                    logger.info("Final contents of {} after decompilation:", outputDir);
+                    // Log final directory structure for troubleshooting
                     try (var pathStream = Files.walk(outputDir)) {
                         var paths = pathStream.collect(java.util.stream.Collectors.toList());
                         long javaFileCount = paths.stream().filter(p -> p.toString().endsWith(".java")).count();
@@ -273,6 +260,7 @@ public class Decompiler {
     /**
      * Fixes common syntax issues in decompiled Java files that prevent proper parsing.
      * This addresses issues like malformed import statements that cause Joern's CPG to skip files.
+     * It is expected the amount of rules to fix would grow as more cases are discovered
      * Package-private for testing.
      */
     static void fixDecompiledSyntaxIssues(Path outputDir) {
