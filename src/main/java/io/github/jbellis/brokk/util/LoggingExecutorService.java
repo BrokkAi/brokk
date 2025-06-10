@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.util;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -7,11 +10,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 public class LoggingExecutorService implements ExecutorService {
+    private static final Logger logger = LogManager.getLogger(LoggingExecutorService.class);
     private final ExecutorService delegate;
     private final Consumer<Throwable> exceptionHandler;
 
@@ -24,16 +29,21 @@ public class LoggingExecutorService implements ExecutorService {
     public <T> CompletableFuture<T> submit(Callable<T> task) {
         var wrappedCallable = wrap(task);
         var cf = new CompletableFuture<T>();
-        var underlyingFuture = delegate.submit(() -> {
-            try {
-                cf.complete(wrappedCallable.call());
-            } catch (Throwable t) {
-                // exceptionHandler was already called by wrap()
-                cf.completeExceptionally(t);
-            }
-        });
-        // Propagate cancellation from CompletableFuture to the underlying Future
-        cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        try {
+            var underlyingFuture = delegate.submit(() -> {
+                try {
+                    cf.complete(wrappedCallable.call());
+                } catch (Throwable t) {
+                    // exceptionHandler was already called by wrap()
+                    cf.completeExceptionally(t);
+                }
+            });
+            // Propagate cancellation from CompletableFuture to the underlying Future
+            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        } catch (RejectedExecutionException e) {
+            logger.trace("Task rejected because executor is shut down", e);
+            cf.completeExceptionally(e);
+        }
         return cf;
     }
 
@@ -41,16 +51,21 @@ public class LoggingExecutorService implements ExecutorService {
     public CompletableFuture<Void> submit(Runnable task) {
         var wrappedRunnable = wrap(task);
         var cf = new CompletableFuture<Void>();
-        var underlyingFuture = delegate.submit(() -> {
-            try {
-                wrappedRunnable.run();
-                cf.complete(null);
-            } catch (Throwable t) {
-                // exceptionHandler was already called by wrap()
-                cf.completeExceptionally(t);
-            }
-        });
-        cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        try {
+            var underlyingFuture = delegate.submit(() -> {
+                try {
+                    wrappedRunnable.run();
+                    cf.complete(null);
+                } catch (Throwable t) {
+                    // exceptionHandler was already called by wrap()
+                    cf.completeExceptionally(t);
+                }
+            });
+            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        } catch (RejectedExecutionException e) {
+            logger.trace("Task rejected because executor is shut down", e);
+            cf.completeExceptionally(e);
+        }
         return cf;
     }
 
@@ -58,16 +73,21 @@ public class LoggingExecutorService implements ExecutorService {
     public <T> CompletableFuture<T> submit(Runnable task, T result) {
         var wrappedRunnable = wrap(task);
         var cf = new CompletableFuture<T>();
-        var underlyingFuture = delegate.submit(() -> {
-            try {
-                wrappedRunnable.run();
-                cf.complete(result);
-            } catch (Throwable t) {
-                // exceptionHandler was already called by wrap()
-                cf.completeExceptionally(t);
-            }
-        });
-        cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        try {
+            var underlyingFuture = delegate.submit(() -> {
+                try {
+                    wrappedRunnable.run();
+                    cf.complete(result);
+                } catch (Throwable t) {
+                    // exceptionHandler was already called by wrap()
+                    cf.completeExceptionally(t);
+                }
+            });
+            cf.whenComplete((res, ex) -> { if (cf.isCancelled()) underlyingFuture.cancel(true); });
+        } catch (RejectedExecutionException e) {
+            logger.trace("Task rejected because executor is shut down", e);
+            cf.completeExceptionally(e);
+        }
         return cf;
     }
 
@@ -95,7 +115,12 @@ public class LoggingExecutorService implements ExecutorService {
 
     @Override
     public void execute(Runnable command) {
-        delegate.execute(wrap(command));
+        try {
+            delegate.execute(wrap(command));
+        } catch (RejectedExecutionException e) {
+            logger.trace("Task rejected because executor is shut down", e);
+            // Exception is logged and swallowed as execute is void
+        }
     }
 
     @Override
