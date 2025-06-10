@@ -15,6 +15,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -447,11 +448,9 @@ public class GitWorktreeTab extends JPanel {
                 } catch (Exception e) {
                     logger.error("Error during open/focus for worktree {}: {}", worktreePath, e.getMessage(), e);
                     final String pathName = worktreePath.getFileName().toString();
-                    SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                            "Error processing worktree " + pathName + ": " + e.getMessage(),
-                            "Worktree Error",
-                            JOptionPane.ERROR_MESSAGE));
+                    chrome.systemNotify("Error opening worktree " + pathName + ":\n" + e.getMessage(),
+                                        "Worktree Open Error",
+                                        JOptionPane.ERROR_MESSAGE);
                 }
             }
         });
@@ -669,23 +668,15 @@ public class GitWorktreeTab extends JPanel {
                             });
 
                     chrome.systemOutput("Successfully created worktree for branch '" + finalBranchForWorktree + "' at " + newWorktreePath);
-                } catch (GitAPIException e) {
-                    logger.error("Git error while adding worktree for branch: " + finalBranchForWorktree, e);
+                } catch (GitAPIException | IOException e) {
+                    logger.error("Error while adding worktree for branch: " + finalBranchForWorktree, e);
                     SwingUtilities.invokeLater(() ->
                         JOptionPane.showMessageDialog(this,
                             "Git error while adding worktree: " + e.getMessage(),
                             "Git Error",
                             JOptionPane.ERROR_MESSAGE));
-                } catch (IOException e) {
-                    logger.error("I/O error while adding worktree for branch: " + finalBranchForWorktree, e);
-                    SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                            "I/O error while adding worktree: " + e.getMessage(),
-                            "File Error",
-                            JOptionPane.ERROR_MESSAGE));
                 }
             });
-
         } catch (GitAPIException e) { // Catches exceptions from gitRepo.getCurrentBranch() or .listLocalBranches()
             logger.error("Error preparing for worktree addition", e);
             JOptionPane.showMessageDialog(this,
@@ -738,16 +729,37 @@ public class GitWorktreeTab extends JPanel {
                 }
                 try {
                     // Pass force=true since we've already confirmed at a higher level for all selected items.
-                    GitUiUtil.promptAndRemoveWorktree(contextManager, chrome, worktreePath, true, true);
+                    contextManager.submitUserTask("Removing worktree: " + worktreePath, () -> {
+                        try {
+                            repo.removeWorktree(worktreePath);
+                            chrome.systemOutput("Successfully removed worktree at " + worktreePath);
+
+                            SwingUtilities.invokeLater(() -> {
+                                // Find and close the window for this worktree
+                                var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
+                                if (windowToClose != null) {
+                                    // Dispatch a window closing event
+                                    windowToClose.getFrame().dispatchEvent(
+                                            new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
+                                }
+                            });
+                        } catch (GitAPIException e) {
+                            logger.error("Git error while removing worktree: " + worktreePath, e);
+                            SwingUtilities.invokeLater(() ->
+                                                               JOptionPane.showMessageDialog(chrome.getFrame(),
+                                                                                             "Git error while removing worktree: " + e.getMessage(),
+                                                                                             "Git Error",
+                                                                                             JOptionPane.ERROR_MESSAGE));
+                        }
+                    });
+
                     chrome.systemOutput("Successfully removed worktree: " + worktreePath.getFileName());
                 } catch (Exception e) {
                     logger.error("Error removing worktree {}: {}", worktreePath, e.getMessage(), e);
                     final String pathName = worktreePath.getFileName().toString();
-                    SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(this,
-                            "Error removing worktree " + pathName + ": " + e.getMessage(),
-                            "Worktree Removal Error",
-                            JOptionPane.ERROR_MESSAGE));
+                    chrome.systemNotify("Error removing worktree " + pathName + ": " + e.getMessage(),
+                                        "Worktree Removal Error",
+                                        JOptionPane.ERROR_MESSAGE);
                     anyFailed = true;
                 }
             }

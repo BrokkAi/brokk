@@ -98,7 +98,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
     // Multiple of these can run concurrently
     private final LoggingExecutorService contextActionExecutor = createLoggingExecutorService(
-            new ThreadPoolExecutor(2, 2,
+            new ThreadPoolExecutor(2, 4,
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue
                                    Executors.defaultThreadFactory()));
