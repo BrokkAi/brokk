@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.CreateBranchCommand;
+import org.eclipse.jgit.api.CreateBranchCommand;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ListBranchCommand;
 import org.eclipse.jgit.api.MergeResult;
@@ -19,6 +20,7 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
@@ -77,8 +79,10 @@ public class GitRepo implements Closeable, IGitRepo {
         String sanitized = proposedName.trim().toLowerCase();
         // Replace whitespace with hyphens
         sanitized = sanitized.replaceAll("\\s+", "-");
-        // Remove characters not suitable for branch names (keeping only alphanumeric and hyphen)
-        sanitized = sanitized.replaceAll("[^a-z0-9-]", "");
+        // Remove characters not suitable for branch names (keeping only alphanumeric, hyphen, and forward slash)
+        sanitized = sanitized.replaceAll("[^a-z0-9-/]", "");
+        // Replace forward slashes with hyphens
+        sanitized = sanitized.replace('/', '-');
         // Remove leading or trailing hyphens that might result from sanitation
         sanitized = sanitized.replaceAll("^-+|-+$", "");
 
@@ -1624,5 +1628,65 @@ public class GitRepo implements Closeable, IGitRepo {
             logger.warn("Interrupted while checking for git executable, disabling worktree support", e);
             return false;
         }
+    }
+
+    @Override
+    public List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
+        List<String> messages = new ArrayList<>();
+        ObjectId branchHead = resolve(branchName);
+        ObjectId targetHead = resolve(targetBranchName);
+
+        if (branchHead == null || targetHead == null) {
+            logger.warn("Could not resolve heads for {} or {}", branchName, targetBranchName);
+            // Fallback: Get last N commits from branchName if target is problematic, or just give up.
+            // For now, returning empty on resolution failure.
+            return messages;
+        }
+
+        try (RevWalk revWalk = new RevWalk(repository)) {
+            RevCommit branchCommit = revWalk.parseCommit(branchHead);
+            RevCommit targetCommit = revWalk.parseCommit(targetHead);
+
+            // Find merge base
+            revWalk.setRevFilter(RevFilter.MERGE_BASE);
+            revWalk.markStart(branchCommit);
+            revWalk.markStart(targetCommit);
+            RevCommit mergeBase = revWalk.next();
+
+            // Reset RevWalk for logging commits
+            revWalk.reset();
+            revWalk.setRevFilter(RevFilter.ALL);
+            revWalk.markStart(branchCommit);
+            if (mergeBase != null) {
+                revWalk.markUninteresting(mergeBase);
+            } else {
+                // No common ancestor, or targetBranchName is an ancestor of branchName (or unrelated).
+                // In this case, include all commits from branchName up to where it met targetBranchName (if ever)
+                // or just all reachable from branchName if no merge base and targetHead isn't an ancestor.
+                // For simplicity, if no merge base, we might log all of branchName, or a fixed number.
+                // Let's refine this: if no merge base, it implies targetBranch is either an ancestor
+                // or they are unrelated. If target is ancestor, log since target.
+                // If unrelated, this is tricky. For now, if no merge base, assume we take all from branchCommit.
+                // This part might need more sophisticated handling based on desired UX for unrelated branches.
+                logger.warn("No common merge base found between {} and {}. Listing all commits from {}",
+                            branchName, targetBranchName, branchName);
+                // To avoid listing everything from an old branch, we could cap it or rely on branchCommit not being too far.
+                // For now, if no merge base, we will proceed to list commits from branchCommit without an uninteresting mark specific to mergeBase.
+                // This means it will list all commits reachable from branchCommit if revWalk is not further constrained.
+                // This is equivalent to `git log mergeBase..branchName` if mergeBase exists.
+                // If no mergeBase, effectively `git log branchName` (excluding commits also on target if target was marked uninteresting generally).
+                // Let's ensure targetCommit is marked uninteresting if no merge base, to get `target..branch` effect
+                revWalk.markUninteresting(targetCommit);
+            }
+
+            for (RevCommit commit : revWalk) {
+                messages.add(commit.getShortMessage());
+            }
+            // Messages will be in reverse chronological order (newest first). Reverse to get oldest first for squash message.
+            Collections.reverse(messages);
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+        return messages;
     }
 }

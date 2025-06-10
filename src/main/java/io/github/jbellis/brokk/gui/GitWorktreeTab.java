@@ -8,6 +8,8 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.RebaseCommand;
+import org.eclipse.jgit.api.RebaseResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
 import javax.swing.*;
@@ -250,12 +252,16 @@ public class GitWorktreeTab extends JPanel {
             mergeButton.setToolTipText("Merge this worktree branch into another branch");
             mergeButton.setEnabled(true); // Merge button is enabled by default in worktree view
             mergeButton.addActionListener(e -> showMergeDialog());
-            buttonPanel.add(mergeButton);
+            // mergeButton is added after the glue
         }
         // else: In MainProject context, mergeButton is null and not added.
 
         buttonPanel.add(Box.createHorizontalGlue()); // Spacer to push refresh to the right
-        buttonPanel.add(refreshButton);
+
+        if (isWorktreeWindow) {
+            buttonPanel.add(mergeButton); // Add merge button after glue for right alignment
+        }
+        buttonPanel.add(refreshButton); // Refresh button always last
 
         add(buttonPanel, BorderLayout.SOUTH);
 
@@ -817,88 +823,409 @@ public class GitWorktreeTab extends JPanel {
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground")); // Default color
         dialogPanel.add(conflictStatusLabel, gbc);
 
-        // Add ActionListeners to combo boxes
-        targetBranchComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName));
-        mergeModeComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName));
-
-        // Initial conflict check
-        checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName);
-
         String dialogTitle = "Merge branch '" + finalWorktreeBranchName + "'";
-        // For now, we are just logging OK button state changes.
-        // If we needed to actually disable/enable the OK button of JOptionPane,
-        // we would need to create the JOptionPane instance manually, get its buttons,
-        // and manage their state. This is a more complex setup.
-        int result = JOptionPane.showConfirmDialog(this, dialogPanel, dialogTitle, JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        JOptionPane optionPane = new JOptionPane(dialogPanel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+        JDialog dialog = optionPane.createDialog(this, dialogTitle);
 
-        if (result == JOptionPane.OK_OPTION) {
-            String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
-            MergeMode selectedMergeMode = (MergeMode) mergeModeComboBox.getSelectedItem();
-            logger.info("Merge confirmed for worktree branch '{}' into target branch '{}' using mode '{}'. Remove worktree: {}, Remove branch: {}",
+        JButton okButton = null;
+        // Attempt to find the OK button
+        // This relies on the internal structure of JOptionPane, which can vary by Look and Feel
+        // A more robust solution might involve iterating deeper or custom button components.
+        for (Component comp : optionPane.getComponents()) {
+            if (comp instanceof JPanel buttonBar) { // JPanel often contains buttons
+                for (Component btnComp : buttonBar.getComponents()) {
+                    if (btnComp instanceof JButton && ((JButton) btnComp).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                        okButton = (JButton) btnComp;
+                        break;
+                    }
+                }
+                if (okButton != null) break;
+            }
+        }
+        if (okButton == null) {
+            // Fallback: Try a simpler structure if the above fails
+            Component[] components = optionPane.getComponents();
+            // Typically, buttons are at the end, in a JPanel, or directly.
+            // This is a simplified search and might need adjustment based on L&F.
+            for (int i = components.length - 1; i >= 0; i--) {
+                if (components[i] instanceof JPanel) {
+                    JPanel panel = (JPanel) components[i];
+                    for (Component c : panel.getComponents()) {
+                        if (c instanceof JButton && ((JButton) c).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                            okButton = (JButton) c;
+                            break;
+                        }
+                    }
+                } else if (components[i] instanceof JButton && ((JButton) components[i]).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                    okButton = (JButton) components[i];
+                }
+                if (okButton != null) break;
+            }
+        }
+
+        // Add ActionListeners to combo boxes
+        final JButton finalOkButton = okButton; // effectively final for lambda
+        targetBranchComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
+        mergeModeComboBox.addActionListener(e -> checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, finalOkButton));
+
+        if (okButton != null) {
+            // Initial conflict check, now passing the button
+            checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, okButton);
+        } else {
+            logger.warn("Could not find the OK button in the merge dialog. OK button state will not be managed.");
+            // Fallback: perform an initial check without button control if OK button not found
+            checkConflictsAsync(targetBranchComboBox, mergeModeComboBox, conflictStatusLabel, finalWorktreeBranchName, null);
+        }
+
+        dialog.setVisible(true);
+        Object selectedValue = optionPane.getValue();
+        dialog.dispose();
+
+        if (selectedValue != null && selectedValue.equals(JOptionPane.OK_OPTION)) {
+            // Ensure these are captured before the lambda potentially changes them,
+            // or ensure they are final/effectively final.
+            final String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
+            final MergeMode selectedMergeMode = (MergeMode) mergeModeComboBox.getSelectedItem();
+
+            String currentConflictText = conflictStatusLabel.getText(); // Check the final state of the label
+            if (currentConflictText.startsWith("No conflicts detected") || currentConflictText.startsWith("Checking for conflicts")) {
+                 logger.info("Merge confirmed for worktree branch '{}' into target branch '{}' using mode '{}'. Remove worktree: {}, Remove branch: {}",
                     finalWorktreeBranchName,
                     selectedTargetBranch,
                     selectedMergeMode,
                     removeWorktreeCb.isSelected(),
                     removeBranchCb.isSelected());
-            // Actual merge logic will go here in a future step
+                performMergeOperation(finalWorktreeBranchName,
+                                      selectedTargetBranch,
+                                      selectedMergeMode,
+                                      removeWorktreeCb.isSelected(),
+                                      removeBranchCb.isSelected());
+            } else {
+                logger.info("Merge dialog confirmed with OK, but conflicts were present or an error occurred. Merge not performed.");
+                 JOptionPane.showMessageDialog(this,
+                    "Merge was not performed because conflicts were detected or an error occurred:\n" + currentConflictText,
+                    "Merge Prevented",
+                    JOptionPane.WARNING_MESSAGE);
+            }
         }
     }
 
-    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName) {
+    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, JButton okButton) {
+        if (okButton != null) {
+            okButton.setEnabled(false);
+        }
+
         String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
         MergeMode selectedMergeMode = (MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null || selectedTargetBranch.equals("Error loading branches") || selectedTargetBranch.equals("Unsupported parent repo type") || selectedTargetBranch.equals("Parent repo not available") || selectedTargetBranch.equals("Parent project not found") || selectedTargetBranch.equals("Not a worktree project")) {
             conflictStatusLabel.setText("Please select a valid target branch.");
             conflictStatusLabel.setForeground(Color.RED);
-            logger.info("Merge dialog: OK button would be disabled (invalid target branch).");
+            // okButton is already disabled, or null if not found
             return;
         }
 
         conflictStatusLabel.setText("Checking for conflicts with '" + selectedTargetBranch + "'...");
         conflictStatusLabel.setForeground(UIManager.getColor("Label.foreground")); // Default color
 
-        // Variables for use in lambdas must be final or effectively final
+        var project = contextManager.getProject();
+        IGitRepo gitRepo = null;
+        String worktreeBranchForCheck = worktreeBranchName;
+
+        if (project instanceof WorktreeProject wp) {
+            MainProject parentProject = wp.getParent();
+            if (parentProject != null) {
+                gitRepo = parentProject.getRepo();
+            }
+        } else if (project instanceof MainProject) {
+            logger.warn("checkConflictsAsync called unexpectedly from a MainProject context for merge dialog.");
+            conflictStatusLabel.setText("Cannot check conflicts: not in a worktree context.");
+            conflictStatusLabel.setForeground(Color.RED);
+            // okButton is already disabled, or null if not found
+            return;
+        }
+
+        if (gitRepo == null) {
+            conflictStatusLabel.setText("Repository not available for conflict check.");
+            conflictStatusLabel.setForeground(Color.RED);
+            // okButton is already disabled, or null if not found
+            return;
+        }
+
+        if (!(gitRepo instanceof GitRepo)) {
+            conflictStatusLabel.setText("Conflict check not supported for this repository type.");
+            conflictStatusLabel.setForeground(Color.RED);
+            logger.warn("Conflict check attempted on non-GitRepo type: {}", gitRepo.getClass().getName());
+            // okButton is already disabled, or null if not found
+            return;
+        }
+        final IGitRepo finalGitRepo = gitRepo;
+
         final String finalSelectedTargetBranch = selectedTargetBranch;
         final MergeMode finalSelectedMergeMode = selectedMergeMode;
 
         contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
             String conflictResultString = null;
             try {
-                Thread.sleep(1000); // Simulate delay
-
-                if (finalSelectedTargetBranch.equals(worktreeBranchName)) {
+                if (finalSelectedTargetBranch.equals(worktreeBranchForCheck)) {
                     conflictResultString = "Cannot merge a branch into itself.";
-                } else if (finalSelectedMergeMode == MergeMode.REBASE_MERGE) {
-                    // In a real scenario, REBASE_MERGE might have different conflict conditions
-                    // or might need a different check (e.g., `git rebase --dry-run`).
-                    // For now, this is a placeholder specific message.
-                    // conflictResultString = "Rebase conflict check not fully implemented. Proceed with caution.";
-                } else if (finalSelectedTargetBranch.contains("x")) { // Arbitrary condition for testing conflicts
-                    conflictResultString = "Simulated conflict detected with '" + finalSelectedTargetBranch + "'!";
+                } else {
+                    conflictResultString = finalGitRepo.checkMergeConflicts(
+                        worktreeBranchForCheck,
+                        finalSelectedTargetBranch,
+                        finalSelectedMergeMode
+                    );
                 }
-                // If no conditions met, conflictResultString remains null (no conflict)
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                conflictResultString = "Conflict check interrupted.";
-            } catch (Exception e) {
-                logger.error("Error during conflict check simulation", e);
+            } catch (GitAPIException e) {
+                logger.error("GitAPIException during conflict check", e);
                 conflictResultString = "Error checking conflicts: " + e.getMessage();
+            } catch (Exception e) { // Catch other potential exceptions
+                logger.error("Unexpected error during conflict check", e);
+                conflictResultString = "Unexpected error during conflict check: " + e.getMessage();
             }
 
-            final String finalConflictResultString = conflictResultString; // To use in inner lambda
+            final String finalConflictResultString = conflictResultString;
             SwingUtilities.invokeLater(() -> {
-                if (finalConflictResultString != null) {
+                if (finalConflictResultString != null && !finalConflictResultString.isBlank()) {
                     conflictStatusLabel.setText(finalConflictResultString);
                     conflictStatusLabel.setForeground(Color.RED);
-                    logger.info("Merge dialog: OK button would be disabled due to conflict: {}", finalConflictResultString);
+                    if (okButton != null) {
+                        okButton.setEnabled(false);
+                    }
                 } else {
                     conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for " + finalSelectedMergeMode.toString().toLowerCase() + ".");
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
-                    logger.info("Merge dialog: OK button would be enabled.");
+                    if (okButton != null) {
+                        okButton.setEnabled(true);
+                    }
                 }
             });
-            return null; // Callable<String> can return null.
+            return null;
+        });
+    }
+
+    private void performMergeOperation(String worktreeBranchName, String targetBranch, MergeMode mode, boolean deleteWorktree, boolean deleteBranch) {
+        var project = contextManager.getProject();
+        if (!(project instanceof WorktreeProject worktreeProject)) {
+            logger.error("performMergeOperation called on a non-WorktreeProject: {}", project.getClass().getSimpleName());
+            return;
+        }
+
+        MainProject parentProject = worktreeProject.getParent();
+        if (parentProject == null) {
+            logger.error("WorktreeProject {} does not have a parent.", worktreeProject.getRoot());
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                    "Cannot perform merge: Parent project not found.", "Merge Error", JOptionPane.ERROR_MESSAGE));
+            return;
+        }
+
+        IGitRepo iParentRepo = parentProject.getRepo();
+        if (!(iParentRepo instanceof GitRepo parentGitRepo)) {
+            logger.error("Parent project's repository is not a GitRepo instance: {}",
+                         iParentRepo != null ? iParentRepo.getClass().getSimpleName() : "null");
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                    "Merge operations require a Git repository for the parent project.", "Merge Error", JOptionPane.ERROR_MESSAGE));
+            return;
+        }
+
+        Path worktreePath = worktreeProject.getRoot();
+
+        contextManager.submitUserTask("Performing merge operation...", () -> {
+            String originalParentBranch = null;
+            try {
+                originalParentBranch = parentGitRepo.getCurrentBranch();
+                logger.info("Original parent branch: {}", originalParentBranch);
+
+                parentGitRepo.checkout(targetBranch);
+                logger.info("Switched parent repository to target branch: {}", targetBranch);
+
+                if (mode == MergeMode.MERGE_COMMIT) {
+                    logger.info("Performing merge commit of {} into {}", worktreeBranchName, targetBranch);
+                    org.eclipse.jgit.api.MergeResult mergeResult = parentGitRepo.mergeIntoHead(worktreeBranchName);
+                    if (!mergeResult.getMergeStatus().isSuccessful()) {
+                        String conflictDetails = mergeResult.getConflicts() != null ?
+                            mergeResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "unknown conflicts";
+                        String errorMessage = "Merge commit failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
+                        logger.error(errorMessage);
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
+                        return null; // Exit the task, finally block will still run
+                    }
+                    chrome.systemOutput("Successfully merged " + worktreeBranchName + " into " + targetBranch);
+                } else if (mode == MergeMode.SQUASH_COMMIT) {
+                    logger.info("Performing squash merge of {} into {}", worktreeBranchName, targetBranch);
+                    List<String> commitMessages = parentGitRepo.getCommitMessagesBetween(worktreeBranchName, targetBranch);
+                    String squashCommitMessage = "Squash merge branch '" + worktreeBranchName + "' into '" + targetBranch + "'\n\n";
+                    if (commitMessages.isEmpty()) {
+                        squashCommitMessage += "- No individual commit messages found between " + worktreeBranchName + " and " + targetBranch + ".";
+                    } else {
+                        for (String msg : commitMessages) {
+                            squashCommitMessage += "- " + msg + "\n";
+                        }
+                    }
+
+                    org.eclipse.jgit.api.MergeResult squashResult = parentGitRepo.getGit().merge()
+                        .setSquash(true)
+                        .include(parentGitRepo.resolve(worktreeBranchName))
+                        .call();
+
+                    if (!squashResult.getMergeStatus().isSuccessful()) {
+                        String conflictDetails = squashResult.getConflicts() != null ?
+                            squashResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "unknown conflicts";
+                        String errorMessage = "Squash merge failed with status: " + squashResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
+                        logger.error(errorMessage);
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Squash Merge Failed", JOptionPane.ERROR_MESSAGE));
+                        return null; // Exit the task
+                    }
+
+                    // Commit the squashed changes
+                    parentGitRepo.getGit().commit().setMessage(squashCommitMessage).call();
+                    chrome.systemOutput("Successfully squash merged " + worktreeBranchName + " into " + targetBranch);
+                } else if (mode == MergeMode.REBASE_MERGE) {
+                    logger.info("Performing rebase merge of {} into {}", worktreeBranchName, targetBranch);
+                    String tempRebaseBranchName = null;
+                    // Parent repo is currently on targetBranch
+                    String branchToRestoreAfterRebaseOps = parentGitRepo.getCurrentBranch(); // Should be targetBranch
+                    assert branchToRestoreAfterRebaseOps.equals(targetBranch) : "Parent repo not on target branch before rebase attempt. Current: " + branchToRestoreAfterRebaseOps + ", Expected: " + targetBranch;
+
+                    try {
+                        // 1. Create a temporary branch from the worktree branch name.
+                        // (worktreeBranchName is the original branch from the worktree being merged)
+                        tempRebaseBranchName = "__brokk_rebase_temp_" + worktreeBranchName + "_" + System.currentTimeMillis();
+                        parentGitRepo.createBranch(tempRebaseBranchName, worktreeBranchName);
+                        logger.info("Created temporary branch {} from {}", tempRebaseBranchName, worktreeBranchName);
+
+                        // 2. Checkout the temporary branch to perform rebase on it.
+                        parentGitRepo.checkout(tempRebaseBranchName);
+                        logger.info("Temporarily checked out {} for rebase operation", tempRebaseBranchName);
+
+                        // 3. Rebase the current branch (tempRebaseBranchName) onto the target branch.
+                        logger.info("Rebasing current branch ({}) onto {}", tempRebaseBranchName, targetBranch);
+                        RebaseResult rebaseResult = parentGitRepo.getGit().rebase()
+                                .setUpstream(parentGitRepo.resolve(targetBranch)) // targetBranch is the new base
+                                .call(); // Rebase acts on the current branch (tempRebaseBranchName)
+
+                        if (!rebaseResult.getStatus().isSuccessful()) {
+                            String errorMessage = "Rebase of " + tempRebaseBranchName + " onto " + targetBranch + " failed with status: " + rebaseResult.getStatus();
+                            logger.error(errorMessage);
+                            try {
+                                // Ensure we are on tempRebaseBranchName to abort, though we should be.
+                                if (!parentGitRepo.getCurrentBranch().equals(tempRebaseBranchName)) {
+                                     logger.warn("Attempting abort, but not on {}. Current: {}. Checking out {}.", tempRebaseBranchName, parentGitRepo.getCurrentBranch(), tempRebaseBranchName);
+                                     parentGitRepo.checkout(tempRebaseBranchName);
+                                }
+                                parentGitRepo.getGit().rebase().setOperation(RebaseCommand.Operation.ABORT).call();
+                                logger.info("Rebase aborted for {}", tempRebaseBranchName);
+                            } catch (GitAPIException abortEx) {
+                                logger.error("Failed to abort rebase for {}: {}", tempRebaseBranchName, abortEx.getMessage(), abortEx);
+                            }
+                            // After abort attempt, switch back to the target branch (branchToRestoreAfterRebaseOps)
+                            try {
+                                parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
+                                logger.info("Switched back to {} after failed rebase.", branchToRestoreAfterRebaseOps);
+                            } catch (GitAPIException checkoutEx) {
+                                logger.error("Failed to switch back to {} after failed rebase: {}", branchToRestoreAfterRebaseOps, checkoutEx.getMessage(), checkoutEx);
+                            }
+                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Rebase Failed", JOptionPane.ERROR_MESSAGE));
+                            return null; // Exit the task
+                        }
+                        logger.info("Successfully rebased temporary branch {} onto {}", tempRebaseBranchName, targetBranch);
+                        // Current branch is still tempRebaseBranchName, now pointing to the rebased commits.
+
+                        // 4. Checkout the target branch again (branchToRestoreAfterRebaseOps).
+                        parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
+                        logger.info("Checked out {} after successful rebase of {}", branchToRestoreAfterRebaseOps, tempRebaseBranchName);
+
+                        // 5. Merge the rebased temporary branch into the target branch (now current). This should be a fast-forward.
+                        logger.info("Merging rebased branch {} into current branch {}", tempRebaseBranchName, branchToRestoreAfterRebaseOps);
+                        org.eclipse.jgit.api.MergeResult mergeResult = parentGitRepo.mergeIntoHead(tempRebaseBranchName);
+
+                        if (!mergeResult.getMergeStatus().isSuccessful()) {
+                            String conflictDetails = mergeResult.getConflicts() != null ?
+                                mergeResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "Unknown conflicts";
+                            String errorMessage = "Merge (post-rebase) of " + tempRebaseBranchName + " into " + targetBranch + " failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
+                            logger.error(errorMessage);
+                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge (Post-Rebase) Failed", JOptionPane.ERROR_MESSAGE));
+                            return null; // Exit the task
+                        }
+                        chrome.systemOutput("Successfully rebase-merged " + worktreeBranchName + " (via " + tempRebaseBranchName + ") into " + targetBranch);
+
+                    } finally {
+                        // This inner finally ensures tempRebaseBranchName is cleaned up
+                        // and attempts to restore the branch that was active before rebase steps (branchToRestoreAfterRebaseOps / targetBranch).
+                        // The outer finally block will ensure restoration to originalParentBranch.
+                        try {
+                            String currentBranchAfterOps = parentGitRepo.getCurrentBranch();
+                            if (!currentBranchAfterOps.equals(branchToRestoreAfterRebaseOps)) {
+                                logger.warn("Branch after rebase operations was {}, expected {}. Attempting to restore.", currentBranchAfterOps, branchToRestoreAfterRebaseOps);
+                                parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
+                            }
+                        } catch (GitAPIException e) {
+                            logger.error("Error ensuring parent repo is on {} before deleting temp branch: {}", branchToRestoreAfterRebaseOps, e.getMessage(), e);
+                            // Proceed to delete temp branch anyway if possible.
+                        }
+
+                        if (tempRebaseBranchName != null) {
+                            try {
+                                parentGitRepo.forceDeleteBranch(tempRebaseBranchName);
+                                logger.info("Successfully deleted temporary rebase branch {}", tempRebaseBranchName);
+                            } catch (GitAPIException e) {
+                                logger.error("Failed to delete temporary rebase branch {}: {}", tempRebaseBranchName, e.getMessage(), e);
+                                // Non-fatal for the overall operation if merge was successful, but good to log.
+                            }
+                        }
+                    }
+                }
+
+                // Post-Merge Cleanup
+                if (deleteWorktree) {
+                    logger.info("Attempting to delete worktree: {}", worktreePath);
+                    MainProject.removeFromOpenProjectsListAndClearActiveSession(worktreePath); // Attempt to close if open
+                    parentGitRepo.removeWorktree(worktreePath);
+                    chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
+
+                    if (deleteBranch) {
+                        logger.info("Attempting to delete branch: {}", worktreeBranchName);
+                        try {
+                            parentGitRepo.deleteBranch(worktreeBranchName);
+                            chrome.systemOutput("Branch " + worktreeBranchName + " deleted.");
+                        } catch (GitAPIException e) {
+                            String branchDeleteError = "Failed to delete branch " + worktreeBranchName + ": " + e.getMessage();
+                            logger.error(branchDeleteError, e);
+                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                                    branchDeleteError, "Branch Deletion Failed", JOptionPane.ERROR_MESSAGE));
+                        }
+                    }
+                }
+            } catch (GitAPIException e) {
+                String errorMessage = "Error during merge operation: " + e.getMessage();
+                logger.error(errorMessage, e);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                        errorMessage, "Merge Operation Failed", JOptionPane.ERROR_MESSAGE));
+            } catch (Exception e) {
+                String errorMessage = "Unexpected error during merge operation: " + e.getMessage();
+                logger.error(errorMessage, e);
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                        errorMessage, "Unexpected Error", JOptionPane.ERROR_MESSAGE));
+            } finally {
+                if (originalParentBranch != null) {
+                    try {
+                        logger.info("Attempting to switch parent repository back to branch: {}", originalParentBranch);
+                        parentGitRepo.checkout(originalParentBranch);
+                        chrome.systemOutput("Switched parent repository back to branch: " + originalParentBranch);
+                    } catch (GitAPIException e) {
+                        String restoreError = "Critical: Failed to switch parent repository back to original branch '"
+                                              + originalParentBranch + "': " + e.getMessage();
+                        logger.error(restoreError, e);
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this,
+                                restoreError, "Repository State Error", JOptionPane.ERROR_MESSAGE));
+                    }
+                }
+                SwingUtilities.invokeLater(() -> {
+                    loadWorktrees(); // Refresh this tab
+                    chrome.updateGitRepo(); // Refresh other Git-related UI in the Chrome
+                });
+            }
+            return null;
         });
     }
 }
