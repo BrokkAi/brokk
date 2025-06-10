@@ -757,7 +757,7 @@ public class Context {
      *         liveContext + frozenContext
      */
     public FreezeResult freezeAndCleanup() {
-        assert !isFrozen();
+        assert !containsFrozenFragments();
 
         var liveEditableFiles = new ArrayList<ContextFragment>();
         var frozenEditableFiles = new ArrayList<ContextFragment>();
@@ -871,5 +871,13 @@ public class Context {
 
     public boolean isFrozen() {
         return allFragments().noneMatch(ContextFragment::isDynamic);
+    }
+
+    public boolean containsFrozenFragments() {
+        return allFragments().anyMatch(f -> f instanceof FrozenFragment);
+    }
+
+    public boolean containsDynamicFragments() {
+        return allFragments().anyMatch(ContextFragment::isDynamic);
     }
 }

@@ -1300,7 +1300,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         var updatedLiveContext = contextGenerator.apply(liveContext);
-        assert !updatedLiveContext.isFrozen() : updatedLiveContext;
+        assert !updatedLiveContext.containsFrozenFragments() : updatedLiveContext;
         if (updatedLiveContext == liveContext) {
             // No change occurred
             return liveContext;
@@ -1356,7 +1356,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should only be called with Frozen contexts, so that calling its methods doesn't cause an expensive Analyzer operation on the EDT
      */
     private void notifyContextListeners(Context ctx) {
-        assert ctx.isFrozen();
+        assert !ctx.containsDynamicFragments();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
         }
