@@ -137,12 +137,6 @@ public class Decompiler {
                     decompiler.decompileContext();
                     logger.info("Decompilation process finished.");
 
-                    // Notify user of success
-                    io.systemOutput("Decompilation completed. Reopen project to incorporate the new source files.");
-                    // Log final directory structure for troubleshooting
-                    logger.debug("Final contents of {} after decompilation:", outputDir);
-                    try (var pathStream = Files.walk(outputDir, 1)) { // Walk only one level deep for brevity
-                        pathStream.forEach(path -> logger.debug("   {}", path.getFileName()));
                     // 6. Fix common decompilation syntax issues
                     logger.info("Fixing common decompilation syntax issues...");
                     fixDecompiledSyntaxIssues(outputDir);
@@ -184,7 +178,7 @@ public class Decompiler {
                     // Handle exceptions within the task
                     io.toolErrorRaw("Error during decompilation process: " + e.getMessage());
                 } finally {
-                    // 6. Clean up the temporary directory
+                    // 7. Clean up the temporary directory
                     if (tempDir != null) {
                         try {
                             logger.debug("Cleaning up temporary directory: {}", tempDir);
@@ -196,15 +190,11 @@ public class Decompiler {
                     }
                 }
                 return null;
-            } catch (IOException e) {
-                // Error *before* starting the worker (e.g., creating directories)
-                io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
-            }
-        });
-      } catch (IOException e) {
-          // Error *before* starting the worker (e.g., creating directories)
-          io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
-      }
+            });
+        } catch (IOException e) {
+            // Error *before* starting the worker (e.g., creating directories)
+            io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
+        }
     }
 
     public static void extractJarToTemp(Path jarPath, Path targetDir) throws IOException {
@@ -283,12 +273,13 @@ public class Decompiler {
     /**
      * Fixes common syntax issues in decompiled Java files that prevent proper parsing.
      * This addresses issues like malformed import statements that cause Joern's CPG to skip files.
+     * Package-private for testing.
      */
-    private static void fixDecompiledSyntaxIssues(Path outputDir) {
+    static void fixDecompiledSyntaxIssues(Path outputDir) {
         logger.debug("Starting syntax fixes for decompiled files in: {}", outputDir);
 
         // Pattern to match malformed import statements like "import package.Class.;"
-        Pattern malformedImportPattern = Pattern.compile("^(\\s*import\\s+[\\w.]+)\\.;\\s*$", Pattern.MULTILINE);
+        Pattern malformedImportPattern = Pattern.compile("^(\\s*import\\s+[\\w.]+)\\.;(\\s*)$", Pattern.MULTILINE);
 
         try (var pathStream = Files.walk(outputDir)) {
             pathStream
@@ -300,8 +291,7 @@ public class Decompiler {
                         String originalContent = content;
 
                         // Fix malformed import statements
-                        content = malformedImportPattern.matcher(content).replaceAll("$1;");
-
+                        content = malformedImportPattern.matcher(content).replaceAll("$1;$2");
                         // Only write back if changes were made
                         if (!content.equals(originalContent)) {
                             Files.writeString(javaFile, content, StandardCharsets.UTF_8);
