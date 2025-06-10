@@ -9,7 +9,7 @@ import java.awt.event.KeyEvent;
 
 /**
  * A completely generic search bar component that works with any component
- * implementing the SearchableComponent interface. This provides maximum
+ * implementing the SearchableComponent interface. This provides
  * reusability across different types of text components.
  */
 public class GenericSearchBar extends JPanel {
@@ -120,8 +120,6 @@ public class GenericSearchBar extends JPanel {
 
     /**
      * Registers global keyboard shortcuts for the search bar.
-     *
-     * @param parentComponent The component to register shortcuts on (typically the parent panel)
      */
     public void registerGlobalShortcuts(JComponent parentComponent) {
         // Cmd/Ctrl+F focuses the search field
@@ -217,16 +215,10 @@ public class GenericSearchBar extends JPanel {
         updateMatchCount(currentMatchIndex, totalMatches);
     }
 
-    /**
-     * Finds the next match relative to the current caret position.
-     */
     private void findNext() {
         findMatch(true);
     }
 
-    /**
-     * Finds the previous match relative to the current caret position.
-     */
     private void findPrevious() {
         findMatch(false);
     }
@@ -268,39 +260,24 @@ public class GenericSearchBar extends JPanel {
         }
     }
 
-    /**
-     * Gets the current search text.
-     */
     public String getSearchText() {
         return searchField.getText();
     }
 
-    /**
-     * Sets the search text.
-     */
     public void setSearchText(String text) {
         searchField.setText(text);
     }
 
-    /**
-     * Clears the search text and highlights.
-     */
     public void clearSearch() {
         searchField.setText("");
         clearHighlights();
         updateMatchCount(0, 0);
     }
 
-    /**
-     * Gets the case-sensitive search state.
-     */
     public boolean isCaseSensitive() {
         return caseSensitiveButton.isSelected();
     }
 
-    /**
-     * Sets the case-sensitive search state.
-     */
     public void setCaseSensitive(boolean caseSensitive) {
         caseSensitiveButton.setSelected(caseSensitive);
         updateTooltip();

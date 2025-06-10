@@ -11,8 +11,6 @@ public interface SearchableComponent {
 
     /**
      * Gets the text content of this component for searching.
-     *
-     * @return the text content to search through
      */
     String getText();
 
@@ -25,15 +23,11 @@ public interface SearchableComponent {
 
     /**
      * Gets the current caret position in the text.
-     *
-     * @return the current caret position
      */
     int getCaretPosition();
 
     /**
      * Sets the caret position in the text.
-     *
-     * @param position the new caret position
      */
     void setCaretPosition(int position);
 
@@ -75,27 +69,17 @@ public interface SearchableComponent {
 
     /**
      * Gets the underlying Swing component for event handling and parent component operations.
-     *
-     * @return the underlying JComponent
      */
     JComponent getComponent();
 
     /**
      * Counts the total number of matches for the given search text.
-     *
-     * @param searchText the text to search for
-     * @param caseSensitive whether the search should be case-sensitive
-     * @return the total number of matches found
      */
     int countMatches(String searchText, boolean caseSensitive);
 
     /**
      * Gets the current match index (1-based) after a findNext operation.
      * Returns 0 if no match is currently selected.
-     *
-     * @param searchText the text being searched for
-     * @param caseSensitive whether the search is case-sensitive
-     * @return the current match index (1-based), or 0 if no match
      */
     int getCurrentMatchIndex(String searchText, boolean caseSensitive);
 }
