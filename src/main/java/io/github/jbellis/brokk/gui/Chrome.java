@@ -559,7 +559,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmOutput(newOutput));
     }
-    
+
     @Override
     public void toolError(String msg, String title) {
         logger.warn("%s: %s".formatted(msg, title));
