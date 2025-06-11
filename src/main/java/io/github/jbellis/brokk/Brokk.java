@@ -580,11 +580,7 @@ public class Brokk {
 
                     if (builder.initialTask != null) {
                         logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());
-                        try {
-                            builder.initialTask.accept(chromeInstance);
-                        } catch (Exception taskEx) {
-                            chromeInstance.toolError(taskEx.getMessage());
-                        }
+                        builder.initialTask.accept(chromeInstance);
                     }
                     openCompletionFuture.complete(true); // Project opened, GUI ready, initial task (if any) attempted.
                 }, SwingUtilities::invokeLater); // Ensure this block runs on EDT

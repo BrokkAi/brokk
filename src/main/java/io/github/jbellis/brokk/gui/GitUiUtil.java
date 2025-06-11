@@ -40,10 +40,6 @@ public final class GitUiUtil
             return;
         }
         var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         contextManager.submitContextTask("Capturing uncommitted diff", () -> {
             try {
@@ -115,10 +111,7 @@ public final class GitUiUtil
             ProjectFile file
     ) {
         var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
+
         contextManager.submitContextTask("Adding file change to context", () -> {
             try {
                 var diff = repo.showFileDiff(commitId + "^", commitId, file);
@@ -147,10 +140,7 @@ public final class GitUiUtil
                                            ProjectFile file)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            cm.getIo().toolError("Git repository not available.");
-            return;
-        }
+
         var shortCommitId = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
@@ -184,10 +174,7 @@ public final class GitUiUtil
                                           String filePath)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
+
         cm.submitUserTask("Viewing file at revision", () -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
@@ -237,10 +224,7 @@ public final class GitUiUtil
                 var lastCommitId = lastCommitInfo.id();
 
                 var repo = contextManager.getProject().getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.");
-                    return;
-                }
+
                 // Fetch diff using the correct parent syntax for range
                 var diff = repo.showDiff(firstCommitId, lastCommitId + "^");
                 if (diff.isEmpty()) {
@@ -291,31 +275,27 @@ public final class GitUiUtil
                     return;
                 }
                 var repo = contextManager.getProject().getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.");
-                    return;
-                }
 
-                    var diffs = files.stream()
-                            .map(file -> {
-                                try {
-                                    return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
-                                } catch (GitAPIException e) {
-                                    logger.warn(e);
-                                    return "";
-                                }
-                            })
-                            .filter(s -> !s.isEmpty())
-                            .collect(Collectors.joining("\n\n"));
-                    if (diffs.isEmpty()) {
+                var diffs = files.stream()
+                        .map(file -> {
+                            try {
+                                return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
+                            } catch (GitAPIException e) {
+                                logger.warn(e);
+                                return "";
+                            }
+                        })
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("\n\n"));
+                if (diffs.isEmpty()) {
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = firstCommitId.substring(0,7);
-                var lastShort  = lastCommitId.substring(0,7);
-                var shortHash  = firstCommitId.equals(lastCommitId)
-                        ? firstShort
-                        : "%s..%s".formatted(firstShort, lastShort);
+                var firstShort = firstCommitId.substring(0, 7);
+                var lastShort = lastCommitId.substring(0, 7);
+                var shortHash = firstCommitId.equals(lastCommitId)
+                                ? firstShort
+                                : "%s..%s".formatted(firstShort, lastShort);
 
                 var filesTxt = files.stream()
                         .map(ProjectFile::getFileName)
@@ -323,7 +303,7 @@ public final class GitUiUtil
                 var description = "Diff of %s [%s]".formatted(filesTxt, shortHash);
 
                 var syntaxStyle = files.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
-                                 SyntaxDetector.fromExtension(files.getFirst().extension());
+                                  SyntaxDetector.fromExtension(files.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for selected files in commit range to context");
@@ -344,10 +324,6 @@ public final class GitUiUtil
                                        boolean useParent)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            cm.getIo().toolError("Git repository not available.");
-            return;
-        }
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
@@ -473,10 +449,6 @@ public final class GitUiUtil
             io.github.jbellis.brokk.git.ICommitInfo commitInfo
     ) {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
             try {
@@ -556,10 +528,6 @@ public final class GitUiUtil
             String compareBranchName
     ) {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
             try {

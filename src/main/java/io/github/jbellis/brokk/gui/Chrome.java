@@ -324,7 +324,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 gitPanel.setCommitMessageText("Update for Brokk project files");
                 updateCommitPanel();
             } catch (Exception e) {
-                toolError("Error setting up git ignore: " + e.getMessage());
+                logger.error(e);
+                toolError("Error setting up .gitignore: " + e.getMessage());
             }
         });
     }
@@ -562,6 +563,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void toolErrorRaw(String msg) {
         logger.warn(msg);
         systemOutputInternal(msg);
+    }
+
+    @Override
+    public void toolError(String msg, String title) {
+        logger.warn("%s: %s".formatted(msg, title));
+        SwingUtilities.invokeLater(() -> {
+            systemNotify(msg, title, JOptionPane.ERROR_MESSAGE);
+        });
     }
 
     @Override
@@ -1435,7 +1444,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         updateContextHistoryTable();
     }
 
-    @Override
     public void showMessageDialog(String message, String title, int messageType) {
         JOptionPane.showMessageDialog(frame, message, title, messageType);
     }
@@ -1443,7 +1451,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
-            showMessageDialog(message, title, messageType);
+            systemNotify(message, title, messageType);
         });
     }
 

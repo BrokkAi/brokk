@@ -152,7 +152,6 @@ public class ContextHistory {
                 }
             } catch (IOException e) {
                 io.toolError("Failed to restore file " + pf + ": " + e.getMessage());
-                logger.error("Failed to restore file {} during context application", pf, e);
             }
         });
         if (!restoredFiles.isEmpty()) {

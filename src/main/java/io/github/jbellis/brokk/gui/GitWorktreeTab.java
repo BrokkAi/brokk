@@ -439,19 +439,17 @@ public class GitWorktreeTab extends JPanel {
                                 .parent(parentProject)
                                 .open()
                                 .thenAccept(success -> {
-                                    if (Boolean.TRUE.equals(success)) {
-                                        chrome.systemOutput("Successfully opened worktree: " + worktreePath.getFileName());
-                                    } else {
-                                        chrome.toolErrorRaw("Error opening worktree " + worktreePath.getFileName());
+                                    if (Boolean.FALSE.equals(success)) {
+                                        chrome.toolError("Unable to open worktree " + worktreePath.getFileName(),
+                                                         "Error opening worktree");
                                     }
                                 });
                     }
                 } catch (Exception e) {
                     logger.error("Error during open/focus for worktree {}: {}", worktreePath, e.getMessage(), e);
                     final String pathName = worktreePath.getFileName().toString();
-                    chrome.systemNotify("Error opening worktree " + pathName + ":\n" + e.getMessage(),
-                                        "Worktree Open Error",
-                                        JOptionPane.ERROR_MESSAGE);
+                    chrome.toolError("Error opening worktree " + pathName + ":\n" + e.getMessage(),
+                                     "Worktree Open Error");
                 }
             }
         });

@@ -175,11 +175,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void showMessageDialog(String message, String title, int messageType) {
-                logger.info(message);
-            }
-
-            @Override
             public void llmOutput(String token, ChatMessageType type) {
                 // pass
             }
@@ -259,11 +254,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 if (msg.isEmpty()) {
                     SwingUtilities.invokeLater(() -> {
-                        io.showMessageDialog(
-                                "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
-                                "Code Intelligence Warning",
-                                JOptionPane.WARNING_MESSAGE
-                        );
+                        io.systemNotify("Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.", "Code Intelligence Warning", JOptionPane.WARNING_MESSAGE);
                     });
                 } else {
                     io.systemOutput(msg);
@@ -1499,8 +1490,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 inferredDetails = agent.execute();
             } catch (Exception e) {
-                logger.error("BuildAgent did not complete successfully (aborted or errored). Build details not saved.", e);
-                io.toolError("Build Information Agent failed: " + e.getMessage());
+                var msg = "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: " + e.getMessage();
+                logger.error(msg, e);
+                io.toolError(msg, "Build Information Agent failed");
                 inferredDetails = BuildDetails.EMPTY;
             }
 
@@ -1853,12 +1845,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .filter(s -> s.id().equals(sessionId))
                     .findFirst()
                     .map(IProject.SessionInfo::name).orElse("Unknown session");
-            io.showMessageDialog(
-                    "Session '" + sessionName + "' (" + sessionId.toString().substring(0,8) + ")" +
-                            " is currently active in another Brokk window.\n" +
-                            "Please close it there or choose a different session.",
-                    "Session In Use",
-                    JOptionPane.WARNING_MESSAGE);
+            io.systemNotify("Session '" + sessionName + "' (" + sessionId.toString().substring(0, 8) + ")" +
+                                " is currently active in another Brokk window.\n" +
+                                "Please close it there or choose a different session.", "Session In Use", JOptionPane.WARNING_MESSAGE);
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 

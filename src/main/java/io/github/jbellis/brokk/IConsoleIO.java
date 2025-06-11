@@ -16,7 +16,11 @@ public interface IConsoleIO {
     }
 
     default void toolError(String msg) {
-        toolErrorRaw("Error: " + msg);
+        toolError(msg, "Error");
+    }
+
+    default void toolError(String msg, String title) {
+        toolErrorRaw("%s: %s".formatted(title, msg));
     }
 
     void toolErrorRaw(String msg);
@@ -31,10 +35,6 @@ public interface IConsoleIO {
 
     default void backgroundOutput(String summary, String details) {
         // pass
-    }
-
-    default void showMessageDialog(String message, String title, int messageType) {
-        throw new UnsupportedOperationException();
     }
 
     enum MessageSubType {

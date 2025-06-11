@@ -959,7 +959,7 @@ public class GitLogTab extends JPanel {
                     currentActualBranch = getRepo().getCurrentBranch();
                 } catch (Exception ex) {
                     logger.error("Could not get current branch for diff operation", ex);
-                    chrome.toolError("Failed to determine current branch. Cannot perform diff.");
+                    chrome.toolError("Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage());
                     return;
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
