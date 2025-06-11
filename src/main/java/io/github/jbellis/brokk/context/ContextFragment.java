@@ -268,8 +268,7 @@ record ProjectPathFragment(ProjectFile file, String id, IContextManager contextM
             int numericId = Integer.parseInt(existingId);
             setMinimumId(numericId + 1);
         } catch (NumberFormatException e) {
-            // existingId is not numeric (e.g., a hash or non-integer string from a frozen dynamic fragment),
-            // so don't update nextId based on it.
+            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
         }
         return new ProjectPathFragment(file, existingId, contextManager);
     }
@@ -478,7 +477,7 @@ record ExternalPathFragment(ExternalFile file, String id, IContextManager contex
                 ContextFragment.nextId.set(numericId + 1);
             }
         } catch (NumberFormatException e) {
-            // Not a numeric ID (e.g., hash from frozen dynamic fragment)
+            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
         }
         return new ExternalPathFragment(file, existingId, contextManager);
         }
@@ -552,7 +551,7 @@ record ImageFileFragment(BrokkFile file, String id, IContextManager contextManag
                 ContextFragment.nextId.set(numericId + 1);
             }
         } catch (NumberFormatException e) {
-            // Not a numeric ID (e.g., hash from frozen dynamic fragment)
+            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
         }
         return new ImageFileFragment(file, existingId, contextManager);
         }
@@ -680,7 +679,9 @@ abstract class VirtualFragment implements ContextFragment {
             int numericId = Integer.parseInt(existingId);
             ContextFragment.setMinimumId(numericId);
         } catch (NumberFormatException e) {
-            // existingId is not numeric (e.g., a content hash), so don't update nextId based on it.
+            if (isDynamic()) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
         }
     }
 
