@@ -30,6 +30,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
     protected final Set<ProjectFile> dependencyFiles;
     protected final Path masterRootPathForConfig;
 
+    private static final String BUILD_BANNER_SHOWN_KEY = "buildBannerShown";
+
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
@@ -333,5 +335,14 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         var allFiles = new java.util.HashSet<>(trackedFiles);
         allFiles.addAll(dependencyFiles);
         return allFiles;
+    }
+
+    public boolean isBuildBannerShown() {
+        return Boolean.parseBoolean(workspaceProps.getProperty(BUILD_BANNER_SHOWN_KEY, "false"));
+    }
+
+    public void setBuildBannerShown(boolean shown) {
+        workspaceProps.setProperty(BUILD_BANNER_SHOWN_KEY, Boolean.toString(shown));
+        saveWorkspaceProperties();
     }
 }

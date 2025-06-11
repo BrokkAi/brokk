@@ -28,9 +28,9 @@ import io.github.jbellis.brokk.issues.FilterOptions;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.prefs.Preferences;
 import javax.swing.UIManager;
 import javax.swing.BorderFactory;
+import io.github.jbellis.brokk.AbstractProject;
 
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
@@ -93,8 +93,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JPasswordField jiraApiTokenField;
     private JButton testJiraConnectionButton;
 
-    // Banner for first build completion
-    private static final String PREF_BANNER_SHOWN = "build-banner-shown";
     private final JPanel bannerPanel;
 
 
@@ -127,7 +125,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         close.setMargin(new Insets(0, 4, 0, 4));
         close.addActionListener(e -> {
             p.setVisible(false);
-            Preferences.userRoot().putBoolean(PREF_BANNER_SHOWN, true);
+            var project = chrome.getProject();
+            if (project instanceof AbstractProject ap) {
+                ap.setBuildBannerShown(true);
+            }
         });
         p.add(close, BorderLayout.EAST);
         p.setVisible(false); // Initially hidden
@@ -135,7 +136,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void maybeShowBanner() {
-        boolean alreadyShown = Preferences.userRoot().getBoolean(PREF_BANNER_SHOWN, false);
+        var project = chrome.getProject();
+        boolean alreadyShown = false;
+        if (project instanceof AbstractProject ap) {
+            alreadyShown = ap.isBuildBannerShown();
+        }
         bannerPanel.setVisible(!alreadyShown);
     }
 
