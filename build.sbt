@@ -23,6 +23,7 @@ javacOptions := {
     "-g:source,lines,vars",  // Generate full debugging information
     // Error Prone configuration
     "-Xplugin:ErrorProne -Xep:FutureReturnValueIgnored:OFF -Xep:MissingSummary:OFF -Xep:EmptyBlockTag:OFF -Xep:NonCanonicalType:OFF",
+    "-Werror",
 
     // JVM arguments for the forked javac process to run Error Prone on JDK 16+
     // The -J prefix is needed because Compile / javaHome is set, which forks javac.
