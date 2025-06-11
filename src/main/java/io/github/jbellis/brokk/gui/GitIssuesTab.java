@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import io.github.jbellis.brokk.util.Environment;
 
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -1034,16 +1035,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             return;
         }
         IssueHeader header = displayedIssues.get(selectedRow);
-        try {
-            URI url = header.htmlUrl();
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(url);
-            } else {
-                chrome.toolError("Cannot open browser. Desktop API not supported.");
-                logger.warn("Desktop.Action.BROWSE not supported, cannot open issue URL: {}", url);
-            }
-        } catch (Exception e) {
-            chrome.toolErrorRaw("Error opening issue in browser: " + e.getMessage());
+        URI url = header.htmlUrl();
+        if (url != null) {
+            Environment.openInBrowser(url.toString(), SwingUtilities.getWindowAncestor(chrome.getFrame()));
+        } else {
+            var msg = "Cannot open issue %s in browser: URL is missing".formatted(header.id());
+            logger.warn(msg);
+            chrome.toolError(msg);
         }
     }
 }

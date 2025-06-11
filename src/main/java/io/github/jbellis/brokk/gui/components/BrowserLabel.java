@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.components;
 
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -7,7 +8,6 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.net.URI;
 
 /**
  * A JLabel that displays a clickable hyperlink, opening it in the default browser.
@@ -45,24 +45,6 @@ public class BrowserLabel extends JLabel {
     }
 
     private void openBrowser() {
-        try {
-            Desktop.getDesktop().browse(new URI(url));
-        } catch (UnsupportedOperationException ex) {
-            logger.error("Browser not supported: {}", url, ex);
-            JOptionPane.showMessageDialog(
-                    SwingUtilities.getWindowAncestor(this), // Get parent window
-                    "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: " + url,
-                    "Browser Unsupported",
-                    JOptionPane.WARNING_MESSAGE
-            );
-        } catch (Exception ex) {
-            logger.error("Failed to open URL: {}", url, ex);
-            JOptionPane.showMessageDialog(
-                    SwingUtilities.getWindowAncestor(this), // Get parent window
-                    "Failed to open the browser. Please visit:\n" + url,
-                    "Browser Error",
-                    JOptionPane.ERROR_MESSAGE
-            );
-        }
+        Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(this));
     }
 }

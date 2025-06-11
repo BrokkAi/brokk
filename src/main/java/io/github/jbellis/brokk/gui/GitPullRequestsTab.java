@@ -1386,16 +1386,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             return;
         }
         org.kohsuke.github.GHPullRequest pr = displayedPrs.get(selectedRow);
-        try {
-            String url = pr.getHtmlUrl().toString();
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                Desktop.getDesktop().browse(new java.net.URI(url));
-            } else {
-                chrome.toolError("Cannot open browser. Desktop API not supported.");
-                logger.warn("Desktop.Action.BROWSE not supported, cannot open PR URL: {}", url);
-            }
-        } catch (Exception e) {
-            chrome.toolErrorRaw("Error opening PR in browser: " + e.getMessage());
-        }
+        String url = pr.getHtmlUrl().toString();
+        Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(chrome.getFrame()));
     }
 }
