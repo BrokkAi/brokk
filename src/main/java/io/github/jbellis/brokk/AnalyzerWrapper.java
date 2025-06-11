@@ -29,6 +29,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
     private final AnalyzerListener listener; // can be null if no one is listening
     private final Path root;
+    private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
 
@@ -44,6 +45,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
+        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.runner = runner;
         this.listener = listener;
 
@@ -73,10 +75,21 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-            // Recursively register all directories except .brokk
+            // Recursively register all directories under project root except .brokk
             registerAllDirectories(root, watchService);
 
-            // Watche for events, debounces them, and handles them
+            // If the actual .git directory's parent (gitRepoRoot) is different from the project root
+            // (common in worktrees), explicitly watch the .git directory within gitRepoRoot.
+            // The registerAllDirectories method's .brokk exclusion (relative to this.root)
+            // will not interfere with watching contents of .git.
+            if (this.gitRepoRoot != null && !this.gitRepoRoot.equals(this.root)) {
+                Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+                assert Files.isDirectory(actualGitMetaDir);
+                logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
+                registerAllDirectories(actualGitMetaDir, watchService);
+            }
+
+            // Watch for events, debounce them, and handle them
             while (running) {
                 // Wait if paused
                 while (paused) {
@@ -129,15 +142,19 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.trace("Events batch: {}", batch);
 
         // 1) Possibly refresh Git
-        boolean needsGitRefresh = batch.stream().anyMatch(event -> {
-            Path gitDir = root.resolve(".git");
-            return event.path.startsWith(gitDir)
+        boolean needsGitRefresh = false;
+        if (this.gitRepoRoot != null) {
+            Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+            needsGitRefresh = batch.stream().anyMatch(event ->
+                event.path.startsWith(actualGitMetaDir)
                     && (event.type == EventType.CREATE
                     || event.type == EventType.DELETE
-                    || event.type == EventType.MODIFY);
-        });
+                    || event.type == EventType.MODIFY)
+            );
+        }
+
         if (needsGitRefresh) {
-            logger.debug("Changes in .git directory detected");
+            logger.debug("Changes in git metadata directory ({}) detected", this.gitRepoRoot.resolve(".git"));
             if (listener != null) {
                 listener.onRepoChange();
                 listener.onTrackedFileChange(); // not 100% sure this is necessary
