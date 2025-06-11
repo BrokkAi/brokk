@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
 import java.util.Set;
 import java.util.ArrayList;
 
-
 public class GitPullRequestsTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
@@ -276,7 +275,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Button panel for PRs
         JPanel prButtonPanel = new JPanel();
-        prButtonPanel.setBorder(BorderFactory.createEmptyBorder(new Constants().V_GLUE, 0, 0, 0));
+        prButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
         checkoutPrButton = new JButton("Check Out");
@@ -284,14 +283,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         checkoutPrButton.setEnabled(false);
         checkoutPrButton.addActionListener(e -> checkoutSelectedPr());
         prButtonPanel.add(checkoutPrButton);
-        prButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         diffPrButton = new JButton("Diff vs Base");
         diffPrButton.setToolTipText("Add diff of PR against its base branch to context");
         diffPrButton.setEnabled(false);
         diffPrButton.addActionListener(e -> diffSelectedPr());
         prButtonPanel.add(diffPrButton);
-        prButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         openInBrowserButton = new JButton("Open in Browser");
         openInBrowserButton.setToolTipText("Open the selected PR in your web browser");
@@ -1013,7 +1012,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 .filter(pr -> !prChangedFilesCache.containsKey(pr.getNumber()) ||
                                (prChangedFilesCache.get(pr.getNumber()) != null &&
                                 !prChangedFilesCache.get(pr.getNumber()).isEmpty() &&
-                                prChangedFilesCache.get(pr.getNumber()).get(0).startsWith("Error:")))
+                                prChangedFilesCache.get(pr.getNumber()).getFirst().startsWith("Error:")))
                 .collect(Collectors.toList());
 
 
@@ -1092,7 +1091,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         var cachedCommits = prCommitsCache.get(prNumber);
         if (cachedCommits != null) {
             // Check if the cached entry is an error marker or actual data
-            boolean isErrorMarker = cachedCommits.size() == 1 && "Error fetching commits:".startsWith(cachedCommits.get(0).message().substring(0, Math.min(20, cachedCommits.get(0).message().length())));
+            boolean isErrorMarker = cachedCommits.size() == 1 && "Error fetching commits:".startsWith(cachedCommits.getFirst().message().substring(0, Math.min(20, cachedCommits.getFirst().message().length())));
             if (!isErrorMarker) {
                 logger.debug("Using cached commits for PR #{}", prNumber);
                 currentPrCommitDetailsList = new ArrayList<>(cachedCommits); // Use a copy

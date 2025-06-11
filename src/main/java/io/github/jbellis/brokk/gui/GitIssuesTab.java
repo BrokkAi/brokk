@@ -37,7 +37,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import io.github.jbellis.brokk.util.Environment;
 
-
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
 
@@ -321,16 +320,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Button panel for Issues
         JPanel issueButtonPanel = new JPanel();
-        issueButtonPanel.setBorder(BorderFactory.createEmptyBorder(new Constants().V_GLUE, 0, 0, 0));
+        issueButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         issueButtonPanel.setLayout(new BoxLayout(issueButtonPanel, BoxLayout.X_AXIS));
 
         copyIssueDescriptionButton = new JButton(copyDescriptionAction);
         issueButtonPanel.add(copyIssueDescriptionButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
+        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         openInBrowserButton = new JButton(openInBrowserAction);
         issueButtonPanel.add(openInBrowserButton);
-        issueButtonPanel.add(Box.createHorizontalStrut(new Constants().H_GAP));
+        issueButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
         captureButton = new JButton(captureAction);
         issueButtonPanel.add(captureButton);
