@@ -649,7 +649,7 @@ public class GitCommitTab extends JPanel {
                     panel.showInFrame("Uncommitted Changes Diff");
                 });
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error opening diff for all uncommitted files: " + ex.getMessage());
+                chrome.toolError("Error opening diff for all uncommitted files: " + ex.getMessage());
             }
         });
     }
