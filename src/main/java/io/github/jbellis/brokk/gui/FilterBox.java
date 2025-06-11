@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
+
 import javax.swing.*;
 import javax.swing.event.*;
 import java.awt.*;
@@ -8,7 +10,7 @@ import java.util.*;
 import java.util.List;
 import java.util.function.Supplier;
 
-public final class FilterBox extends JPanel {
+public final class FilterBox extends JPanel implements ThemeAware {
 
     private final String label;                     // e.g. "Author"
     private final Supplier<List<String>> choices;   // lazy source of values
@@ -20,12 +22,10 @@ public final class FilterBox extends JPanel {
     private static final Icon ARROW = UIManager.getIcon("Tree.expandedIcon");
     private static final Icon CLEAR = UIManager.getIcon("InternalFrame.closeIcon");
 
-    private static final Color UNSELECTED_FG_COLOR = new Color(0xFF8800); // IntelliJ-like orange
-    private static final Color SELECTED_FG_COLOR = Color.WHITE;
-    private static final Color ICON_HOVER_BG_COLOR = new Color(SELECTED_FG_COLOR.getRed(),
-                                                               SELECTED_FG_COLOR.getGreen(),
-                                                               SELECTED_FG_COLOR.getBlue(),
-                                                               64); // Semi-transparent white
+    // Colors will be set dynamically based on theme
+    private Color unselectedFgColor;
+    private Color selectedFgColor;
+    private Color iconHoverBgColor;
     private final Chrome chrome;
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices) {
@@ -46,7 +46,7 @@ public final class FilterBox extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6)); // Provides overall padding
         setOpaque(false); // Make panel transparent
 
-        textLabel.setForeground(UNSELECTED_FG_COLOR);
+        // Colors will be set in applyTheme
         textLabel.setOpaque(false);
         iconLabel.setOpaque(false);
 
@@ -58,7 +58,7 @@ public final class FilterBox extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled()) return;
-                
+
                 if (selected != null) { // CLEAR icon is showing
                     clear();
                 } else { // ARROW icon is showing
@@ -72,7 +72,7 @@ public final class FilterBox extends JPanel {
                     iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     if (selected != null) {
                         iconLabel.setOpaque(true);
-                        iconLabel.setBackground(ICON_HOVER_BG_COLOR);
+                        iconLabel.setBackground(iconHoverBgColor);
                     }
                 }
             }
@@ -105,14 +105,14 @@ public final class FilterBox extends JPanel {
             @Override
             public void mouseEntered(MouseEvent e) {
                 if (selected == null && isEnabled()) {
-                    textLabel.setForeground(SELECTED_FG_COLOR);
+                    textLabel.setForeground(selectedFgColor);
                 }
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
                 if (selected == null && isEnabled()) {
-                    textLabel.setForeground(UNSELECTED_FG_COLOR);
+                    textLabel.setForeground(unselectedFgColor);
                 }
             }
         });
@@ -123,7 +123,7 @@ public final class FilterBox extends JPanel {
             if (actualChoices != null && actualChoices.contains(initialSelection)) {
                 this.selected = initialSelection;
                 textLabel.setText(this.selected);
-                textLabel.setForeground(SELECTED_FG_COLOR);
+                // Color will be set in applyTheme
                 iconLabel.setIcon(CLEAR);
                 iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
             } else {
@@ -132,6 +132,11 @@ public final class FilterBox extends JPanel {
             }
         } else {
             iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        }
+
+        // Apply initial theme
+        if (chrome.themeManager != null) {
+            applyTheme(chrome.themeManager);
         }
     }
 
@@ -225,7 +230,7 @@ public final class FilterBox extends JPanel {
                 }
             }
         });
-        
+
         // Add a popup menu listener to request focus on the search field when the popup becomes visible.
         pop.addPopupMenuListener(new PopupMenuListener() {
             public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
@@ -243,7 +248,7 @@ public final class FilterBox extends JPanel {
         String old = selected;
         selected = v;
         textLabel.setText(v);
-        textLabel.setForeground(SELECTED_FG_COLOR);
+        textLabel.setForeground(selectedFgColor);
         iconLabel.setIcon(CLEAR);
         iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
         // Reset hover state
@@ -251,7 +256,7 @@ public final class FilterBox extends JPanel {
         iconLabel.setBackground(null);
         firePropertyChange("value", old, v);
         // Swing components usually repaint correctly, explicit repaint might not be needed
-        // repaint(); 
+        // repaint();
     }
 
     private void clear() {
@@ -269,9 +274,9 @@ public final class FilterBox extends JPanel {
         boolean isMouseOver = mousePos != null && contains(mousePos);
 
         if (isMouseOver && isEnabled()) {
-            textLabel.setForeground(SELECTED_FG_COLOR); // Hover color
+            textLabel.setForeground(selectedFgColor); // Hover color
         } else {
-            textLabel.setForeground(UNSELECTED_FG_COLOR); // Default unselected color
+            textLabel.setForeground(unselectedFgColor); // Default unselected color
         }
         firePropertyChange("value", old, null);
         // repaint();
@@ -279,6 +284,27 @@ public final class FilterBox extends JPanel {
 
     public String getSelected() {
         return selected;
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        boolean isDark = guiTheme.isDarkTheme();
+
+        unselectedFgColor = ThemeColors.getColor(isDark, "filter_unselected_foreground");
+        selectedFgColor = ThemeColors.getColor(isDark, "filter_selected_foreground");
+        iconHoverBgColor = ThemeColors.getColor(isDark, "filter_icon_hover_background");
+
+        // Apply current state colors
+        if (selected == null) {
+            // Check if mouse is over for hover state
+            Point mousePos = getMousePosition(true);
+            boolean isMouseOver = mousePos != null && contains(mousePos);
+            textLabel.setForeground(isMouseOver && isEnabled() ? selectedFgColor : unselectedFgColor);
+        } else {
+            textLabel.setForeground(selectedFgColor);
+        }
+
+        SwingUtilities.updateComponentTreeUI(this);
     }
 
     // SimpleListener is now a top-level package-private interface in its own file.
