@@ -311,7 +311,7 @@ public class SessionsDialog extends JDialog {
             });
         }).exceptionally(throwable -> {
             SwingUtilities.invokeLater(() -> {
-                chrome.toolErrorRaw("Failed to load session history: " + throwable.getMessage());
+                chrome.toolError("Failed to load session history: " + throwable.getMessage());
                 activityTableModel.setRowCount(0);
             });
             return null;

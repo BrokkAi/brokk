@@ -67,7 +67,7 @@ public interface IProject extends AutoCloseable {
     }
 
     default IProject getParent() {
-        return null;
+        return this;
     }
 
     default boolean hasGit() {

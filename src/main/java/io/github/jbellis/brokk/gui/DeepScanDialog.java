@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import com.google.common.collect.Streams;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.ValidationAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -43,7 +42,7 @@ class DeepScanDialog {
     public static void triggerDeepScan(Chrome chrome, String goal) {
         var contextManager = chrome.getContextManager();
         if (goal.isBlank() || contextManager == null || contextManager.getProject() == null) {
-            chrome.toolErrorRaw("Please enter instructions before running Deep Scan.");
+            chrome.toolError("Please enter instructions before running Deep Scan.");
             return;
         }
 
@@ -92,7 +91,7 @@ class DeepScanDialog {
                     if (ee.getCause() instanceof InterruptedException ie) {
                         throw ie;
                     } else {
-                        chrome.toolErrorRaw("Error during Deep Scan execution: " + ee.getCause().getMessage());
+                        chrome.toolError("Error during Deep Scan execution: " + ee.getCause().getMessage());
                         return;
                     }
                 }
@@ -394,7 +393,7 @@ class DeepScanDialog {
                     }
                     boolean success = contextManager.addSummaries(filesToSummarize, Set.of());
                     if (!success) {
-                        chrome.toolErrorRaw("No summarizable code found in selected files");
+                        chrome.systemOutput("No summarizable code found in selected files");
                     }
                 }
                 if (!filesToEdit.isEmpty()) {

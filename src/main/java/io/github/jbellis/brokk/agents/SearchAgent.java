@@ -679,13 +679,11 @@ public class SearchAgent {
         var result = llm.sendRequest(messages, tools, ToolChoice.REQUIRED, false);
 
         if (result.error() != null) {
-            // Coder logs the error, return empty list to signal failure
-            io.toolError("LLM error determining next action: " + result.error().getMessage());
             return List.of();
         }
         var response = result.chatResponse();
         if (response == null || response.aiMessage() == null) {
-            io.toolError("LLM returned empty response when determining next action.");
+            logger.warn("LLM returned empty response when determining next action");
             return List.of(); // Should not happen if Coder handled error correctly
         }
 
@@ -830,11 +828,7 @@ public class SearchAgent {
      */
     private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response) {
         if (!response.hasToolExecutionRequests()) {
-            logger.debug("No tool execution requests found in LLM response.");
-            // This might happen if the LLM just returns text despite ToolChoice.REQUIRED
-            // Coder.sendMessage has logic to retry in this case, so this path might indicate
-            // a deeper issue or the LLM ignoring instructions. Return empty for now.
-            io.toolError("LLM response did not contain expected tool calls.");
+            logger.warn("No tool execution requests found in LLM response.");
             return List.of();
         }
 

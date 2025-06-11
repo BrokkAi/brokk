@@ -263,4 +263,42 @@ public class Environment {
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
         pb.start();
     }
+
+    /**
+     * Opens the specified URL in the default web browser.
+     * Handles common errors like browser unavailability.
+     *
+     * @param url      The URL to open.
+     * @param ancestor The parent window for displaying error dialogs, can be null.
+     */
+    public static void openInBrowser(String url, Window ancestor) {
+        try {
+            if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                logger.warn("Desktop.Action.BROWSE not supported, cannot open URL: {}", url);
+                JOptionPane.showMessageDialog(
+                        ancestor,
+                        "Sorry, unable to open browser automatically. Desktop API not supported.\nPlease visit: " + url,
+                        "Browser Unsupported",
+                        JOptionPane.WARNING_MESSAGE
+                );
+                return;
+            }
+            Desktop.getDesktop().browse(new java.net.URI(url));
+        } catch (UnsupportedOperationException ex) {
+            logger.error("Browser not supported on this platform (e.g., WSL): {}", url, ex);
+            JOptionPane.showMessageDialog(
+                    ancestor,
+                    "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: " + url,                    "Browser Unsupported",
+                    JOptionPane.WARNING_MESSAGE
+            );
+        } catch (Exception ex) {
+            logger.error("Failed to open URL: {}", url, ex);
+            JOptionPane.showMessageDialog(
+                    ancestor,
+                    "Failed to open the browser. Please visit:\n" + url,
+                    "Browser Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
+    }
 }

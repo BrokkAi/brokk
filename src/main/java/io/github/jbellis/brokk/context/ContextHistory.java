@@ -62,7 +62,7 @@ public class ContextHistory {
 
     /** Initialise with a single frozen context. */
     public synchronized void setInitialContext(Context frozenInitial) {
-        assert frozenInitial.isFrozen();
+        assert !frozenInitial.containsDynamicFragments();
         history.clear();
         redo.clear();
         history.add(frozenInitial);
@@ -71,7 +71,7 @@ public class ContextHistory {
 
     /** Push {@code frozen} and clear redo stack. */
     public synchronized void addFrozenContextAndClearRedo(Context frozen) {
-        assert frozen.isFrozen();
+        assert !frozen.containsDynamicFragments();
         history.addLast(frozen);
         truncateHistory();
         redo.clear();
@@ -135,7 +135,7 @@ public class ContextHistory {
      * Applies the state from a frozen context to the workspace by restoring files.
      */
     private void applyFrozenContextToWorkspace(Context frozenContext, IConsoleIO io) {
-        assert frozenContext.isFrozen();
+        assert !frozenContext.containsDynamicFragments();
         var restoredFiles = new ArrayList<String>();
         frozenContext.editableFiles.forEach(fragment -> {
             assert fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH : fragment.getType();
@@ -151,8 +151,7 @@ public class ContextHistory {
                     restoredFiles.add(pf.toString());
                 }
             } catch (IOException e) {
-                io.toolError("Failed to restore file " + pf + ": " + e.getMessage());
-                logger.error("Failed to restore file {} during context application", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
             }
         });
         if (!restoredFiles.isEmpty()) {

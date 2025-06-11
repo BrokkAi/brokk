@@ -265,16 +265,11 @@ public class BrokkDiffPanel extends JPanel {
         btnNextFile.addActionListener(e -> nextFile());
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
-            if (bufferPanel == null) {
-                contextManager.getIo().toolError("Diff panel not available for capturing diff.");
-                return;
-            }
+            assert bufferPanel != null;
             var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.LEFT);
             var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.RIGHT);
-            if (leftPanel == null || rightPanel == null) {
-                contextManager.getIo().toolError("File panels not available for capturing diff.");
-                return;
-            }
+            assert leftPanel != null;
+            assert rightPanel != null;
             var leftContent = leftPanel.getEditor().getText();
             var rightContent = rightPanel.getEditor().getText();
             var leftLines = Arrays.asList(leftContent.split("\\R"));

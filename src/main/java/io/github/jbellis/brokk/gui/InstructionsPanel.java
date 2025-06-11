@@ -15,10 +15,12 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-import io.github.jbellis.brokk.gui.components.SplitButton;
+// import io.github.jbellis.brokk.gui.components.SplitButton; // No longer needed for Architect
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
+import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -29,6 +31,7 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -46,6 +49,7 @@ import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -70,6 +74,12 @@ import static io.github.jbellis.brokk.gui.Constants.*;
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
 
+    public static final String ACTION_ARCHITECT = "Architect";
+    public static final String ACTION_CODE = "Code";
+    public static final String ACTION_ASK = "Ask";
+    public static final String ACTION_SEARCH = "Search";
+    public static final String ACTION_RUN = "Run";
+
     private static final String PLACEHOLDER_TEXT = """
                                                    Put your instructions or questions here.  Brokk will suggest relevant files below; right-click on them to add them to your Workspace.  The Workspace will be visible to the AI when coding or answering your questions. Type "@" for add more context.
                                                    
@@ -82,9 +92,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final Chrome chrome;
     private final JTextArea instructionsArea;
     private final VoiceInputButton micButton;
-    private final SplitButton architectButton;
-    private final SplitButton codeButton;
-    private final SplitButton askButton;
+    private final JButton architectButton; // Changed from SplitButton
+    private final io.github.jbellis.brokk.gui.components.SplitButton codeButton;
+    private final io.github.jbellis.brokk.gui.components.SplitButton askButton;
     private final JButton searchButton;
     private final JButton runButton;
     private final JButton stopButton;
@@ -134,17 +144,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {
             activateCommandInput();
             chrome.actionOutput("Recording");
-        }, chrome::toolError);
+        }, msg -> chrome.toolError(msg, "Error"));
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
         // Initialize Buttons first
-        architectButton = new SplitButton("Architect"); // Changed to SplitButton
+        architectButton = new JButton("Architect"); // Now a regular JButton
         architectButton.setMnemonic(KeyEvent.VK_G); // Mnemonic for Agent
-        architectButton.setToolTipText("Run the multi-step agent (click ▼ for worktree options)");
+        architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
         architectButton.addActionListener(e -> runArchitectCommand()); // Main button action
-        architectButton.setMenuSupplier(this::createArchitectMenu); // Add menu supplier
+        // architectButton.setMenuSupplier(this::createArchitectMenu); // Removed menu supplier
 
-        codeButton = new SplitButton("Code");
+        codeButton = new io.github.jbellis.brokk.gui.components.SplitButton("Code");
         codeButton.setMnemonic(KeyEvent.VK_C);
         codeButton.setToolTipText("Tell the LLM to write code using the current context (click ▼ for model options)");
         codeButton.addActionListener(e -> runCodeCommand()); // Main button action
@@ -155,12 +165,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (selectedModel != null) {
                         runCodeCommand(selectedModel);
                     } else {
-                        chrome.toolErrorRaw("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
+                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
                     }
                 }
         ));
 
-        askButton = new SplitButton(" Ask");
+        askButton = new io.github.jbellis.brokk.gui.components.SplitButton(" Ask");
         askButton.setMnemonic(KeyEvent.VK_A);
         askButton.setToolTipText("Ask the LLM a question about the current context (click ▼ for model options)");
         askButton.addActionListener(e -> runAskCommand()); // Main button action
@@ -171,7 +181,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (selectedModel != null) {
                         runAskCommand(selectedModel);
                     } else {
-                        chrome.toolErrorRaw("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
+                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
                     }
                 }
         ));
@@ -1140,7 +1150,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var contextManager = chrome.getContextManager();
             if (question.isBlank()) {
-                chrome.toolErrorRaw("Please provide a question");
+                chrome.toolError("Please provide a question");
                 return;
             }
 
@@ -1148,7 +1158,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var messages = CodePrompts.instance.collectAskMessages(contextManager, question);
             var response = contextManager.getLlm(model, "Ask: " + question).sendRequest(messages, true);
             if (response.error() != null) {
-                chrome.toolErrorRaw("Error during 'Ask': " + response.error().getMessage());
+                chrome.toolError("Error during 'Ask': " + response.error().getMessage());
             } else if (response.chatResponse() != null && response.chatResponse().aiMessage() != null) {
                 var aiResponse = response.chatResponse().aiMessage();
                 // Check if the response is valid before adding to history
@@ -1207,7 +1217,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             maybeAddInterruptedResult("Architect", goal);
         } catch (Exception e) {
             logger.error("Error during Agent execution", e);
-            chrome.toolErrorRaw("Internal error during Agent command: " + e.getMessage());
+            chrome.toolError("Internal error during Agent command: " + e.getMessage());
         }
     }
 
@@ -1217,7 +1227,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void executeSearchCommand(StreamingChatLanguageModel model, String query) {
         if (query.isBlank()) {
-            chrome.toolErrorRaw("Please provide a search query");
+            chrome.toolError("Please provide a search query");
             return;
         }
         try {
@@ -1231,7 +1241,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             contextManager.addToHistory(result, false);
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
-            chrome.toolErrorRaw("Search agent cancelled without answering");
+            chrome.toolError("Search agent cancelled without answering");
             repopulateInstructionsArea(query);
         }
     }
@@ -1283,7 +1293,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand() {
         var goal = getInstructions();
         if (goal.isBlank()) {
-            chrome.toolErrorRaw("Please provide an initial goal or instruction for the Architect");
+            chrome.toolError("Please provide an initial goal or instruction for the Architect");
             return;
         }
 
@@ -1294,7 +1304,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var searchModel = contextManager.getSearchModel(); // For architect's sub-agents
 
         // Check vision capabilities only if running in current project
-        // If running in worktree, this check will happen in the new project's context
         if (contextHasImages()) {
             var nonVisionModels = Stream.of(architectModel, codeModel, searchModel) // Check all models Architect might use
                                         .filter(m -> !models.supportsVision(m))
@@ -1310,60 +1319,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(goal, 20);
 
         // Show the options dialog synchronously on the EDT. This blocks until the user clicks OK/Cancel.
-        ArchitectAgent.ArchitectOptions options = ArchitectOptionsDialog.showDialogAndWait(chrome, contextManager);
+        ArchitectChoices choices = ArchitectOptionsDialog.showDialogAndWait(chrome);
 
-        // If the user cancelled the dialog, options will be null.
-        if (options == null) {
+        // If the user cancelled the dialog, choices will be null.
+        if (choices == null) {
             chrome.systemOutput("Architect command cancelled during option selection.");
             enableButtons(); // Re-enable buttons since the action was cancelled before submission
             return;
         }
+
         clearCommandInput();
 
-        // User confirmed options, now submit the actual agent execution to the background.
-        runArchitectCommand(goal, options);
-    }
-
-    private JPopupMenu createArchitectMenu() {
-        var popupMenu = new JPopupMenu();
-        if (this.contextManager == null || this.chrome.getProject() == null) {
-            var item = new JMenuItem("Worktree options unavailable (Project not fully loaded)");
-            item.setEnabled(false);
-            popupMenu.add(item);
-            return popupMenu;
-        }
-
-        var project = this.chrome.getProject();
-        var runInWorktreeItem = new JMenuItem("Run in New Git Worktree...");
-
-        boolean canCreateWorktree = project.hasGit() && project.getRepo().supportsWorktrees();
-        runInWorktreeItem.setEnabled(canCreateWorktree);
-        if (!canCreateWorktree) {
-            if (!project.hasGit()) {
-                runInWorktreeItem.setToolTipText("Project is not a Git repository.");
-            } else {
-                runInWorktreeItem.setToolTipText("Git version does not support worktrees or worktree creation failed.");
-            }
+        if (choices.runInWorktree()) {
+            runArchitectInNewWorktree(goal, choices.options());
         } else {
-            runInWorktreeItem.setToolTipText("Create a new Git worktree for this Architect task.");
+            // User confirmed options, now submit the actual agent execution to the background.
+            runArchitectCommand(goal, choices.options());
         }
-
-        runInWorktreeItem.addActionListener(e -> runArchitectInNewWorktree());
-        popupMenu.add(runInWorktreeItem);
-
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popupMenu);
-        }
-        return popupMenu;
     }
 
-    private void runArchitectInNewWorktree() {
-        final var originalInstructions = getInstructions();
-        if (originalInstructions.isBlank()) {
-            chrome.toolErrorRaw("Please provide an initial goal or instruction for the Architect.");
-            return;
-        }
-
+    private void runArchitectInNewWorktree(String originalInstructions, ArchitectAgent.ArchitectOptions options) {
         var currentProject = chrome.getProject();
         ContextManager cm = chrome.getContextManager();
 
@@ -1371,17 +1346,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var branchNameWorker = new ContextManager.SummarizeWorker(cm, originalInstructions, 3);
         branchNameWorker.execute();
 
-        // Collect architect options BEFORE creating the new worktree
-        ArchitectAgent.ArchitectOptions options = ArchitectOptionsDialog.showDialogAndWait(chrome, cm);
-        if (options == null) {
-            chrome.systemOutput("Architect worktree setup cancelled during option selection.");
-            // branchNamerWorker.cancel(true); // Attempt to cancel if dialog is dismissed
-            return;
-        }
-
-        // Add to history of current project only if proceeding
-        currentProject.addToInstructionsHistory(originalInstructions, 20);
-        clearCommandInput();
+        // Add to history of current project (already done by caller if not worktree)
+        // No need to clearCommandInput, also done by caller
 
         // Submit the entire worktree setup and eventual Architect run as a background task
         cm.submitUserTask("Setup Architect Worktree", true, () -> {
@@ -1393,73 +1359,70 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String generatedBranchName = cm.getRepo().sanitizeBranchName(rawBranchNameSuggestion);
 
                 // Check Git availability (original position relative to setup)
+                // This check is also done in ArchitectOptionsDialog for the checkbox,
+                // but good to have a safeguard here.
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
-                    chrome.toolErrorRaw("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
+                    chrome.toolError("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
+                    repopulateInstructionsArea(originalInstructions); // Restore instructions if setup fails
                     return;
                 }
 
                 Path newWorktreePath;
                 String actualBranchName;
 
-                IProject projectForWorktreeSetup = currentProject.getParent() != null ? currentProject.getParent() : currentProject;
-                if (!(projectForWorktreeSetup instanceof MainProject)) {
-                     chrome.hideOutputSpinner();
-                     chrome.toolErrorRaw("Cannot determine main project for worktree setup.");
-                     return;
-                }
+                IProject projectForWorktreeSetup = currentProject.getParent();
+                GitRepo mainGitRepo = (GitRepo) projectForWorktreeSetup.getRepo();
+                String sourceBranchForNew = mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
 
                 var setupResult = GitWorktreeTab.setupNewGitWorktree(
-                        (MainProject) projectForWorktreeSetup,
-                        (io.github.jbellis.brokk.git.GitRepo) projectForWorktreeSetup.getRepo(),
-                        generatedBranchName,
-                        true,
-                        null
-                );
+                                                                     (MainProject) projectForWorktreeSetup,
+                                                                     mainGitRepo,
+                                                                     generatedBranchName,
+                                                                     true, // Always creating a new branch in this flow
+                                                                     sourceBranchForNew);
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();
 
                 chrome.systemOutput("New worktree created at: " + newWorktreePath + " on branch: " + actualBranchName);
 
                 // Define the initial task to run in the new project, using pre-collected options
-                final ArchitectAgent.ArchitectOptions finalOptions = options;
                 Consumer<Chrome> initialArchitectTask = newWorktreeChrome -> {
                     InstructionsPanel newWorktreeIP = newWorktreeChrome.getInstructionsPanel();
-                    newWorktreeIP.runArchitectCommand(originalInstructions, finalOptions);
+                    // Run the architect command directly with the original instructions and determined options
+                    newWorktreeIP.runArchitectCommand(originalInstructions, options);
                 };
 
-                MainProject mainProjectParent = (currentProject instanceof MainProject)
+                MainProject mainProject = (currentProject instanceof MainProject)
                                                 ? (MainProject) currentProject
                                                 : (MainProject) currentProject.getParent();
-                if (mainProjectParent == null) {
-                     chrome.hideOutputSpinner();
-                     chrome.toolErrorRaw("Cannot determine main project for opening worktree.");
-                     return;
-                }
+                assert mainProject != null;
 
                 new Brokk.OpenProjectBuilder(newWorktreePath)
-                        .parent(mainProjectParent)
+                        .parent(mainProject)
                         .initialTask(initialArchitectTask)
                         .sourceContextForSession(cm.topContext())
                         .open()
-                        .thenAccept(success -> {
+                        .thenAccept(success ->
+                {
                     if (Boolean.TRUE.equals(success)) {
-                        chrome.systemOutput("New worktree project opened. Architect will start there.");
+                        chrome.systemOutput("New worktree opened for Architect");
                     } else {
-                        chrome.toolErrorRaw("Failed to open the new worktree project for Architect.");
+                        chrome.toolError("Failed to open the new worktree project for Architect.");
+                        repopulateInstructionsArea(originalInstructions);
                     }
                 }).exceptionally(ex -> {
-                    logger.error("Exception opening new worktree project", ex);
-                    chrome.toolErrorRaw("Error opening new worktree project: " + ex.getMessage());
+                    chrome.toolError("Error opening new worktree project: " + ex.getMessage());
+                    repopulateInstructionsArea(originalInstructions);
                     return null;
                 });
-
             } catch (InterruptedException e) {
                 logger.warn("Architect worktree setup interrupted.", e);
                 chrome.systemOutput("Architect worktree setup was cancelled.");
-            } catch (Exception ex) {
-                logger.error("Failed to setup Architect worktree", ex);
-                chrome.toolErrorRaw("Error setting up worktree: " + ex.getMessage());
+                repopulateInstructionsArea(originalInstructions);
+            } catch (GitAPIException | IOException | ExecutionException ex) {
+                chrome.toolError("Error setting up worktree: " + ex.getMessage());
+                repopulateInstructionsArea(originalInstructions);
             } finally {
                 chrome.hideOutputSpinner();
             }
@@ -1467,7 +1430,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Overload for programmatic invocation of Architect agent after options are determined.
+     * Overload for programmatic invocation of Architect agent after options are determined,
+     * typically called directly or from the worktree setup.
      *
      * @param goal The user's goal/instructions.
      * @param options The pre-configured ArchitectOptions.
@@ -1475,26 +1439,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         var architectModel = contextManager.getArchitectModel();
-        var codeModel = contextManager.getCodeModel(); // For sub-agents
-        var searchModel = contextManager.getSearchModel(); // For sub-agents
 
-        // Vision check (applies if Architect is run directly, not in new worktree)
-        // If in new worktree, the check happens in *that* instance's runArchitectCommand.
-        if (contextHasImages()) {
-            var models = contextManager.getService();
-            var nonVisionModels = Stream.of(architectModel, codeModel, searchModel)
-                    .filter(m -> !models.supportsVision(m))
-                    .map(models::nameOf)
-                    .distinct()
-                    .toList();
-            if (!nonVisionModels.isEmpty()) {
-                showVisionSupportErrorDialog(String.join(", ", nonVisionModels));
-                enableButtons(); // Re-enable if we abort here
-                return;
-            }
-        }
-
-        submitAction("Architect", goal, () -> {
+        submitAction(ACTION_ARCHITECT, goal, () -> {
             // Proceed with execution using the selected options
             executeAgentCommand(architectModel, goal, options);
         });
@@ -1519,7 +1465,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void prepareAndRunCodeCommand(StreamingChatLanguageModel modelToUse) {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please enter a command or text");
+            chrome.toolError("Please enter a command or text");
             return;
         }
 
@@ -1534,7 +1480,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction("Code", input, () -> executeCodeCommand(modelToUse, input));
+        submitAction(ACTION_CODE, input, () -> executeCodeCommand(modelToUse, input));
     }
 
     // Public entry point for default Ask model
@@ -1552,7 +1498,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void prepareAndRunAskCommand(StreamingChatLanguageModel modelToUse) {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please enter a question");
+            chrome.toolError("Please enter a question");
             return;
         }
 
@@ -1567,13 +1513,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction("Ask", input, () -> executeAskCommand(modelToUse, input));
+        submitAction(ACTION_ASK, input, () -> executeAskCommand(modelToUse, input));
     }
 
     public void runSearchCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please provide a search query");
+            chrome.toolError("Please provide a search query");
             return;
         }
 
@@ -1592,7 +1538,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         disableButtons();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction("Search", input, () -> {
+        submitAction(ACTION_SEARCH, input, () -> {
             executeSearchCommand(searchModel, input);
         });
     }
@@ -1600,14 +1546,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runRunCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolError("Please enter a command to run");
+            chrome.toolError("Please enter a command to run", "Error");
             return;
         }
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         disableButtons();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction("Run", input, () -> executeRunCommand(input));
+        submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
     /**
@@ -1653,17 +1599,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean projectLoaded = chrome.getProject() != null;
             boolean cmAvailable = this.contextManager != null;
             boolean gitAvailable = projectLoaded && chrome.getProject().hasGit();
-            boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees();
+            // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
 
             // Architect Button
             architectButton.setEnabled(projectLoaded && cmAvailable);
             if (projectLoaded && cmAvailable) {
-                 architectButton.setToolTipText("Run the multi-step agent (click ▼ for worktree options)");
+                 architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
             } else {
                  architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
             }
-            // Menu items within architectButton will handle their own enablement based on worktree support.
-
+            // Worktree option is now part of ArchitectOptionsDialog
 
             // Code Button
             if (projectLoaded && !gitAvailable) {

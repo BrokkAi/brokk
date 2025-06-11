@@ -562,7 +562,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     private void startWatcher() {
-        Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher");
+        Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
     
@@ -619,20 +619,19 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.debug("Watch key no longer valid: {}", key.watchable());
         }
     }
-    
+
+    /**
+     * @param start can be either the root project directory, or a newly created directory we want to add to the watch
+     */
     private void registerAllDirectories(Path start, WatchService watchService) throws IOException
     {
         if (!Files.isDirectory(start)) return;
 
-        // Skip .brokk itself
-        if (start.getFileName() != null && start.getFileName().toString().equals(".brokk")) {
-            return;
-        }
-
+        var brokkPrivate = root.resolve(".brokk");
         for (int attempt = 1; attempt <= 3; attempt++) {
             try (var walker = Files.walk(start)) {
                 walker.filter(Files::isDirectory)
-                        .filter(dir -> !dir.toString().contains(".brokk"))
+                        .filter(dir -> !dir.startsWith(brokkPrivate))
                         .forEach(dir -> {
                             try {
                                 dir.register(watchService,

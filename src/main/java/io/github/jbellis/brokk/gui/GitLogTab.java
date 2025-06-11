@@ -25,7 +25,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.Path;
 import java.util.*;
-import java.lang.reflect.InvocationTargetException; // Needed for invokeAndWait
 import java.util.List;
 
 /**
@@ -960,7 +959,7 @@ public class GitLogTab extends JPanel {
                     currentActualBranch = getRepo().getCurrentBranch();
                 } catch (Exception ex) {
                     logger.error("Could not get current branch for diff operation", ex);
-                    chrome.toolError("Failed to determine current branch. Cannot perform diff.");
+                    chrome.toolError("Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
                     return;
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
@@ -972,10 +971,7 @@ public class GitLogTab extends JPanel {
             int selectedRow = branchTable.getSelectedRow();
             if (selectedRow != -1) {
                 String branchDisplay = (String) branchTableModel.getValueAt(selectedRow, 1);
-                if (branchDisplay.startsWith("Local: ")) {
-                    String branchName = branchDisplay.substring("Local: ".length());
-                    renameBranch(branchName);
-                }
+                renameBranch(branchDisplay);
             }
         });
         deleteItem.addActionListener(e -> {
@@ -1378,7 +1374,7 @@ public class GitLogTab extends JPanel {
             } catch (GitAPIException e) {
                 logger.error("Error performing soft reset to commit: {}", commitId, e);
                 SwingUtilities.invokeLater(() ->
-                                                   chrome.toolErrorRaw("Error performing soft reset: " + e.getMessage()));
+                                                   chrome.toolError("Error performing soft reset: " + e.getMessage()));
             }
         });
     }
@@ -1423,7 +1419,7 @@ public class GitLogTab extends JPanel {
                     });
                 } catch (GitAPIException e) {
                     logger.error("Error pulling branch: {}", branchName, e);
-                    SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error pulling changes: " + e.getMessage()));
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error pulling changes: " + e.getMessage()));
                 }
             });
             return null;
@@ -1445,7 +1441,7 @@ public class GitLogTab extends JPanel {
                     updateCommitsForBranch(branchDisplay);
                 }
             } catch (GitAPIException e) {
-                chrome.toolErrorRaw("Error reverting commit: " + e.getMessage());
+                chrome.toolError("Error reverting commit: " + e.getMessage());
             }
         });
     }
@@ -1467,7 +1463,7 @@ public class GitLogTab extends JPanel {
                 });
             } catch (GitAPIException e) {
                 logger.error("Error pushing branch: {}", branchDisplay, e);
-                SwingUtilities.invokeLater(() -> chrome.toolErrorRaw(e.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError(e.getMessage()));
             }
             return null;
         });
@@ -1488,7 +1484,7 @@ public class GitLogTab extends JPanel {
                 update();
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
-                chrome.toolErrorRaw(e.getMessage());
+                chrome.toolError(e.getMessage());
             }
         });
     }
@@ -1512,17 +1508,17 @@ public class GitLogTab extends JPanel {
                     String conflictingFiles = mergeResult.getConflicts().keySet().stream()
                             .map(s -> "  - " + s)
                             .collect(Collectors.joining("\n"));
-                    chrome.toolErrorRaw("Merge conflicts detected for branch '" + branchName + "'.\n" +
+                    chrome.toolError("Merge conflicts detected for branch '" + branchName + "'.\n" +
                                         "Please resolve conflicts manually and then commit.\n" +
                                         "Conflicting files:\n" + conflictingFiles);
                 } else {
                     // For other non-successful statuses like FAILED, ABORTED etc.
-                    chrome.toolErrorRaw("Merge of branch '" + branchName + "' failed with error: " + status);
+                    chrome.toolError("Merge of branch '" + branchName + "' failed with error: " + status);
                 }
                 update(); // Refresh UI to reflect new state (merged, conflicting, or failed)
             } catch (GitAPIException e) {
                 logger.error("Error merging branch: {}", branchName, e);
-                chrome.toolErrorRaw("Error merging branch '" + branchName + "': " + e.getMessage());
+                chrome.toolError("Error merging branch '" + branchName + "': " + e.getMessage());
                 update(); // Refresh UI to show current state after error
             }
         });
@@ -1546,7 +1542,7 @@ public class GitLogTab extends JPanel {
                     chrome.systemOutput("Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
                     logger.error("Error creating new branch from {}: {}", sourceBranch, e);
-                    chrome.toolErrorRaw("Error creating new branch: " + e.getMessage());
+                    chrome.toolError("Error creating new branch: " + e.getMessage());
                 }
             });
         }
@@ -1556,11 +1552,14 @@ public class GitLogTab extends JPanel {
      * Rename a local branch.
      */
     private void renameBranch(String branchName) {
-        String newName = JOptionPane.showInputDialog(
+        String newName = (String) JOptionPane.showInputDialog(
                 this,
                 "Enter new name for branch '" + branchName + "':",
                 "Rename Branch",
-                JOptionPane.QUESTION_MESSAGE
+                JOptionPane.QUESTION_MESSAGE,
+                null, // icon
+                null, // selectionValues
+                branchName // initialSelectionValue
         );
         if (newName != null && !newName.trim().isEmpty()) {
             contextManager.submitUserTask("Renaming branch: " + branchName, () -> {
@@ -1570,7 +1569,7 @@ public class GitLogTab extends JPanel {
                     chrome.systemOutput("Branch '" + branchName + "' renamed to '" + newName + "' successfully.");
                 } catch (GitAPIException e) {
                     logger.error("Error renaming branch: {}", branchName, e);
-                    chrome.toolErrorRaw("Error renaming branch: " + e.getMessage());
+                    chrome.toolError("Error renaming branch: " + e.getMessage());
                 }
             });
         }
@@ -1616,7 +1615,7 @@ public class GitLogTab extends JPanel {
                 });
             } catch (GitAPIException e) {
                 logger.error("Error checking branch merge status: {}", branchName, e);
-                chrome.toolErrorRaw("Error checking branch status: " + e.getMessage());
+                chrome.toolError("Error checking branch status: " + e.getMessage());
             }
         });
     }
@@ -1633,7 +1632,7 @@ public class GitLogTab extends JPanel {
                 // Check if branch exists before trying to delete
                 List<String> localBranches = getRepo().listLocalBranches();
                 if (!localBranches.contains(branchName)) {
-                    chrome.toolErrorRaw("Cannot delete branch '" + branchName + "' - it doesn't exist locally");
+                    chrome.toolError("Cannot delete branch '" + branchName + "' - it doesn't exist locally");
                     return;
                 }
 
@@ -1641,7 +1640,7 @@ public class GitLogTab extends JPanel {
                 String currentBranch = getRepo().getCurrentBranch();
                 if (branchName.equals(currentBranch)) {
                     logger.warn("Cannot delete branch '{}' - it is the currently checked out branch", branchName);
-                    chrome.toolErrorRaw("Cannot delete the current branch. Please checkout a different branch first.");
+                    chrome.toolError("Cannot delete the current branch. Please checkout a different branch first.");
                     return;
                 }
 
@@ -1654,7 +1653,7 @@ public class GitLogTab extends JPanel {
                 SwingUtilities.invokeLater(this::update);
                 chrome.systemOutput("Branch '" + branchName + "' " + (force ? "force " : "") + "deleted successfully.");
             } catch (GitAPIException e) {
-                chrome.toolErrorRaw("Error deleting branch '" + branchName + "': " + e.getMessage());
+                chrome.toolError("Error deleting branch '" + branchName + "': " + e.getMessage());
             }
         });
     }
@@ -1716,7 +1715,7 @@ public class GitLogTab extends JPanel {
             } catch (Exception e) {
                 logger.error("Error searching commits: {}", query, e);
                 SwingUtilities.invokeLater(() -> {
-                    chrome.toolErrorRaw("Error searching commits: " + e.getMessage());
+                    chrome.toolError("Error searching commits: " + e.getMessage());
                     revisionTextLabel.setText("Revision:");
                     revisionIdTextArea.setText("N/A");
                 });
@@ -1834,7 +1833,7 @@ public class GitLogTab extends JPanel {
             } catch (Exception e) {
                 logger.error("Error popping stash", e);
                 SwingUtilities.invokeLater(() ->
-                                                   chrome.toolErrorRaw("Error popping stash: " + e.getMessage()));
+                                                   chrome.toolError("Error popping stash: " + e.getMessage()));
             }
         });
     }
@@ -1851,7 +1850,7 @@ public class GitLogTab extends JPanel {
                 });
             } catch (Exception e) {
                 logger.error("Error applying stash", e);
-                SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error applying stash: " + e.getMessage()));
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error applying stash: " + e.getMessage()));
             }
         });
     }
@@ -1880,7 +1879,7 @@ public class GitLogTab extends JPanel {
             } catch (Exception e) {
                 logger.error("Error dropping stash", e);
                 SwingUtilities.invokeLater(() ->
-                                                   chrome.toolErrorRaw("Error dropping stash: " + e.getMessage()));
+                                                   chrome.toolError("Error dropping stash: " + e.getMessage()));
             }
         });
     }

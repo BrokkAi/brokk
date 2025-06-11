@@ -6,9 +6,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.ICommitInfo;
-import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.IGitRepo;
-import io.github.jbellis.brokk.Brokk;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -16,11 +13,7 @@ import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
-import java.awt.event.WindowEvent;
-import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 
 /**
@@ -47,10 +40,6 @@ public final class GitUiUtil
             return;
         }
         var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         contextManager.submitContextTask("Capturing uncommitted diff", () -> {
             try {
@@ -70,7 +59,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added uncommitted diff for " + selectedFiles.size() + " file(s) to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error capturing uncommitted diff: " + ex.getMessage());
+                chrome.toolError("Error capturing uncommitted diff: " + ex.getMessage());
             }
         });
     }
@@ -111,10 +100,7 @@ public final class GitUiUtil
             ProjectFile file
     ) {
         var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
+
         contextManager.submitContextTask("Adding file change to context", () -> {
             try {
                 var diff = repo.showFileDiff(commitId + "^", commitId, file);
@@ -129,7 +115,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for " + file.getFileName() + " to context");
             } catch (Exception e) {
-                chrome.toolErrorRaw("Error adding file change to context: " + e.getMessage());
+                chrome.toolError("Error adding file change to context: " + e.getMessage());
             }
         });
     }
@@ -143,10 +129,7 @@ public final class GitUiUtil
                                            ProjectFile file)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            cm.getIo().toolError("Git repository not available.");
-            return;
-        }
+
         var shortCommitId = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
@@ -165,7 +148,7 @@ public final class GitUiUtil
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
             } catch (Exception ex) {
-                cm.getIo().toolErrorRaw("Error loading history diff: " + ex.getMessage());
+                cm.getIo().toolError("Error loading history diff: " + ex.getMessage());
             }
             return null;
         });
@@ -180,10 +163,7 @@ public final class GitUiUtil
                                           String filePath)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
+
         cm.submitUserTask("Viewing file at revision", () -> {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
@@ -233,10 +213,7 @@ public final class GitUiUtil
                 var lastCommitId = lastCommitInfo.id();
 
                 var repo = contextManager.getProject().getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.");
-                    return;
-                }
+
                 // Fetch diff using the correct parent syntax for range
                 var diff = repo.showDiff(firstCommitId, lastCommitId + "^");
                 if (diff.isEmpty()) {
@@ -264,7 +241,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for commit range to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error adding commit range to context: " + ex.getMessage());
+                chrome.toolError("Error adding commit range to context: " + ex.getMessage());
             }
         });
     }
@@ -287,31 +264,27 @@ public final class GitUiUtil
                     return;
                 }
                 var repo = contextManager.getProject().getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.");
-                    return;
-                }
 
-                    var diffs = files.stream()
-                            .map(file -> {
-                                try {
-                                    return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
-                                } catch (GitAPIException e) {
-                                    logger.warn(e);
-                                    return "";
-                                }
-                            })
-                            .filter(s -> !s.isEmpty())
-                            .collect(Collectors.joining("\n\n"));
-                    if (diffs.isEmpty()) {
+                var diffs = files.stream()
+                        .map(file -> {
+                            try {
+                                return repo.showFileDiff(firstCommitId, lastCommitId + "^", file);
+                            } catch (GitAPIException e) {
+                                logger.warn(e);
+                                return "";
+                            }
+                        })
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("\n\n"));
+                if (diffs.isEmpty()) {
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = firstCommitId.substring(0,7);
-                var lastShort  = lastCommitId.substring(0,7);
-                var shortHash  = firstCommitId.equals(lastCommitId)
-                        ? firstShort
-                        : "%s..%s".formatted(firstShort, lastShort);
+                var firstShort = firstCommitId.substring(0, 7);
+                var lastShort = lastCommitId.substring(0, 7);
+                var shortHash = firstCommitId.equals(lastCommitId)
+                                ? firstShort
+                                : "%s..%s".formatted(firstShort, lastShort);
 
                 var filesTxt = files.stream()
                         .map(ProjectFile::getFileName)
@@ -319,12 +292,12 @@ public final class GitUiUtil
                 var description = "Diff of %s [%s]".formatted(filesTxt, shortHash);
 
                 var syntaxStyle = files.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
-                                 SyntaxDetector.fromExtension(files.getFirst().extension());
+                                  SyntaxDetector.fromExtension(files.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diffs, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for selected files in commit range to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error adding file changes from range to context: " + ex.getMessage());
+                chrome.toolError("Error adding file changes from range to context: " + ex.getMessage());
             }
         });
     }
@@ -340,10 +313,6 @@ public final class GitUiUtil
                                        boolean useParent)
     {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            cm.getIo().toolError("Git repository not available.");
-            return;
-        }
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
@@ -385,7 +354,7 @@ public final class GitUiUtil
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
             } catch (Exception ex) {
-                cm.getIo().toolErrorRaw("Error loading compare-with-local diff: " + ex.getMessage());
+                cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
             }
             return null;
         });
@@ -394,8 +363,8 @@ public final class GitUiUtil
     /**
      * Holds a parsed "owner" and "repo" from a Git remote URL.
      */
-    public record OwnerRepo(String owner, String repo) {
-    }
+    public record OwnerRepo(String owner, String repo) { }
+
     /**
      * Parse a Git remote URL of form:
      * - https://github.com/OWNER/REPO.git
@@ -469,10 +438,6 @@ public final class GitUiUtil
             io.github.jbellis.brokk.git.ICommitInfo commitInfo
     ) {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
             try {
@@ -501,7 +466,7 @@ public final class GitUiUtil
                 );
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error opening commit diff: " + ex.getMessage());
+                chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
         });
     }
@@ -539,7 +504,7 @@ public final class GitUiUtil
                     panel.showInFrame("Compare " + shortId + " to Local");
                 });
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+                chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
             }
         });
     }
@@ -552,10 +517,6 @@ public final class GitUiUtil
             String compareBranchName
     ) {
         var repo = cm.getProject().getRepo();
-        if (repo == null) {
-            chrome.toolError("Git repository not available.");
-            return;
-        }
 
         cm.submitContextTask("Capturing diff between " + compareBranchName + " and " + baseBranchName, () -> {
             try {
@@ -573,102 +534,8 @@ public final class GitUiUtil
             } catch (Exception ex) {
                 logger.warn("Error capturing diff between branches {} and {}: {}",
                             compareBranchName, baseBranchName, ex.getMessage(), ex);
-                chrome.toolErrorRaw(String.format("Error capturing diff between %s and %s: %s",
-                                                  compareBranchName, baseBranchName, ex.getMessage()));
-            }
-        });
-    }
-
-    /**
-     * Prompts the user and removes a worktree, with options to skip confirmation and/or window close event.
-     *
-     * @param contextManager The ContextManager instance
-     * @param chrome The Chrome instance for UI feedback
-     * @param worktreePath The path to the worktree to remove
-     * @param skipConfirmation Whether to skip the confirmation dialog
-     * @param dispatchWindowCloseEvent Whether to dispatch a window closing event after removal
-     */
-    public static void promptAndRemoveWorktree(ContextManager contextManager,
-                                             Chrome chrome,
-                                             Path worktreePath,
-                                             boolean skipConfirmation,
-                                             boolean dispatchWindowCloseEvent) {
-        IGitRepo repo = contextManager.getProject().getRepo();
-        if (!(repo instanceof GitRepo gitRepo)) {
-            chrome.toolError("Worktree operations are only supported for Git repositories.");
-            return;
-        }
-
-        // Check for uncommitted changes
-        try {
-            Set<GitRepo.ModifiedFile> modifiedFiles = gitRepo.getModifiedFiles();
-            if (!modifiedFiles.isEmpty() && !skipConfirmation) {
-                int dirtyResponse = JOptionPane.showConfirmDialog(
-                        chrome.getFrame(),
-                        "The worktree has uncommitted changes. Are you sure you want to remove it?\n" +
-                        "This will permanently delete the worktree and all uncommitted work.",
-                        "Uncommitted Changes",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
-
-                if (dirtyResponse != JOptionPane.YES_OPTION) {
-                    return; // User cancelled
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Error checking for modified files in worktree {}: {}", worktreePath, e.getMessage());
-            // Continue with removal despite the error
-        }
-
-        if (!skipConfirmation) {
-            int response = JOptionPane.showConfirmDialog(
-                    chrome.getFrame(),
-                    "Are you sure you want to remove the worktree at:\n" + worktreePath +
-                    "\n\nThis will delete the files from disk.",
-                    "Confirm Worktree Removal",
-                    JOptionPane.YES_NO_OPTION,
-                    JOptionPane.WARNING_MESSAGE);
-
-            if (response != JOptionPane.YES_OPTION) {
-                return; // User cancelled
-            }
-        }
-
-        // Perform the removal in the background
-        contextManager.submitUserTask("Removing worktree: " + worktreePath, () -> {
-            try {
-                gitRepo.removeWorktree(worktreePath);
-                chrome.systemOutput("Successfully removed worktree at " + worktreePath);
-
-                SwingUtilities.invokeLater(() -> {
-                    // Find and close the window for this worktree
-                    var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
-                    if (windowToClose != null) {
-                        if (dispatchWindowCloseEvent) {
-                            // Dispatch a window closing event
-                            windowToClose.getFrame().dispatchEvent(
-                                    new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING));
-                        } else {
-                            // Just dispose the window directly
-                            windowToClose.getFrame().dispose();
-                        }
-                    }
-                });
-
-            } catch (GitAPIException e) {
-                logger.error("Git error while removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() ->
-                    JOptionPane.showMessageDialog(chrome.getFrame(),
-                        "Git error while removing worktree: " + e.getMessage(),
-                        "Git Error",
-                        JOptionPane.ERROR_MESSAGE));
-            } catch (Exception e) {
-                logger.error("Error removing worktree: " + worktreePath, e);
-                SwingUtilities.invokeLater(() ->
-                    JOptionPane.showMessageDialog(chrome.getFrame(),
-                        "Error removing worktree: " + e.getMessage(),
-                        "Error",
-                        JOptionPane.ERROR_MESSAGE));
+                chrome.toolError(String.format("Error capturing diff between %s and %s: %s",
+                                               compareBranchName, baseBranchName, ex.getMessage()));
             }
         });
     }

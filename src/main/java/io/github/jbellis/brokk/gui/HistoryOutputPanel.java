@@ -331,7 +331,8 @@ public class HistoryOutputPanel extends JPanel {
                          var output = context.getParsedOutput();
                          if (output != null) {
                              // Open in new window
-                             new OutputWindow(HistoryOutputPanel.this, output,
+                             String titleHint = context.getAction();
+                             new OutputWindow(HistoryOutputPanel.this, output, titleHint,
                                               chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
                          }
                      }
@@ -477,7 +478,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager.createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
                 .exceptionally(ex -> {
-                    chrome.toolErrorRaw("Failed to create new session from workspace: " + ex.getMessage());
+                    chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                     return null;
                 });
         });
@@ -624,7 +625,7 @@ public class HistoryOutputPanel extends JPanel {
             if (!text.isBlank()) {
                 java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
                     new java.awt.datatransfer.StringSelection(text), null);
-                chrome.toolErrorRaw("Copied to clipboard");
+                chrome.systemOutput("Copied to clipboard");
             }
         });
         // Set minimum size
@@ -650,7 +651,8 @@ public class HistoryOutputPanel extends JPanel {
             if (llmStreamArea.isBlocking()) {
                 List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
                 var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), true);
+                String titleHint = lastSpinnerMessage;
+                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, titleHint, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), true);
                 if (lastSpinnerMessage != null) {
                     newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
                 }
@@ -662,9 +664,11 @@ public class HistoryOutputPanel extends JPanel {
                     }
                 });
             } else {
-                var output = contextManager.selectedContext().getParsedOutput();
+                var context = contextManager.selectedContext();
+                var output = context.getParsedOutput();
                 if (output != null) {
-                    new OutputWindow(this, output, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
+                    String titleHint = context.getAction();
+                    new OutputWindow(this, output, titleHint, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
                 }
             }
         });
@@ -795,11 +799,12 @@ public class HistoryOutputPanel extends JPanel {
          *
          * @param parentPanel The parent HistoryOutputPanel
          * @param output The messages (ai, user, ...) to display
+         * @param titleHint A hint for the window title (e.g., task summary or spinner message)
          * @param isDark Whether to use dark theme
          */
-        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, boolean isDark, boolean isBlockingMode) {
-            super("Output"); // Call superclass constructor first
-                
+        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, String titleHint, boolean isDark, boolean isBlockingMode) {
+            super(determineWindowTitle(titleHint, isBlockingMode)); // Call superclass constructor first
+
                 // Set icon from Chrome.newFrame
                 try {
                     var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
@@ -820,7 +825,7 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.setText(output);
             
             // Use shared utility method to create searchable content panel (without navigation for detached window)
-            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), false);
+            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel));
             
             // Add the content panel to the frame
             add(contentPanel);
@@ -873,6 +878,37 @@ public class HistoryOutputPanel extends JPanel {
 
             // Make window visible
             setVisible(true);
+        }
+
+        private static String determineWindowTitle(String titleHint, boolean isBlockingMode) {
+            String windowTitle;
+            if (isBlockingMode) {
+                windowTitle = "Output (In progress)";
+                if (titleHint != null && !titleHint.isBlank()) {
+                    windowTitle = "Output: " + titleHint;
+                    String taskType = null;
+                    if (titleHint.contains(InstructionsPanel.ACTION_CODE)) {
+                        taskType = InstructionsPanel.ACTION_CODE;
+                    } else if (titleHint.contains(InstructionsPanel.ACTION_ARCHITECT)) {
+                        taskType = InstructionsPanel.ACTION_ARCHITECT;
+                    } else if (titleHint.contains(InstructionsPanel.ACTION_SEARCH)) {
+                        taskType = InstructionsPanel.ACTION_SEARCH;
+                    } else if (titleHint.contains(InstructionsPanel.ACTION_ASK)) {
+                        taskType = InstructionsPanel.ACTION_ASK;
+                    } else if (titleHint.contains(InstructionsPanel.ACTION_RUN)) {
+                        taskType = InstructionsPanel.ACTION_RUN;
+                    } 
+                    if (taskType != null) {
+                        windowTitle = String.format("Output (%s in progress)", taskType);
+                    }
+                }
+            } else {
+                windowTitle = "Output";
+                if (titleHint != null && !titleHint.isBlank()) {
+                    windowTitle = "Output: " + titleHint;
+                }
+            }
+            return windowTitle;
         }
 
         /**

@@ -234,7 +234,7 @@ public final class ContextMenuUtils {
                 if (targetRef.getRepoFile() != null) {
                     cm.editFiles(List.of(targetRef.getRepoFile()));
                 } else {
-                    chrome.toolErrorRaw("Cannot edit file: " + targetRef.getFullPath() + " - no ProjectFile available");
+                    chrome.toolError("Cannot edit file: " + targetRef.getFullPath() + " - no ProjectFile available");
                 }
             }, "Edit files");
         });
@@ -252,7 +252,7 @@ public final class ContextMenuUtils {
                 if (targetRef.getRepoFile() != null) {
                     cm.addReadOnlyFiles(List.of(targetRef.getRepoFile()));
                 } else {
-                    chrome.toolErrorRaw("Cannot read file: " + targetRef.getFullPath() + " - no ProjectFile available");
+                    chrome.toolError("Cannot read file: " + targetRef.getFullPath() + " - no ProjectFile available");
                 }
             }, "Read files");
         });
@@ -269,11 +269,11 @@ public final class ContextMenuUtils {
             }
             withTemporaryListenerDetachment(chrome, cm, () -> {
                 if (targetRef.getRepoFile() == null) {
-                    chrome.toolErrorRaw("Cannot summarize: " + targetRef.getFullPath() + " - ProjectFile information not available");
+                    chrome.toolError("Cannot summarize: " + targetRef.getFullPath() + " - ProjectFile information not available");
                 } else {
                     boolean success = cm.addSummaries(Set.of(targetRef.getRepoFile()), Set.of());
                     if (!success) {
-                        chrome.toolErrorRaw("No summarizable code found");
+                        chrome.toolError("No summarizable code found");
                     }
                 }
             }, "Summarize files");

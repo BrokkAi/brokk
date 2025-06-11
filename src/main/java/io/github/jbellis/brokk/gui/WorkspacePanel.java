@@ -317,7 +317,7 @@ public class WorkspacePanel extends JPanel {
                         var fragment = new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
                         panel.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
-                        panel.chrome.toolErrorRaw("Cannot " + label.toLowerCase() + ": " + fileRef.getFullPath() + " - no ProjectFile available");
+                        panel.chrome.toolError("Cannot " + label.toLowerCase() + ": " + fileRef.getFullPath() + " - no ProjectFile available");
                     }
                     
                     // Apply edit restrictions
@@ -1285,7 +1285,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1314,7 +1314,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1344,7 +1344,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1529,7 +1529,7 @@ public class WorkspacePanel extends JPanel {
         var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         var contents = clipboard.getContents(null);
         if (contents == null) {
-            chrome.toolErrorRaw("Clipboard is empty or unavailable");
+            chrome.toolError("Clipboard is empty or unavailable");
             return;
         }
 
@@ -1572,7 +1572,7 @@ public class WorkspacePanel extends JPanel {
                     }
                 } catch (Exception e) {
                     if (e.getMessage() != null && e.getMessage().contains("INCR")) {
-                        chrome.toolErrorRaw("Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
+                        chrome.toolError("Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
                         return;
                     }
                     logger.error("Failed to process image flavor: {}", flavor.getMimeType(), e);
@@ -1585,11 +1585,11 @@ public class WorkspacePanel extends JPanel {
             try {
                 clipboardText = (String) contents.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
                 if (clipboardText.isBlank()) {
-                    chrome.toolErrorRaw("Clipboard text is empty");
+                    chrome.toolError("Clipboard text is empty");
                     return;
                 }
             } catch (Exception e) {
-                chrome.toolErrorRaw("Failed to read clipboard text: " + e.getMessage());
+                chrome.toolError("Failed to read clipboard text: " + e.getMessage());
                 return;
             }
 
@@ -1638,7 +1638,7 @@ public class WorkspacePanel extends JPanel {
                         wasUrl = true;
                         chrome.actionComplete();
                     } catch (IOException e) {
-                        chrome.toolErrorRaw("Failed to fetch or process URL content as text: " + e.getMessage());
+                        chrome.toolError("Failed to fetch or process URL content as text: " + e.getMessage());
                         content = clipboardText; // Revert to original clipboard text if fetch fails
                     }
                 }
@@ -1665,14 +1665,14 @@ public class WorkspacePanel extends JPanel {
                 chrome.systemOutput(message);
             }
         } else {
-            chrome.toolErrorRaw("Unsupported clipboard content type");
+            chrome.toolError("Unsupported clipboard content type");
         }
     }
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) { 
-                chrome.toolErrorRaw("No context to drop"); 
+                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll(); 
@@ -1731,14 +1731,14 @@ public class WorkspacePanel extends JPanel {
         }
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
-            chrome.toolErrorRaw("No files or classes identified for summarization in the selection.");
+            chrome.toolError("No files or classes identified for summarization in the selection.");
             return;
         }
 
         // Call the updated addSummaries method, which outputs a message on success
         boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
         if (!success) {
-            chrome.toolErrorRaw("No summarizable content found in the selected files or symbols.");
+            chrome.toolError("No summarizable content found in the selected files or symbols.");
         }
     }
 

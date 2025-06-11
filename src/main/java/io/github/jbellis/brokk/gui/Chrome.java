@@ -244,7 +244,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
-    public IProject getProject() {
+    public AbstractProject getProject() {
         return contextManager.getProject();
     }
 
@@ -324,7 +324,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 gitPanel.setCommitMessageText("Update for Brokk project files");
                 updateCommitPanel();
             } catch (Exception e) {
-                toolError("Error setting up git ignore: " + e.getMessage());
+                logger.error(e);
+                toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
             }
         });
     }
@@ -434,13 +435,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public List<ChatMessage> getLlmRawMessages() {
-        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
-        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
-        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         if (SwingUtilities.isEventDispatchThread()) {
             return historyOutputPanel.getLlmRawMessages();
         }
 
+        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
+        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
+        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
@@ -449,7 +450,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             } catch (InterruptedException e) {
                 // retry
             } catch (ExecutionException | InvocationTargetException e) {
-                toolErrorRaw("Error retrieving LLM messages");
+                logger.error(e);
+                systemOutput("Error retrieving LLM messages");
                 return List.of();
             }
         }
@@ -559,9 +561,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void toolErrorRaw(String msg) {
-        logger.warn(msg);
-        systemOutputInternal(msg);
+    public void toolError(String msg, String title) {
+        logger.warn("%s: %s".formatted(msg, title));
+        SwingUtilities.invokeLater(() -> {
+            systemNotify(msg, title, JOptionPane.ERROR_MESSAGE);
+        });
     }
 
     @Override
@@ -652,10 +656,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * This is shared functionality used by both preview windows and detached output windows.
      *
      * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
-     * @param showNavigation Whether to show navigation buttons and result counter
      * @return A JPanel containing the search bar and content
      */
-    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, boolean showNavigation) {
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
@@ -664,7 +667,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JComponent contentComponent;
         var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
-            var scrollPane = new JScrollPane(markdownPanels.get(0));
+            var scrollPane = new JScrollPane(markdownPanels.getFirst());
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
@@ -694,7 +697,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         searchCallback.setSearchBarPanel(searchBarPanel);
         componentsWithChatBackground.add(searchBarPanel);
 
-        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.get(0).getBackground()));
+        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
         
         // Add components to content panel
         contentPanel.add(searchBarPanel, BorderLayout.NORTH);
@@ -721,9 +724,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         previewFrame.setBackground(themeManager != null && themeManager.isDarkTheme()
                                         ? UIManager.getColor("chat_background")
                                         : Color.WHITE);
-
-        // Set initial default close operation. This will be checked/modified by the WindowListener.
-        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
         var project = contextManager.getProject();
         assert project != null;
@@ -752,8 +752,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Set to DO_NOTHING_ON_CLOSE initially so we can control the closing behavior
-        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
+        // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
+        if (contentComponent instanceof PreviewTextPanel) {
+            previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
         var rootPane = previewFrame.getRootPane();
@@ -802,10 +805,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             showPreviewFrame(contextManager, "Preview: " + pf, panel);
 
         } catch (IOException ex) {
-            toolErrorRaw("Error reading file for preview: " + ex.getMessage());
+            toolError("Error reading file for preview: " + ex.getMessage());
             logger.error("Error reading file {} for preview", pf.absPath(), ex);
         } catch (Exception ex) {
-            toolErrorRaw("Error opening file preview: " + ex.getMessage());
+            toolError("Error opening file preview: " + ex.getMessage());
             logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
         }
     }
@@ -879,7 +882,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, false);
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels);
 
                 // When all panels are compacted, scroll to the top
                 CompletableFuture
@@ -951,7 +954,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                                  workingFragment);
                                 showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
                             } catch (IOException ex) {
-                                toolErrorRaw("Error reading external file: " + ex.getMessage());
+                                toolError("Error reading external file: " + ex.getMessage());
                                 logger.error("Error reading external file {}", externalFile.absPath(), ex);
                             }
                         };
@@ -984,11 +987,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                     workingFragment);
             showPreviewFrame(contextManager, title, previewPanel);
         } catch (IOException ex) {
-            toolErrorRaw("Error reading fragment content: " + ex.getMessage());
+            toolError("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
-            toolErrorRaw("Error opening preview: " + ex.getMessage());
+            toolError("Error opening preview: " + ex.getMessage());
         }
     }
 
@@ -1381,20 +1384,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Creates a new JDialog with the Brokk icon set properly.
-     *
-     * @param owner The parent Frame for this dialog
-     * @param title The title for the new dialog
-     * @param modal Whether the dialog should be modal
-     * @return A configured JDialog with the application icon
-     */
-    public static JDialog newDialog(Frame owner, String title, boolean modal) {
-        JDialog dialog = new JDialog(owner, title, modal);
-        applyIcon(dialog);
-        return dialog;
-    }
-
-    /**
      * Applies the application icon to the given window (JFrame or JDialog).
      *
      * @param window The window to set the icon for.
@@ -1450,7 +1439,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         updateContextHistoryTable();
     }
 
-    @Override
     public void showMessageDialog(String message, String title, int messageType) {
         JOptionPane.showMessageDialog(frame, message, title, messageType);
     }
@@ -1458,7 +1446,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
-            showMessageDialog(message, title, messageType);
+            systemNotify(message, title, messageType);
         });
     }
 

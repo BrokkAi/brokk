@@ -15,11 +15,11 @@ public interface IConsoleIO {
     default void actionComplete() {
     }
 
-    default void toolError(String msg) {
-        toolErrorRaw("Error: " + msg);
-    }
+    void toolError(String msg, String title);
 
-    void toolErrorRaw(String msg);
+    default void toolError(String msg) {
+        toolError(msg, "Error");
+    }
 
     default int showConfirmDialog(String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();
@@ -31,10 +31,6 @@ public interface IConsoleIO {
 
     default void backgroundOutput(String summary, String details) {
         // pass
-    }
-
-    default void showMessageDialog(String message, String title, int messageType) {
-        throw new UnsupportedOperationException();
     }
 
     enum MessageSubType {

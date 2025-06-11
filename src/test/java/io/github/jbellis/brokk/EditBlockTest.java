@@ -52,41 +52,13 @@ class EditBlockTest {
                 }
 
                 @Override
-                public void toolErrorRaw(String msg) {
+                public void toolError(String msg, String title) {
                 }
 
                 @Override
                 public void llmOutput(String token, ChatMessageType type) {
                 }
             };
-        }
-    }
-
-    static class TestConsoleIO implements IConsoleIO {
-        private final StringBuilder outputLog = new StringBuilder();
-        private final StringBuilder errorLog = new StringBuilder();
-
-        @Override
-        public void actionOutput(String text) {
-            outputLog.append(text).append("\n");
-        }
-
-        @Override
-        public void toolErrorRaw(String msg) {
-            errorLog.append(msg).append("\n");
-        }
-
-        @Override
-        public void llmOutput(String token, ChatMessageType type) {
-            // not needed for these tests
-        }
-
-        public String getOutputLog() {
-            return outputLog.toString();
-        }
-
-        public String getErrorLog() {
-            return errorLog.toString();
         }
     }
 
