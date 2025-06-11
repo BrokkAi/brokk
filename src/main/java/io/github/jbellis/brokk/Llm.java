@@ -185,7 +185,7 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.toolErrorRaw("LLM error: " + th.getMessage()); // Immediate feedback for user
+                    io.toolError("LLM error: " + th.getMessage()); // Immediate feedback for user
                     errorRef.set(th);
                     
                     // Update cost tracking with estimates

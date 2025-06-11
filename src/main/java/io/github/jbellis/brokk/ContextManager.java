@@ -170,7 +170,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void toolErrorRaw(String msg) {
+            public void toolError(String msg, String title) {
                 logger.info(msg);
             }
 
@@ -514,7 +514,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         String chosenFallbackName = Service.GEMINI_2_5_PRO; // For the io.toolError message
         model = service.getModel(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT);
         if (model != null) {
-            io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
                                           config.name(), modelTypeName, chosenFallbackName));
             return model;
         }
@@ -522,17 +522,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         chosenFallbackName = Service.GROK_3_MINI;
         model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.HIGH);
         if (model != null) {
-            io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
                                           config.name(), modelTypeName, chosenFallbackName));
             return model;
         }
 
         var quickModel = service.get().quickModel();
-        // Determine the "name" of the quick model for the error message.
-        // This is a bit of a heuristic as quickModel() doesn't directly expose its config name.
-        // We iterate known models to find a match; otherwise, use a generic placeholder.
         String quickModelName = service.get().nameOf(quickModel);
-        io.toolErrorRaw(String.format("Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
+        io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
                                       config.name(), modelTypeName, quickModelName));
         return quickModel;
     }
@@ -554,7 +551,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } catch (CancellationException cex) {
                 io.systemOutput(description + " canceled.");
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                io.toolError("Error while " + description + ": " + e.getMessage());
             } finally {
                 io.actionComplete();
                 io.enableActionButtons();
@@ -577,7 +574,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.systemOutput(description + " canceled.");
                 throw cex;
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                io.toolError("Error while " + description + ": " + e.getMessage());
                 throw e;
             } finally {
                 io.actionComplete();
@@ -593,7 +590,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } catch (CancellationException cex) {
                 io.systemOutput(description + " canceled.");
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                io.toolError("Error while " + description + ": " + e.getMessage());
             }
         });
     }
@@ -738,7 +735,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
                 io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
             } else {
-                io.toolErrorRaw("no undo state available");
+                io.systemOutput("no undo state available");
             }
         });
     }
@@ -755,7 +752,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
             } else {
-                io.toolErrorRaw("Context not found or already at that point");
+                io.systemOutput("Context not found or already at that point");
             }
         });
     }
@@ -772,7 +769,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Redo!");
             } else {
-                io.toolErrorRaw("no redo state available");
+                io.systemOutput("no redo state available");
             }
         });
     }
@@ -887,12 +884,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 // Capture from the selected *frozen* context in history view
                 var selectedFrozenCtx = selectedContext(); // This is from history, frozen
-                if (selectedFrozenCtx != null && selectedFrozenCtx.getParsedOutput() != null) {
+                if (selectedFrozenCtx.getParsedOutput() != null) {
                     // Add the captured (TaskFragment, which is Virtual) to the *live* context
                     addVirtualFragment(selectedFrozenCtx.getParsedOutput());
                     io.systemOutput("Content captured from output");
                 } else {
-                    io.toolErrorRaw("No content to capture");
+                    io.systemOutput("No content to capture");
                 }
             } catch (CancellationException cex) {
                 io.systemOutput("Capture canceled.");
@@ -956,7 +953,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         if (content.isEmpty()) {
-            io.toolErrorRaw("No relevant methods found in stacktrace -- adding as text");
+            logger.debug("No relevant methods found in stacktrace -- adding as text");
             return false;
         }
         var fragment = new ContextFragment.StacktraceFragment(this, sources, stacktrace.getOriginalText(), exception, content.toString());
@@ -975,7 +972,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         IAnalyzer analyzer;
         analyzer = getAnalyzerUninterrupted();
         if (analyzer.isEmpty()) {
-            io.toolErrorRaw("Code Intelligence is empty; nothing to add");
+            io.toolError("Code Intelligence is empty; nothing to add");
             return false;
         }
 
@@ -1003,7 +1000,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             summariesAdded = true;
         }
         if (!summariesAdded) {
-            io.toolErrorRaw("No files or classes provided to summarize.");
+            io.toolError("No files or classes provided to summarize.");
             return false;
         }
         return true;
@@ -1946,7 +1943,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             try {
                 copiedSessionInfo = project.copySession(originalSessionId, newSessionName);
             } catch (IOException e) {
-                io.toolErrorRaw("Failed to copy session " + originalSessionName);
+                logger.error(e);
+                io.toolError("Failed to copy session " + originalSessionName);
+                return;
             }
 
             logger.info("Copied session {} ({}) to {} ({})", originalSessionName, originalSessionId, copiedSessionInfo.name(), copiedSessionInfo.id());

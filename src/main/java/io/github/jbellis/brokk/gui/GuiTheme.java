@@ -82,7 +82,7 @@ public class GuiTheme {
                 mainScrollPane.revalidate();
             }
         } catch (Exception e) {
-            chrome.toolErrorRaw("Failed to switch theme: " + e.getMessage());
+            chrome.toolError("Failed to switch theme: " + e.getMessage());
         }
     }
 

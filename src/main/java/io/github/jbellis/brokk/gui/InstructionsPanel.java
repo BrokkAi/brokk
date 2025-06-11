@@ -144,7 +144,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         micButton = new VoiceInputButton(instructionsArea, contextManager, () -> {
             activateCommandInput();
             chrome.actionOutput("Recording");
-        }, chrome::toolError);
+        }, msg -> chrome.toolError(msg, "Error"));
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
 
         // Initialize Buttons first
@@ -165,7 +165,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (selectedModel != null) {
                         runCodeCommand(selectedModel);
                     } else {
-                        chrome.toolErrorRaw("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
+                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
                     }
                 }
         ));
@@ -181,7 +181,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (selectedModel != null) {
                         runAskCommand(selectedModel);
                     } else {
-                        chrome.toolErrorRaw("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
+                        chrome.toolError("Selected model '" + modelName + "' is not available with reasoning level " + reasoningLevel);
                     }
                 }
         ));
@@ -1150,7 +1150,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         try {
             var contextManager = chrome.getContextManager();
             if (question.isBlank()) {
-                chrome.toolErrorRaw("Please provide a question");
+                chrome.toolError("Please provide a question");
                 return;
             }
 
@@ -1158,7 +1158,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var messages = CodePrompts.instance.collectAskMessages(contextManager, question);
             var response = contextManager.getLlm(model, "Ask: " + question).sendRequest(messages, true);
             if (response.error() != null) {
-                chrome.toolErrorRaw("Error during 'Ask': " + response.error().getMessage());
+                chrome.toolError("Error during 'Ask': " + response.error().getMessage());
             } else if (response.chatResponse() != null && response.chatResponse().aiMessage() != null) {
                 var aiResponse = response.chatResponse().aiMessage();
                 // Check if the response is valid before adding to history
@@ -1217,7 +1217,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             maybeAddInterruptedResult("Architect", goal);
         } catch (Exception e) {
             logger.error("Error during Agent execution", e);
-            chrome.toolErrorRaw("Internal error during Agent command: " + e.getMessage());
+            chrome.toolError("Internal error during Agent command: " + e.getMessage());
         }
     }
 
@@ -1227,7 +1227,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void executeSearchCommand(StreamingChatLanguageModel model, String query) {
         if (query.isBlank()) {
-            chrome.toolErrorRaw("Please provide a search query");
+            chrome.toolError("Please provide a search query");
             return;
         }
         try {
@@ -1241,7 +1241,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             contextManager.addToHistory(result, false);
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
-            chrome.toolErrorRaw("Search agent cancelled without answering");
+            chrome.toolError("Search agent cancelled without answering");
             repopulateInstructionsArea(query);
         }
     }
@@ -1293,7 +1293,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runArchitectCommand() {
         var goal = getInstructions();
         if (goal.isBlank()) {
-            chrome.toolErrorRaw("Please provide an initial goal or instruction for the Architect");
+            chrome.toolError("Please provide an initial goal or instruction for the Architect");
             return;
         }
 
@@ -1363,7 +1363,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 // but good to have a safeguard here.
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
-                    chrome.toolErrorRaw("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
+                    chrome.toolError("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
                     repopulateInstructionsArea(originalInstructions); // Restore instructions if setup fails
                     return;
                 }
@@ -1408,11 +1408,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (Boolean.TRUE.equals(success)) {
                         chrome.systemOutput("New worktree opened for Architect");
                     } else {
-                        chrome.toolErrorRaw("Failed to open the new worktree project for Architect.");
+                        chrome.toolError("Failed to open the new worktree project for Architect.");
                         repopulateInstructionsArea(originalInstructions);
                     }
                 }).exceptionally(ex -> {
-                    chrome.toolErrorRaw("Error opening new worktree project: " + ex.getMessage());
+                    chrome.toolError("Error opening new worktree project: " + ex.getMessage());
                     repopulateInstructionsArea(originalInstructions);
                     return null;
                 });
@@ -1421,7 +1421,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.systemOutput("Architect worktree setup was cancelled.");
                 repopulateInstructionsArea(originalInstructions);
             } catch (GitAPIException | IOException | ExecutionException ex) {
-                chrome.toolErrorRaw("Error setting up worktree: " + ex.getMessage());
+                chrome.toolError("Error setting up worktree: " + ex.getMessage());
                 repopulateInstructionsArea(originalInstructions);
             } finally {
                 chrome.hideOutputSpinner();
@@ -1465,7 +1465,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void prepareAndRunCodeCommand(StreamingChatLanguageModel modelToUse) {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please enter a command or text");
+            chrome.toolError("Please enter a command or text");
             return;
         }
 
@@ -1498,7 +1498,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void prepareAndRunAskCommand(StreamingChatLanguageModel modelToUse) {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please enter a question");
+            chrome.toolError("Please enter a question");
             return;
         }
 
@@ -1519,7 +1519,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runSearchCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolErrorRaw("Please provide a search query");
+            chrome.toolError("Please provide a search query");
             return;
         }
 
@@ -1546,7 +1546,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public void runRunCommand() {
         var input = getInstructions();
         if (input.isBlank()) {
-            chrome.toolError("Please enter a command to run");
+            chrome.toolError("Please enter a command to run", "Error");
             return;
         }
         chrome.getProject().addToInstructionsHistory(input, 20);

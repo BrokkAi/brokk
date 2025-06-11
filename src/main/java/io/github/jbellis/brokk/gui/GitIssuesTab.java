@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.issues.IssueDetails;
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.GitHubIssueService;
 import io.github.jbellis.brokk.issues.IssueHeader;
@@ -568,7 +569,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         var future = contextManager.submitBackgroundTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
             try {
-                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                IssueDetails details = issueService.loadDetails(header.id());
                 String rawBody = details.markdownBody();
 
                 if (rawBody == null || rawBody.isBlank()) {
@@ -858,10 +859,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void captureIssueHeader(IssueHeader header) {
         var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
-                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                IssueDetails details = issueService.loadDetails(header.id());
                 if (details == null) {
                     logger.error("Failed to load details for issue {}", header.id());
-                    chrome.toolErrorRaw("Failed to load details for issue " + header.id());
+                    chrome.toolError("Failed to load details for issue " + header.id());
                     return;
                 }
 
@@ -882,13 +883,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
             } catch (Exception e) { // General catch for robustness
                 logger.error("Failed to capture all details for issue {}: {}", header.id(), e.getMessage(), e);
-                chrome.toolErrorRaw("Failed to capture all details for issue " + header.id() + ": " + e.getMessage());
+                chrome.toolError("Failed to capture all details for issue " + header.id() + ": " + e.getMessage());
             }
         });
         trackCancellableFuture(future);
     }
 
-    private List<ChatMessage> buildIssueTextContentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
+    private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
         String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
         if (this.issueService instanceof JiraIssueService && bodyForCapture != null) {
@@ -920,7 +921,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return List.of(new CustomMessage(Map.of("text", content)));
     }
 
-    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details, List<ChatMessage> messages) {
+    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(IssueDetails details, List<ChatMessage> messages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: %s", header.id(), header.title());
         return new ContextFragment.TaskFragment(
@@ -950,7 +951,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return chatMessages;
     }
 
-    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(io.github.jbellis.brokk.issues.IssueDetails details, List<ChatMessage> commentMessages) {
+    private ContextFragment.TaskFragment createCommentsFragmentFromDetails(IssueDetails details, List<ChatMessage> commentMessages) {
         IssueHeader header = details.header();
         String description = String.format("Issue %s: Comments", header.id());
         return new ContextFragment.TaskFragment(
@@ -961,7 +962,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         );
     }
 
-    private int processAndCaptureImagesFromDetails(io.github.jbellis.brokk.issues.IssueDetails details) {
+    private int processAndCaptureImagesFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
         List<URI> attachmentUris = details.attachmentUrls(); // Already extracted by IssueService
         if (attachmentUris == null || attachmentUris.isEmpty()) {
@@ -976,7 +977,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             logger.error("Failed to get authenticated client from IssueService for image download, falling back. Error: {}", e.getMessage());
             // Fallback to the one initialized in GitIssuesTab constructor (might be unauthenticated)
             clientToUse = this.httpClient; // Assumes this.httpClient is still available and initialized
-            chrome.toolErrorRaw("Could not get authenticated client for image download. Private images might not load. Error: " + e.getMessage());
+            chrome.systemOutput("Could not get authenticated client for image download. Private images might not load. Error: " + e.getMessage());
         }
 
 
@@ -991,12 +992,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                         capturedImageCount++;
                     } else {
                         logger.warn("Failed to download image identified by ImageUtil: {}", imageUri.toString());
-                        chrome.toolErrorRaw("Failed to download image: " + imageUri.toString());
+                        chrome.toolError("Failed to download image: " + imageUri.toString());
                     }
                 }
             } catch (Exception e) {
                 logger.error("Unexpected error processing image {}: {}", imageUri.toString(), e.getMessage(), e);
-                chrome.toolErrorRaw("Error processing image " + imageUri.toString() + ": " + e.getMessage());
+                chrome.toolError("Error processing image " + imageUri.toString() + ": " + e.getMessage());
             }
         }
         return capturedImageCount;
@@ -1011,7 +1012,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         var future = contextManager.submitBackgroundTask("Fetching issue details for copy: " + header.id(), () -> {
             try {
-                io.github.jbellis.brokk.issues.IssueDetails details = issueService.loadDetails(header.id());
+                IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
                 if (body != null && !body.isBlank()) {
                     StringSelection stringSelection = new StringSelection(body);
@@ -1022,7 +1023,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 }
             } catch (IOException e) {
                 logger.error("Failed to load issue details for copy: {}", header.id(), e);
-                chrome.toolErrorRaw("Failed to load issue " + header.id() + " details for copy: " + e.getMessage());
+                chrome.toolError("Failed to load issue " + header.id() + " details for copy: " + e.getMessage());
             }
             return null;
         });
@@ -1041,7 +1042,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         } else {
             var msg = "Cannot open issue %s in browser: URL is missing".formatted(header.id());
             logger.warn(msg);
-            chrome.toolError(msg);
+            chrome.toolError(msg, "Error");
         }
     }
 }

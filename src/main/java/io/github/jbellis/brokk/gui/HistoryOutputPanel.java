@@ -478,7 +478,7 @@ public class HistoryOutputPanel extends JPanel {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager.createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
                 .exceptionally(ex -> {
-                    chrome.toolErrorRaw("Failed to create new session from workspace: " + ex.getMessage());
+                    chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                     return null;
                 });
         });
@@ -625,7 +625,7 @@ public class HistoryOutputPanel extends JPanel {
             if (!text.isBlank()) {
                 java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
                     new java.awt.datatransfer.StringSelection(text), null);
-                chrome.toolErrorRaw("Copied to clipboard");
+                chrome.systemOutput("Copied to clipboard");
             }
         });
         // Set minimum size

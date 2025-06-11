@@ -131,7 +131,7 @@ public class FeedbackDialog extends JDialog {
                 try {
                     tmp = captureScreenshot(chrome.getFrame());
                 } catch (IOException ex) {
-                    chrome.toolErrorRaw("Could not take screenshot: " + ex.getMessage());
+                    chrome.toolError("Could not take screenshot: " + ex.getMessage());
                 }
                 screenshotFile = tmp;
             } else {
@@ -154,7 +154,7 @@ public class FeedbackDialog extends JDialog {
                                                       "Feedback Sent",
                                                       JOptionPane.INFORMATION_MESSAGE);
                     } catch (Exception ex) {
-                        chrome.toolErrorRaw("Failed to send feedback: " + ex.getMessage());
+                        chrome.toolError("Failed to send feedback: " + ex.getMessage());
                     } finally {
                         if (screenshotFile != null && screenshotFile.exists()) {
                             //noinspection ResultOfMethodCallIgnored

@@ -59,7 +59,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added uncommitted diff for " + selectedFiles.size() + " file(s) to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error capturing uncommitted diff: " + ex.getMessage());
+                chrome.toolError("Error capturing uncommitted diff: " + ex.getMessage());
             }
         });
     }
@@ -126,7 +126,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for " + file.getFileName() + " to context");
             } catch (Exception e) {
-                chrome.toolErrorRaw("Error adding file change to context: " + e.getMessage());
+                chrome.toolError("Error adding file change to context: " + e.getMessage());
             }
         });
     }
@@ -159,7 +159,7 @@ public final class GitUiUtil
                     brokkDiffPanel.showInFrame(dialogTitle);
                 });
             } catch (Exception ex) {
-                cm.getIo().toolErrorRaw("Error loading history diff: " + ex.getMessage());
+                cm.getIo().toolError("Error loading history diff: " + ex.getMessage());
             }
             return null;
         });
@@ -252,7 +252,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for commit range to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error adding commit range to context: " + ex.getMessage());
+                chrome.toolError("Error adding commit range to context: " + ex.getMessage());
             }
         });
     }
@@ -308,7 +308,7 @@ public final class GitUiUtil
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for selected files in commit range to context");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error adding file changes from range to context: " + ex.getMessage());
+                chrome.toolError("Error adding file changes from range to context: " + ex.getMessage());
             }
         });
     }
@@ -365,7 +365,7 @@ public final class GitUiUtil
                     brokkDiffPanel.showInFrame(finalDialogTitle);
                 });
             } catch (Exception ex) {
-                cm.getIo().toolErrorRaw("Error loading compare-with-local diff: " + ex.getMessage());
+                cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
             }
             return null;
         });
@@ -477,7 +477,7 @@ public final class GitUiUtil
                 );
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error opening commit diff: " + ex.getMessage());
+                chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
         });
     }
@@ -515,7 +515,7 @@ public final class GitUiUtil
                     panel.showInFrame("Compare " + shortId + " to Local");
                 });
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+                chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
             }
         });
     }
@@ -545,8 +545,8 @@ public final class GitUiUtil
             } catch (Exception ex) {
                 logger.warn("Error capturing diff between branches {} and {}: {}",
                             compareBranchName, baseBranchName, ex.getMessage(), ex);
-                chrome.toolErrorRaw(String.format("Error capturing diff between %s and %s: %s",
-                                                  compareBranchName, baseBranchName, ex.getMessage()));
+                chrome.toolError(String.format("Error capturing diff between %s and %s: %s",
+                                               compareBranchName, baseBranchName, ex.getMessage()));
             }
         });
     }

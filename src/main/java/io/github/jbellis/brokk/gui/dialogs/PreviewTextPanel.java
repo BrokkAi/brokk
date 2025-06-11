@@ -605,7 +605,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void toolErrorRaw(String msg) {
+            public void toolError(String msg, String title) {
                 hasError.set(true);
                 appendSystemMessage(msg);
             }

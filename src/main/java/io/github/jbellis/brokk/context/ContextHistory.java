@@ -151,7 +151,7 @@ public class ContextHistory {
                     restoredFiles.add(pf.toString());
                 }
             } catch (IOException e) {
-                io.toolError("Failed to restore file " + pf + ": " + e.getMessage());
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
             }
         });
         if (!restoredFiles.isEmpty()) {

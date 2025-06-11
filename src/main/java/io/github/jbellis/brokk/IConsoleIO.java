@@ -15,15 +15,11 @@ public interface IConsoleIO {
     default void actionComplete() {
     }
 
+    void toolError(String msg, String title);
+
     default void toolError(String msg) {
         toolError(msg, "Error");
     }
-
-    default void toolError(String msg, String title) {
-        toolErrorRaw("%s: %s".formatted(title, msg));
-    }
-
-    void toolErrorRaw(String msg);
 
     default int showConfirmDialog(String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();

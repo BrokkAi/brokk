@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -283,7 +284,8 @@ public class VoiceInputButton extends JButton {
                     try {
                         result = sttModel.transcribe(tempFile, symbolsForTranscription);
                     } catch (Exception e) {
-                        contextManager.getIo().toolError("Error transcribing audio: " + e.getMessage());
+                        IConsoleIO iConsoleIO = contextManager.getIo();
+                        iConsoleIO.toolError("Error transcribing audio: " + e.getMessage(), "Error");
                         result = "";
                     }
                     var transcript = result;

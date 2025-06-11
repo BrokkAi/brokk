@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk;
 
-import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.InMemoryRepo;
@@ -41,34 +40,6 @@ class EditBlockConflictsTest {
         @Override
         public IGitRepo getRepo() {
             return repo;
-        }
-    }
-
-    static class TestConsoleIO implements IConsoleIO {
-        private final StringBuilder outputLog = new StringBuilder();
-        private final StringBuilder errorLog = new StringBuilder();
-
-        @Override
-        public void actionOutput(String text) {
-            outputLog.append(text).append("\n");
-        }
-
-        @Override
-        public void toolErrorRaw(String msg) {
-            errorLog.append(msg).append("\n");
-        }
-
-        @Override
-        public void llmOutput(String token, ChatMessageType type) {
-            // not needed for these tests
-        }
-
-        public String getOutputLog() {
-            return outputLog.toString();
-        }
-
-        public String getErrorLog() {
-            return errorLog.toString();
         }
     }
 

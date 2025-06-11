@@ -325,7 +325,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 updateCommitPanel();
             } catch (Exception e) {
                 logger.error(e);
-                toolError("Error setting up .gitignore: " + e.getMessage());
+                toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
             }
         });
     }
@@ -435,13 +435,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public List<ChatMessage> getLlmRawMessages() {
-        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
-        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
-        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         if (SwingUtilities.isEventDispatchThread()) {
             return historyOutputPanel.getLlmRawMessages();
         }
 
+        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
+        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
+        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
@@ -450,7 +450,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             } catch (InterruptedException e) {
                 // retry
             } catch (ExecutionException | InvocationTargetException e) {
-                toolErrorRaw("Error retrieving LLM messages");
+                logger.error(e);
+                systemOutput("Error retrieving LLM messages");
                 return List.of();
             }
         }
@@ -560,7 +561,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void toolErrorRaw(String msg) {
+    public void toolError(String msg) {
         logger.warn(msg);
         systemOutputInternal(msg);
     }
@@ -810,10 +811,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             showPreviewFrame(contextManager, "Preview: " + pf, panel);
 
         } catch (IOException ex) {
-            toolErrorRaw("Error reading file for preview: " + ex.getMessage());
+            toolError("Error reading file for preview: " + ex.getMessage());
             logger.error("Error reading file {} for preview", pf.absPath(), ex);
         } catch (Exception ex) {
-            toolErrorRaw("Error opening file preview: " + ex.getMessage());
+            toolError("Error opening file preview: " + ex.getMessage());
             logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
         }
     }
@@ -959,7 +960,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                                  workingFragment);
                                 showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
                             } catch (IOException ex) {
-                                toolErrorRaw("Error reading external file: " + ex.getMessage());
+                                toolError("Error reading external file: " + ex.getMessage());
                                 logger.error("Error reading external file {}", externalFile.absPath(), ex);
                             }
                         };
@@ -992,11 +993,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                     workingFragment);
             showPreviewFrame(contextManager, title, previewPanel);
         } catch (IOException ex) {
-            toolErrorRaw("Error reading fragment content: " + ex.getMessage());
+            toolError("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
-            toolErrorRaw("Error opening preview: " + ex.getMessage());
+            toolError("Error opening preview: " + ex.getMessage());
         }
     }
 

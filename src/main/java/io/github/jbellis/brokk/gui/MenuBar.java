@@ -209,7 +209,7 @@ public class MenuBar {
                     } else if (!selectedBrokkFile.isText()) {
                         PreviewImagePanel.showInFrame(chrome.getFrame(), cm, selectedBrokkFile, chrome.themeManager);
                     } else {
-                        chrome.toolErrorRaw("Cannot view this type of file: " + selectedBrokkFile.getClass().getSimpleName());
+                        chrome.toolError("Cannot view this type of file: " + selectedBrokkFile.getClass().getSimpleName());
                     }
                 }
             });

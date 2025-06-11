@@ -21,11 +21,10 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import javax.swing.SwingWorker;
-import io.github.jbellis.brokk.issues.IssueProviderType;
-import io.github.jbellis.brokk.issues.IssuesProviderConfig;
+
 import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.FilterOptions;
-import io.github.jbellis.brokk.issues.JiraFilterOptions;
+
 import java.io.IOException;
 import java.nio.file.Path;
 
@@ -156,7 +155,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
                     if (ex != null) {
                         logger.error("Initial build details determination failed", ex);
-                        chrome.toolErrorRaw("Failed to determine initial build details: " + ex.getMessage());
+                        chrome.toolError("Failed to determine initial build details: " + ex.getMessage());
                     } else {
                         if (detailsResult == BuildAgent.BuildDetails.EMPTY) {
                             logger.warn("Initial Build Agent returned empty details. Using defaults.");
@@ -666,7 +665,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var cm = chrome.getContextManager();
         var proj = chrome.getProject();
         if (proj == null) {
-            chrome.toolErrorRaw("No project is open.");
+            chrome.toolError("No project is open.");
             return;
         }
 
@@ -695,7 +694,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         } else {
                             SwingUtilities.invokeLater(() -> {
                                 String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
-                                chrome.toolErrorRaw(errorMessage);
+                                chrome.toolError(errorMessage);
                                 JOptionPane.showMessageDialog(SettingsProjectPanel.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
                                 // Do not save or update UI with empty details
                             });
@@ -712,7 +711,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 logger.error("Error running Build Agent", ex);
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage = "Build Agent failed: " + ex.getMessage();
-                    chrome.toolErrorRaw(errorMessage);
+                    chrome.toolError(errorMessage);
                     JOptionPane.showMessageDialog(parentDialog, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
                 });
             } finally {
@@ -893,7 +892,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         } catch (Exception e) {
             logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
             details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
-            chrome.toolErrorRaw("Error loading build details: " + e.getMessage() + ". Using defaults.");
+            chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
         }
 
         buildCleanCommandField.setText(details.buildLintCommand());

@@ -116,7 +116,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Logs an error and shows a toolErrorRaw message to the user.
      */
     private void reportBackgroundError(String contextMessage, Exception e) {
-        chrome.toolErrorRaw(contextMessage + (e != null && e.getMessage() != null ? ": " + e.getMessage() : ""));
+        chrome.toolError(contextMessage + (e != null && e.getMessage() != null ? ": " + e.getMessage() : ""));
     }
 
 
@@ -1225,7 +1225,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 SwingUtilities.invokeLater(() -> chrome.openFragmentPreview(fragment));
                 chrome.systemOutput("Opened diff for PR #" + pr.getNumber() + " in preview panel");
             } catch (Exception ex) {
-                chrome.toolErrorRaw("Error generating diff for PR #" + pr.getNumber() + ": " + ex.getMessage());
+                chrome.toolError("Error generating diff for PR #" + pr.getNumber() + ": " + ex.getMessage());
             }
         });
     }
@@ -1271,7 +1271,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 chrome.systemOutput("Updated local branch " + localBranchName + " for PR #" + prNumber);
                 logger.info("Successfully updated local branch {} for PR #{}", localBranchName, prNumber);
             } catch (Exception e) {
-                chrome.toolErrorRaw("Error updating local branch " + localBranchName + ": " + e.getMessage());
+                chrome.toolError("Error updating local branch " + localBranchName + ": " + e.getMessage());
             }
         });
     }
@@ -1376,7 +1376,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                 });
             } catch (Exception e) {
-                chrome.toolErrorRaw("Error checking out PR: " + e.getMessage());
+                chrome.toolError("Error checking out PR: " + e.getMessage());
             }
         });
     }

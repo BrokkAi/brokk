@@ -116,7 +116,7 @@ public class CodeAgent {
                     message = "Empty LLM response even after retries. Ending task";
                     stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, message);
                 }
-                io.toolErrorRaw(message);
+                io.toolError(message);
                 break;
             }
 
@@ -215,7 +215,7 @@ public class CodeAgent {
             try {
                 editResult = EditBlock.applyEditBlocks(contextManager, io, blocks);
             } catch (IOException e) {
-                io.toolErrorRaw(e.getMessage());
+                io.toolError(e.getMessage());
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, e.getMessage());
                 break;
             }
@@ -336,7 +336,7 @@ public class CodeAgent {
                     file.write(""); // Using ProjectFile.write handles directory creation internally
                     logger.debug("Pre-created empty file: {}", file);
                 } catch (IOException e) {
-                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage());
+                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
                 }
             }
         }
@@ -346,7 +346,7 @@ public class CodeAgent {
             try {
                 contextManager.getRepo().add(newFiles);
             } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles));
+                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
             contextManager.editFiles(newFiles);
         }
@@ -625,10 +625,10 @@ public class CodeAgent {
         TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, result.error().getMessage());
-            io.toolErrorRaw("Quick edit failed: " + result.error().getMessage());
+            io.toolError("Quick edit failed: " + result.error().getMessage());
         } else if (result.chatResponse() == null || result.chatResponse().aiMessage() == null || result.chatResponse().aiMessage().text() == null || result.chatResponse().aiMessage().text().isBlank()) {
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
-            io.toolErrorRaw("LLM returned empty response for quick edit.");
+            io.toolError("LLM returned empty response for quick edit.");
         } else {
             // Success from LLM perspective
             String responseText = result.chatResponse().aiMessage().text();

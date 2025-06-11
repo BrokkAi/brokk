@@ -219,7 +219,7 @@ public class GitCommitTab extends JPanel {
                             panel.showInFrame("Uncommitted Changes Diff");
                         });
                     } catch (Exception ex) {
-                        chrome.toolErrorRaw("Error opening multi-file diff: " + ex.getMessage());
+                        chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
                     }
                 });
             }
@@ -308,7 +308,7 @@ public class GitCommitTab extends JPanel {
                         performStash(selectedFiles, finalStashDescription);
                     } catch (GitAPIException ex) {
                         logger.error("Error stashing changes:", ex);
-                        SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error stashing changes: " + ex.getMessage()));
+                        SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage()));
                     } catch (ExecutionException | InterruptedException ex) {
                         throw new RuntimeException(ex);
                     }
@@ -324,7 +324,7 @@ public class GitCommitTab extends JPanel {
                         performStash(selectedFiles, stashDescription.isEmpty() ? "Stash created by Brokk" : stashDescription);
                     } catch (GitAPIException ex) {
                         logger.error("Error stashing changes:", ex);
-                        SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error stashing changes: " + ex.getMessage()));
+                        SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage()));
                     }
                 });
             }
@@ -366,7 +366,7 @@ public class GitCommitTab extends JPanel {
                     });
                 } catch (Exception ex) {
                     logger.error("Error committing files:", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolErrorRaw("Error committing files: " + ex.getMessage()));
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error committing files: " + ex.getMessage()));
                 }
             });
         });
