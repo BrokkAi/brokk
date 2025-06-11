@@ -19,8 +19,78 @@ public final class FilterBox extends JPanel implements ThemeAware {
     private final JLabel textLabel;
     private final JLabel iconLabel;
 
-    private static final Icon ARROW = UIManager.getIcon("Tree.expandedIcon");
-    private static final Icon CLEAR = UIManager.getIcon("InternalFrame.closeIcon");
+    // Use theme icons for both arrow and clear
+    private static final Icon ARROW = createConsistentSizedIcon(UIManager.getIcon("Tree.expandedIcon"));
+    private static final Icon CLEAR = createConsistentSizedIcon(UIManager.getIcon("DesktopIcon.closeIcon"));
+
+    /**
+     * Wraps an icon to ensure consistent 12x12 sizing for alignment
+     */
+    private static Icon createConsistentSizedIcon(Icon originalIcon) {
+        return new Icon() {
+            @Override
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                // Center the original icon within our consistent size
+                int offsetX = (getIconWidth() - originalIcon.getIconWidth()) / 2;
+                int offsetY = (getIconHeight() - originalIcon.getIconHeight()) / 2;
+
+                // Use the component's foreground color for the icon
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(c.getForeground());
+                originalIcon.paintIcon(c, g2, x + offsetX, y + offsetY);
+                g2.dispose();
+            }
+
+            @Override
+            public int getIconWidth() { return 12; }
+
+            @Override
+            public int getIconHeight() { return 12; }
+        };
+    }
+
+    /**
+     * Creates a slightly larger version of an icon for hover effect
+     */
+    private static Icon createHoverIcon(Icon originalIcon) {
+        return new Icon() {
+            @Override
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2.setColor(c.getForeground());
+
+                // Scale factor to make icon slightly larger
+                double scaleFactor = 1.17; // 12px -> ~14px
+
+                // Calculate center position for the scaled icon
+                int iconWidth = getIconWidth();
+                int iconHeight = getIconHeight();
+                int scaledWidth = (int)(iconWidth * scaleFactor);
+                int scaledHeight = (int)(iconHeight * scaleFactor);
+
+                // Center the scaled icon
+                int centerX = x + iconWidth / 2;
+                int centerY = y + iconHeight / 2;
+                int scaledX = centerX - scaledWidth / 2;
+                int scaledY = centerY - scaledHeight / 2;
+
+                // Apply scaling and draw centered
+                g2.translate(centerX, centerY);
+                g2.scale(scaleFactor, scaleFactor);
+                g2.translate(-iconWidth/2, -iconHeight/2);
+
+                originalIcon.paintIcon(c, g2, 0, 0);
+                g2.dispose();
+            }
+
+            @Override
+            public int getIconWidth() { return 12; }
+
+            @Override
+            public int getIconHeight() { return 12; }
+        };
+    }
 
     // Colors will be set dynamically based on theme
     private Color unselectedFgColor;
@@ -41,7 +111,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         textLabel = new JLabel(label);
         iconLabel = new JLabel(ARROW);
 
-        // Layout
+        // Layout - Use BorderLayout with proper spacing
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6)); // Provides overall padding
         setOpaque(false); // Make panel transparent
@@ -49,6 +119,17 @@ public final class FilterBox extends JPanel implements ThemeAware {
         // Colors will be set in applyTheme
         textLabel.setOpaque(false);
         iconLabel.setOpaque(false);
+
+        // Set a minimum width for the text label to ensure consistent icon positioning
+        textLabel.setPreferredSize(new Dimension(60, textLabel.getPreferredSize().height));
+        textLabel.setHorizontalAlignment(SwingConstants.LEFT);
+
+        // Set fixed size for icon label to ensure consistent positioning
+        iconLabel.setPreferredSize(new Dimension(16, iconLabel.getPreferredSize().height));
+        iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        // Add consistent spacing between text and icon
+        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
 
         add(textLabel, BorderLayout.CENTER);
         add(iconLabel, BorderLayout.EAST);
@@ -71,8 +152,9 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 if (isEnabled()) {
                     iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     if (selected != null) {
-                        iconLabel.setOpaque(true);
-                        iconLabel.setBackground(iconHoverBgColor);
+                        // Make icon slightly bigger on hover
+                        iconLabel.setIcon(createHoverIcon(CLEAR));
+                        iconLabel.repaint();
                     }
                 }
             }
@@ -82,8 +164,9 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 if (isEnabled()) {
                     iconLabel.setCursor(Cursor.getDefaultCursor());
                     if (selected != null) {
-                        iconLabel.setOpaque(false);
-                        iconLabel.setBackground(null);
+                        // Restore normal icon size
+                        iconLabel.setIcon(CLEAR);
+                        iconLabel.repaint();
                     }
                 }
             }
@@ -104,15 +187,31 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
             @Override
             public void mouseEntered(MouseEvent e) {
-                if (selected == null && isEnabled()) {
-                    textLabel.setForeground(selectedFgColor);
+                if (isEnabled()) {
+                    if (selected == null) {
+                        textLabel.setForeground(selectedFgColor);
+                        // Make arrow icon slightly bigger on hover
+                        iconLabel.setIcon(createHoverIcon(ARROW));
+                        iconLabel.repaint();
+                    } else {
+                        // Make text color change more noticeable when filter is selected
+                        textLabel.setForeground(unselectedFgColor);
+                    }
                 }
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (selected == null && isEnabled()) {
-                    textLabel.setForeground(unselectedFgColor);
+                if (isEnabled()) {
+                    if (selected == null) {
+                        textLabel.setForeground(unselectedFgColor);
+                        // Restore normal arrow icon size
+                        iconLabel.setIcon(ARROW);
+                        iconLabel.repaint();
+                    } else {
+                        // Restore normal selected text color
+                        textLabel.setForeground(selectedFgColor);
+                    }
                 }
             }
         });
@@ -125,13 +224,13 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 textLabel.setText(this.selected);
                 // Color will be set in applyTheme
                 iconLabel.setIcon(CLEAR);
-                iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
+                // Border already set consistently above
             } else {
                 // initialSelection not valid, leave as unselected
-                iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+                // Border already set consistently above
             }
         } else {
-            iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+            // Border already set consistently above
         }
 
         // Apply initial theme
@@ -250,7 +349,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         textLabel.setText(v);
         textLabel.setForeground(selectedFgColor);
         iconLabel.setIcon(CLEAR);
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
+        // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
         iconLabel.setBackground(null);
@@ -264,7 +363,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         selected = null;
         textLabel.setText(label);
         iconLabel.setIcon(ARROW);
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
         iconLabel.setBackground(null);
