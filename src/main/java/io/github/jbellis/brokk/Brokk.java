@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -80,7 +81,7 @@ public class Brokk {
 
     private static void setupSystemPropertiesAndIcon() {
         System.setProperty("apple.laf.useScreenMenuBar", "true");
-        if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+        if (System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac")) {
             System.setProperty("apple.awt.application.name", "Brokk");
         }
 
@@ -510,7 +511,7 @@ public class Brokk {
         public String toString() {
             return "OpenProjectBuilder{" +
                     "path=" + path +
-                    ", parent=" + parent +
+                    ", parent=" + (parent == null ? "null" : parent.getRoot().toString()) +
                     ", initialTask=" + initialTask +
                     ", sourceContextForSession=" + sourceContextForSession +
                     '}';

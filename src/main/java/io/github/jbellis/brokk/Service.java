@@ -13,6 +13,20 @@ import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.model.StreamingResponseHandler;
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import okhttp3.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.io.File;
 import java.io.FileInputStream;
@@ -26,6 +40,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
@@ -145,7 +160,7 @@ public final class Service {
         @Override
         public String toString() {
             // Capitalize first letter for display
-            return name().charAt(0) + name().substring(1).toLowerCase();
+            return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
         }
 
         /**
@@ -156,7 +171,7 @@ public final class Service {
                 return defaultLevel;
             }
             try {
-                return ReasoningLevel.valueOf(value.toUpperCase());
+                return ReasoningLevel.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return defaultLevel; // Fallback to provided default if string is invalid
             }
@@ -185,20 +200,20 @@ public final class Service {
         if (key == null || key.isBlank()) {
             throw new IllegalArgumentException("Key cannot be empty");
         }
-        var parts = key.split("\\+");
-        if (parts.length != 3 || !"brk".equals(parts[0])) {
+        var parts = Splitter.on(Pattern.compile("\\+")).splitToList(key);
+        if (parts.size() != 3 || !"brk".equals(parts.get(0))) {
             throw new IllegalArgumentException("Key must have format 'brk+<userId>+<token>'");
         }
 
         java.util.UUID userId;
         try {
-            userId = java.util.UUID.fromString(parts[1]);
+            userId = java.util.UUID.fromString(parts.get(1));
         } catch (Exception e) {
             throw new IllegalArgumentException("User ID (part 2) must be a valid UUID", e);
         }
 
         // Tokens no longer have sk- prefix in the raw key, prepend it here
-        return new KeyParts(userId, "sk-" + parts[2]);
+        return new KeyParts(userId, "sk-" + parts.get(2));
     }
 
     private final Logger logger = LogManager.getLogger(Service.class);
@@ -675,7 +690,7 @@ public final class Service {
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
-                params = params.reasoningEffort(reasoningLevel.name().toLowerCase());
+                params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
         }
         builder.defaultRequestParameters(params.build());
 
@@ -713,7 +728,7 @@ public final class Service {
             return false;
         }
         var b = info.get("supports_response_schema");
-        return b instanceof Boolean && (Boolean) b;
+        return b instanceof Boolean boolVal && boolVal;
     }
 
     public boolean isLazy(StreamingChatLanguageModel model) {
@@ -731,7 +746,7 @@ public final class Service {
              return true;
         }
         var b = info.get("supports_function_calling");
-        if (!(b instanceof Boolean) || !(Boolean) b) {
+        if (!(b instanceof Boolean bVal) || !bVal) {
             // if it doesn't support function calling then we need to emulate
             return true;
         }
@@ -764,7 +779,7 @@ public final class Service {
         }
 
         // every reasoning model, except Sonnet, defaults to enabling it
-        return !location.toLowerCase().contains("sonnet")
+        return !location.toLowerCase(Locale.ROOT).contains("sonnet")
                 || om.defaultRequestParameters().reasoningEffort() != null;
     }
 
@@ -776,7 +791,7 @@ public final class Service {
         }
         // If not Sonnet, all reasoning models default to enabling it. If Sonnet,
         // only consider it reasoning if the level is not DEFAULT.
-        var lowerName = modelName.toLowerCase();
+        var lowerName = modelName.toLowerCase(Locale.ROOT);
         if (!lowerName.contains("sonnet")) {
             return true;
         }
@@ -798,7 +813,7 @@ public final class Service {
         }
 
         var supports = info.get("supports_vision");
-        return supports instanceof Boolean && (Boolean) supports;
+        return supports instanceof Boolean boolVal && boolVal;
     }
 
     public StreamingChatLanguageModel quickestModel() {
@@ -964,7 +979,7 @@ public final class Service {
          * @return MediaType for the HTTP request
          */
         private MediaType getMediaTypeFromFileName(String fileName) {
-            var extension = fileName.toLowerCase();
+            var extension = fileName.toLowerCase(Locale.ROOT);
             int dotIndex = extension.lastIndexOf('.');
             if (dotIndex > 0) {
                 extension = extension.substring(dotIndex + 1);

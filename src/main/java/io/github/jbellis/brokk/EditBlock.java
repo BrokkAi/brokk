@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk;
 
+import com.google.common.base.Splitter; // Added import
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -15,6 +16,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors; // Added import
 
 /**
  * Utility for extracting and applying before/after search-replace blocks in content.
@@ -296,7 +298,11 @@ public class EditBlock {
         ContentLines replaceCL = prep(replace);
 
         // 2) perfect or whitespace approach
-        String attempt = perfectOrWhitespace(originalCL.lines, targetCl.lines, replaceCL.lines);
+        // Convert List<String> to String[] for perfectOrWhitespace and other methods
+        String[] originalLinesArray = originalCL.lines().toArray(String[]::new);
+        String[] targetLinesArray = targetCl.lines().toArray(String[]::new);
+        String[] replaceLinesArray = replaceCL.lines().toArray(String[]::new);
+        String attempt = perfectOrWhitespace(originalLinesArray, targetLinesArray, replaceLinesArray);
         if (attempt != null) {
             return attempt;
         }
@@ -312,18 +318,22 @@ public class EditBlock {
         }
 
         // 3a) If that failed, attempt dropping a spurious leading blank line from the "search" block:
-        if (targetCl.lines.length > 2 && targetCl.lines[0].trim().isEmpty()) {
-            String[] splicedTarget = Arrays.copyOfRange(targetCl.lines, 1, targetCl.lines.length);
-            String[] splicedReplace = Arrays.copyOfRange(replaceCL.lines, 1, replaceCL.lines.length);
+        if (targetCl.lines().size() > 2 && targetCl.lines().getFirst().trim().isEmpty()) {
+            List<String> splicedTargetList = targetCl.lines().subList(1, targetCl.lines().size());
+            List<String> splicedReplaceList = replaceCL.lines().subList(1, replaceCL.lines().size());
 
-            attempt = perfectOrWhitespace(originalCL.lines, splicedTarget, splicedReplace);
+            String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
+            String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
+
+            // Pass originalLinesArray which is String[]
+            attempt = perfectOrWhitespace(originalLinesArray, splicedTargetArray, splicedReplaceArray);
             if (attempt != null) {
                 return attempt;
             }
 
             attempt = tryDotdotdots(content,
-                                    String.join("", splicedTarget),
-                                    String.join("", splicedReplace));
+                                    String.join("", splicedTargetArray),
+                                    String.join("", splicedReplaceArray));
             if (attempt != null) {
                 return attempt;
             }
@@ -358,17 +368,17 @@ public class EditBlock {
         // splits on lines of "..."
         Pattern dotsRe = Pattern.compile("(?m)^\\s*\\.\\.\\.\\s*$");
 
-        String[] targetPieces = dotsRe.split(target);
-        String[] replacePieces = dotsRe.split(replace);
+        List<String> targetPieces = Splitter.on(dotsRe).splitToList(target);
+        List<String> replacePieces = Splitter.on(dotsRe).splitToList(replace);
 
-        if (targetPieces.length != replacePieces.length) {
+        if (targetPieces.size() != replacePieces.size()) {
             throw new IllegalArgumentException("Unpaired ... usage in search/replace");
         }
 
         String result = whole;
-        for (int i = 0; i < targetPieces.length; i++) {
-            String pp = targetPieces[i];
-            String rp = replacePieces[i];
+        for (int i = 0; i < targetPieces.size(); i++) {
+            String pp = targetPieces.get(i);
+            String rp = replacePieces.get(i);
 
             if (pp.isEmpty() && rp.isEmpty()) {
                 // no content
@@ -572,16 +582,12 @@ public class EditBlock {
         if (!content.isEmpty() && !content.endsWith("\n")) {
             content += "\n";
         }
-        String[] lines = content.split("\n", -1);
-        lines = Arrays.copyOf(lines, lines.length - 1); // chop off empty element at the end
-        // re-add newlines
-        for (int i = 0; i < lines.length; i++) {
-            lines[i] = lines[i] + "\n";
-        }
-        return new ContentLines(content, lines);
+        // Convert to list of lines, each ending with a newline
+        List<String> linesList = content.lines().map(line -> line + "\n").collect(Collectors.toList());
+        return new ContentLines(content, linesList);
     }
 
-    private record ContentLines(String original, String[] lines) {
+    private record ContentLines(String original, List<String> lines) { // Ensures this matches the list type
     }
 
     /**

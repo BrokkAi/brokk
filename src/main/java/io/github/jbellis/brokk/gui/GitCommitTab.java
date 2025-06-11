@@ -86,7 +86,7 @@ public class GitCommitTab extends JPanel {
                         super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 var projectFile = (ProjectFile) table.getModel().getValueAt(row, 2); // Get ProjectFile from hidden column
                 String status = fileStatusMap.get(projectFile);
-                boolean darkTheme = UIManager.getLookAndFeel().getName().toLowerCase().contains("dark");
+                boolean darkTheme = com.google.common.base.Ascii.toLowerCase(UIManager.getLookAndFeel().getName()).contains("dark");
 
                 if (isSelected) {
                     cell.setForeground(table.getSelectionForeground());

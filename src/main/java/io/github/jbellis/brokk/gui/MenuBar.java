@@ -207,7 +207,7 @@ public class MenuBar {
                     if (selectedBrokkFile instanceof io.github.jbellis.brokk.analyzer.ProjectFile selectedFile) {
                         chrome.previewFile(selectedFile);
                     } else if (!selectedBrokkFile.isText()) {
-                        PreviewImagePanel.showInFrame(chrome.getFrame(), cm, selectedBrokkFile, chrome.themeManager);
+                        PreviewImagePanel.showInFrame(chrome.getFrame(), cm, selectedBrokkFile);
                     } else {
                         chrome.toolError("Cannot view this type of file: " + selectedBrokkFile.getClass().getSimpleName());
                     }

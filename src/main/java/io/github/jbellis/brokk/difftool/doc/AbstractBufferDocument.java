@@ -158,7 +158,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         } else {
             // Not an exact match. insertionPoint = (-searchIndex) - 1.
             // The offset falls within the line *before* the insertion point.
-            int insertionPoint = (-searchIndex) - 1;
+            int insertionPoint = -searchIndex - 1;
             // If insertionPoint is 0, it's before the first line's start (so line 0)
             // Otherwise, it belongs to the line `insertionPoint - 1`
             return Math.max(0, insertionPoint - 1);
@@ -441,8 +441,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
 
         // Calculate affected lines *after* potentially re-initializing lines
         int offset = de.getOffset();
-        int length = de.getLength();
-        DocumentEvent.EventType type = de.getType();
 
         // Estimate affected lines - this might be complex to get perfect
         // For simplicity, we can just signal a change and let consumers re-query

@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.awt.Color;
 import java.util.concurrent.ExecutionException;
@@ -53,7 +54,7 @@ public class GitWorktreeTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final GitPanel gitPanel;
+    // private final GitPanel gitPanel; // Field is not read
 
     private JTable worktreeTable;
     private DefaultTableModel worktreeTableModel;
@@ -65,11 +66,11 @@ public class GitWorktreeTab extends JPanel {
 
     private final boolean isWorktreeWindow;
 
-    public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
+    public GitWorktreeTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) { // gitPanel param kept for constructor signature compatibility
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitPanel = gitPanel;
+        // this.gitPanel = gitPanel; // Field is not read
 
         var project = contextManager.getProject();
         this.isWorktreeWindow = project instanceof WorktreeProject;
@@ -149,11 +150,11 @@ public class GitWorktreeTab extends JPanel {
                     c.setForeground(Color.GRAY);
                     c.setEnabled(false); // Make renderer component itself appear disabled
                     // For selection, prevent row 0 from looking selected even if part of a multi-select
+                    // This handles the case where row 0 is part of a multi-selection drag.
+                    // It should not appear selected.
+                    c.setBackground(table.getBackground()); // Always keep background normal for row 0
                     if (isSelected && table.isFocusOwner()) {
-                        c.setBackground(table.getBackground()); // Keep background normal
-                        c.setForeground(Color.GRAY); // Keep text gray
-                    } else {
-                         c.setBackground(table.getBackground());
+                        c.setForeground(Color.GRAY); // Keep text gray if "selected"
                     }
                 } else {
                     c.setForeground(table.getForeground());
@@ -188,13 +189,8 @@ public class GitWorktreeTab extends JPanel {
                 // Apply visual styling consistent with the main row renderer for row 0
                 if (row == 0) {
                     label.setForeground(Color.GRAY);
-                    // Match background handling of the default renderer for row 0 selection
-                    if (isSelected && table.isFocusOwner() && table.isRowSelected(row)) {
-                        label.setBackground(table.getBackground());
-                    } else {
-                        label.setBackground(table.getBackground());
-                    }
-                    label.setEnabled(false); 
+                    label.setBackground(table.getBackground()); // Always keep background normal for row 0
+                    label.setEnabled(false);
                 } else {
                     // For other rows, ensure foreground/background reflects selection state
                     // The super call usually handles this, but setText can sometimes reset it.
@@ -956,8 +952,8 @@ public class GitWorktreeTab extends JPanel {
         for (Component comp : optionPane.getComponents()) {
             if (comp instanceof JPanel buttonBar) { // JPanel often contains buttons
                 for (Component btnComp : buttonBar.getComponents()) {
-                    if (btnComp instanceof JButton && ((JButton) btnComp).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                        okButton = (JButton) btnComp;
+                    if (btnComp instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                        okButton = jButton;
                         break;
                     }
                 }
@@ -970,16 +966,15 @@ public class GitWorktreeTab extends JPanel {
             // Typically, buttons are at the end, in a JPanel, or directly.
             // This is a simplified search and might need adjustment based on L&F.
             for (int i = components.length - 1; i >= 0; i--) {
-                if (components[i] instanceof JPanel) {
-                    JPanel panel = (JPanel) components[i];
+                if (components[i] instanceof JPanel panel) {
                     for (Component c : panel.getComponents()) {
-                        if (c instanceof JButton && ((JButton) c).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                            okButton = (JButton) c;
+                        if (c instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                            okButton = jButton;
                             break;
                         }
                     }
-                } else if (components[i] instanceof JButton && ((JButton) components[i]).getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
-                    okButton = (JButton) components[i];
+                } else if (components[i] instanceof JButton jButton && jButton.getText().equals(UIManager.getString("OptionPane.okButtonText"))) {
+                    okButton = jButton;
                 }
                 if (okButton != null) break;
             }
@@ -1088,7 +1083,7 @@ public class GitWorktreeTab extends JPanel {
                         okButton.setEnabled(false);
                     }
                 } else {
-                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for " + finalSelectedMergeMode.toString().toLowerCase() + ".");
+                    conflictStatusLabel.setText("No conflicts detected with '" + finalSelectedTargetBranch + "' for " + finalSelectedMergeMode.toString().toLowerCase(Locale.ROOT) + ".");
                     conflictStatusLabel.setForeground(new Color(0, 128, 0)); // Green for no conflicts
                     if (okButton != null) {
                         okButton.setEnabled(true);

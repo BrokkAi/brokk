@@ -16,6 +16,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -188,10 +189,10 @@ public class WorkspaceTools {
         return "Added text '%s'.".formatted(description);
     }
 
-    @Tool("Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace using their unique integer IDs")
+    @Tool("Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace using their unique string IDs")
     public String dropWorkspaceFragments(
-            @P("List of integer IDs corresponding to the fragments visible in the workspace that you want to remove. Must not be empty.")
-            List<Integer> fragmentIds
+            @P("List of string IDs corresponding to the fragments visible in the workspace that you want to remove. Must not be empty.")
+            List<String> fragmentIds
     )
     {
         if (fragmentIds == null || fragmentIds.isEmpty()) {
@@ -203,7 +204,7 @@ public class WorkspaceTools {
         var idsToDropSet = new HashSet<>(fragmentIds);
 
         var toDrop = allFragments.stream()
-                .filter(frag -> idsToDropSet.contains(frag.id())) // idsToDropSet should be Set<String>
+                .filter(frag -> idsToDropSet.contains(frag.id()))
                 .toList();
 
         if (!toDrop.isEmpty()) {
@@ -282,7 +283,6 @@ public class WorkspaceTools {
             return "Cannot add summaries: file paths list is empty";
         }
 
-        var analyzer = getAnalyzer();
         var project = contextManager.getProject();
         List<String> resolvedFilePaths = filePaths.stream() // Changed variable name and type
                 .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
@@ -481,7 +481,7 @@ public class WorkspaceTools {
         connection.setRequestProperty("User-Agent", "Brokk-Agent/1.0 (ContextTools)");
 
         try (var reader = new BufferedReader(
-                new InputStreamReader(connection.getInputStream()))) {
+                new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
             return reader.lines().collect(Collectors.joining("\n"));
         }
     }

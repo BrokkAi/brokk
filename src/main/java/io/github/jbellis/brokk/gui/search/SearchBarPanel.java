@@ -9,6 +9,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.util.Objects;
+import java.util.Objects;
 
 /**
  * A reusable search bar panel that can be used with any component implementing SearchCallback.
@@ -239,7 +240,7 @@ public class SearchBarPanel extends JPanel {
         
         if (notFound && !searchText.isEmpty()) {
             // Set error state
-            if (searchField.getForeground() != Color.red) {
+            if (!Objects.equals(searchField.getForeground(), Color.red)) {
                 searchField.putClientProperty(CP_FOREGROUND, searchField.getForeground());
                 searchField.setForeground(Color.red);
             }
@@ -259,10 +260,7 @@ public class SearchBarPanel extends JPanel {
             if (results != null && results.hasMatches()) {
                 searchResult.setIcon(null);
                 searchResult.setText(String.format("%d of %d", results.getCurrentMatch(), results.getTotalMatches()));
-            } else if (!searchText.isEmpty()) {
-                searchResult.setIcon(null);
-                searchResult.setText("");
-            } else {
+            } else { // This combined else correctly handles cases where results has no matches or search text is empty
                 searchResult.setIcon(null);
                 searchResult.setText("");
             }

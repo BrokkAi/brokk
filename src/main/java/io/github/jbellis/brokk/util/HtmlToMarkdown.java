@@ -44,7 +44,7 @@ public class HtmlToMarkdown {
     // Very simple check: if it has <html> or <body> or typical markup tags, assume HTML
     private static boolean looksLikeHtml(String input) {
         if (input == null) return false;
-        String lower = input.toLowerCase();
+        String lower = input.toLowerCase(java.util.Locale.ROOT);
         return lower.contains("<html") || lower.contains("<body")
                 || lower.contains("<div") || lower.contains("<p")
                 || lower.contains("<!doctype");

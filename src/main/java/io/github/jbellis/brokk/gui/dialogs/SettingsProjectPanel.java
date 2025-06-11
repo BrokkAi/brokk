@@ -15,6 +15,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
@@ -122,7 +123,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         projectSubTabbedPane.addTab("Build", null, buildPanel, "Build configuration and Code Intelligence settings");
 
         // Issues Tab (New)
-        var issuesPanel = createIssuesPanel(project);
+        var issuesPanel = createIssuesPanel();
         projectSubTabbedPane.addTab("Issues", null, issuesPanel, "Issue tracker integration settings");
 
         // Data Retention Tab
@@ -157,7 +158,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                         logger.error("Initial build details determination failed", ex);
                         chrome.toolError("Failed to determine initial build details: " + ex.getMessage());
                     } else {
-                        if (detailsResult == BuildAgent.BuildDetails.EMPTY) {
+                        if (java.util.Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
                             logger.warn("Initial Build Agent returned empty details. Using defaults.");
                             chrome.systemOutput("Initial Build Agent completed but found no specific details. Using defaults.");
                         } else {
@@ -239,7 +240,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         return generalPanel;
     }
 
-    private JPanel createIssuesPanel(IProject project) {
+    private JPanel createIssuesPanel() {
         var issuesPanel = new JPanel(new BorderLayout(5, 5));
         issuesPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
@@ -678,7 +679,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 var agent = new BuildAgent(proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
-                if (newBuildDetails == BuildAgent.BuildDetails.EMPTY) {
+                if (java.util.Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
                     logger.warn("Build Agent returned empty details, considering it an error.");
                     // When cancel button is pressed, we need to show a different kind of message
                     boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());

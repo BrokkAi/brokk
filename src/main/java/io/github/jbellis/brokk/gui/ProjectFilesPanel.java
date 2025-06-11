@@ -20,6 +20,7 @@ import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -101,13 +102,13 @@ public class ProjectFilesPanel extends JPanel {
                         return;
                     }
 
-                    String typedLower = currentText.toLowerCase();
+                    String typedLower = currentText.toLowerCase(Locale.ROOT);
                     Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
                     List<ProjectFile> matches = trackedFiles.stream()
                         .filter(pf -> {
-                            String pathStrLower = pf.getRelPath().toString().toLowerCase();
-                            String fileNameLower = pf.getFileName().toLowerCase();
+                            String pathStrLower = pf.getRelPath().toString().toLowerCase(Locale.ROOT);
+                            String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
 
                             if (typedLower.contains("/") || typedLower.contains("\\")) {
                                 // If typed text has path separators, treat it as a path prefix match
@@ -120,7 +121,7 @@ public class ProjectFilesPanel extends JPanel {
                                 // Or if it's part of any directory name in the path
                                 Path currentParent = pf.getRelPath().getParent();
                                 while (currentParent != null) {
-                                    if (currentParent.getFileName().toString().toLowerCase().contains(typedLower)) {
+                                    if (currentParent.getFileName().toString().toLowerCase(Locale.ROOT).contains(typedLower)) {
                                         return true;
                                     }
                                     currentParent = currentParent.getParent();

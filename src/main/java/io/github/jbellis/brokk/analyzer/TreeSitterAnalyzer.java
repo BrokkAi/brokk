@@ -11,10 +11,22 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayDeque; // Added import
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Generic, language-agnostic skeleton extractor backed by Tree-sitter.
@@ -294,7 +306,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         if (topCUs.isEmpty()) return Set.of();
 
         Set<CodeUnit> allDeclarationsInFile = new HashSet<>();
-        Queue<CodeUnit> toProcess = new LinkedList<>(topCUs);
+        Queue<CodeUnit> toProcess = new ArrayDeque<>(topCUs); // Changed to ArrayDeque
         Set<CodeUnit> visited = new HashSet<>(topCUs); // Track visited to avoid cycles and redundant processing
 
         while(!toProcess.isEmpty()) {
@@ -1038,12 +1050,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return parametersNode == null || parametersNode.isNull() ? "" : textSlice(parametersNode, src);
     }
 
-    /**
-     * @deprecated Use {@link #formatParameterList(TSNode, String)} instead for AST-aware formatting.
-     * This method is kept for backward compatibility for subclasses that might still override it.
-     */
-    @Deprecated
-    protected String formatParameterList(String paramsText) { return paramsText; }
+    // Removed deprecated formatParameterList(String)
 
     /**
      * Formats the return-type portion of a function signature. Subclasses may
@@ -1059,17 +1066,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return returnTypeNode == null || returnTypeNode.isNull() ? "" : textSlice(returnTypeNode, src);
     }
 
-    /**
-     * @deprecated Use {@link #formatReturnType(TSNode, String)} instead for AST-aware formatting.
-     * This method is kept for backward compatibility for subclasses that might still override it.
-     */
-    @Deprecated
-    protected String formatReturnType(String returnTypeText) { return returnTypeText == null ? "" : returnTypeText; }
+    // Removed deprecated formatReturnType(String)
 
     protected String formatHeritage(String signatureText) { return signatureText; }
 
     /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
     protected String assembleFunctionSignature(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
+        // Now directly use the AST-derived paramsText and returnTypeText
         return renderFunctionDeclaration(funcNode, src, exportPrefix, asyncPrefix, functionName, paramsText, returnTypeText, indent);
     }
     protected String assembleClassSignature(TSNode classNode, String src, String exportPrefix, String classSignatureText, String baseIndent) {
@@ -1326,7 +1329,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     public Set<String> getSymbols(Set<CodeUnit> sources) {
         // Step 1: Collect all relevant CodeUnits using existing BFS logic to handle hierarchy
         Set<CodeUnit> allRelevantCodeUnits = new HashSet<>();
-        Queue<CodeUnit> traversalQueue = new LinkedList<>(sources);
+        Queue<CodeUnit> traversalQueue = new ArrayDeque<>(sources); // Changed to ArrayDeque
         Set<CodeUnit> visitedForTraversal = new HashSet<>();
 
         while (!traversalQueue.isEmpty()) {

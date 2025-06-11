@@ -106,13 +106,16 @@ public class BrokkDiffPanel extends JPanel {
         tabbedPane = new JTabbedPane();
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
         addAncestorListener(new AncestorListener() {
+            @Override
             public void ancestorAdded(AncestorEvent event) {
                 start();
             }
 
+            @Override
             public void ancestorMoved(AncestorEvent event) {
             }
 
+            @Override
             public void ancestorRemoved(AncestorEvent event) {
             }
         });
@@ -452,8 +455,8 @@ public class BrokkDiffPanel extends JPanel {
 
     public AbstractContentPanel getCurrentContentPanel() {
         Component selectedComponent = getTabbedPane().getSelectedComponent();
-        if (selectedComponent instanceof AbstractContentPanel) {
-            return (AbstractContentPanel) selectedComponent;
+        if (selectedComponent instanceof AbstractContentPanel abstractContentPanel) {
+            return abstractContentPanel;
         }
         return null;
     }

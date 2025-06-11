@@ -366,8 +366,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             }
                         } else {
                             Object cellValue = prCommitsTableModel.getValueAt(modelRow, 0); // Get message from table itself
-                            if (cellValue instanceof String) {
-                                return (String) cellValue; // E.g., "Loading..." or "Error..."
+                            if (cellValue instanceof String s) {
+                                return s; // E.g., "Loading..." or "Error..."
                             }
                             logger.trace("Tooltip: modelRow {} out of sync with currentPrCommitDetailsList size {} for prCommitsTable",
                                          modelRow, currentPrCommitDetailsList.size());
@@ -752,7 +752,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Update table model
         prTableModel.setRowCount(0);
-        var today = LocalDate.now();
+        var today = LocalDate.now(java.time.ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
             prTableModel.addRow(new Object[]{"", "No matching PRs found", "", "", "", "", ""});
             disablePrButtons();
@@ -762,7 +762,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 try {
                     return pr.getUpdatedAt();
                 } catch (IOException e) {
-                    return new Date(0); // Oldest on error
+                    return Date.from(java.time.Instant.EPOCH); // Oldest on error
                 }
             }, Comparator.nullsLast(Comparator.reverseOrder())));
 
@@ -1073,11 +1073,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // The IOException is declared because pr.getMergeableState() can throw it.
         var state = pr.getMergeableState(); // returns String like "clean", "dirty", "blocked", "unknown", "draft" etc.
         if (state == null) return "";
-        return switch (state.toLowerCase()) {
+        return switch (com.google.common.base.Ascii.toLowerCase(state)) {
             case "clean" -> "clean";
             case "blocked", "dirty" -> "blocked";
             case "unstable", "behind" -> "unstable";
-            default -> state.toLowerCase(); // return other states like "draft", "unknown" as is
+            default -> com.google.common.base.Ascii.toLowerCase(state); // return other states like "draft", "unknown" as is
         };
     }
 

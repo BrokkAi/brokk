@@ -53,6 +53,7 @@ public interface IContextManager {
     }
 
     /**
+     * Returns the live, unfrozen context that we can edit.
      * @return the live, unfrozen context that we can edit
      */
     default Context liveContext() {
@@ -60,6 +61,7 @@ public interface IContextManager {
     }
 
     /**
+     * Returns the frozen counterpart of liveContext.
      * @return the frozen counterpart of liveContext
      */
     default Context topContext() {

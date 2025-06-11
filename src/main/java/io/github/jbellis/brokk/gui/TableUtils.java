@@ -663,11 +663,10 @@ public final class TableUtils {
 
             @Override
             public boolean equals(Object o) {
-                if (this == o) return true;
-                if (o == null || getClass() != o.getClass()) return false;
-                FileReferenceData that = (FileReferenceData) o;
-                return fullPath.equals(that.fullPath);
-            }
+            if (this == o) return true;
+            if (!(o instanceof FileReferenceData that)) return false;
+            return fullPath.equals(that.fullPath);
+        }
 
             @Override
             public int hashCode() {

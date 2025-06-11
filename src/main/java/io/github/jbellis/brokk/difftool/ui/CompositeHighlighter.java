@@ -94,8 +94,8 @@ public class CompositeHighlighter extends RSyntaxTextAreaHighlighter implements 
     public void applyTheme(GuiTheme guiTheme)
     {
         // Forward theme changes to the secondary highlighter if it supports themes
-        if (secondary instanceof ThemeAware) {
-            ((ThemeAware) secondary).applyTheme(guiTheme);
+        if (secondary instanceof ThemeAware themeAware) {
+            themeAware.applyTheme(guiTheme);
         }
     }
 }

@@ -9,16 +9,17 @@ import io.github.jbellis.brokk.context.FragmentDtos.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
-import java.util.stream.Stream;
 
 public final class HistoryIo {
     private static final Logger logger = LogManager.getLogger(HistoryIo.class);
@@ -31,17 +32,6 @@ public final class HistoryIo {
     private static final int V1_FORMAT_VERSION = 1; // Assuming DTOs have String IDs
 
     private HistoryIo() {}
-
-    // Helper method to read all bytes from a ZipInputStream entry (remains unchanged)
-    private static byte[] readEntryBytes(ZipInputStream zis) throws IOException {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        byte[] buffer = new byte[1024];
-        int len;
-        while ((len = zis.read(buffer)) > 0) {
-            baos.write(buffer, 0, len);
-        }
-        return baos.toByteArray();
-    }
 
     public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {

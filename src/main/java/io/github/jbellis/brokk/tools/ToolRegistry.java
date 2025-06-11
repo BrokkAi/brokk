@@ -5,7 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.*;
 import dev.langchain4j.data.message.AiMessage;
-import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.ContextManager; // Added import
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -28,7 +28,7 @@ public class ToolRegistry {
 
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
-    private final ContextManager contextManager;
+    // private final ContextManager contextManager; // Unused field removed
 
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
@@ -36,8 +36,8 @@ public class ToolRegistry {
     /**
      * Creates a new ToolRegistry and self-registers internal tools.
      */
-    public ToolRegistry(ContextManager contextManager) {
-        this.contextManager = contextManager;
+    public ToolRegistry(ContextManager contextManagerIgnored) {
+        // this.contextManager = contextManager; // contextManager field removed
         register(this);
     }
 

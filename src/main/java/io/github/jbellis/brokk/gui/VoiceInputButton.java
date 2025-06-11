@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.google.common.base.Splitter; // Added import
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -17,6 +18,8 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.HashSet; // Added import for HashSet
+import java.util.List; // Added import for List
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -39,7 +42,7 @@ public class VoiceInputButton extends JButton {
 
     // For STT (mic) usage
     private volatile TargetDataLine micLine = null;
-    private volatile ByteArrayOutputStream micBuffer = null;
+    private final ByteArrayOutputStream micBuffer = new ByteArrayOutputStream(); // Made final
     private volatile Thread micCaptureThread = null;
     private ImageIcon micOnIcon;
     private ImageIcon micOffIcon;
@@ -168,7 +171,10 @@ public class VoiceInputButton extends JButton {
             micLine.open(format);
             micLine.start();
 
-            micBuffer = new ByteArrayOutputStream();
+            // micBuffer is now final and initialized in constructor, reset it here
+            synchronized (micBuffer) {
+                micBuffer.reset();
+            }
             micCaptureThread = new Thread(() -> {
                 var data = new byte[4096];
                 while (micLine != null && micLine.isOpen()) {
@@ -262,18 +268,17 @@ public class VoiceInputButton extends JButton {
                             var fullSymbols = analyzer.getSymbols(sources);
 
                             // Extract short names from sources and returned symbols
-                            symbolsForTranscription = sources.stream()
-                                    .map(CodeUnit::shortName) // This is now Set<CodeUnit>
-                                    .collect(Collectors.toSet());
+                            final Set<String> tempSymbols = new HashSet<>(sources.stream()
+                                    .map(CodeUnit::shortName)
+                                    .collect(Collectors.toSet()));
                             fullSymbols.stream()
                                     .map(s -> {
-                                        var parts = s.split("\\.");
-                                        // Get last part as short name
-                                        return parts.length > 0 ? parts[parts.length - 1] : null;
+                                        List<String> parts = Splitter.on('.').splitToList(s);
+                                        return !parts.isEmpty() ? parts.getLast() : null;
                                     })
                                     .filter(java.util.Objects::nonNull)
-                                    // Add to the same set
-                                    .forEach(symbolsForTranscription::add);
+                                    .forEach(tempSymbols::add); // Add to the effectively final temporary set
+                            symbolsForTranscription = tempSymbols; // Assign to the field
                             logger.debug("Using context symbols for transcription: {}", symbolsForTranscription.size());
                         }
                     }

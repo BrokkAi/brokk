@@ -328,8 +328,7 @@ record ProjectPathFragment(ProjectFile file, String id, IContextManager contextM
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ProjectPathFragment that = (ProjectPathFragment) o;
+        if (!(o instanceof ProjectPathFragment that)) return false;
         return Objects.equals(id(), that.id());
     }
 
@@ -431,8 +430,7 @@ record GitFileFragment(ProjectFile file, String revision, String content, String
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        GitFileFragment that = (GitFileFragment) o;
+        if (!(o instanceof GitFileFragment that)) return false;
         return Objects.equals(id(), that.id());
     }
 
@@ -505,8 +503,7 @@ record ExternalPathFragment(ExternalFile file, String id, IContextManager contex
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ExternalPathFragment that = (ExternalPathFragment) o;
+        if (!(o instanceof ExternalPathFragment that)) return false;
         return Objects.equals(id(), that.id());
     }
 
@@ -622,8 +619,7 @@ record ImageFileFragment(BrokkFile file, String id, IContextManager contextManag
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ImageFileFragment that = (ImageFileFragment) o;
+        if (!(o instanceof ImageFileFragment that)) return false;
         return Objects.equals(id(), that.id());
     }
 
@@ -703,7 +699,7 @@ abstract class VirtualFragment implements ContextFragment {
         public String shortDescription() {
             assert !description().isEmpty();
             // lowercase the first letter in description()
-            return description().substring(0, 1).toLowerCase() + description().substring(1);
+            return description().substring(0, 1).toLowerCase(Locale.ROOT) + description().substring(1);
         }
 
         @Override
@@ -725,11 +721,10 @@ abstract class VirtualFragment implements ContextFragment {
         public abstract String text();
 
         // Override equals and hashCode for proper comparison, especially for EMPTY
-        @Override
-        public boolean equals(Object o) {
+    @Override
+    public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        VirtualFragment that = (VirtualFragment) o;
+        if (!(o instanceof VirtualFragment that)) return false;
         return Objects.equals(id(), that.id()); // Use String.equals
     }
 
@@ -1471,6 +1466,7 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
             return FragmentType.HISTORY;
         }
 
+        @Override
         public List<TaskEntry> entries() {
             return history;
         }
@@ -1636,6 +1632,7 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
             return messages;
         }
 
+        @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
         }

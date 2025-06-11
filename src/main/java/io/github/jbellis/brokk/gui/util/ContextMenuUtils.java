@@ -230,7 +230,7 @@ public final class ContextMenuUtils {
         // Edit option
         JMenuItem editItem = new JMenuItem("Edit " + targetRef.getFullPath());
         editItem.addActionListener(e1 -> {
-            withTemporaryListenerDetachment(chrome, cm, () -> {
+            withTemporaryListenerDetachment(chrome, () -> {
                 if (targetRef.getRepoFile() != null) {
                     cm.editFiles(List.of(targetRef.getRepoFile()));
                 } else {
@@ -248,7 +248,7 @@ public final class ContextMenuUtils {
         // Read option
         JMenuItem readItem = new JMenuItem("Read " + targetRef.getFullPath());
         readItem.addActionListener(e1 -> {
-            withTemporaryListenerDetachment(chrome, cm, () -> {
+            withTemporaryListenerDetachment(chrome, () -> {
                 if (targetRef.getRepoFile() != null) {
                     cm.addReadOnlyFiles(List.of(targetRef.getRepoFile()));
                 } else {
@@ -267,7 +267,7 @@ public final class ContextMenuUtils {
                                       JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
-            withTemporaryListenerDetachment(chrome, cm, () -> {
+            withTemporaryListenerDetachment(chrome, () -> {
                 if (targetRef.getRepoFile() == null) {
                     chrome.toolError("Cannot summarize: " + targetRef.getFullPath() + " - ProjectFile information not available");
                 } else {
@@ -293,7 +293,6 @@ public final class ContextMenuUtils {
      * Helper method to detach context listener temporarily while performing operations.
      */
     private static void withTemporaryListenerDetachment(Chrome chrome,
-                                                         ContextManager cm,
                                                          Runnable action,
                                                          String taskDescription) {
         // Access the contextManager from Chrome and call submitContextTask on it

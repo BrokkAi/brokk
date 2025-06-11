@@ -61,7 +61,7 @@ public abstract class CodePrompts {
     public final List<ChatMessage> collectCodeMessages(IContextManager cm,
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
-                                                       ArrayList<ChatMessage> taskMessages,
+                                                       List<ChatMessage> taskMessages,
                                                        UserMessage request)
     throws InterruptedException
     {
@@ -316,7 +316,7 @@ public abstract class CodePrompts {
     public List<ChatMessage> collectFullFileReplacementMessages(IContextManager cm,
                                                                 ProjectFile targetFile,
                                                                 String goal,
-                                                                ArrayList<ChatMessage> taskMessages)
+                                                                List<ChatMessage> taskMessages)
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
