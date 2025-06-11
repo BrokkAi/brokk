@@ -25,7 +25,6 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.Path;
 import java.util.*;
-import java.lang.reflect.InvocationTargetException; // Needed for invokeAndWait
 import java.util.List;
 
 /**
@@ -972,10 +971,7 @@ public class GitLogTab extends JPanel {
             int selectedRow = branchTable.getSelectedRow();
             if (selectedRow != -1) {
                 String branchDisplay = (String) branchTableModel.getValueAt(selectedRow, 1);
-                if (branchDisplay.startsWith("Local: ")) {
-                    String branchName = branchDisplay.substring("Local: ".length());
-                    renameBranch(branchName);
-                }
+                renameBranch(branchDisplay);
             }
         });
         deleteItem.addActionListener(e -> {
@@ -1556,11 +1552,14 @@ public class GitLogTab extends JPanel {
      * Rename a local branch.
      */
     private void renameBranch(String branchName) {
-        String newName = JOptionPane.showInputDialog(
+        String newName = (String) JOptionPane.showInputDialog(
                 this,
                 "Enter new name for branch '" + branchName + "':",
                 "Rename Branch",
-                JOptionPane.QUESTION_MESSAGE
+                JOptionPane.QUESTION_MESSAGE,
+                null, // icon
+                null, // selectionValues
+                branchName // initialSelectionValue
         );
         if (newName != null && !newName.trim().isEmpty()) {
             contextManager.submitUserTask("Renaming branch: " + branchName, () -> {
