@@ -33,6 +33,10 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -1547,8 +1551,42 @@ public class GitRepo implements Closeable, IGitRepo {
                 command = String.format("git worktree add -b %s %s", branch, absolutePath);
             }
             Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+
+            // Recursively copy .brokk/dependencies from the project root into the new worktree
+            var sourceDependenciesDir = projectRoot.resolve(".brokk").resolve("dependencies");
+            if (!Files.exists(sourceDependenciesDir)) {
+                return;
+            }
+
+            // Ensure .brokk exists in the new worktree
+            var targetDependenciesDir = absolutePath.resolve(".brokk").resolve("dependencies");
+            Files.createDirectories(targetDependenciesDir.getParent());
+
+            // copy
+            Files.walkFileTree(sourceDependenciesDir, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+                    var relative = sourceDependenciesDir.relativize(dir);
+                    var targetDir = targetDependenciesDir.resolve(relative);
+                    Files.createDirectories(targetDir);
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                    var relative = sourceDependenciesDir.relativize(file);
+                    var targetFile = targetDependenciesDir.resolve(relative);
+                    Files.copy(file,
+                               targetFile,
+                               StandardCopyOption.REPLACE_EXISTING,
+                               StandardCopyOption.COPY_ATTRIBUTES);
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (Environment.SubprocessException e) {
             throw new GitRepoException("Failed to add worktree at " + path + " for branch " + branch + ": " + e.getOutput(), e);
+        } catch (IOException e) {
+            throw new GitRepoException("Failed to copy dependencies", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new GitRepoException("Adding worktree at " + path + " for branch " + branch + " was interrupted", e);
@@ -1745,14 +1783,14 @@ public class GitRepo implements Closeable, IGitRepo {
 
                     if (status == RebaseResult.Status.CONFLICTS || status == RebaseResult.Status.STOPPED) {
                         // Get conflicts before aborting, just in case abort clears them from the result object
-                        List<String> conflictingFiles = rebaseResult.getConflicts(); 
+                        List<String> conflictingFiles = rebaseResult.getConflicts();
                         try {
                             git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
                         } catch (GitAPIException e) {
                             // Log the abort failure but proceed with conflict reporting if possible
                             logger.warn("Failed to abort rebase while reporting conflicts: {}", e.getMessage(), e);
                         }
-                        
+
                         if (conflictingFiles != null && !conflictingFiles.isEmpty()) {
                             return "Rebase conflicts detected in: " + String.join(", ", conflictingFiles);
                         } else {
