@@ -202,6 +202,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         // Container for the actual filters
         JPanel filtersContainer = new JPanel();
         filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
+        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, 0, Constants.H_PAD));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);

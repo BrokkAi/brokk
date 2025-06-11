@@ -161,6 +161,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         JPanel verticalFilterPanel = new JPanel(new BorderLayout());
         JPanel filtersContainer = new JPanel();
         filtersContainer.setLayout(new BoxLayout(filtersContainer, BoxLayout.Y_AXIS));
+        filtersContainer.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, 0, Constants.H_PAD));
 
         JLabel filterLabel = new JLabel("Filter:");
         filterLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -473,7 +474,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         MainProject.addSettingsChangeListener(this);
         updatePrList(); // async
     }
-    
+
     /**
      * Tracks a Future that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
      */
@@ -1209,7 +1210,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
 
                 String description = "PR #" + pr.getNumber() + " (" + pr.getTitle() + ") diff vs " + baseBranchName + "@{" + prBaseSha.substring(0, 7) + "}";
-                
+
                 // Determine syntax style from changed files in the PR
                 String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
                 try {
@@ -1220,7 +1221,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 } catch (Exception e) {
                     logger.warn("Could not determine syntax style for PR diff: {}", e.getMessage());
                 }
-                
+
                 var fragment = new StringFragment(contextManager, diff, description, syntaxStyle);
                 SwingUtilities.invokeLater(() -> chrome.openFragmentPreview(fragment));
                 chrome.systemOutput("Opened diff for PR #" + pr.getNumber() + " in preview panel");
