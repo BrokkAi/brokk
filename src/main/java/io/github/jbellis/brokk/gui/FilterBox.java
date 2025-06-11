@@ -19,9 +19,11 @@ public final class FilterBox extends JPanel implements ThemeAware {
     private final JLabel textLabel;
     private final JLabel iconLabel;
 
-    // Use theme icons for both arrow and clear
-    private static final Icon ARROW = createConsistentSizedIcon(UIManager.getIcon("Tree.expandedIcon"));
-    private static final Icon CLEAR = createConsistentSizedIcon(UIManager.getIcon("DesktopIcon.closeIcon"));
+    private static final Icon ARROW_BASE = createConsistentSizedIcon(UIManager.getIcon("Tree.expandedIcon"));
+    private static final Icon CLEAR_BASE = createConsistentSizedIcon(UIManager.getIcon("InternalFrame.closeIcon"));
+    private static final Icon HOVER_ARROW = createHoverIcon(ARROW_BASE);
+    private static final Icon HOVER_CLEAR = createHoverIcon(CLEAR_BASE);
+
 
     /**
      * Wraps an icon to ensure consistent 12x12 sizing for alignment
@@ -66,14 +68,10 @@ public final class FilterBox extends JPanel implements ThemeAware {
                 // Calculate center position for the scaled icon
                 int iconWidth = getIconWidth();
                 int iconHeight = getIconHeight();
-                int scaledWidth = (int)(iconWidth * scaleFactor);
-                int scaledHeight = (int)(iconHeight * scaleFactor);
 
                 // Center the scaled icon
                 int centerX = x + iconWidth / 2;
                 int centerY = y + iconHeight / 2;
-                int scaledX = centerX - scaledWidth / 2;
-                int scaledY = centerY - scaledHeight / 2;
 
                 // Apply scaling and draw centered
                 g2.translate(centerX, centerY);
@@ -95,7 +93,6 @@ public final class FilterBox extends JPanel implements ThemeAware {
     // Colors will be set dynamically based on theme
     private Color unselectedFgColor;
     private Color selectedFgColor;
-    private Color iconHoverBgColor;
     private final Chrome chrome;
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices) {
@@ -109,7 +106,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
         // Initialize components
         textLabel = new JLabel(label);
-        iconLabel = new JLabel(ARROW);
+        iconLabel = new JLabel(ARROW_BASE);
 
         // Layout - Use BorderLayout with proper spacing
         setLayout(new BorderLayout());
@@ -135,7 +132,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         add(iconLabel, BorderLayout.EAST);
 
         // Event Listeners
-        iconLabel.addMouseListener(new MouseAdapter() {
+        MouseAdapter iconLabelMouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled()) return;
@@ -153,7 +150,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
                     iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
                     if (selected != null) {
                         // Make icon slightly bigger on hover
-                        iconLabel.setIcon(createHoverIcon(CLEAR));
+                        iconLabel.setIcon(HOVER_CLEAR);
                         iconLabel.repaint();
                     }
                 }
@@ -165,22 +162,26 @@ public final class FilterBox extends JPanel implements ThemeAware {
                     iconLabel.setCursor(Cursor.getDefaultCursor());
                     if (selected != null) {
                         // Restore normal icon size
-                        iconLabel.setIcon(CLEAR);
+                        iconLabel.setIcon(CLEAR_BASE);
                         iconLabel.repaint();
                     }
                 }
             }
-        });
+        };
+        iconLabel.addMouseListener(iconLabelMouseAdapter);
 
-        addMouseListener(new MouseAdapter() {
+        var textLabelMouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled()) return;
 
-                // Only handle clicks outside the icon area - icon handles its own clicks
-                Point p = e.getPoint();
-                Rectangle iconBounds = iconLabel.getBounds();
-                if (!iconBounds.contains(p)) {
+                Point clickPointInPanel = e.getPoint();
+                if (iconLabel.getBounds().contains(clickPointInPanel)) {
+                    return; // Let iconLabelMouseAdapter handle icon clicks.
+                }
+
+                // If click was on text/panel area (not icon):
+                if (selected == null) {
                     showPopup();
                 }
             }
@@ -191,7 +192,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
                     if (selected == null) {
                         textLabel.setForeground(selectedFgColor);
                         // Make arrow icon slightly bigger on hover
-                        iconLabel.setIcon(createHoverIcon(ARROW));
+                        iconLabel.setIcon(HOVER_ARROW);
                         iconLabel.repaint();
                     } else {
                         // Make text color change more noticeable when filter is selected
@@ -206,7 +207,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
                     if (selected == null) {
                         textLabel.setForeground(unselectedFgColor);
                         // Restore normal arrow icon size
-                        iconLabel.setIcon(ARROW);
+                        iconLabel.setIcon(ARROW_BASE);
                         iconLabel.repaint();
                     } else {
                         // Restore normal selected text color
@@ -214,7 +215,8 @@ public final class FilterBox extends JPanel implements ThemeAware {
                     }
                 }
             }
-        });
+        };
+        addMouseListener(textLabelMouseAdapter);
 
         // Initial selection and icon state
         if (initialSelection != null) {
@@ -222,17 +224,9 @@ public final class FilterBox extends JPanel implements ThemeAware {
             if (actualChoices != null && actualChoices.contains(initialSelection)) {
                 this.selected = initialSelection;
                 textLabel.setText(this.selected);
-                // Color will be set in applyTheme
-                iconLabel.setIcon(CLEAR);
-                // Border already set consistently above
-            } else {
-                // initialSelection not valid, leave as unselected
-                // Border already set consistently above
+                iconLabel.setIcon(CLEAR_BASE);
             }
-        } else {
-            // Border already set consistently above
         }
-
         // Apply initial theme
         if (chrome.themeManager != null) {
             applyTheme(chrome.themeManager);
@@ -348,21 +342,19 @@ public final class FilterBox extends JPanel implements ThemeAware {
         selected = v;
         textLabel.setText(v);
         textLabel.setForeground(selectedFgColor);
-        iconLabel.setIcon(CLEAR);
+        iconLabel.setIcon(CLEAR_BASE);
         // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
         iconLabel.setBackground(null);
         firePropertyChange("value", old, v);
-        // Swing components usually repaint correctly, explicit repaint might not be needed
-        // repaint();
     }
 
     private void clear() {
         String old = selected;
         selected = null;
         textLabel.setText(label);
-        iconLabel.setIcon(ARROW);
+        iconLabel.setIcon(ARROW_BASE);
         // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
@@ -378,7 +370,6 @@ public final class FilterBox extends JPanel implements ThemeAware {
             textLabel.setForeground(unselectedFgColor); // Default unselected color
         }
         firePropertyChange("value", old, null);
-        // repaint();
     }
 
     public String getSelected() {
@@ -391,7 +382,6 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
         unselectedFgColor = ThemeColors.getColor(isDark, "filter_unselected_foreground");
         selectedFgColor = ThemeColors.getColor(isDark, "filter_selected_foreground");
-        iconHoverBgColor = ThemeColors.getColor(isDark, "filter_icon_hover_background");
 
         // Apply current state colors
         if (selected == null) {
