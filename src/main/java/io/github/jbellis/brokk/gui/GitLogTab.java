@@ -53,7 +53,7 @@ public class GitLogTab extends JPanel {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager);
+        this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext);
         buildLogTabUI();
     }
 
@@ -756,6 +756,32 @@ public class GitLogTab extends JPanel {
             captureDiffVsBranchItem.setText("Capture Diff vs Branch");
             captureDiffVsBranchItem.setEnabled(false);
         }
+    }
+
+    /**
+     * Reloads the commits for the currently selected branch or context in the GitCommitBrowserPanel.
+     * This is typically called when clearing a search to restore the previous view.
+     */
+    private void reloadCurrentBranchOrContext() {
+        SwingUtil.runOnEdt(() -> {
+            int localSelectedRow = branchTable.getSelectedRow();
+            if (localSelectedRow != -1) {
+                String branchName = (String) branchTableModel.getValueAt(localSelectedRow, 1);
+                updateCommitsForBranch(branchName);
+                return;
+            }
+
+            int remoteSelectedRow = remoteBranchTable.getSelectedRow();
+            if (remoteSelectedRow != -1) {
+                String branchName = (String) remoteBranchTableModel.getValueAt(remoteSelectedRow, 0);
+                updateCommitsForBranch(branchName);
+                return;
+            }
+
+            // If neither local nor remote branch is selected, clear the commit view.
+            logger.warn("reloadCurrentBranchOrContext called but no branch selected. Clearing commit view.");
+            gitCommitBrowserPanel.clearCommitView();
+        });
     }
 
     /**

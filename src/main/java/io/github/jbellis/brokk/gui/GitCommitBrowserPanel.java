@@ -35,6 +35,12 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final CommitContextReloader reloader;
+
+    @FunctionalInterface
+    public interface CommitContextReloader {
+        void reloadCurrentContext();
+    }
 
     @FunctionalInterface
     private interface StashActionPerformer {
@@ -64,12 +70,14 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private String currentBranchOrContextName; // Used by push/pull actions
     private List<ICommitInfo> currentCommitsList; // To hold the currently displayed commits
+    private Set<String> currentUnpushedIds = Set.of(); // To hold the unpushed IDs for the current view
 
 
-    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager) {
+    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.reloader = reloader;
         this.currentCommitsList = new ArrayList<>();
         buildCommitBrowserUI();
     }
@@ -111,15 +119,7 @@ public class GitCommitBrowserPanel extends JPanel {
             if (!query.isEmpty()) {
                 searchCommitsInPanel(query);
             } else {
-                // If search query is cleared, re-display the original set of commits
-                // if they were previously set.
-                 if (this.currentCommitsList != null && !this.currentCommitsList.isEmpty()) {
-                    // This assumes setCommits can handle an empty unpushedCommitIds if not relevant
-                    setCommits(this.currentCommitsList, Collections.emptySet(),
-                               pullButton.isEnabled(), pushButton.isEnabled(), currentBranchOrContextName);
-                } else {
-                    clearCommitView();
-                }
+                reloader.reloadCurrentContext();
             }
         };
 
@@ -834,6 +834,7 @@ public class GitCommitBrowserPanel extends JPanel {
     public void setCommits(List<? extends ICommitInfo> commits, Set<String> unpushedCommitIds,
                            boolean canPush, boolean canPull, String activeBranchOrContextName) {
         this.currentCommitsList = new ArrayList<>(commits); // Store for potential re-display after search clear
+        this.currentUnpushedIds = Set.copyOf(unpushedCommitIds); // Store for use when search is cleared
         this.currentBranchOrContextName = activeBranchOrContextName;
 
         var commitRows = new ArrayList<Object[]>();
