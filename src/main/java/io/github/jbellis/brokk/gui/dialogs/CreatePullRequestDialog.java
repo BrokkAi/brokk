@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitCommitBrowserPanel;
@@ -10,7 +11,10 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionListener;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 public class CreatePullRequestDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CreatePullRequestDialog.class);
@@ -112,8 +116,51 @@ public class CreatePullRequestDialog extends JDialog {
     }
     
     private void setupBranchListeners(Runnable updateFlowLabel) {
-        targetBranchComboBox.addActionListener(e -> updateFlowLabel.run());
-        sourceBranchComboBox.addActionListener(e -> updateFlowLabel.run());
+        ActionListener branchChangedListener = e -> {
+            updateFlowLabel.run();
+            refreshCommitList();
+        };
+        targetBranchComboBox.addActionListener(branchChangedListener);
+        sourceBranchComboBox.addActionListener(branchChangedListener);
+    }
+
+    private void refreshCommitList() {
+        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+
+        if (sourceBranch == null || targetBranch == null) {
+            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Select branches");
+            return;
+        }
+
+        var contextName = targetBranch + " ← " + sourceBranch;
+
+        if (sourceBranch.equals(targetBranch)) {
+            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName);
+            return;
+        }
+
+        contextManager.submitBackgroundTask("Fetching commits for " + contextName, () -> {
+            try {
+                var repo = contextManager.getProject().getRepo();
+                List<CommitInfo> commits;
+                if (repo instanceof GitRepo gitRepo) {
+                    commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch);
+                } else {
+                    commits = Collections.emptyList();
+                }
+                SwingUtilities.invokeLater(() ->
+                    commitBrowserPanel.setCommits(commits, Set.of(), false, false, contextName)
+                );
+                return commits;
+            } catch (Exception e) {
+                logger.error("Error fetching commits for " + contextName, e);
+                SwingUtilities.invokeLater(() ->
+                    commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)")
+                );
+                throw e;
+            }
+        });
     }
     
     private JPanel createButtonPanel() {
@@ -158,9 +205,11 @@ public class CreatePullRequestDialog extends JDialog {
             
             populateBranchDropdowns(targetBranches, sourceBranches);
             setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
-            updateFlowLabel.run();
+            updateFlowLabel.run(); // Update label first
+            refreshCommitList();   // Then load commits
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
+            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
         }
     }
     
