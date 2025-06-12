@@ -116,6 +116,23 @@ public class ProjectTree extends JTree {
     private void handlePopupTrigger(MouseEvent e) {
         if (e.isPopupTrigger()) {
             TreePath path = getPathForLocation(e.getX(), e.getY());
+            if (path == null) {
+                // If exact hit detection failed, check if we're within any row's vertical bounds
+                int row = getRowForLocation(e.getX(), e.getY());
+                if (row >= 0) {
+                    path = getPathForRow(row);
+                } else {
+                    // Fallback: find the closest row by Y coordinate
+                    int rowCount = getRowCount();
+                    for (int i = 0; i < rowCount; i++) {
+                        Rectangle rowBounds = getRowBounds(i);
+                        if (rowBounds != null && e.getY() >= rowBounds.y && e.getY() < rowBounds.y + rowBounds.height) {
+                            path = getPathForRow(i);
+                            break;
+                        }
+                    }
+                }
+            }
             if (path != null) {
                 // If right-clicking on an item not in current selection, change selection to that item.
                 // Otherwise, keep current selection.
