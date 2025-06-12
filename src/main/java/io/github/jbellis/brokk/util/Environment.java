@@ -69,11 +69,9 @@ public class Environment {
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
-            // Collect any output produced before interruption
-            String stdout = stdoutFuture.join(); // Try to get output, might be empty
-            String stderr = stderrFuture.join();
-            combinedOutput = formatOutput(stdout, stderr);
-            logger.warn("Process '{}' interrupted. Output so far: {}", command, combinedOutput);
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
+            logger.warn("Process '{}' interrupted.", command);
             throw ie; // Propagate InterruptedException
         }
 
