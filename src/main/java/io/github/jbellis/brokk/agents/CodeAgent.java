@@ -369,9 +369,6 @@ public class CodeAgent {
                                                                String originalUserInput,
                                                                List<ChatMessage> taskMessages)
     {
-        // Convert List<ChatMessage> to ArrayList<ChatMessage> if needed by CodePrompts
-        ArrayList<ChatMessage> taskMessagesArrayList = new ArrayList<>(taskMessages);
-
         var failuresByFile = failedBlocks.stream()
                 .map(fb -> fb.block().filename())
                 .filter(Objects::nonNull)
@@ -418,12 +415,12 @@ public class CodeAgent {
 
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessagesArrayList);
+                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
                  var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
-                var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
+                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
-                // Send request
-                StreamingResult result = coder.sendRequest(messages, false);
+                 // Send request
+                 StreamingResult result = coder.sendRequest(messages, false);
 
                  // Process response
                  if (result.error() != null) {
@@ -514,20 +511,18 @@ public class CodeAgent {
 
         return rawMessages.stream()
                 .flatMap(message -> {
-                    switch (message.type()) {
-                        case USER, CUSTOM:
-                            return Stream.of(message);
-                        case AI:
+                    return switch (message.type()) {
+                        case USER, CUSTOM -> Stream.of(message);
+                        case AI -> {
                             var aiMessage = (AiMessage) message;
                             // Pass through AI messages with their original text.
                             // Raw S/R blocks are preserved.
                             // If the text is blank, effectively filter out the message.
-                            return aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                            yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                        }
                         // Ignore SYSTEM/TOOL messages for TaskEntry log purposes
-                        case SYSTEM, TOOL_EXECUTION_RESULT:
-                        default:
-                            return Stream.empty();
-                    }
+                        default -> Stream.empty();
+                    };
                 })
                 .toList();
     }
