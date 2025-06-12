@@ -73,9 +73,9 @@ public class CreatePullRequestDialog extends JDialog {
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox = new JComboBox<>(), row);
 
         var branchFlowLabel = createBranchFlowIndicator(branchPanel, row);
-        var updateFlowLabel = createFlowUpdater(branchFlowLabel);
+        // var updateFlowLabel = createFlowUpdater(branchFlowLabel); // updateFlowLabel is created and passed from buildLayout via loadBranches
 
-        setupBranchListeners(updateFlowLabel);
+        // setupBranchListeners is now called in loadBranches after defaults are set
         // loadBranches is called after the main layout is built
 
         return branchPanel;
@@ -206,8 +206,12 @@ public class CreatePullRequestDialog extends JDialog {
             
             populateBranchDropdowns(targetBranches, sourceBranches);
             setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
-            updateFlowLabel.run(); // Update label first
-            refreshCommitList();   // Then load commits
+            
+            // Listeners must be set up AFTER default items are selected to avoid premature firing.
+            setupBranchListeners(updateFlowLabel);
+            
+            updateFlowLabel.run(); // Update label based on defaults
+            refreshCommitList();   // Load commits based on defaults
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
