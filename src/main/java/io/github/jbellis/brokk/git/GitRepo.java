@@ -1770,8 +1770,7 @@ public class GitRepo implements Closeable, IGitRepo {
             for (RevCommit commit : revWalk) {
                 commits.add(commit);
             }
-            // Commits will be in reverse chronological order (newest first). Reverse to get oldest first.
-            Collections.reverse(commits);
+            // Commits are now in reverse chronological order (newest first) directly from RevWalk.
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
