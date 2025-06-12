@@ -379,7 +379,7 @@ public final class MainProject extends AbstractProject {
                     .filter(s -> !s.isEmpty())
                     .map(langName -> {
                         try {
-                            return Language.valueOf(langName.toUpperCase());
+                            return Language.valueOf(langName.toUpperCase(Locale.ROOT));
                         } catch (IllegalArgumentException e) {
                             logger.warn("Invalid language '{}' in project properties, ignoring.", langName);
                             return null;
@@ -587,6 +587,7 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    @Override
     public boolean isGitHubRepo() {
         if (!hasGit()) return false; // hasGit from AbstractProject
         var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
@@ -595,6 +596,7 @@ public final class MainProject extends AbstractProject {
         return remoteUrl.contains("github.com");
     }
 
+    @Override
     public boolean isGitIgnoreSet() {
         try {
             var gitignorePath = getMasterRootPathForConfig().resolve(".gitignore");
@@ -613,7 +615,7 @@ public final class MainProject extends AbstractProject {
         String value = projectProps.getProperty("code_intelligence_refresh");
         if (value == null) return CpgRefresh.UNSET;
         try {
-            return CpgRefresh.valueOf(value.toUpperCase());
+            return CpgRefresh.valueOf(value.toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
             return CpgRefresh.UNSET;
         }

@@ -126,8 +126,11 @@ public final class SwingIconUtil
             var searchField = new JTextField(20);
             var rowSorter = (javax.swing.table.TableRowSorter<?>) table.getRowSorter();
             searchField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+                @Override
                 public void insertUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+                @Override
                 public void removeUpdate(javax.swing.event.DocumentEvent e) { filter(); }
+                @Override
                 public void changedUpdate(javax.swing.event.DocumentEvent e) { filter(); }
                 
                 private void filter() {

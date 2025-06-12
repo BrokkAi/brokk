@@ -116,6 +116,23 @@ public class ProjectTree extends JTree {
     private void handlePopupTrigger(MouseEvent e) {
         if (e.isPopupTrigger()) {
             TreePath path = getPathForLocation(e.getX(), e.getY());
+            if (path == null) {
+                // If exact hit detection failed, check if we're within any row's vertical bounds
+                int row = getRowForLocation(e.getX(), e.getY());
+                if (row >= 0) {
+                    path = getPathForRow(row);
+                } else {
+                    // Fallback: find the closest row by Y coordinate
+                    int rowCount = getRowCount();
+                    for (int i = 0; i < rowCount; i++) {
+                        Rectangle rowBounds = getRowBounds(i);
+                        if (rowBounds != null && e.getY() >= rowBounds.y && e.getY() < rowBounds.y + rowBounds.height) {
+                            path = getPathForRow(i);
+                            break;
+                        }
+                    }
+                }
+            }
             if (path != null) {
                 // If right-clicking on an item not in current selection, change selection to that item.
                 // Otherwise, keep current selection.
@@ -385,24 +402,23 @@ public class ProjectTree extends JTree {
         return null; // Child component not found
     }
 
-
     private List<ProjectFile> getSelectedProjectFiles() {
         TreePath[] selectionPaths = getSelectionPaths();
         if (selectionPaths == null || selectionPaths.length == 0) {
-            return Collections.emptyList();
+            return List.of(); // Immutable empty list
         }
 
-        var selectedFiles = new ArrayList<ProjectFile>();
+        var selectedFilesList = new ArrayList<ProjectFile>();
         for (TreePath path : selectionPaths) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             if (node.getUserObject() instanceof ProjectTreeNode treeNode && treeNode.getFile().isFile()) {
                 ProjectFile pf = getProjectFileFromNode(node);
                 if (pf != null) {
-                    selectedFiles.add(pf);
+                    selectedFilesList.add(pf);
                 }
             }
         }
-        return selectedFiles;
+        return List.copyOf(selectedFilesList); // Return immutable list
     }
 
     private ProjectFile getProjectFileFromNode(DefaultMutableTreeNode node) {

@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.git.IGitRepo;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.Set;
 import java.util.UUID;
@@ -276,7 +277,7 @@ public interface IProject extends AutoCloseable {
         public static CodeAgentTestScope fromString(String value, CodeAgentTestScope defaultScope) {
             if (value == null || value.isBlank()) return defaultScope;
             try {
-                return CodeAgentTestScope.valueOf(value.toUpperCase());
+                return CodeAgentTestScope.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return defaultScope;
             }

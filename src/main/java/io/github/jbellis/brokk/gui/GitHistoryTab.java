@@ -210,7 +210,7 @@ public class GitHistoryTab extends JPanel {
                         return;
                     }
 
-                    var today = java.time.LocalDate.now();
+                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
                     for (var commit : history) {
                         var formattedDate = GitLogTab.formatCommitDate(commit.date(), today);
                         fileHistoryModel.addRow(new Object[]{

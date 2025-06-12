@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.util.Environment;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,7 +12,6 @@ import java.awt.event.MouseEvent;
  * Handles common errors like browser unavailability.
  */
 public class BrowserLabel extends JLabel {
-    private static final Logger logger = LogManager.getLogger(BrowserLabel.class);
     private final String url;
 
     /**

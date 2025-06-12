@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 import io.github.jbellis.brokk.IProject;
+import org.slf4j.Logger; // Added import
+import org.slf4j.LoggerFactory; // Added import
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterRust;
@@ -12,6 +14,7 @@ import java.util.Optional;
 import java.util.Set;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer {
+    private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class); // Added logger
 
     // RS_LANGUAGE field removed, createTSLanguage will provide new instances.
 
@@ -259,34 +262,42 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // In `impl Type`, typeNode is `Type`.
             if (typeNode != null && !typeNode.isNull()) {
                 String typeNodeType = typeNode.getType();
-                switch (typeNodeType) {
-                    case "type_identifier": // e.g. MyType
-                        return Optional.of(textSlice(typeNode, src));
-                    case "generic_type": // e.g. MyType<T>
-                        TSNode genericTypeNameNode = typeNode.getChildByFieldName("type"); // This field holds the base type (e.g. MyType)
+                return switch (typeNodeType) {
+                    case "type_identifier" -> Optional.of(textSlice(typeNode, src));
+                    case "generic_type" -> {
+                        TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
                         if (genericTypeNameNode != null && !genericTypeNameNode.isNull() && "type_identifier".equals(genericTypeNameNode.getType())) {
-                            return Optional.of(textSlice(genericTypeNameNode, src));
+                            yield Optional.of(textSlice(genericTypeNameNode, src));
                         }
-                        break; // Fall through if specific part of generic_type not found
-                    case "scoped_type_identifier": // e.g. my_crate::MyType
-                        TSNode scopedNameNode = typeNode.getChildByFieldName("name"); // This field holds the final segment (e.g. MyType)
+                        String fullGenericTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item (generic_type): Could not extract specific name. Using full text '{}'. Node: {}",
+                                 fullGenericTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullGenericTypeNodeText);
+                    }
+                    case "scoped_type_identifier" -> {
+                        TSNode scopedNameNode = typeNode.getChildByFieldName("name");
                         if (scopedNameNode != null && !scopedNameNode.isNull() && "type_identifier".equals(scopedNameNode.getType())) {
-                            return Optional.of(textSlice(scopedNameNode, src));
+                            yield Optional.of(textSlice(scopedNameNode, src));
                         }
-                        break; // Fall through if specific part of scoped_type_identifier not found
-                }
-                // Fallback for unhandled structures within typeNode or if specific parts weren't found: use text of the whole typeNode.
-                String fullTypeNodeText = textSlice(typeNode, src);
-                log.warn("RustAnalyzer.extractSimpleName for impl_item: Type node was [{}], using its full text '{}' as a fallback simple name. Node: {}",
-                         typeNode.getType(), fullTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
-                return Optional.of(fullTypeNodeText);
+                        String fullScopedTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item (scoped_type_identifier): Could not extract specific name. Using full text '{}'. Node: {}",
+                                 fullScopedTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullScopedTypeNodeText);
+                    }
+                    default -> {
+                        String fullTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item: Unhandled type node structure '{}'. Using full text '{}'. Node: {}",
+                                 typeNodeType, fullTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullTypeNodeText);
+                    }
+                };
             }
             // If typeNode is null or isNull
             String errorContext = String.format("Node type %s (text: '%s')",
                                                 decl.getType(),
                                                 textSlice(decl, src).lines().findFirst().orElse("").trim());
             throw new IllegalStateException("RustAnalyzer.extractSimpleName for impl_item: 'type' field not found or null. Cannot determine simple name for " + errorContext);
-        }
+        } // This closing brace was correctly placed after the previous edit.
 
         // For all other node types, defer to the base class implementation.
         // If super returns empty, throw.

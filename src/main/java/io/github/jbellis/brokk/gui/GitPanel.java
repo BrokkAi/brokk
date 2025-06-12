@@ -319,12 +319,12 @@ public class GitPanel extends JPanel
             } else if (commitDate.getYear() == today.getYear()) {
                 return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd HH:mm"));
             } else {
-                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("YYYY MMM dd"));
+                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy MMM dd"));
             }
         } catch (Exception e) {
             // Log or handle potential timezone/conversion errors if necessary
             logger.warn("Error formatting commit date: {}", date, e);
-            return date.toString(); // Fallback
+            return date.toInstant().toString(); // Fallback
         }
     }
 }

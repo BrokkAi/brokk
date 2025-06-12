@@ -16,6 +16,8 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Arrays;
+
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import org.jetbrains.annotations.NotNull;
@@ -326,21 +328,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     void setSelectedPanel(FilePanel fp)
     {
         var oldIndex = filePanelSelectedIndex;
-        var newIndex = -1;
-        for (int i = 0; i < filePanels.length; i++) {
-            if (filePanels[i] == fp) {
-                newIndex = i;
-                break;
-            }
-        }
+        var newIndex = Arrays.asList(filePanels).indexOf(fp);
         if (newIndex != oldIndex) {
-            if (oldIndex != -1 && filePanels[oldIndex] != null) {
-                filePanels[oldIndex].setSelected(false);
-            }
             filePanelSelectedIndex = newIndex;
-            if (newIndex != -1) {
-                filePanels[newIndex].setSelected(true);
-            }
         }
     }
 

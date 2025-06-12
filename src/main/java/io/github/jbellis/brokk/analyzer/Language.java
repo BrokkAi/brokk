@@ -31,7 +31,7 @@ public interface Language {
      */
     default Path getCpgPath(IProject project) {
         // Use oldName for CPG path to ensure stable and filesystem-safe names
-        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase() + ".cpg");
+        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
     }
 
     default List<Path> getDependencyCandidates(IProject project) {
@@ -162,7 +162,7 @@ public interface Language {
                     })
                     .filter(Files::isRegularFile)
                     .filter(path -> {
-                        String name = path.getFileName().toString().toLowerCase(Locale.ENGLISH);
+                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                         return name.endsWith(".jar")
                                 && !name.endsWith("-sources.jar")
                                 && !name.endsWith("-javadoc.jar");
@@ -538,7 +538,7 @@ public interface Language {
         if (extension == null || extension.isEmpty()) {
             return NONE;
         }
-        String lowerExt = extension.toLowerCase();
+        String lowerExt = extension.toLowerCase(Locale.ROOT);
         // Ensure the extension does not start with a dot for consistent matching.
         String normalizedExt = lowerExt.startsWith(".") ? lowerExt.substring(1) : lowerExt;
 

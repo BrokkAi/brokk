@@ -45,14 +45,10 @@ public class SummarizerPrompts {
         """;
         var exampleRequest = getRequest(example, wordBudget);
         var exampleResponse = switch (wordBudget) {
-            case WORD_BUDGET_3:
-                yield "Brokk: code intelligence";
-            case WORD_BUDGET_5:
-                yield "Brokk: context management, agentic search";
-            case WORD_BUDGET_12:
-                yield "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
-            default:
-                throw new AssertionError(wordBudget);
+            case WORD_BUDGET_3 -> "Brokk: code intelligence";
+            case WORD_BUDGET_5 -> "Brokk: context management, agentic search";
+            case WORD_BUDGET_12 -> "Brokk: agentic code search and retrieval, usage summarization, stacktrace parsing, build integration";
+            default -> throw new AssertionError(wordBudget);
         };
 
         var request = getRequest(actionTxt, wordBudget);

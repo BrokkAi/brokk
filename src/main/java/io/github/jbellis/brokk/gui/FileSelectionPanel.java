@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
@@ -104,7 +105,7 @@ public class FileSelectionPanel extends JPanel {
     labelsPanel.setLayout(new BoxLayout(labelsPanel, BoxLayout.PAGE_AXIS));
 
     if (config.customHintText() != null && !config.customHintText().isBlank()) {
-        for (String line : config.customHintText().split("\n")) {
+        for (String line : Splitter.on('\n').splitToList(config.customHintText())) {
             labelsPanel.add(new JLabel(line));
         }
     }
@@ -320,7 +321,8 @@ public class FileSelectionPanel extends JPanel {
 
         StringBuilder currentToken = new StringBuilder();
         boolean inQuotes = false;
-        for (char c : input.toCharArray()) {
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
             if (c == '"') {
                 inQuotes = !inQuotes;
                 // Optional: decide if quotes themselves should be part of the token or stripped.
@@ -438,7 +440,7 @@ public class FileSelectionPanel extends JPanel {
                     allCandidatePaths,
                     p -> p.getFileName().toString(),
                     Path::toString,
-                    p -> (p.startsWith(project.getRoot())) ? 0 : 1, // Simple tie-breaker
+                    p -> p.startsWith(project.getRoot()) ? 0 : 1, // Simple tie-breaker
                     this::createPathCompletion);
 
             // Sizing popup - needs AutoCompletion instance. This is tricky if provider is static.
@@ -502,8 +504,8 @@ public class FileSelectionPanel extends JPanel {
                     return List.of();
                 }
 
-                final String effectiveFilePrefix = filePrefix.toLowerCase();
-                try (var stream = Files.newDirectoryStream(parentDir, p -> p.getFileName().toString().toLowerCase().startsWith(effectiveFilePrefix))) {
+                final String effectiveFilePrefix = filePrefix.toLowerCase(Locale.ROOT);
+                try (var stream = Files.newDirectoryStream(parentDir, p -> p.getFileName().toString().toLowerCase(Locale.ROOT).startsWith(effectiveFilePrefix))) {
                     for (Path p : stream) {
                         String absolutePath = p.toAbsolutePath().toString();
                         String replacement = multiSelectMode ? quotePathIfNecessary(absolutePath) + " " : absolutePath;

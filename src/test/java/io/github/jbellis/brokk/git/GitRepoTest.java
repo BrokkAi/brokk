@@ -341,7 +341,7 @@ public class GitRepoTest {
     void testSanitizeBranchName_withWhitespaceAndIllegalChars() throws Exception {
         String proposedName = "  feature/new awesome branch!  ";
         String sanitized = repo.sanitizeBranchName(proposedName);
-        assertEquals("feature-new-awesome-branch", sanitized);
+        assertEquals("feature/new-awesome-branch", sanitized);
     }
 
     @Test

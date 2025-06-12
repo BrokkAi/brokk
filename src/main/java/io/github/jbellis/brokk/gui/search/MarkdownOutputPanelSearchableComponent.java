@@ -12,6 +12,7 @@ import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -360,7 +361,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         if (currentCaseSensitive) {
             return componentText.contains(currentSearchTerm);
         } else {
-            return componentText.toLowerCase().contains(currentSearchTerm.toLowerCase());
+            return componentText.toLowerCase(Locale.ROOT).contains(currentSearchTerm.toLowerCase(Locale.ROOT));
         }
     }
 

@@ -5,11 +5,7 @@ import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.issues.IssueDetails;
-import io.github.jbellis.brokk.issues.JiraIssueService;
-import io.github.jbellis.brokk.issues.GitHubIssueService;
-import io.github.jbellis.brokk.issues.IssueHeader;
-import io.github.jbellis.brokk.issues.IssueService;
+import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.HtmlUtil;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
@@ -98,7 +94,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         this.issueService = issueService;
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
-        this.httpClient = initializeHttpClient(contextManager, chrome);
+        this.httpClient = initializeHttpClient();
 
         // Load dynamic statuses after issueService and statusFilter are initialized
         var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
@@ -516,7 +512,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         }
     }
 
-    private OkHttpClient initializeHttpClient(ContextManager contextManager, Chrome chrome) {
+    private OkHttpClient initializeHttpClient() {
         OkHttpClient client;
         try {
             // Attempt to get the client from the already initialized issueService
@@ -740,7 +736,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
             // Update table model
             issueTableModel.setRowCount(0);
-            var today = LocalDate.now();
+            var today = LocalDate.now(java.time.ZoneId.systemDefault());
             if (displayedIssues.isEmpty()) {
                 issueTableModel.addRow(new Object[]{"", "No matching issues found", "", "", "", "", ""});
                 disableIssueActions();
@@ -870,7 +866,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 ContextFragment.TaskFragment issueTextFragment = createIssueTextFragmentFromDetails(details, issueTextMessages);
                 contextManager.addVirtualFragment(issueTextFragment);
 
-                List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments(), header.id());
+                List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
                 if (!commentChatMessages.isEmpty()) {
                     contextManager.addVirtualFragment(createCommentsFragmentFromDetails(details, commentChatMessages));
                 }
@@ -932,7 +928,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         );
     }
 
-    private List<ChatMessage> buildChatMessagesFromDtoComments(List<io.github.jbellis.brokk.issues.Comment> dtoComments, String issueId) {
+    private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
         List<ChatMessage> chatMessages = new ArrayList<>();
         if (dtoComments == null) return chatMessages;
 

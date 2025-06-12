@@ -204,7 +204,7 @@ public class MiniParser {
                 baseId = idProvider.getId(e);
             } else {
                 // Fallback if no Element parent found (unlikely)
-                baseId = Math.abs(anchor.hashCode());
+                baseId = anchor.hashCode() & Integer.MAX_VALUE;
             }
         }
         

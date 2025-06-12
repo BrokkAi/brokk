@@ -80,7 +80,7 @@ public class ImageUtil {
             if (response.isSuccessful()) {
                 String contentType = response.header("Content-Type");
                 if (contentType != null) {
-                    String lowerContentType = contentType.toLowerCase();
+                    String lowerContentType = contentType.toLowerCase(java.util.Locale.ROOT);
                     logger.debug("HEAD request to {} - Content-Type: {}", uri, contentType);
                     if (lowerContentType.startsWith("image/") ||
                         lowerContentType.equals("application/octet-stream") ||
@@ -118,7 +118,7 @@ public class ImageUtil {
             if (response.isSuccessful()) { // isSuccessful covers 200-299
                 String contentType = response.header("Content-Type");
                 if (contentType != null) {
-                    String lowerContentType = contentType.toLowerCase();
+                    String lowerContentType = contentType.toLowerCase(java.util.Locale.ROOT);
                     logger.debug("Range GET request to {} - Content-Type: {}", uri, contentType);
                     return lowerContentType.startsWith("image/")
                            || lowerContentType.equals("application/octet-stream")

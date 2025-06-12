@@ -367,8 +367,11 @@ public class CodeAgent {
     private TaskResult.StopDetails attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
                                                                Map<ProjectFile, String> originalContents,
                                                                String originalUserInput,
-                                                               ArrayList<ChatMessage> taskMessages)
+                                                               List<ChatMessage> taskMessages)
     {
+        // Convert List<ChatMessage> to ArrayList<ChatMessage> if needed by CodePrompts
+        ArrayList<ChatMessage> taskMessagesArrayList = new ArrayList<>(taskMessages);
+
         var failuresByFile = failedBlocks.stream()
                 .map(fb -> fb.block().filename())
                 .filter(Objects::nonNull)
@@ -415,12 +418,12 @@ public class CodeAgent {
 
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
+                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessagesArrayList);
                  var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
-                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
+                var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
-                 // Send request
-                 StreamingResult result = coder.sendRequest(messages, false);
+                // Send request
+                StreamingResult result = coder.sendRequest(messages, false);
 
                  // Process response
                  if (result.error() != null) {

@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.mop.stream.blocks;
 import io.github.jbellis.brokk.git.GitStatus;
 import org.jsoup.nodes.Element;
 
+import java.util.Locale;
+
 /**
  * Factory for creating EditBlockComponentData instances from HTML elements.
  */
@@ -25,7 +27,7 @@ public class EditBlockFactory implements ComponentDataFactory {
           GitStatus status = GitStatus.UNKNOWN;
         if (element.hasAttr("data-status")) {
             try {
-                status = GitStatus.valueOf(element.attr("data-status").toUpperCase());
+                status = GitStatus.valueOf(element.attr("data-status").toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 // If status is invalid, default to UNKNOWN
             }

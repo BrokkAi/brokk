@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.Map;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer {
-    protected static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class);
+    static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
     // GO_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile GO_SYNTAX_PROFILE = new LanguageSyntaxProfile(

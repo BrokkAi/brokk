@@ -116,7 +116,7 @@ public class ArchitectAgent {
         return reason;
     }
 
-    private class FatalLlmException extends RuntimeException {
+    private static class FatalLlmException extends RuntimeException { // Made static
         public FatalLlmException(String message) {
             super(message);
         }

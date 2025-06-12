@@ -105,8 +105,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
         String inferredReturnType = returnTypeText;
-        ProjectFile currentFile = null; // This ideally would be obtained if needed for extension check
-                                        // However, returnsJsxElement directly queries the node.
+        // ProjectFile currentFile = null; // Unused variable removed
 
         // Attempt to get current file from CU if available through funcNode context
         // For now, type inference will be based on syntax, not file extension.
@@ -121,7 +120,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         boolean isRenderMethod = "render".equals(functionName);
 
         if ((isRenderMethod || (isExported && isComponentName)) && (returnTypeText == null || returnTypeText.isEmpty())) {
-            if (returnsJsxElement(funcNode, src)) {
+            if (returnsJsxElement(funcNode)) { // src parameter removed
                 inferredReturnType = "JSX.Element";
             }
         }
@@ -146,7 +145,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
 
-    private boolean returnsJsxElement(TSNode funcNode, String src) {
+    private boolean returnsJsxElement(TSNode funcNode) { // src parameter removed
         TSNode bodyNode = funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode == null || bodyNode.isNull()) {
             return false;
@@ -172,12 +171,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Note: Removed jsx_fragment queries as they were causing TSQueryErrorField,
             // potentially due to grammar version or query engine specifics.
             // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
-            String jsxReturnQueryStr = String.join("\n",
-                "(return_statement (jsx_element) @jsx_return)",
-                "(return_statement (jsx_self_closing_element) @jsx_return)",
-                "(return_statement (parenthesized_expression (jsx_element)) @jsx_return)",
-                "(return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)"
-            );
+            String jsxReturnQueryStr = """
+                (return_statement (jsx_element) @jsx_return)
+                (return_statement (jsx_self_closing_element) @jsx_return)
+                (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+                (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+                """.stripIndent();
             // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
             // Ensure cursor is handled if it were AutoCloseable.
             TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
@@ -214,13 +213,13 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // A more robust check might involve checking functionCu.source().getFileName().
 
         Set<String> mutatedIdentifiers = new HashSet<>();
-        String mutationQueryStr = String.join("\n",
-            "(assignment_expression left: (identifier) @mutated.id)",
-            "(assignment_expression left: (member_expression property: (property_identifier) @mutated.id))",
-            "(assignment_expression left: (subscript_expression index: _ @mutated.id))",
-            "(update_expression argument: (identifier) @mutated.id)",
-            "(update_expression argument: (member_expression property: (property_identifier) @mutated.id))"
-        );
+        String mutationQueryStr = """
+            (assignment_expression left: (identifier) @mutated.id)
+            (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+            (assignment_expression left: (subscript_expression index: _ @mutated.id))
+            (update_expression argument: (identifier) @mutated.id)
+            (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+            """.stripIndent();
 
         // TSLanguage and TSQuery are not AutoCloseable.
         TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance

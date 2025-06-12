@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk.context;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.annotation.JsonTypeInfo.As;
-import com.fasterxml.jackson.annotation.JsonTypeInfo.Id;
 
 import java.util.List;
 import java.util.Map;
@@ -17,7 +15,7 @@ public class FragmentDtos {
      * Common marker interface for DTOs that can be referenced in editable/readonly lists.
      * This helps Jackson with polymorphic deserialization into List<ReferencedFragmentDto>.
      */
-    @JsonTypeInfo(use = Id.CLASS, include = As.PROPERTY, property = "@class") // Using @class to avoid conflict with "type" from Path/Virtual
+    @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "@class") // Using @class to avoid conflict with "type" from Path/Virtual
     public sealed interface ReferencedFragmentDto permits PathFragmentDto, FrozenFragmentDto {
         String id();
     }
@@ -26,7 +24,7 @@ public class FragmentDtos {
     /**
      * Sealed interface for path-based fragments (files).
      */
-    @JsonTypeInfo(use = Id.CLASS, include = As.PROPERTY, property = "type")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "type")
     // PathFragmentDto now also implements ReferencedFragmentDto
     public sealed interface PathFragmentDto extends ReferencedFragmentDto permits ProjectFileDto, ExternalFileDto, ImageFileDto, GitFileFragmentDto {
     }
@@ -34,7 +32,7 @@ public class FragmentDtos {
     /**
      * Sealed interface for virtual fragments (non-file content).
      */
-    @JsonTypeInfo(use = Id.CLASS, include = As.PROPERTY, property = "type")
+    @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "type")
     // Note: FrozenFragmentDto implements ReferencedFragmentDto directly, not necessarily through VirtualFragmentDto for this specific list purpose
     public sealed interface VirtualFragmentDto permits TaskFragmentDto, StringFragmentDto, SearchFragmentDto, SkeletonFragmentDto, UsageFragmentDto, PasteTextFragmentDto, PasteImageFragmentDto, StacktraceFragmentDto, CallGraphFragmentDto, HistoryFragmentDto, FrozenFragmentDto {
         String id();

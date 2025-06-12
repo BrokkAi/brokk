@@ -481,6 +481,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return instructionsPanel.getInstructions();
     }
 
+    @Override
     public void disableActionButtons() {
         instructionsPanel.disableButtons();
         if (gitPanel != null) {
@@ -488,6 +489,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public void enableActionButtons() {
         instructionsPanel.enableButtons();
         if (gitPanel != null) {
@@ -495,12 +497,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public void updateCommitPanel() {
         if (gitPanel != null) {
             gitPanel.updateCommitPanel();
         }
     }
 
+    @Override
     public void updateGitRepo() {
         if (gitPanel != null) {
             gitPanel.updateRepo();
@@ -577,7 +581,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void systemOutputInternal(String message) {
         SwingUtilities.invokeLater(() -> {
             // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+            String timestamp = java.time.LocalTime.now(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
             String timestampedMessage = timestamp + ": " + message;
 
             // Add to messages list
@@ -902,14 +906,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
                     var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
-                    var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
+                    var imagePanel = new PreviewImagePanel(null);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);
                     return;
                 }
                 if (workingFragment.getType() == ContextFragment.FragmentType.IMAGE_FILE) {
                     var iff = (ContextFragment.ImageFileFragment) workingFragment;
-                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file(), themeManager);
+                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file());
                     return;
                 }
             }
@@ -1100,11 +1104,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    @Override
     public void updateContextHistoryTable() {
         Context selectedContext = contextManager.selectedContext();
         updateContextHistoryTable(selectedContext);
     }
 
+    @Override
     public void updateContextHistoryTable(Context contextToSelect) {
             historyOutputPanel.updateHistoryTable(contextToSelect);
     }
@@ -1133,6 +1139,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Shows the inline loading spinner in the output panel.
      */
+    @Override
     public void showOutputSpinner(String message) {
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.showSpinner(message);
@@ -1142,6 +1149,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Hides the inline loading spinner in the output panel.
      */
+    @Override
     public void hideOutputSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.hideSpinner();
@@ -1169,6 +1177,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightVerticalSplitPane.repaint();
     }
 
+    @Override
     public void updateWorkspace() {
         workspacePanel.updateContextTable();
     }
@@ -1191,6 +1200,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public InstructionsPanel getInstructionsPanel() {
         return instructionsPanel;
     }
@@ -1404,6 +1414,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Disables the history panel via HistoryOutputPanel.
      */
+    @Override
     public void disableHistoryPanel() {
         historyOutputPanel.disableHistory();
     }
@@ -1411,6 +1422,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Enables the history panel via HistoryOutputPanel.
      */
+    @Override
     public void enableHistoryPanel() {
         historyOutputPanel.enableHistory();
     }
@@ -1420,6 +1432,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      *
      * @param blocked true to prevent clear/reset operations, false to allow them
      */
+    @Override
     public void blockLlmOutput(boolean blocked) {
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {

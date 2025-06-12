@@ -118,6 +118,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final List<String> loadTextHistory() {
         try {
             String json = workspaceProps.getProperty("textHistory");
@@ -189,6 +190,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         return result;
     }
 
+    @Override
     public final Optional<Rectangle> getMainWindowBounds() {
         var bounds = getWindowBounds("mainFrame", 0, 0);
         if (bounds.x == -1 && bounds.y == -1) {
@@ -197,34 +199,42 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         return Optional.of(bounds);
     }
 
+    @Override
     public final Rectangle getPreviewWindowBounds() {
         return getWindowBounds("previewFrame", 600, 400);
     }
 
+    @Override
     public final Rectangle getDiffWindowBounds() {
         return getWindowBounds("diffFrame", 900, 600);
     }
 
+    @Override
     public final Rectangle getOutputWindowBounds() {
         return getWindowBounds("outputFrame", 800, 600);
     }
 
+    @Override
     public final void saveMainWindowBounds(JFrame window) {
         saveWindowBounds("mainFrame", window);
     }
 
+    @Override
     public final void savePreviewWindowBounds(JFrame window) {
         saveWindowBounds("previewFrame", window);
     }
 
+    @Override
     public final void saveDiffWindowBounds(JFrame frame) {
         saveWindowBounds("diffFrame", frame);
     }
 
+    @Override
     public final void saveOutputWindowBounds(JFrame frame) {
         saveWindowBounds("outputFrame", frame);
     }
 
+    @Override
     public final void saveHorizontalSplitPosition(int position) {
         if (position > 0) {
             workspaceProps.setProperty("horizontalSplitPosition", String.valueOf(position));
@@ -232,6 +242,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final int getHorizontalSplitPosition() {
         try {
             String posStr = workspaceProps.getProperty("horizontalSplitPosition");
@@ -241,6 +252,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final void saveRightVerticalSplitPosition(int position) {
         if (position > 0) {
             workspaceProps.setProperty("rightVerticalSplitPosition", String.valueOf(position));
@@ -248,6 +260,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final int getRightVerticalSplitPosition() {
         try {
             String posStr = workspaceProps.getProperty("rightVerticalSplitPosition");
@@ -257,6 +270,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final void saveLeftVerticalSplitPosition(int position) {
         if (position > 0) {
             workspaceProps.setProperty("leftVerticalSplitPosition", String.valueOf(position));
@@ -264,6 +278,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
+    @Override
     public final int getLeftVerticalSplitPosition() {
         try {
             String posStr = workspaceProps.getProperty("leftVerticalSplitPosition");
