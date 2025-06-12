@@ -874,16 +874,18 @@ public class GitCommitBrowserPanel extends JPanel {
 
             if (this.options.showPushPullButtons()) {
                 var pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
-                java.awt.event.ActionListener pullListener = (canPull && !isStashView && !isRemoteBranchView)
+                boolean pullEnabled = canPull && !isStashView && !isSearchView && !isRemoteBranchView;
+                java.awt.event.ActionListener pullListener = pullEnabled
                         ? e -> pullBranchInternal(activeBranchOrContextName)
                         : null;
-                configureButton(pullButton, canPull, !isStashView && !isSearchView && !isRemoteBranchView, pullTooltip, pullListener);
+                configureButton(pullButton, pullEnabled, pullTooltip, pullListener);
 
                 var pushTooltip = canPush ? "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName : "Nothing to push or no upstream for " + activeBranchOrContextName;
-                java.awt.event.ActionListener pushListener = (canPush && !isStashView && !isRemoteBranchView)
+                boolean pushEnabled = canPush && !isStashView && !isSearchView && !isRemoteBranchView;
+                java.awt.event.ActionListener pushListener = pushEnabled
                         ? e -> pushBranchInternal(activeBranchOrContextName)
                         : null;
-                configureButton(pushButton, canPush, !isStashView && !isSearchView && !isRemoteBranchView, pushTooltip, pushListener);
+                configureButton(pushButton, pushEnabled, pushTooltip, pushListener);
             }
 
             if (commitRows.isEmpty()) {
@@ -1018,9 +1020,10 @@ public class GitCommitBrowserPanel extends JPanel {
         return groups;
     }
 
-    private void configureButton(JButton button, boolean enabled, boolean visible, String tooltip, java.awt.event.ActionListener listener) {
+    private void configureButton(JButton button, boolean enabled, String tooltip, java.awt.event.ActionListener listener) {
         button.setEnabled(enabled);
-        button.setVisible(visible);
+        // Visibility is now controlled at a higher level (when adding to panel)
+        // and should not be changed here if options.showPushPullButtons is true.
         button.setToolTipText(tooltip);
         for (var l : button.getActionListeners()) {
             button.removeActionListener(l);
