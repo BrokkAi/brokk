@@ -178,20 +178,25 @@ public class CreatePullRequestDialog extends JDialog {
                     commits = Collections.emptyList();
                 }
                 List<CommitInfo> finalCommits = commits;
-                // GitRepo does not yet expose an API for computing the file list
-                // changed between two branches.  Leave the table empty for now.
-                List<GitRepo.ModifiedFile> changedFiles = List.of();
+                List<GitRepo.ModifiedFile> changedFiles;
+                if (repo instanceof GitRepo gitRepo) {
+                    changedFiles = gitRepo.listFilesChangedBetweenBranches(sourceBranch, targetBranch);
+                } else {
+                    changedFiles = Collections.emptyList();
+                }
+                List<GitRepo.ModifiedFile> finalChangedFiles = changedFiles == null ? List.of() : changedFiles;
+
 
                 SwingUtilities.invokeLater(() -> {
                     this.currentCommits = finalCommits;
                     commitBrowserPanel.setCommits(finalCommits, Set.of(), false, false, contextName);
-                    fileStatusTable.setFiles(changedFiles);
+                    fileStatusTable.setFiles(finalChangedFiles);
                     if (this.flowUpdater != null) this.flowUpdater.run();
                     updateCreatePrButtonState();
                 });
                 return commits;
             } catch (Exception e) {
-                logger.error("Error fetching commits for " + contextName, e);
+                logger.error("Error fetching commits or changed files for " + contextName, e);
                 SwingUtilities.invokeLater(() -> {
                     this.currentCommits = Collections.emptyList();
                     commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)");

@@ -1,14 +1,13 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
-// StashInfo removed
-import org.eclipse.jgit.transport.PushResult;
-import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -19,10 +18,12 @@ import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 
@@ -31,16 +32,11 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.FileVisitResult;
-import java.nio.file.SimpleFileVisitor;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import io.github.jbellis.brokk.util.Environment;
 
 /**
  * A Git repository abstraction using JGit.
@@ -1478,6 +1474,28 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Computes the merge base of two commits.
+     */
+    private ObjectId computeMergeBase(ObjectId firstId, ObjectId secondId) throws GitAPIException {
+        if (firstId == null || secondId == null) {
+            return null;
+        }
+        try (RevWalk walk = new RevWalk(repository)) {
+            RevCommit firstCommit = walk.parseCommit(firstId);
+            RevCommit secondCommit = walk.parseCommit(secondId);
+
+            walk.reset(); // Reset before setting new filter and marking starts
+            walk.setRevFilter(RevFilter.MERGE_BASE);
+            walk.markStart(firstCommit);
+            walk.markStart(secondCommit);
+            RevCommit mergeBase = walk.next();
+            return mergeBase != null ? mergeBase.getId() : null;
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+    }
+
+    /**
      * Lists all worktrees in the repository.
      */
     @Override
@@ -1739,25 +1757,19 @@ public class GitRepo implements Closeable, IGitRepo {
             } else {
                 // Original logic for "target..source"
                 if (targetCommit != null) {
-                    // Find merge base
-                    RevWalk mergeBaseWalk = new RevWalk(repository); // Use a new RevWalk for merge-base to not interfere
-                    try {
-                        mergeBaseWalk.setRevFilter(RevFilter.MERGE_BASE);
-                        mergeBaseWalk.markStart(sourceCommit);
-                        mergeBaseWalk.markStart(targetCommit);
-                        RevCommit mergeBase = mergeBaseWalk.next();
-
-                        if (mergeBase != null) {
-                            revWalk.markUninteresting(mergeBase);
-                        } else {
-                            // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
-                            // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
-                            logger.warn("No common merge base found between {} and {}. Listing commits from {} not on {}.",
-                                        sourceBranchName, targetBranchName, sourceBranchName, targetBranchName);
-                            revWalk.markUninteresting(targetCommit);
-                        }
-                    } finally {
-                        mergeBaseWalk.dispose();
+                    ObjectId mergeBaseId = computeMergeBase(sourceCommit.getId(), targetCommit.getId());
+                    if (mergeBaseId != null) {
+                        // The RevCommit must be parsed by this revWalk instance to be used by it
+                        RevCommit mergeBaseForRevWalk = revWalk.parseCommit(mergeBaseId);
+                        revWalk.markUninteresting(mergeBaseForRevWalk);
+                    } else {
+                        // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
+                        // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
+                        logger.warn("No common merge base found between {} ({}) and {} ({}). Listing commits from {} not on {}.",
+                                    sourceBranchName, sourceCommit.getName(),
+                                    targetBranchName, targetCommit.getName(),
+                                    sourceBranchName, targetBranchName);
+                        revWalk.markUninteresting(targetCommit);
                     }
                 } else {
                     logger.warn("Target branch {} could not be resolved. Listing all commits from source branch {}.",
@@ -1775,6 +1787,107 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitWrappedIOException(e);
         }
         return commits;
+    }
+
+    /**
+     * Lists files changed between two branches, specifically the changes introduced on the source branch
+     * since it diverged from the target branch.
+     */
+    public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
+            throws GitAPIException {
+        ObjectId sourceHeadId = resolve(sourceBranch);
+        if (sourceHeadId == null) {
+            logger.warn("Source branch '{}' could not be resolved. Returning empty list of changed files.", sourceBranch);
+            return List.of();
+        }
+
+        ObjectId targetHeadId = resolve(targetBranch); // Can be null if target branch doesn't exist
+        logger.debug("Resolved source branch '{}' to {}, target branch '{}' to {}",
+                     sourceBranch, sourceHeadId, targetBranch, targetHeadId == null ? "null" : targetHeadId);
+
+
+        ObjectId mergeBaseId = computeMergeBase(sourceHeadId, targetHeadId);
+
+        if (mergeBaseId == null) {
+            // If no common ancestor is found (e.g., unrelated histories, one branch is new, or one head was null),
+            // use the target's head as the base. If targetHeadId is also null (target branch doesn't exist),
+            // mergeBaseId will remain null, leading to a diff against an empty tree.
+            logger.debug("No common merge base computed for source {} ({}) and target {} ({}). " +
+                         "Falling back to target head {}.",
+                         sourceBranch, sourceHeadId, targetBranch, targetHeadId,
+                         targetHeadId == null ? "null" : targetHeadId);
+            mergeBaseId = targetHeadId;
+        }
+        logger.debug("Effective merge base for diffing {} ({}) against {} ({}) is {}",
+                     sourceBranch, sourceHeadId, targetBranch, targetHeadId,
+                     mergeBaseId == null ? "null (empty tree)" : mergeBaseId);
+
+
+        var modifiedFiles = new ArrayList<ModifiedFile>();
+
+        try (RevWalk revWalk = new RevWalk(repository);
+             // DiffFormatter output stream is not used for file listing but is required by constructor
+             DiffFormatter diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
+            diffFormatter.setRepository(repository);
+            diffFormatter.setDetectRenames(true); // Enable rename detection
+
+            RevCommit sourceCommit = revWalk.parseCommit(sourceHeadId);
+            RevTree newTree = sourceCommit.getTree();
+            try (var reader = repository.newObjectReader()) {
+                var newTreeParser = new CanonicalTreeParser(null, reader, newTree);
+
+                AbstractTreeIterator oldTreeParser;
+                if (mergeBaseId == null) {
+                    // If mergeBaseId is null (e.g., target branch doesn't exist or no common ancestor and target was null),
+                    // diff source against an empty tree. This shows all files in source as new.
+                    oldTreeParser = new EmptyTreeIterator();
+                } else {
+                    RevCommit mergeBaseCommit = revWalk.parseCommit(mergeBaseId);
+                    RevTree oldTree = mergeBaseCommit.getTree();
+                    // oldTreeParser needs its own reader, or ensure the existing reader is used correctly
+                    try (var oldTreeReader = repository.newObjectReader()) {
+                         oldTreeParser = new CanonicalTreeParser(null, oldTreeReader, oldTree);
+                    }
+                }
+
+                List<DiffEntry> diffs = diffFormatter.scan(oldTreeParser, newTreeParser);
+
+                for (var entry : diffs) {
+                    // Skip /dev/null paths, which can appear for add/delete of binary files or certain modes
+                    // Handled by only using relevant paths (getOldPath for DELETE, getNewPath for ADD/COPY/MODIFY/RENAME's new side)
+                    // and relying on toProjectFile which would inherently handle or error on /dev/null if it were a real project path.
+                    // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
+
+                    switch (entry.getChangeType()) {
+                        case ADD:
+                        case COPY:
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "new"));
+                            break;
+                        case MODIFY:
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "modified"));
+                            break;
+                        case DELETE:
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
+                            break;
+                        case RENAME:
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "new"));
+                            break;
+                        default:
+                            logger.warn("Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
+                                        entry.getChangeType(), entry.getOldPath(), entry.getNewPath());
+                            break;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+
+        // Sort for consistent UI presentation
+        modifiedFiles.sort(Comparator.comparing(mf -> mf.file().toString()));
+        logger.debug("Found {} files changed between {} and {}: {}", modifiedFiles.size(), sourceBranch, targetBranch, modifiedFiles);
+        return modifiedFiles;
     }
 
     @Override
