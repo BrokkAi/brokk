@@ -36,6 +36,11 @@ public class GitCommitBrowserPanel extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final CommitContextReloader reloader;
+    private final Options options;
+
+    public static record Options(boolean showSearch, boolean showPushPullButtons) {
+        public static final Options DEFAULT = new Options(true, true);
+    }
 
     @FunctionalInterface
     public interface CommitContextReloader {
@@ -71,12 +76,17 @@ public class GitCommitBrowserPanel extends JPanel {
     private String currentBranchOrContextName; // Used by push/pull actions
 
 
-    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
+    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader, Options options) {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.reloader = reloader;
+        this.options = Objects.requireNonNullElse(options, Options.DEFAULT);
         buildCommitBrowserUI();
+    }
+
+    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
+        this(chrome, contextManager, reloader, Options.DEFAULT);
     }
 
     private void buildCommitBrowserUI() {
@@ -105,41 +115,50 @@ public class GitCommitBrowserPanel extends JPanel {
         JPanel commitsPanel = new JPanel(new BorderLayout());
         commitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
 
-        JPanel commitSearchInputPanel = new JPanel(new BorderLayout(5, 0));
-        commitSearchInputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
-        commitSearchTextField = new JTextField();
-        commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
+        if (this.options.showSearch()) {
+            JPanel commitSearchInputPanel = new JPanel(new BorderLayout(5, 0));
+            commitSearchInputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+            commitSearchTextField = new JTextField();
+            commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
 
-        JButton commitSearchButton = new JButton("Search");
-        Runnable searchAction = () -> {
-            String query = commitSearchTextField.getText().trim();
-            if (!query.isEmpty()) {
-                searchCommitsInPanel(query);
-            } else {
-                reloader.reloadCurrentContext();
-            }
-        };
+            JButton commitSearchButton = new JButton("Search");
+            Runnable searchAction = () -> {
+                String query = commitSearchTextField.getText().trim();
+                if (!query.isEmpty()) {
+                    searchCommitsInPanel(query);
+                } else {
+                    reloader.reloadCurrentContext();
+                }
+            };
 
-        commitSearchButton.addActionListener(e -> searchAction.run());
-        commitSearchTextField.addActionListener(e -> searchAction.run());
+            commitSearchButton.addActionListener(e -> searchAction.run());
+            commitSearchTextField.addActionListener(e -> searchAction.run());
 
-        commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
-        commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
+            commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
+            commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
+        } else {
+            commitSearchTextField = new JTextField(); // Keep it initialized to avoid NPEs if accessed
+            commitSearchTextField.setVisible(false);
+        }
 
         setupCommitsTable();
         commitsPanel.add(new JScrollPane(commitsTable), BorderLayout.CENTER);
 
-        JPanel commitsPanelButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        // Initialize buttons as they are class members and might be accessed by configureButton
         pullButton = new JButton("Pull");
         pullButton.setToolTipText("Pull changes from remote repository");
         pullButton.setEnabled(false);
-        commitsPanelButtons.add(pullButton);
 
         pushButton = new JButton("Push");
         pushButton.setToolTipText("Push commits to remote repository");
         pushButton.setEnabled(false);
-        commitsPanelButtons.add(pushButton);
-        commitsPanel.add(commitsPanelButtons, BorderLayout.SOUTH);
+
+        if (this.options.showPushPullButtons()) {
+            JPanel commitsPanelButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            commitsPanelButtons.add(pullButton);
+            commitsPanelButtons.add(pushButton);
+            commitsPanel.add(commitsPanelButtons, BorderLayout.SOUTH);
+        }
 
         return commitsPanel;
     }
@@ -821,9 +840,13 @@ public class GitCommitBrowserPanel extends JPanel {
             changesTreeModel.reload();
             revisionTextLabel.setText("Revision:");
             revisionIdTextArea.setText("N/A");
-            pullButton.setEnabled(false);
-            pushButton.setEnabled(false);
-            commitSearchTextField.setText("");
+            if (this.options.showPushPullButtons()) {
+                pullButton.setEnabled(false);
+                pushButton.setEnabled(false);
+            }
+            if (this.options.showSearch() && commitSearchTextField != null) {
+                commitSearchTextField.setText("");
+            }
         });
     }
 
@@ -849,17 +872,19 @@ public class GitCommitBrowserPanel extends JPanel {
             boolean isSearchView = activeBranchOrContextName != null && activeBranchOrContextName.startsWith("Search:"); // boolean preferred by style guide
             boolean isRemoteBranchView = activeBranchOrContextName != null && activeBranchOrContextName.contains("/"); // boolean preferred by style guide
 
-            var pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
-            java.awt.event.ActionListener pullListener = (canPull && !isStashView && !isRemoteBranchView)
-                                                       ? e -> pullBranchInternal(activeBranchOrContextName)
-                                                       : null;
-            configureButton(pullButton, canPull, !isStashView && !isSearchView, pullTooltip, pullListener);
-            
-            var pushTooltip = canPush ? "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName : "Nothing to push or no upstream for " + activeBranchOrContextName;
-            java.awt.event.ActionListener pushListener = (canPush && !isStashView && !isRemoteBranchView)
-                                                        ? e -> pushBranchInternal(activeBranchOrContextName)
-                                                        : null;
-            configureButton(pushButton, canPush, !isStashView && !isSearchView, pushTooltip, pushListener);
+            if (this.options.showPushPullButtons()) {
+                var pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
+                java.awt.event.ActionListener pullListener = (canPull && !isStashView && !isRemoteBranchView)
+                        ? e -> pullBranchInternal(activeBranchOrContextName)
+                        : null;
+                configureButton(pullButton, canPull, !isStashView && !isSearchView && !isRemoteBranchView, pullTooltip, pullListener);
+
+                var pushTooltip = canPush ? "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName : "Nothing to push or no upstream for " + activeBranchOrContextName;
+                java.awt.event.ActionListener pushListener = (canPush && !isStashView && !isRemoteBranchView)
+                        ? e -> pushBranchInternal(activeBranchOrContextName)
+                        : null;
+                configureButton(pushButton, canPush, !isStashView && !isSearchView && !isRemoteBranchView, pushTooltip, pushListener);
+            }
 
             if (commitRows.isEmpty()) {
                 revisionTextLabel.setText("Revision:");

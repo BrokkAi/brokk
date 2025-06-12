@@ -44,9 +44,10 @@ public class CreatePullRequestDialog extends JDialog {
         add(branchSelectorPanel, BorderLayout.NORTH);
 
         // Commit browser panel
+        var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false);
         commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> {
             // No-op reloader for now, will be wired up later
-        });
+        }, commitBrowserOptions);
 
         // Button panel
         var buttonPanel = createButtonPanel();
