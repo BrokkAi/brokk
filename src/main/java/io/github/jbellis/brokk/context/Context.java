@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
@@ -42,6 +43,7 @@ public class Context {
     final List<TaskEntry> taskHistory;
 
     /** LLM output or other parsed content, with optional fragment. May be null */
+    @Nullable
     transient final ContextFragment.TaskFragment parsedOutput;
 
     /** description of the action that created this context, can be a future (like PasteFragment) */
@@ -70,7 +72,7 @@ public class Context {
             List<ContextFragment> readonlyFiles,
             List<ContextFragment.VirtualFragment> virtualFragments,
             List<TaskEntry> taskHistory,
-            ContextFragment.TaskFragment parsedOutput,
+            @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action)
     {
         // contextManager is asserted non-null by the caller or public constructor
@@ -489,7 +491,7 @@ public class Context {
      * @param action           A future describing the action that created this history entry.
      * @return A new Context instance with the added task history.
      */
-    public Context addHistoryEntry(TaskEntry taskEntry, ContextFragment.TaskFragment parsed, Future<String> action) {
+    public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragment.TaskFragment parsed, Future<String> action) {
         var newTaskHistory = Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         return new Context(contextManager,
                            editableFiles,
@@ -562,7 +564,7 @@ public class Context {
         return result;
     }
 
-    public Context withParsedOutput(ContextFragment.TaskFragment parsedOutput, Future<String> action) {
+    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, Future<String> action) {
         return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
@@ -572,7 +574,7 @@ public class Context {
                            action);
     }
 
-    public Context withParsedOutput(ContextFragment.TaskFragment parsedOutput, String action) {
+    public Context withParsedOutput(@Nullable ContextFragment.TaskFragment parsedOutput, String action) {
         return new Context(contextManager,
                            editableFiles,
                            readonlyFiles,
@@ -609,6 +611,7 @@ public class Context {
                            CompletableFuture.completedFuture("Compressed History"));
     }
 
+    @Nullable
     public ContextFragment.TaskFragment getParsedOutput() {
         return parsedOutput;
     }

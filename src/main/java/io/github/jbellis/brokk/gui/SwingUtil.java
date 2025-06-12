@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.Component;
@@ -65,7 +66,7 @@ public class SwingUtil {
         }
     }
 
-    private static Icon loadUIIcon(String iconKey) {
+    private static @Nullable Icon loadUIIcon(@Nullable String iconKey) {
         if (iconKey == null || iconKey.trim().isEmpty()) {
             return null;
         }
@@ -91,7 +92,7 @@ public class SwingUtil {
      *
      * @param iconKey The UIManager key for the desired icon (e.g., "FileView.directoryIcon")
      */
-    public static Icon uiIcon(String iconKey) {
+    public static @Nullable Icon uiIcon(String iconKey) {
         // Try primary icon first
         var icon = loadUIIcon(iconKey);
         if (icon != null) {

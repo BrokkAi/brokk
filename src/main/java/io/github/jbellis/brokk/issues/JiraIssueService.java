@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.IProject;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.net.URI;
@@ -32,7 +33,8 @@ public class JiraIssueService implements IssueService {
         this.jiraAuth = new JiraAuth(project);
     }
 
-    private Date parseJiraDateTime(String dateTimeStr) {
+    @Nullable
+    private Date parseJiraDateTime(@Nullable String dateTimeStr) {
         if (dateTimeStr == null || dateTimeStr.isBlank()) {
             return null;
         }
@@ -63,12 +65,6 @@ public class JiraIssueService implements IssueService {
         }
         logger.debug("Attempting to list Jira issues with filter options: {}", filterOptions);
 
-        if (project == null) {
-            String errorMessage = "Project is null, cannot list Jira issues.";
-            logger.error(errorMessage);
-            throw new IOException(errorMessage);
-        }
-
         io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
             String errorMessage = "JiraIssueService called with non-Jira or misconfigured provider. Type: " + provider.type();
@@ -77,28 +73,23 @@ public class JiraIssueService implements IssueService {
         }
 
         String baseUrl = jiraConfig.baseUrl();
-        if (baseUrl == null || baseUrl.isBlank()) {
-            logger.error("Jira base URL is not configured in JiraConfig. Cannot list issues.");
-            return ImmutableList.of();
-        }
-
         OkHttpClient client = this.httpClient(); // httpClient already uses the provider
 
         String projectKey = jiraConfig.projectKey();
-        if (projectKey == null || projectKey.isBlank()) {
+        if (projectKey.isBlank()) {
             logger.warn("Jira project key not set in JiraConfig for project {}, defaulting to 'CASSANDRA' for JQL query.", project.getRoot().getFileName());
             projectKey = "CASSANDRA"; // Fallback for testing as per goal
         }
 
         String statusClause = "";
-        if (filterOptions != null && filterOptions.status() != null && !filterOptions.status().isBlank()) {
+        if (filterOptions.status().isBlank()) {
             // Escape double quotes in status value for JQL compatibility, though typically status names don't have them.
             String escapedStatus = filterOptions.status().replace("\"", "\\\"");
             statusClause = String.format(" AND status = \"%s\"", escapedStatus);
         }
 
         String resolutionClause = "";
-        if (filterOptions.resolution() != null && !filterOptions.resolution().isBlank()) {
+        if (!filterOptions.resolution().isBlank()) {
             if ("Resolved".equalsIgnoreCase(filterOptions.resolution())) {
                 resolutionClause = " AND resolution IS NOT EMPTY";
             } else if ("Unresolved".equalsIgnoreCase(filterOptions.resolution())) {
@@ -109,7 +100,7 @@ public class JiraIssueService implements IssueService {
 
         StringBuilder jqlBuilder = new StringBuilder(String.format("project = %s%s%s", projectKey, statusClause, resolutionClause));
 
-        if (filterOptions.query() != null && !filterOptions.query().isBlank()) {
+        if (!filterOptions.query().isBlank()) {
             String queryText = filterOptions.query();
             String escapedQuery = queryText.replace("\\", "\\\\").replace("\"", "\\\"");
             jqlBuilder.append(String.format(" AND text ~ \"%s\"", escapedQuery));
@@ -148,7 +139,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response from Jira for listIssues but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              contentType, request.url(), responseBodyString);
                 return ImmutableList.of();
@@ -208,10 +199,6 @@ public class JiraIssueService implements IssueService {
     public IssueDetails loadDetails(String issueId) throws IOException {
         logger.debug("Attempting to load Jira issue details for issueId: {}", issueId);
 
-        if (issueId == null || issueId.isBlank()) {
-            throw new IOException("Issue ID cannot be null or blank.");
-        }
-
         if (project == null) {
             String errorMessage = "Project is null, cannot load Jira issue details.";
             logger.error(errorMessage);
@@ -226,7 +213,7 @@ public class JiraIssueService implements IssueService {
         }
 
         String baseUrl = jiraConfig.baseUrl();
-        if (baseUrl == null || baseUrl.isBlank()) {
+        if (baseUrl.isBlank()) {
             String errorMessage = "Jira base URL is not configured in JiraConfig. Cannot load issue details.";
             logger.error(errorMessage);
             throw new IOException(errorMessage);
@@ -260,7 +247,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response for Jira issue details {} but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              issueId, contentType, request.url(), responseBodyString);
                 throw new IOException("Expected JSON response for Jira issue " + issueId + " but received Content-Type: " + contentType);
@@ -384,12 +371,6 @@ public class JiraIssueService implements IssueService {
         }
 
         logger.debug("Fetching available statuses from Jira API.");
-        if (project == null) {
-            String errorMessage = "Project is null, cannot list Jira statuses.";
-            logger.error(errorMessage);
-            throw new IOException(errorMessage);
-        }
-
         io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
             String errorMessage = "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: " + provider.type();
@@ -398,11 +379,6 @@ public class JiraIssueService implements IssueService {
         }
 
         String baseUrl = jiraConfig.baseUrl();
-        if (baseUrl == null || baseUrl.isBlank()) {
-            logger.error("Jira base URL is not configured in JiraConfig. Cannot fetch statuses.");
-            return Collections.emptyList();
-        }
-
         OkHttpClient client = httpClient(); // httpClient already uses the provider
         HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + "/rest/api/2/status").newBuilder();
         Request request = new Request.Builder()
@@ -427,7 +403,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response from Jira for /status but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              contentType, request.url(), responseBodyString);
                 return Collections.emptyList();

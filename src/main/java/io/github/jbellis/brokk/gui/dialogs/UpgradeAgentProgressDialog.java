@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import dev.langchain4j.data.message.ChatMessage;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -33,7 +34,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
     private ExecutorService executorService; // Moved here for wider access
 
 
-    private record ProgressData(String fileName, String errorMessage) {}
+    private record ProgressData(String fileName, @Nullable String errorMessage) {}
 
     public UpgradeAgentProgressDialog(Frame owner,
                                       String instructions,

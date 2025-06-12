@@ -242,10 +242,6 @@ public class GitHistoryTab extends JPanel {
      * Returns the current GitRepo from ContextManager.
      */
     private GitRepo getRepo() {
-        var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            logger.error("getRepo() returned null - no Git repository available");
-        }
-        return (GitRepo) repo;
+        return (GitRepo) contextManager.getProject().getRepo();
     }
 }

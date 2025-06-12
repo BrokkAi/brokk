@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A selection dialog that presents a tabbed interface for selecting
@@ -37,7 +38,7 @@ public class MultiFileSelectionDialog extends JDialog {
         FILES, CLASSES
     }
 
-    public record Selection(List<BrokkFile> files, List<CodeUnit> classes) {
+    public record Selection(@Nullable List<BrokkFile> files, @Nullable List<CodeUnit> classes) {
         public boolean isEmpty() {
             return (files == null || files.isEmpty()) && (classes == null || classes.isEmpty());
         }
@@ -353,7 +354,7 @@ public class MultiFileSelectionDialog extends JDialog {
      */
     private List<String> splitQuotedString(String input) {
         List<String> tokens = new ArrayList<>();
-        if (input == null || input.isBlank()) return tokens;
+        if (input.isBlank()) return tokens;
         StringBuilder currentToken = new StringBuilder();
         boolean inQuotes = false;
         for (int i = 0; i < input.length(); i++) {
@@ -380,6 +381,7 @@ public class MultiFileSelectionDialog extends JDialog {
         return confirmed;
     }
 
+    @Nullable
     public Selection getSelection() {
         return selectionResult;
     }

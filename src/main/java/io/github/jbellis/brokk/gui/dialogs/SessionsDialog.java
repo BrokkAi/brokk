@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -46,7 +47,7 @@ public class SessionsDialog extends JDialog {
     private WorkspacePanel workspacePanel;
     private MarkdownOutputPanel markdownOutputPanel;
     private JScrollPane markdownScrollPane;
-    private Context selectedActivityContext;
+    private @Nullable Context selectedActivityContext;
 
     public SessionsDialog(HistoryOutputPanel historyOutputPanel, Chrome chrome, ContextManager contextManager) {
         super(chrome.getFrame(), "Manage Sessions", true);
@@ -82,9 +83,7 @@ public class SessionsDialog extends JDialog {
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
                     MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
-                    if (sessionInfo != null) {
-                        return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
-                    }
+                    return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
                 }
                 return super.getToolTipText(event);
             }
@@ -124,9 +123,7 @@ public class SessionsDialog extends JDialog {
                                                           boolean isSelected, boolean hasFocus, int row, int column) {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
-                if (value != null) {
-                    label.setToolTipText(value.toString());
-                }
+                label.setToolTipText(value.toString());
                 return label;
             }
         });
@@ -145,7 +142,7 @@ public class SessionsDialog extends JDialog {
                     label.setText("");
                 } else {
                     label.setIcon(null);
-                    label.setText(value != null ? value.toString() : "");
+                    label.setText(value.toString());
                 }
                 label.setHorizontalAlignment(JLabel.CENTER);
 
@@ -257,9 +254,7 @@ public class SessionsDialog extends JDialog {
                 int row = activityTable.getSelectedRow();
                 if (row >= 0 && row < activityTable.getRowCount()) {
                     selectedActivityContext = (Context) activityTableModel.getValueAt(row, 2);
-                    if (selectedActivityContext != null) {
-                        updatePreviewPanels(selectedActivityContext);
-                    }
+                    updatePreviewPanels(selectedActivityContext);
                 } else {
                     clearPreviewPanels();
                 }
@@ -332,7 +327,7 @@ public class SessionsDialog extends JDialog {
     private void populateActivityTable(ContextHistory history) {
         activityTableModel.setRowCount(0);
 
-        if (history == null || history.getHistory().isEmpty()) {
+        if (history.getHistory().isEmpty()) {
             return;
         }
 

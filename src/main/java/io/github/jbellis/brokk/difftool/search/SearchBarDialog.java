@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.search;
 
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
@@ -8,6 +7,7 @@ import io.github.jbellis.brokk.gui.search.SearchBarPanel;
 import io.github.jbellis.brokk.gui.search.SearchCallback;
 import io.github.jbellis.brokk.gui.search.SearchCommand;
 import io.github.jbellis.brokk.gui.search.SearchResults;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
@@ -16,7 +16,7 @@ import javax.swing.*;
  */
 public class SearchBarDialog extends JPanel implements SearchCallback {
     private final BufferDiffPanel bufferDiffPanel;
-    private FilePanel filePanel;
+    private @Nullable FilePanel filePanel;
     private final SearchBarPanel searchBarPanel;
 
     public SearchBarDialog(BrokkDiffPanel brokkDiffPanel, BufferDiffPanel bufferDiffPanel) {
@@ -32,7 +32,7 @@ public class SearchBarDialog extends JPanel implements SearchCallback {
     private void init() {
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         add(searchBarPanel);
-        
+
         // Connect the external case sensitive checkbox to trigger search
         bufferDiffPanel.getCaseSensitiveCheckBox().addActionListener(e -> performSearch(getCommand()));
     }
@@ -48,12 +48,12 @@ public class SearchBarDialog extends JPanel implements SearchCallback {
         if (filePanel == null) {
             return SearchResults.noMatches();
         }
-        
+
         SearchHits searchHits = filePanel.doSearch();
-        if (searchHits == null || searchHits.getSearchHits().isEmpty()) {
+        if (searchHits.getSearchHits().isEmpty()) {
             return SearchResults.noMatches();
         }
-        
+
         // For now, we don't have detailed result navigation in the diff tool
         // Just return that we have matches
         return SearchResults.withMatches(searchHits.getSearchHits().size(), 1);

@@ -21,6 +21,7 @@ import java.util.Arrays;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
@@ -38,7 +39,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private GuiTheme guiTheme;
 
     // Instead of JMRevision:
+    @Nullable
     private Patch<String> patch; // from JMDiffNode
+    @Nullable
     private AbstractDelta<String> selectedDelta;
 
     private int selectedLine;
@@ -50,6 +53,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private FilePanel[] filePanels;
     private int filePanelSelectedIndex = -1;
 
+    @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
     private ScrollSynchronizer scrollSynchronizer;
     private JSplitPane splitPane;
@@ -64,12 +68,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         setFocusable(true);
     }
 
-    public void setDiffNode(JMDiffNode diffNode)
+    public void setDiffNode(@Nullable JMDiffNode diffNode)
     {
         this.diffNode = diffNode;
         refreshDiffNode();
     }
 
+    @Nullable
     public JMDiffNode getDiffNode()
     {
         return diffNode;
@@ -86,8 +91,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         BufferNode bnLeft = diffNode.getBufferNodeLeft();
         BufferNode bnRight = diffNode.getBufferNodeRight();
 
-        BufferDocumentIF leftDocument = (bnLeft != null ? bnLeft.getDocument() : null);
-        BufferDocumentIF rightDocument = (bnRight != null ? bnRight.getDocument() : null);
+        BufferDocumentIF leftDocument = bnLeft != null ? bnLeft.getDocument() : null;
+        BufferDocumentIF rightDocument = bnRight != null ? bnRight.getDocument() : null;
 
         // After calling diff() on JMDiffNode, we get patch from diffNode.getPatch():
         this.patch = diffNode.getPatch(); // new Patch or null
@@ -135,7 +140,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
     public String getTitle()
     {
-        if (diffNode != null && diffNode.getName() != null && !diffNode.getName().isBlank()) {
+        if (diffNode != null && !diffNode.getName().isBlank()) {
             return diffNode.getName();
         }
 
@@ -144,7 +149,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         for (var fp : filePanels) {
             if (fp == null) continue;
             var bd = fp.getBufferDocument();
-            if (bd != null && bd.getShortName() != null && !bd.getShortName().isBlank()) {
+            if (bd != null && !bd.getShortName().isBlank()) {
                 titles.add(bd.getShortName());
             }
         }
@@ -171,7 +176,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * The top-level UI for the left & right file panels plus the “diff scroll component”.
+     * The top-level UI for the left & right file panels plus the "diff scroll component".
      */
     private void init()
     {
@@ -286,14 +291,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     /**
      * We simply retrieve the patch from the node if needed.
      */
+    @Nullable
     public Patch<String> getPatch()
     {
         return patch;
     }
 
     /**
-     * Return whichever delta is considered “selected” in the UI.
+     * Return whichever delta is considered "selected" in the UI.
      */
+    @Nullable
     public AbstractDelta<String> getSelectedDelta()
     {
         return selectedDelta;
@@ -302,7 +309,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     /**
      * Called by `DiffScrollComponent` or `RevisionBar` to set which delta has been clicked.
      */
-    public void setSelectedDelta(AbstractDelta<String> newDelta)
+    public void setSelectedDelta(@Nullable AbstractDelta<String> newDelta)
     {
         this.selectedDelta = newDelta;
         setSelectedLine(newDelta != null ? newDelta.getSource().getPosition() : 0);
@@ -318,6 +325,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return selectedLine;
     }
 
+    @Nullable
     public FilePanel getFilePanel(int index)
     {
         if (filePanels == null) return null;
@@ -335,7 +343,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * Called by the top-level toolbar “Next” or “Previous” or by mouse wheel in DiffScrollComponent.
+     * Called by the top-level toolbar "Next" or "Previous" or by mouse wheel in DiffScrollComponent.
      */
     public void toNextDelta(boolean next)
     {
@@ -373,9 +381,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * The “change” operation from left->right or right->left.
+     * The "change" operation from left->right or right->left.
      * We replicate the old logic, then remove the used delta from the patch
-     * so it can’t be applied repeatedly.
+     * so it can't be applied repeatedly.
      */
     public void runChange(int fromPanelIndex, int toPanelIndex, boolean shift)
     {
@@ -439,8 +447,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * The “delete” operation: remove the chunk from the fromPanel side.
-     * Afterward, remove the delta so it doesn’t stay clickable.
+     * The "delete" operation: remove the chunk from the fromPanel side.
+     * Afterward, remove the delta so it doesn't stay clickable.
      */
     public void runDelete(int fromPanelIndex, int toPanelIndex) {
         var delta = getSelectedDelta();
@@ -497,7 +505,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * The “down arrow” in the toolbar calls doDown().
+     * The "down arrow" in the toolbar calls doDown().
      * We step to next delta if possible, or re-scroll from top.
      */
     @Override
@@ -507,7 +515,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * The “up arrow” in the toolbar calls doUp().
+     * The "up arrow" in the toolbar calls doUp().
      * We step to previous delta if possible, or re-scroll from bottom.
      */
     @Override
@@ -531,7 +539,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
-     * ThemeAware implementation – update highlight colours and syntax themes
+     * ThemeAware implementation - update highlight colours and syntax themes
      * when the global GUI theme changes.
      */
     @Override

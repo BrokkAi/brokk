@@ -1,7 +1,7 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.utils.Colors;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;

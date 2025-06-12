@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.List;
@@ -16,6 +17,7 @@ public interface ICommitInfo {
 
     String author();
 
+    @Nullable
     Instant date();
 
     /**
@@ -52,7 +54,7 @@ public interface ICommitInfo {
         }
 
         @Override
-        public Instant date() {
+        public @Nullable Instant date() {
             return null;
         }
 

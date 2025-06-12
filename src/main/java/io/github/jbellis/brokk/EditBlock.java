@@ -1,10 +1,11 @@
 package io.github.jbellis.brokk;
 
-import com.google.common.base.Splitter; // Added import
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -16,7 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors; // Added import
+import java.util.stream.Collectors;
 
 /**
  * Utility for extracting and applying before/after search-replace blocks in content.
@@ -95,7 +96,7 @@ public class EditBlock {
 
     /**
      * Parse the LLM response for SEARCH/REPLACE blocks and apply them.
-     * 
+     *
      * Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles)
      * to create empty files for blocks corresponding to new files.
      */
@@ -125,19 +126,19 @@ public class EditBlock {
 
             // 2. Apply the edit using replaceInFile
             try {
-            // Save original content before attempting change
-            if (!changedFiles.containsKey(file)) {
-                changedFiles.put(file, file.exists() ? file.read() : "");
-            }
+                // Save original content before attempting change
+                if (!changedFiles.containsKey(file)) {
+                    changedFiles.put(file, file.exists() ? file.read() : "");
+                }
 
-            // Perform the replacement
-            replaceInFile(file, block.beforeText(), block.afterText(), contextManager);
+                // Perform the replacement
+                replaceInFile(file, block.beforeText(), block.afterText(), contextManager);
 
-            // add to succeeded list
-            // If it was a deletion, replaceInFile handled it and returned; file will not exist.
-            // If it was a modification or creation, the file will exist with new content.
-            succeeded.put(block, file);
-        } catch(NoMatchException | AmbiguousMatchException e) {
+                // add to succeeded list
+                // If it was a deletion, replaceInFile handled it and returned; file will not exist.
+                // If it was a modification or creation, the file will exist with new content.
+                succeeded.put(block, file);
+            } catch(NoMatchException | AmbiguousMatchException e) {
                 assert changedFiles.containsKey(file);
                 var originalContent = changedFiles.get(file);
                 String commentary;
@@ -183,7 +184,7 @@ public class EditBlock {
      * If {@code filename} is non-null, then this block corresponds to a filename’s
      * search/replace
      */
-    public record SearchReplaceBlock(String filename, String beforeText, String afterText) {
+    public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {
         public SearchReplaceBlock {
             // filename can be null on bad parse
             assert beforeText != null;
@@ -200,7 +201,7 @@ public class EditBlock {
     /**
      * Represents a segment of the LLM output, categorized as either plain text or a parsed Edit Block.
      */
-    public record OutputBlock(String text, SearchReplaceBlock block) {
+    public record OutputBlock(@Nullable String text, @Nullable SearchReplaceBlock block) {
         /**
          * Ensures that exactly one of the fields is non-null.
          */
@@ -600,7 +601,7 @@ public class EditBlock {
      * @throws SymbolNotFoundException  if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      */
-    static ProjectFile resolveProjectFile(IContextManager cm, String filename)
+    static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
     throws SymbolNotFoundException, SymbolAmbiguousException
     {
         var file = cm.toFile(filename);

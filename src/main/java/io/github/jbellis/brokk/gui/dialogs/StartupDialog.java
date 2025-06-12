@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -20,11 +21,11 @@ public class StartupDialog extends JDialog {
 
     private JFileChooser projectChooser;
     private JTextField keyField;
-    private Path selectedProjectPath = null;
+    private @Nullable Path selectedProjectPath = null;
     private boolean keyInitiallyValid;
-    private String initialKey;
+    private @Nullable String initialKey;
     private DialogMode dialogMode;
-    private Path initialProjectPath; // Used when mode is REQUIRE_KEY_ONLY
+    private @Nullable Path initialProjectPath; // Used when mode is REQUIRE_KEY_ONLY
 
     public enum DialogMode {
         REQUIRE_KEY_ONLY,      // Valid project exists, need key
@@ -32,7 +33,7 @@ public class StartupDialog extends JDialog {
         REQUIRE_BOTH           // Neither valid key nor project exists
     }
 
-    private StartupDialog(Frame owner, String initialKey, boolean keyInitiallyValid, Path initialProjectPath, DialogMode mode) {
+    private StartupDialog(Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         super(owner, "Welcome to Brokk", true);
         io.github.jbellis.brokk.gui.Chrome.applyIcon(this);
         this.initialKey = initialKey;
@@ -260,7 +261,7 @@ public class StartupDialog extends JDialog {
         dispose();
     }
 
-    public static Path showDialog(Frame owner, String initialKey, boolean keyInitiallyValid, Path initialProjectPath, DialogMode mode) {
+    public static @Nullable Path showDialog(Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         var dialog = new StartupDialog(owner, initialKey, keyInitiallyValid, initialProjectPath, mode);
         dialog.setVisible(true); // Blocks until dispose() is called
         return dialog.selectedProjectPath;
