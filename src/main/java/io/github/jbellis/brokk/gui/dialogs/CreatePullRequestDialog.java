@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitCommitBrowserPanel;
+import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -24,6 +25,7 @@ public class CreatePullRequestDialog extends JDialog {
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
     private GitCommitBrowserPanel commitBrowserPanel;
+    private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
     private JButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
@@ -47,28 +49,29 @@ public class CreatePullRequestDialog extends JDialog {
     private void buildLayout() {
         setLayout(new BorderLayout());
 
-        // Panel for branch selectors
+        // --- top panel: branch selectors -------------------------------------------------------
         var branchSelectorPanel = createBranchSelectorPanel();
         add(branchSelectorPanel, BorderLayout.NORTH);
 
-        // Commit browser panel
+        // --- middle: commit browser and file list ---------------------------------------------
         var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false);
-        commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> {
-            // No-op reloader for now, will be wired up later
-        }, commitBrowserOptions);
+        commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> { /* no-op */ }, commitBrowserOptions);
 
-        // Button panel
+        fileStatusTable = new FileStatusTable();
+
+        var middleSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitBrowserPanel, fileStatusTable);
+        middleSplit.setResizeWeight(0.6);
+
+        // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
+        var rootSplit   = new JSplitPane(JSplitPane.VERTICAL_SPLIT, middleSplit, buttonPanel);
+        rootSplit.setResizeWeight(0.9);
+        add(rootSplit, BorderLayout.CENTER);
 
-        // Split pane for commit browser and buttons
-        var splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitBrowserPanel, buttonPanel);
-        splitPane.setResizeWeight(0.8); // Give more space to commit browser initially
-        add(splitPane, BorderLayout.CENTER);
-
-        // Initialize flowUpdater after branchFlowLabel is initialized by createBranchSelectorPanel
+        // flow-label updater
         this.flowUpdater = createFlowUpdater();
 
-        // Load branches after UI is built
+        // initial data load
         loadBranches();
     }
 
@@ -147,6 +150,7 @@ public class CreatePullRequestDialog extends JDialog {
         if (sourceBranch == null || targetBranch == null) {
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Select branches");
+            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
             if (this.flowUpdater != null) this.flowUpdater.run();
             updateCreatePrButtonState();
             return;
@@ -157,6 +161,7 @@ public class CreatePullRequestDialog extends JDialog {
         if (sourceBranch.equals(targetBranch)) {
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName);
+            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
             if (this.flowUpdater != null) this.flowUpdater.run();
             updateCreatePrButtonState();
             return;
@@ -173,9 +178,14 @@ public class CreatePullRequestDialog extends JDialog {
                     commits = Collections.emptyList();
                 }
                 List<CommitInfo> finalCommits = commits;
+                // GitRepo does not yet expose an API for computing the file list
+                // changed between two branches.  Leave the table empty for now.
+                List<GitRepo.ModifiedFile> changedFiles = List.of();
+
                 SwingUtilities.invokeLater(() -> {
                     this.currentCommits = finalCommits;
                     commitBrowserPanel.setCommits(finalCommits, Set.of(), false, false, contextName);
+                    fileStatusTable.setFiles(changedFiles);
                     if (this.flowUpdater != null) this.flowUpdater.run();
                     updateCreatePrButtonState();
                 });
@@ -185,6 +195,7 @@ public class CreatePullRequestDialog extends JDialog {
                 SwingUtilities.invokeLater(() -> {
                     this.currentCommits = Collections.emptyList();
                     commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)");
+                    fileStatusTable.setFiles(Collections.emptyList());
                     if (this.flowUpdater != null) this.flowUpdater.run();
                     updateCreatePrButtonState();
                 });
@@ -252,6 +263,7 @@ public class CreatePullRequestDialog extends JDialog {
             logger.error("Error loading branches for PR dialog", e);
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
+            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
             if (this.flowUpdater != null) this.flowUpdater.run();
             updateCreatePrButtonState(); // Ensure button is disabled on error
         }
