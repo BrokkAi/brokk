@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.utils.Colors;
-import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
 import org.apache.logging.log4j.LogManager;
@@ -21,10 +20,10 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.nio.file.Path;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class GitCommitBrowserPanel extends JPanel {
 
@@ -64,7 +63,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private JButton pushButton;
 
     private String currentBranchOrContextName; // Used by push/pull actions
-    private List<CommitInfo> currentCommitsList; // To hold the currently displayed commits
+    private List<ICommitInfo> currentCommitsList; // To hold the currently displayed commits
 
 
     public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager) {
@@ -832,14 +831,14 @@ public class GitCommitBrowserPanel extends JPanel {
         });
     }
 
-    public void setCommits(List<CommitInfo> commits, Set<String> unpushedCommitIds,
+    public void setCommits(List<? extends ICommitInfo> commits, Set<String> unpushedCommitIds,
                            boolean canPush, boolean canPull, String activeBranchOrContextName) {
         this.currentCommitsList = new ArrayList<>(commits); // Store for potential re-display after search clear
         this.currentBranchOrContextName = activeBranchOrContextName;
 
         var commitRows = new ArrayList<Object[]>();
         var today = java.time.LocalDate.now();
-        for (CommitInfo commit : commits) {
+        for (ICommitInfo commit : commits) {
             commitRows.add(new Object[]{
                     commit.message(), commit.author(), GitLogTab.formatCommitDate(commit.date(), today),
                     commit.id(), unpushedCommitIds.contains(commit.id()), commit
@@ -952,6 +951,21 @@ public class GitCommitBrowserPanel extends JPanel {
             }
             return new TreeNodeInfo(node, rootNode, isFileNode, calculatedFilePath);
         }
+    }
+
+    public void selectCommitById(String commitId) {
+        SwingUtil.runOnEdt(() -> {
+            for (int i = 0; i < commitsTableModel.getRowCount(); i++) {
+                ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(i, COL_COMMIT_OBJ);
+                if (commitInfo != null && commitId.equals(commitInfo.id())) {
+                    commitsTable.setRowSelectionInterval(i, i);
+                    commitsTable.scrollRectToVisible(commitsTable.getCellRect(i, 0, true));
+                    // The selection listener will handle updating changes and revision display
+                    return;
+                }
+            }
+            chrome.systemOutput("Commit " + getShortId(commitId) + " not found in current commit browser view.");
+        });
     }
 
     public List<ICommitInfo> getSelectedCommits() {
