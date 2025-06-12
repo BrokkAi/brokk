@@ -30,6 +30,10 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private static final Logger logger = LogManager.getLogger(GitCommitBrowserPanel.class);
 
+    private static final int COL_ID = 3;
+    private static final int COL_UNPUSHED = 4;
+    private static final int COL_COMMIT_OBJ = 5;
+
     private final Chrome chrome;
     private final ContextManager contextManager;
 
@@ -198,17 +202,13 @@ public class GitCommitBrowserPanel extends JPanel {
         commitsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
         // Hide ID, Unpushed, CommitObject columns
-        final int ID_COLUMN_INDEX = 3;
-        final int UNPUSHED_COLUMN_INDEX = 4;
-        final int COMMIT_OBJECT_COLUMN_INDEX = 5;
-
-        var idColumn = commitsTable.getColumnModel().getColumn(ID_COLUMN_INDEX);
+        var idColumn = commitsTable.getColumnModel().getColumn(COL_ID);
         idColumn.setMinWidth(0); idColumn.setMaxWidth(0); idColumn.setWidth(0);
 
-        var unpushedColumn = commitsTable.getColumnModel().getColumn(UNPUSHED_COLUMN_INDEX);
+        var unpushedColumn = commitsTable.getColumnModel().getColumn(COL_UNPUSHED);
         unpushedColumn.setMinWidth(0); unpushedColumn.setMaxWidth(0); unpushedColumn.setWidth(0);
 
-        var commitObjectColumn = commitsTable.getColumnModel().getColumn(COMMIT_OBJECT_COLUMN_INDEX);
+        var commitObjectColumn = commitsTable.getColumnModel().getColumn(COL_COMMIT_OBJ);
         commitObjectColumn.setMinWidth(0); commitObjectColumn.setMaxWidth(0); commitObjectColumn.setWidth(0);
 
 
@@ -218,7 +218,7 @@ public class GitCommitBrowserPanel extends JPanel {
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
                 boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
-                boolean unpushed = (boolean) table.getModel().getValueAt(row, 4);
+                boolean unpushed = (boolean) table.getModel().getValueAt(row, COL_UNPUSHED);
 
                 if (!isSelected) {
                     c.setBackground(unpushed ? Colors.getChanged(isDark) : table.getBackground());
@@ -284,7 +284,7 @@ public class GitCommitBrowserPanel extends JPanel {
             } else {
                 selectedRows = Arrays.stream(selectedRows).sorted().toArray();
                 allSelectedCommitsFlat = Arrays.stream(selectedRows)
-                        .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, 5))
+                        .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                         .toList();
 
                 var labelParts = new ArrayList<String>();
@@ -293,12 +293,12 @@ public class GitCommitBrowserPanel extends JPanel {
                 } else {
                     var contiguousRowIndexGroups = groupContiguous(selectedRows);
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
-                        var firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), 5);
+                        var firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), COL_COMMIT_OBJ);
                         var firstShortId = getShortId(firstCommitInGroup.id());
                         if (rowIndexGroup.size() == 1) {
                             labelParts.add(firstShortId);
                         } else {
-                            var lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), 5);
+                            var lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), COL_COMMIT_OBJ);
                             labelParts.add(String.format("%s..%s", firstShortId, getShortId(lastCommitInGroup.id())));
                         }
                     }
@@ -314,8 +314,7 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private void setupCommitContextMenu() {
         var commitsContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(commitsContextMenu);
-        else SwingUtil.runOnEdt(() -> { if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(commitsContextMenu); });
+        registerMenu(commitsContextMenu);
         
         addToContextItem = new JMenuItem("Capture Diff");
         softResetItem = new JMenuItem("Soft Reset to Here");
@@ -369,7 +368,7 @@ public class GitCommitBrowserPanel extends JPanel {
         }
         setAllCommitMenuContextItemsVisible(true); // Default to visible, then adjust
 
-        var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5);
+        var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
         boolean isStash = firstCommitInfo.stashIndex().isPresent(); // boolean preferred by style guide
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
@@ -380,7 +379,7 @@ public class GitCommitBrowserPanel extends JPanel {
         revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash);
 
         boolean allSelectedAreStashes = Arrays.stream(selectedRows) // boolean preferred by style guide
-                .mapToObj(r -> (ICommitInfo) commitsTableModel.getValueAt(r, 5))
+                .mapToObj(r -> (ICommitInfo) commitsTableModel.getValueAt(r, COL_COMMIT_OBJ))
                 .allMatch(ci -> ci.stashIndex().isPresent());
 
         popStashCommitItem.setVisible(allSelectedAreStashes);
@@ -424,51 +423,51 @@ public class GitCommitBrowserPanel extends JPanel {
 
             for (var group : contiguousRowGroups) {
                 if (group.isEmpty()) continue;
-                GitUiUtil.addCommitRangeToContext(contextManager, chrome, group.stream().mapToInt(Integer::intValue).toArray(), commitsTableModel, 5);
-            }
-        });
+            GitUiUtil.addCommitRangeToContext(contextManager, chrome, group.stream().mapToInt(Integer::intValue).toArray(), commitsTableModel, COL_COMMIT_OBJ);
+        }
+    });
         
-        softResetItem.addActionListener(e -> {
-            int row = commitsTable.getSelectedRow(); // int preferred by style guide
-            if (row != -1) {
-                var ci = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
-                var firstLine = ci.message().split("\n", 2)[0];
-                softResetToCommitInternal(ci.id(), firstLine);
-            }
-        });
+    softResetItem.addActionListener(e -> {
+        int row = commitsTable.getSelectedRow(); // int preferred by style guide
+        if (row != -1) {
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+            var firstLine = ci.message().split("\n", 2)[0];
+            softResetToCommitInternal(ci.id(), firstLine);
+        }
+    });
         
-        viewChangesItem.addActionListener(e -> {
-            if (commitsTable.getSelectedRowCount() == 1) {
-                var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), 5);
-                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
-            }
-        });
+    viewChangesItem.addActionListener(e -> {
+        if (commitsTable.getSelectedRowCount() == 1) {
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
+            GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+        }
+    });
         
-        revertCommitItem.addActionListener(e -> {
-            int row = commitsTable.getSelectedRow(); // int preferred by style guide // Assuming single selection for revert, or first of multiple
-            if (row != -1) {
-                var ci = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
-                revertCommitInternal(ci.id());
-            }
-        });
+    revertCommitItem.addActionListener(e -> {
+        int row = commitsTable.getSelectedRow(); // int preferred by style guide // Assuming single selection for revert, or first of multiple
+        if (row != -1) {
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+            revertCommitInternal(ci.id());
+        }
+    });
         
-        popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
-        applyStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
-        dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
+    popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
+    applyStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
+    dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
         
-        compareAllToLocalItem.addActionListener(e -> {
-            if (commitsTable.getSelectedRowCount() == 1) {
-                var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), 5);
-                GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
-            }
-        });
+    compareAllToLocalItem.addActionListener(e -> {
+        if (commitsTable.getSelectedRowCount() == 1) {
+            var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
+            GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
+        }
+    });
     }
     
     private void handleStashAction(java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
                                    java.util.function.IntConsumer stashOperation) {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
         if (row != -1) {
-            var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
+            var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
             var stashIdxOpt = stashIndexExtractor.apply(commitInfo);
             stashIdxOpt.ifPresentOrElse(
                 stashOperation::accept,
@@ -479,8 +478,7 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private void setupChangesTreeContextMenu() {
         var changesContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(changesContextMenu);
-        else SwingUtil.runOnEdt(() -> { if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(changesContextMenu); });
+        registerMenu(changesContextMenu);
         
         var addFileToContextItem = new JMenuItem("Capture Diff");
         var compareFileWithLocalItem = new JMenuItem("Compare with Local");
@@ -544,8 +542,8 @@ public class GitCommitBrowserPanel extends JPanel {
             if (!files.isEmpty() && commitsTable.getSelectedRowCount() >= 1) {
                 int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
                 selRows = Arrays.stream(selRows).sorted().toArray();
-                var firstCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[0],5)).id();
-                var lastCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[selRows.length-1],5)).id();
+                var firstCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ)).id();
+                var lastCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[selRows.length-1], COL_COMMIT_OBJ)).id();
                 GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(fp -> contextManager.toFile(fp)).toList());
             }
         });
@@ -562,9 +560,9 @@ public class GitCommitBrowserPanel extends JPanel {
     private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
         var paths = changesTree.getSelectionPaths();
         int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
-        if (paths != null && paths.length == 1 && selRows.length == 1 && isFileNode(paths[0])) {
-            var filePath = getFilePathFromTreePath(paths[0]);
-            var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], 5);
+        if (paths != null && paths.length == 1 && selRows.length == 1 && TreeNodeInfo.fromPath(paths[0], changesRootNode).isFile()) {
+            var filePath = TreeNodeInfo.fromPath(paths[0], changesRootNode).filePath();
+            var commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
             action.accept(commitInfo.id(), filePath);
         }
     }
@@ -912,8 +910,9 @@ public class GitCommitBrowserPanel extends JPanel {
     private boolean hasFileNodesSelected(TreePath[] paths) {
         if (paths == null) return false;
         for (var path : paths) {
-            var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            if (node != changesRootNode && node.getParent() != null && node.getParent() != changesRootNode) return true;
+            if (TreeNodeInfo.fromPath(path, changesRootNode).isFile()) {
+                return true;
+            }
         }
         return false;
     }
@@ -922,36 +921,37 @@ public class GitCommitBrowserPanel extends JPanel {
         var paths = changesTree.getSelectionPaths();
         if (paths == null) return List.of();
         return Arrays.stream(paths)
-                .map(this::getFilePathFromTreePath)
-                .filter(s -> s != null && !s.isEmpty())
+                .map(p -> TreeNodeInfo.fromPath(p, changesRootNode).filePath())
+                .filter(Objects::nonNull)
+                .filter(s -> !s.isEmpty())
                 .distinct()
                 .collect(Collectors.toList());
     }
-    
-    private String getFilePathFromTreePath(TreePath path) {
-        if (path == null) return null;
-        var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-        if (node == changesRootNode || node.getParent() == null || node.getParent() == changesRootNode && node.isLeaf()) { // Top level file or empty dir
-             if (node != changesRootNode && node.isLeaf() && node.getParent() == changesRootNode) return node.getUserObject().toString(); // File in root
-             return null; // Is root or directory node at top level
+
+    // Helper record for TreePath analysis
+    private record TreeNodeInfo(DefaultMutableTreeNode node, DefaultMutableTreeNode rootNode, boolean isFile, String filePath) {
+        public static TreeNodeInfo fromPath(TreePath path, DefaultMutableTreeNode rootNode) {
+            if (path == null) {
+                return new TreeNodeInfo(null, rootNode, false, null);
+            }
+            var node = (DefaultMutableTreeNode) path.getLastPathComponent();
+            boolean isFileNode = false;
+            String calculatedFilePath = null;
+
+            if (node != rootNode && node.getParent() != null) {
+                // It's a file if its parent is not the root (i.e., parent is a directory node)
+                // OR if its parent IS the root, but it's a leaf (file in root dir).
+                boolean parentIsRoot = node.getParent() == rootNode;
+                if (!parentIsRoot || (parentIsRoot && node.isLeaf())) {
+                    isFileNode = true;
+                    var fileName = node.getUserObject().toString();
+                    var parentNode = (DefaultMutableTreeNode) node.getParent();
+                    var dirPath = (parentNode == rootNode) ? "" : parentNode.getUserObject().toString();
+                    calculatedFilePath = dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
+                }
+            }
+            return new TreeNodeInfo(node, rootNode, isFileNode, calculatedFilePath);
         }
-        if (node.getParent() == changesRootNode) return null; // Directory node at top level
-
-        // File node (parent is a directory node, or parent is root if file is in root)
-        var fileName = node.getUserObject().toString();
-        var parentNode = (DefaultMutableTreeNode) node.getParent();
-        // If parentNode is root, dirPath is effectively empty.
-        var dirPath = (parentNode == changesRootNode) ? "" : parentNode.getUserObject().toString();
-        return dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
-    }
-
-    private boolean isFileNode(TreePath path) {
-        if (path == null) return false;
-        var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-        // A file node is one that is not the root, and its parent is not the root (meaning parent is a dir node)
-        // OR its parent IS the root, but it's a leaf (file in root dir).
-        return (node != changesRootNode && node.getParent() != null &&
-               (node.getParent() != changesRootNode || (node.getParent() == changesRootNode && node.isLeaf())));
     }
 
     public List<ICommitInfo> getSelectedCommits() {
@@ -960,7 +960,7 @@ public class GitCommitBrowserPanel extends JPanel {
             return List.of();
         }
         return Arrays.stream(selectedRows)
-                .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, 5))
+                .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                 .toList();
     }
 
@@ -993,6 +993,18 @@ public class GitCommitBrowserPanel extends JPanel {
         }
         if (enabled && listener != null) {
             button.addActionListener(listener);
+        }
+    }
+
+    private void registerMenu(JPopupMenu menu) {
+        if (chrome.themeManager != null) {
+            chrome.themeManager.registerPopupMenu(menu);
+        } else {
+            SwingUtil.runOnEdt(() -> {
+                if (chrome.themeManager != null) {
+                    chrome.themeManager.registerPopupMenu(menu);
+                }
+            });
         }
     }
 }
