@@ -89,7 +89,7 @@ public class SessionsDialog extends JDialog {
                 return super.getToolTipText(event);
             }
         };
-        sessionsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        sessionsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         sessionsTable.setTableHeader(null);
 
         // Set up column renderers for sessions table
@@ -238,9 +238,16 @@ public class SessionsDialog extends JDialog {
     private void setupEventHandlers() {
         // Session selection listener - load session history instead of switching
         sessionsTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting() && sessionsTable.getSelectedRow() != -1) {
-                MainProject.SessionInfo selectedSessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(sessionsTable.getSelectedRow(), 2);
-                loadSessionHistory(selectedSessionInfo.id());
+            if (e.getValueIsAdjusting()) {
+                return;
+            }
+            int[] selected = sessionsTable.getSelectedRows();
+            if (selected.length == 1) {
+                var info = (MainProject.SessionInfo) sessionsTableModel.getValueAt(selected[0], 2);
+                loadSessionHistory(info.id());
+            } else { // multi-select: clear preview panels
+                activityTableModel.setRowCount(0);
+                clearPreviewPanels();
             }
         });
 
@@ -412,54 +419,73 @@ public class SessionsDialog extends JDialog {
         int row = sessionsTable.rowAtPoint(e.getPoint());
         if (row < 0) return;
 
-        sessionsTable.setRowSelectionInterval(row, row);
-        MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(row, 2);
+        // If right-click happens on a row not already selected, switch to that single row
+        if (!sessionsTable.isRowSelected(row)) {
+            sessionsTable.setRowSelectionInterval(row, row);
+        }
+
+        int[] selectedRows = sessionsTable.getSelectedRows();
+        var selectedSessions = java.util.Arrays.stream(selectedRows)
+                                               .mapToObj(r -> (MainProject.SessionInfo) sessionsTableModel.getValueAt(r, 2))
+                                               .toList();
 
         JPopupMenu popup = new JPopupMenu();
 
-        JMenuItem setActiveItem = new JMenuItem("Set as Active");
-        setActiveItem.setEnabled(!sessionInfo.id().equals(contextManager.getCurrentSessionId()));
-        setActiveItem.addActionListener(event -> {
-            contextManager.switchSessionAsync(sessionInfo.id()).thenRun(() ->
-                SwingUtilities.invokeLater(() -> {
-                    refreshSessionsTable();
-                    historyOutputPanel.updateSessionComboBox();
-                })
-            );
-        });
-        popup.add(setActiveItem);
-        popup.addSeparator();
+        /* ---------- single-selection items ---------- */
+        if (selectedSessions.size() == 1) {
+            var sessionInfo = selectedSessions.getFirst();
 
-        JMenuItem renameItem = new JMenuItem("Rename");
-        renameItem.addActionListener(event -> renameSession(sessionInfo));
-        popup.add(renameItem);
+            JMenuItem setActiveItem = new JMenuItem("Set as Active");
+            setActiveItem.setEnabled(!sessionInfo.id().equals(contextManager.getCurrentSessionId()));
+            setActiveItem.addActionListener(ev -> contextManager.switchSessionAsync(sessionInfo.id())
+                                                                .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                                                                    refreshSessionsTable();
+                                                                    historyOutputPanel.updateSessionComboBox();
+                                                                })));
+            popup.add(setActiveItem);
+            popup.addSeparator();
 
-        JMenuItem deleteItem = new JMenuItem("Delete");
-        deleteItem.addActionListener(event -> {
+            JMenuItem renameItem = new JMenuItem("Rename");
+            renameItem.addActionListener(ev -> renameSession(sessionInfo));
+            popup.add(renameItem);
+        }
+
+        /* ---------- delete (single or multi) ---------- */
+        JMenuItem deleteItem = new JMenuItem(selectedSessions.size() == 1 ? "Delete" : "Delete Selected");
+        deleteItem.addActionListener(ev -> {
             int confirm = JOptionPane.showConfirmDialog(SessionsDialog.this,
-                                                        "Are you sure you want to delete session '" + sessionInfo.name() + "'?",
+                                                        "Are you sure you want to delete the selected session(s)?",
                                                         "Confirm Delete",
                                                         JOptionPane.YES_NO_OPTION,
                                                         JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
-                contextManager.deleteSessionAsync(sessionInfo.id()).thenRun(() ->
-                    SwingUtilities.invokeLater(() -> {
-                        refreshSessionsTable();
-                        historyOutputPanel.updateSessionComboBox();
-                    }));
+                var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
+                for (var s : selectedSessions) {
+                    futures.add(contextManager.deleteSessionAsync(s.id()));
+                }
+                java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
+                                                      .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                                                          refreshSessionsTable();
+                                                          historyOutputPanel.updateSessionComboBox();
+                                                      }));
             }
         });
         popup.add(deleteItem);
 
-        JMenuItem copyItem = new JMenuItem("Copy");
-        copyItem.addActionListener(event -> {
-            contextManager.copySessionAsync(sessionInfo.id(), sessionInfo.name()).thenRun(() ->
-                SwingUtilities.invokeLater(() -> {
-                    refreshSessionsTable();
-                    historyOutputPanel.updateSessionComboBox();
-                }));
+        /* ---------- duplicate (single or multi) ---------- */
+        JMenuItem dupItem = new JMenuItem(selectedSessions.size() == 1 ? "Duplicate" : "Duplicate Selected");
+        dupItem.addActionListener(ev -> {
+            var futures = new java.util.ArrayList<java.util.concurrent.CompletableFuture<?>>();
+            for (var s : selectedSessions) {
+                futures.add(contextManager.copySessionAsync(s.id(), s.name()));
+            }
+            java.util.concurrent.CompletableFuture.allOf(futures.toArray(new java.util.concurrent.CompletableFuture[0]))
+                                                  .thenRun(() -> SwingUtilities.invokeLater(() -> {
+                                                      refreshSessionsTable();
+                                                      historyOutputPanel.updateSessionComboBox();
+                                                  }));
         });
-        popup.add(copyItem);
+        popup.add(dupItem);
 
         // Register popup with theme manager
         chrome.getTheme().registerPopupMenu(popup);
