@@ -14,8 +14,8 @@ import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
-import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
-import io.github.jbellis.brokk.gui.search.SearchBarPanel;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
+import io.github.jbellis.brokk.gui.search.MarkdownOutputPanelSearchableComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -691,20 +691,19 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         JPanel contentPanel = new SearchableContentPanel(componentsWithChatBackground);
         componentsWithChatBackground.add(contentPanel);
         
-        // Create search callback and search bar panel
-        var searchCallback = new MarkdownPanelSearchCallback(markdownPanels);
-        var searchBarPanel = new SearchBarPanel(searchCallback, true, true, 3);
-        searchCallback.setSearchBarPanel(searchBarPanel);
-        componentsWithChatBackground.add(searchBarPanel);
+        // Create searchable component adapter and generic search bar
+        var searchableComponent = new MarkdownOutputPanelSearchableComponent(markdownPanels);
+        var searchBar = new GenericSearchBar(searchableComponent);
+        componentsWithChatBackground.add(searchBar);
 
         componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
         
         // Add components to content panel
-        contentPanel.add(searchBarPanel, BorderLayout.NORTH);
+        contentPanel.add(searchBar, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
         
         // Register Ctrl/Cmd+F to focus search field
-        searchBarPanel.registerSearchFocusShortcut(contentPanel);
+        searchBar.registerGlobalShortcuts(contentPanel);
         
         return contentPanel;
     }

@@ -37,7 +37,30 @@ public interface SearchableComponent {
     void requestFocusInWindow();
 
     /**
+     * Interface for receiving search completion callbacks.
+     */
+    interface SearchCompleteCallback {
+        /**
+         * Called when search highlighting is complete and results are available.
+         * 
+         * @param totalMatches the total number of matches found
+         * @param currentMatchIndex the current match index (1-based), or 0 if no current match
+         */
+        void onSearchComplete(int totalMatches, int currentMatchIndex);
+    }
+    
+    /**
+     * Sets a callback to be notified when search operations complete.
+     * All SearchableComponent implementations must support this async pattern.
+     * Synchronous implementations should call the callback immediately.
+     * 
+     * @param callback the callback to notify when operations complete
+     */
+    void setSearchCompleteCallback(SearchCompleteCallback callback);
+
+    /**
      * Highlights all occurrences of the search text in the component.
+     * This operation is asynchronous - completion will be signaled via the SearchCompleteCallback.
      *
      * @param searchText the text to search for
      * @param caseSensitive whether the search should be case-sensitive
@@ -51,6 +74,7 @@ public interface SearchableComponent {
 
     /**
      * Finds the next occurrence of the search text relative to the current position.
+     * May trigger SearchCompleteCallback if match index changes.
      *
      * @param searchText the text to search for
      * @param caseSensitive whether the search should be case-sensitive
@@ -71,15 +95,4 @@ public interface SearchableComponent {
      * Gets the underlying Swing component for event handling and parent component operations.
      */
     JComponent getComponent();
-
-    /**
-     * Counts the total number of matches for the given search text.
-     */
-    int countMatches(String searchText, boolean caseSensitive);
-
-    /**
-     * Gets the current match index (1-based) after a findNext operation.
-     * Returns 0 if no match is currently selected.
-     */
-    int getCurrentMatchIndex(String searchText, boolean caseSensitive);
 }

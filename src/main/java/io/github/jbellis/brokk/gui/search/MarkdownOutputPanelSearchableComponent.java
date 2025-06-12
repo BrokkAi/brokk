@@ -31,6 +31,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     private final List<Integer> allMarkerIds = new ArrayList<>();
     private int currentMarkerIndex = -1;
     private Integer previousHighlightedMarkerId = null;
+    private SearchCompleteCallback searchCompleteCallback = null;
     
     public MarkdownOutputPanelSearchableComponent(List<MarkdownOutputPanel> panels) {
         this.panels = panels;
@@ -144,6 +145,13 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     
     @Override
     public boolean findNext(String searchText, boolean caseSensitive, boolean forward) {
+        // If search term or case sensitivity changed, re-trigger search
+        if (!searchText.equals(currentSearchTerm) || caseSensitive != currentCaseSensitive) {
+            highlightAll(searchText, caseSensitive);
+            // The search is async, so we can't navigate yet
+            return false;
+        }
+        
         if (!canNavigate()) {
             return false;
         }
@@ -161,6 +169,11 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         updateCurrentMatchHighlighting();
         scrollToCurrentMarker();
         
+        // Update the search bar with new position
+        if (searchCompleteCallback != null) {
+            searchCompleteCallback.onSearchComplete(allMarkerIds.size(), currentMarkerIndex + 1);
+        }
+        
         return true;
     }
     
@@ -176,16 +189,6 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         return panels.isEmpty() ? new JPanel() : panels.get(0);
     }
     
-    @Override
-    public int countMatches(String searchText, boolean caseSensitive) {
-        return allMarkerIds.size();
-    }
-    
-    @Override
-    public int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
-        return allMarkerIds.isEmpty() ? 0 : currentMarkerIndex + 1; // 1-based index
-    }
-    
     // Helper methods (adapted from MarkdownPanelSearchCallback)
     
     private void handleSearchComplete() {
@@ -199,6 +202,12 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         if (!allMarkerIds.isEmpty()) {
             // Highlight the first match as current
             updateCurrentMatchHighlighting();
+        }
+        
+        // Notify the GenericSearchBar that search is complete
+        if (searchCompleteCallback != null) {
+            int matchIndex = allMarkerIds.isEmpty() ? 0 : currentMarkerIndex + 1; // 1-based
+            searchCompleteCallback.onSearchComplete(allMarkerIds.size(), matchIndex);
         }
     }
     
@@ -406,6 +415,11 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     
     private boolean canNavigate() {
         return !allMarkerIds.isEmpty() && currentMarkerIndex >= 0;
+    }
+    
+    @Override
+    public void setSearchCompleteCallback(SearchCompleteCallback callback) {
+        this.searchCompleteCallback = callback;
     }
     
     /**

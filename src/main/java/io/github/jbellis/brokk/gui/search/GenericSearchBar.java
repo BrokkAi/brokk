@@ -54,6 +54,9 @@ public class GenericSearchBar extends JPanel {
 
         // Initialize tooltip
         updateTooltip();
+        
+        // Setup async search callback
+        targetComponent.setSearchCompleteCallback(this::onSearchComplete);
     }
 
     private void setupEventHandlers() {
@@ -185,34 +188,35 @@ public class GenericSearchBar extends JPanel {
             return;
         }
 
-        // Highlight all occurrences
+        // Highlight all occurrences (this will trigger async callback)
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
 
-        // Count total matches
-        totalMatches = targetComponent.countMatches(query, caseSensitiveButton.isSelected());
-
         if (jumpToFirst) {
-            // Jump to the first occurrence as the user types
+            // Jump to the first occurrence as the user types (once async search completes)
+            // The callback will handle updating the match count
             int originalCaretPosition = targetComponent.getCaretPosition();
             targetComponent.setCaretPosition(0); // Start search from beginning
             boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), true);
             if (!found && originalCaretPosition > 0) {
                 // If not found from beginning, restore caret position
                 targetComponent.setCaretPosition(originalCaretPosition);
-                currentMatchIndex = 0;
             } else if (found) {
                 // Center the match in the viewport
                 targetComponent.centerCaretInView();
-                currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
-            } else {
-                currentMatchIndex = 0;
             }
-        } else {
-            // Update current match index without jumping
-            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
         }
-
-        updateMatchCount(currentMatchIndex, totalMatches);
+    }
+    
+    /**
+     * Callback method for async search completion.
+     * This will be called by async SearchableComponent implementations when search is complete.
+     */
+    private void onSearchComplete(int totalMatches, int currentMatchIndex) {
+        SwingUtilities.invokeLater(() -> {
+            this.totalMatches = totalMatches;
+            this.currentMatchIndex = currentMatchIndex;
+            updateMatchCount(currentMatchIndex, totalMatches);
+        });
     }
 
     private void findNext() {
@@ -237,8 +241,7 @@ public class GenericSearchBar extends JPanel {
         boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
         if (found) {
             targetComponent.centerCaretInView();
-            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
-            updateMatchCount(currentMatchIndex, totalMatches);
+            // The callback will handle updating the match count
         }
     }
 

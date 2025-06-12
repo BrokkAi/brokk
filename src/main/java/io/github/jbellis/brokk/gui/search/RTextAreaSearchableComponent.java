@@ -16,6 +16,7 @@ import java.awt.*;
  */
 public class RTextAreaSearchableComponent implements SearchableComponent {
     private final RTextArea textArea;
+    private SearchCompleteCallback searchCompleteCallback;
 
     public RTextAreaSearchableComponent(RTextArea textArea) {
         this.textArea = textArea;
@@ -47,9 +48,18 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     }
 
     @Override
+    public void setSearchCompleteCallback(SearchCompleteCallback callback) {
+        this.searchCompleteCallback = callback;
+    }
+
+    @Override
     public void highlightAll(String searchText, boolean caseSensitive) {
         if (searchText == null || searchText.trim().isEmpty()) {
             clearHighlights();
+            // Notify callback with 0 matches
+            if (searchCompleteCallback != null) {
+                searchCompleteCallback.onSearchComplete(0, 0);
+            }
             return;
         }
 
@@ -62,6 +72,13 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         context.setSearchWrap(true);
 
         SearchEngine.markAll(textArea, context);
+        
+        // For sync implementation, immediately notify callback with results
+        if (searchCompleteCallback != null) {
+            int totalMatches = countMatches(searchText, caseSensitive);
+            int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
+            searchCompleteCallback.onSearchComplete(totalMatches, currentMatch);
+        }
     }
 
     @Override
@@ -88,7 +105,16 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         context.setSearchWrap(true);
 
         var result = SearchEngine.find(textArea, context);
-        return result.wasFound();
+        boolean found = result.wasFound();
+        
+        // Notify callback with updated match index
+        if (found && searchCompleteCallback != null) {
+            int totalMatches = countMatches(searchText, caseSensitive);
+            int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
+            searchCompleteCallback.onSearchComplete(totalMatches, currentMatch);
+        }
+        
+        return found;
     }
 
     @Override
@@ -115,9 +141,9 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     public JComponent getComponent() {
         return textArea;
     }
-
-    @Override
-    public int countMatches(String searchText, boolean caseSensitive) {
+    
+    // Helper methods for internal use
+    private int countMatches(String searchText, boolean caseSensitive) {
         if (searchText == null || searchText.trim().isEmpty()) {
             return 0;
         }
@@ -141,8 +167,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         return count;
     }
 
-    @Override
-    public int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
+    private int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
         if (searchText == null || searchText.trim().isEmpty()) {
             return 0;
         }
