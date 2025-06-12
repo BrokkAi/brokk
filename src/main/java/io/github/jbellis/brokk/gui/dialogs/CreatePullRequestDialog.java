@@ -2,8 +2,8 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.GitCommitBrowserPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -19,6 +19,7 @@ public class CreatePullRequestDialog extends JDialog {
     private final ContextManager contextManager;
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
+    private GitCommitBrowserPanel commitBrowserPanel;
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         super(owner, "Create a Pull Request", true);
@@ -30,38 +31,52 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void initializeDialog() {
-        setSize(400, 300);
+        setSize(800, 800); 
         setLocationRelativeTo(getOwner());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
     }
 
     private void buildLayout() {
         setLayout(new BorderLayout());
-        
-        var contentPanel = createContentPanel();
-        add(contentPanel, BorderLayout.CENTER);
-        
+
+        // Panel for branch selectors
+        var branchSelectorPanel = createBranchSelectorPanel();
+        add(branchSelectorPanel, BorderLayout.NORTH);
+
+        // Commit browser panel
+        commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> {
+            // No-op reloader for now, will be wired up later
+        });
+
+        // Button panel
         var buttonPanel = createButtonPanel();
-        add(buttonPanel, BorderLayout.SOUTH);
+
+        // Split pane for commit browser and buttons
+        var splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitBrowserPanel, buttonPanel);
+        splitPane.setResizeWeight(0.8); // Give more space to commit browser initially
+        add(splitPane, BorderLayout.CENTER);
+
+        // Load branches after UI is built
+        loadBranches(createFlowUpdater((JLabel) branchSelectorPanel.getComponent(4))); // Assuming JLabel is at index 4
     }
-    
-    private JPanel createContentPanel() {
-        var contentPanel = new JPanel(new GridBagLayout());
+
+    private JPanel createBranchSelectorPanel() {
+        var branchPanel = new JPanel(new GridBagLayout());
         var row = 0;
-        
-        row = addBranchSelector(contentPanel, "Target branch:", targetBranchComboBox = new JComboBox<>(), row);
-        row = addBranchSelector(contentPanel, "Source branch:", sourceBranchComboBox = new JComboBox<>(), row);
-        
-        var branchFlowLabel = createBranchFlowIndicator(contentPanel, row);
+
+        row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox = new JComboBox<>(), row);
+        row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox = new JComboBox<>(), row);
+
+        var branchFlowLabel = createBranchFlowIndicator(branchPanel, row);
         var updateFlowLabel = createFlowUpdater(branchFlowLabel);
-        
+
         setupBranchListeners(updateFlowLabel);
-        loadBranches(updateFlowLabel);
-        
-        return contentPanel;
+        // loadBranches is called after the main layout is built
+
+        return branchPanel;
     }
     
-    private int addBranchSelector(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
+    private int addBranchSelectorToPanel(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
         var gbc = createGbc(0, row);
         parent.add(new JLabel(labelText), gbc);
         
