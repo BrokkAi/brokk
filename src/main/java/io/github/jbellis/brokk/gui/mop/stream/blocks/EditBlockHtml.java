@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.mop.stream.blocks;
 import io.github.jbellis.brokk.git.GitStatus;
 import org.jsoup.nodes.Entities;
 
+import java.util.Locale;
+
 /** One canonical place to turn a Search/Replace diff into inline-HTML. */
 public final class EditBlockHtml {
     private EditBlockHtml() {}
@@ -32,6 +34,6 @@ public final class EditBlockHtml {
             .formatted(id,
                        Entities.escape(file),
                        adds, dels, changed,
-                       status.name().toLowerCase());
+                       status.name().toLowerCase(Locale.ROOT));
     }
 }

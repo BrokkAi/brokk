@@ -44,12 +44,12 @@ public class FileSelectionTree extends JTree {
      *
      * @param project            The current project.
      * @param allowExternalFiles If true, shows the full file system; otherwise, shows project repo files.
-     * @param fileFilter         Optional predicate to filter files shown in the tree (external mode only).
+     * @param fileFilterIn         Optional predicate to filter files shown in the tree (external mode only).
      */
-    public FileSelectionTree(IProject project, boolean allowExternalFiles, Predicate<File> fileFilter) {
+    public FileSelectionTree(IProject project, boolean allowExternalFiles, Predicate<File> fileFilterIn) {
         this.project = project;
         this.allowExternalFiles = allowExternalFiles;
-        this.fileFilter = fileFilter;
+        this.fileFilter = fileFilterIn;
 
         // loadTreeInBackground will decide which model to build.
         showLoadingPlaceholder();
@@ -166,7 +166,7 @@ public class FileSelectionTree extends JTree {
             @Override
             protected DefaultTreeModel doInBackground() throws Exception {
                 if (allowExternalFiles) {
-                    DefaultMutableTreeNode rootNode = createExternalFileSystemRoot(fileFilter);
+                    DefaultMutableTreeNode rootNode = createExternalFileSystemRoot();
                     return new LazyLoadingTreeModel(rootNode, fileFilter, logger);
                 } else {
                     return setupProjectFileSystemModel();
@@ -225,7 +225,7 @@ public class FileSelectionTree extends JTree {
     /**
      * Creates the root node for the external file system view.
      */
-    private DefaultMutableTreeNode createExternalFileSystemRoot(Predicate<File> fileFilter) {
+    private DefaultMutableTreeNode createExternalFileSystemRoot() { // fileFilter parameter removed
         logger.trace("Building external file system model");
         DefaultMutableTreeNode rootNode = new DefaultMutableTreeNode("File System");
         File[] roots = File.listRoots();
@@ -255,7 +255,8 @@ public class FileSelectionTree extends JTree {
             @Override
             public void treeWillExpand(TreeExpansionEvent event) throws ExpandVetoException {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) event.getPath().getLastPathComponent();
-                if (node.getUserObject() instanceof FileTreeNode fileNode && node.getChildCount() > 0 && node.getFirstChild() instanceof DefaultMutableTreeNode child && LazyLoadingTreeModel.LOADING_PLACEHOLDER.equals(child.getUserObject())) {
+                // Removed unused fileNode binding
+                if (node.getUserObject() instanceof FileTreeNode && node.getChildCount() > 0 && node.getFirstChild() instanceof DefaultMutableTreeNode child && LazyLoadingTreeModel.LOADING_PLACEHOLDER.equals(child.getUserObject())) {
                     // Start loading children in the background
                     model.loadChildrenInBackground(node);
                 }
@@ -447,8 +448,7 @@ public class FileSelectionTree extends JTree {
         @Override
         public boolean equals(Object o) {
             if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
-            FileTreeNode that = (FileTreeNode) o;
+            if (!(o instanceof FileTreeNode that)) return false; // Use instanceof pattern
             return file.equals(that.file);
         }
 

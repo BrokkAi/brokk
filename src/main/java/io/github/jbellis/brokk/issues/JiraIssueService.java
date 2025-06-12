@@ -2,13 +2,9 @@ package io.github.jbellis.brokk.issues;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
-import okhttp3.HttpUrl;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.ResponseBody;
+import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -18,18 +14,14 @@ import java.net.URISyntaxException;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Date;
-import java.util.List;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 
 public class JiraIssueService implements IssueService {
 
     private static final Logger logger = LogManager.getLogger(JiraIssueService.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter JIRA_PRIMARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ");
-    private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ENGLISH);
+    private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ROOT);
 
     private final JiraAuth jiraAuth;
     private final IProject project; // May be needed for project-specific Jira settings
@@ -65,7 +57,7 @@ public class JiraIssueService implements IssueService {
     }
 
     @Override
-    public List<IssueHeader> listIssues(FilterOptions rawFilterOptions) throws IOException {
+    public ImmutableList<IssueHeader> listIssues(FilterOptions rawFilterOptions) throws IOException {
         if (!(rawFilterOptions instanceof JiraFilterOptions filterOptions)) {
             throw new IllegalArgumentException("JiraIssueService requires JiraFilterOptions, got " + rawFilterOptions.getClass().getName());
         }
@@ -87,7 +79,7 @@ public class JiraIssueService implements IssueService {
         String baseUrl = jiraConfig.baseUrl();
         if (baseUrl == null || baseUrl.isBlank()) {
             logger.error("Jira base URL is not configured in JiraConfig. Cannot list issues.");
-            return Collections.emptyList();
+            return ImmutableList.of();
         }
 
         OkHttpClient client = this.httpClient(); // httpClient already uses the provider
@@ -145,21 +137,21 @@ public class JiraIssueService implements IssueService {
             ResponseBody responseBody = response.body();
             if (responseBody == null) {
                 logger.error("Received null response body from Jira for listIssues query: {}", request.url());
-                return Collections.emptyList();
+                return ImmutableList.of();
             }
             responseBodyString = responseBody.string(); // Read body ONCE
 
             if (!response.isSuccessful()) {
                 logger.error("Failed to fetch Jira issues. URL: {}. HTTP Status: {}. Message: {}. Body: {}",
                              request.url(), response.code(), response.message(), responseBodyString);
-                return Collections.emptyList();
+                return ImmutableList.of();
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase().contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response from Jira for listIssues but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              contentType, request.url(), responseBodyString);
-                return Collections.emptyList();
+                return ImmutableList.of();
             }
 
             JsonNode rootNode = objectMapper.readTree(responseBodyString);
@@ -202,14 +194,14 @@ public class JiraIssueService implements IssueService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             logger.error("JSON parsing error while processing Jira list issues response. URL: {}. Error: {}. Response body (if available) was:\n{}",
                          request.url(), e.getMessage(), responseBodyString, e);
-            return Collections.emptyList();
+            return ImmutableList.of();
         } catch (IOException e) {
             logger.error("IOException while fetching or parsing Jira issues (URL: {}): {}", request.url(), e.getMessage(), e);
-            return Collections.emptyList();
+            return ImmutableList.of();
         }
 
         logger.info("Successfully fetched {} Jira issues for project key '{}'.", issueHeaders.size(), projectKey);
-        return issueHeaders;
+        return ImmutableList.copyOf(issueHeaders);
     }
 
     @Override
@@ -268,7 +260,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase().contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response for Jira issue details {} but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              issueId, contentType, request.url(), responseBodyString);
                 throw new IOException("Expected JSON response for Jira issue " + issueId + " but received Content-Type: " + contentType);
@@ -435,7 +427,7 @@ public class JiraIssueService implements IssueService {
             }
 
             String contentType = response.header("Content-Type");
-            if (contentType == null || !contentType.toLowerCase().contains("application/json")) {
+            if (contentType == null || !contentType.toLowerCase(Locale.ROOT).contains("application/json")) {
                 logger.error("Expected JSON response from Jira for /status but received Content-Type: '{}'. URL: {}. Body follows:\n{}",
                              contentType, request.url(), responseBodyString);
                 return Collections.emptyList();

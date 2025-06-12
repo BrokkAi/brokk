@@ -1,14 +1,14 @@
 package io.github.jbellis.brokk.git;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
-// StashInfo removed
-import org.eclipse.jgit.transport.PushResult;
-import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
@@ -19,10 +19,11 @@ import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 
@@ -31,16 +32,12 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.FileVisitResult;
-import java.nio.file.SimpleFileVisitor;
+import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import io.github.jbellis.brokk.util.Environment;
 
 /**
  * A Git repository abstraction using JGit.
@@ -76,8 +73,9 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return A sanitized and unique branch name.
      * @throws GitAPIException if an error occurs while listing local branches.
      */
+    @Override
     public String sanitizeBranchName(String proposedName) throws GitAPIException {
-        String sanitized = proposedName.trim().toLowerCase();
+        String sanitized = proposedName.trim().toLowerCase(Locale.ROOT);
         // Replace whitespace with hyphens
         sanitized = sanitized.replaceAll("\\s+", "-");
         // Remove characters not suitable for branch names (keeping only alphanumeric, hyphen, and forward slash)
@@ -234,6 +232,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param file The file to remove from the index.
      * @throws GitAPIException if the Git command fails.
      */
+    @Override
     public synchronized void remove(ProjectFile file) throws GitAPIException {
         logger.debug("Removing file from Git index (git rm --cached): {}", file);
         git.rm()
@@ -304,6 +303,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Produces a combined diff of staged + unstaged changes, restricted to the given files.
      */
+    @Override
     public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
             var filters = files.stream()
@@ -788,10 +788,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
         try (var revWalk = new RevWalk(repository)) {
             var revCommit = revWalk.parseCommit(objectId);
-            String message = revCommit.getShortMessage();
-            String author = revCommit.getAuthorIdent().getName();
-            // Use committer date as it's often more relevant for chronological sorting of commits
-            // Use factory method
             return Optional.of(this.fromRevCommit(revCommit));
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
@@ -890,6 +886,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Lists files changed between two commit SHAs (from oldCommitId to newCommitId).
      */
+    @Override
     public List<ProjectFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId) throws GitAPIException {
         var newObjectId = resolve(newCommitId);
         var oldObjectId = resolve(oldCommitId);
@@ -928,6 +925,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @deprecated Prefer listFilesChangedInCommit or listFilesChangedBetweenCommits for clarity.
      * This method diffs (lastCommitId + "^") vs (firstCommitId).
      */
+    @Override
     @Deprecated
     public List<ProjectFile> listChangedFilesInCommitRange(String firstCommitId, String lastCommitId) throws GitAPIException {
         var firstCommitObj = resolve(firstCommitId);
@@ -953,6 +951,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Show diff between two commits (or a commit and the working directory if newCommitId == HEAD).
      */
+    @Override
     public String showDiff(String newCommitId, String oldCommitId) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
             logger.debug("Generating diff from {} to {}", oldCommitId, newCommitId);
@@ -994,6 +993,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Retrieves the contents of {@code file} at a given commit ID, or returns an empty string if not found.
      */
+    @Override
     public String getFileContent(String commitId, ProjectFile file) throws GitAPIException {
         if (commitId == null || commitId.isBlank()) {
             logger.debug("getFileContent called with blank commitId; returning empty string");
@@ -1040,6 +1040,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Show diff for a specific file between two commits.
      */
+    @Override
     public String showFileDiff(String commitIdA, String commitIdB, ProjectFile file) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
             var pathFilter = PathFilter.create(toRepoRelativePath(file));
@@ -1366,12 +1367,12 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public List<CommitInfo> searchCommits(String query) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
-        var lowerQuery = query.toLowerCase();
+        var lowerQuery = query.toLowerCase(Locale.ROOT);
 
         for (var commit : git.log().call()) {
-            var cMessage = commit.getFullMessage().toLowerCase();
-            var cAuthorName = commit.getAuthorIdent().getName().toLowerCase();
-            var cAuthorEmail = commit.getAuthorIdent().getEmailAddress().toLowerCase();
+            var cMessage = commit.getFullMessage().toLowerCase(Locale.ROOT);
+            var cAuthorName = commit.getAuthorIdent().getName().toLowerCase(Locale.ROOT);
+            var cAuthorEmail = commit.getAuthorIdent().getEmailAddress().toLowerCase(Locale.ROOT);
 
             if (cMessage.contains(lowerQuery)
                     || cAuthorName.contains(lowerQuery)
@@ -1447,7 +1448,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    private class GitWrappedIOException extends GitAPIException {
+    private static class GitWrappedIOException extends GitAPIException {
         public GitWrappedIOException(IOException e) {
             super(e.getMessage(), e);
         }
@@ -1462,7 +1463,7 @@ public class GitRepo implements Closeable, IGitRepo {
                               commit.getName(),
                               commit.getShortMessage(),
                               commit.getAuthorIdent().getName(),
-                              Date.from(commit.getCommitterIdent().getWhenAsInstant()));
+                              commit.getCommitterIdent().getWhenAsInstant());
     }
 
     /**
@@ -1473,7 +1474,7 @@ public class GitRepo implements Closeable, IGitRepo {
                               commit.getName(),
                               commit.getShortMessage(),
                               commit.getAuthorIdent().getName(),
-                              Date.from(commit.getAuthorIdent().getWhenAsInstant()),
+                              commit.getAuthorIdent().getWhenAsInstant(),
                               index);
     }
 
@@ -1486,7 +1487,7 @@ public class GitRepo implements Closeable, IGitRepo {
             var command = "git worktree list --porcelain";
             var output = Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
             var worktrees = new ArrayList<WorktreeInfo>();
-            var lines = output.split("\\R"); // Split by any newline sequence
+            var lines = Splitter.on(Pattern.compile("\\R")).splitToList(output); // Split by any newline sequence
 
             Path currentPath = null;
             String currentHead = null;

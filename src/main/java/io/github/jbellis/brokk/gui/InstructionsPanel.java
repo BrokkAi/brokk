@@ -47,6 +47,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
+import java.util.Locale; // Added import
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -102,7 +103,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JLabel commandResultLabel;
     private final ContextManager contextManager; // Can be null if Chrome is initialized without one
     private JTable referenceFileTable;
-    private JScrollPane tableScrollPane;
+    // private JScrollPane tableScrollPane; // This field is not read, made local in initializeReferenceFileTable
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
@@ -500,9 +501,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // ----- wrap table in a scroll-pane ----------------------------------------------------
-        this.tableScrollPane = new JScrollPane(referenceFileTable);
-        tableScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        tableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        JScrollPane localTableScrollPane = new JScrollPane(referenceFileTable); // Made local
+        localTableScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        localTableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
 
         // ----- create failure reason label ----------------------------------------------------
         this.failureReasonLabel = new JLabel();
@@ -513,7 +514,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // ----- create content panel with CardLayout -------------------------------------------
         this.suggestionCardLayout = new CardLayout();
         this.suggestionContentPanel = new JPanel(suggestionCardLayout);
-        suggestionContentPanel.add(tableScrollPane, "TABLE");
+        suggestionContentPanel.add(localTableScrollPane, "TABLE"); // Use local variable
         suggestionContentPanel.add(failureReasonLabel, "LABEL");
 
         // ----- create container panel for button and content (table/label) -------------------
@@ -728,40 +729,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> commandResultLabel.setText(" ")); // Set back to space to maintain height
     }
 
-
-
-    /**
-     * Executes a context-modifying operation with temporary listener detachment to avoid
-     * triggering context suggestions for our own actions.
-     * 
-     * @param action The operation to execute with the listener detached
-     * @param taskDescription A description for the context task
-     */
-    private void withTemporaryListenerDetachment(Runnable action, String taskDescription) {
-        if (contextManager == null) {
-            logger.warn("Cannot execute with listener detachment: ContextManager is null");
-            return;
-        }
-        
-        // First detach this panel as a listener
-        contextManager.removeContextListener(this);
-        
-        // Submit the task
-        chrome.contextManager.submitContextTask(taskDescription, () -> {
-            try {
-                // Execute the action
-                action.run();
-            } finally {
-                // Always re-attach the listener when done
-                SwingUtilities.invokeLater(() -> {
-                    // Re-add on EDT to avoid concurrent modification issues
-                    contextManager.addContextListener(this);
-                    logger.debug("Listener re-attached after {}", taskDescription);
-                });
-            }
-        });
-    }
-    
     // --- Private Execution Logic ---
 
     /**
@@ -999,7 +966,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         failureReasonLabel.setForeground(ThemeColors.getColor(isDark, "badge_foreground"));
         failureReasonLabel.setText(message);
         failureReasonLabel.setVisible(true);
-        tableScrollPane.setVisible(false); // Ensure table scrollpane is hidden
+        // tableScrollPane was made local to initializeReferenceFileTable, find it via parent of referenceFileTable
+        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
+        if (scrollPane != null) {
+            scrollPane.setVisible(false); // Ensure table scrollpane is hidden
+        }
         referenceFileTable.setValueAt(List.of(), 0, 0); // Clear table data
         suggestionCardLayout.show(suggestionContentPanel, "LABEL"); // Show label
     }
@@ -1010,7 +981,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void showSuggestionsTable(List<FileReferenceData> fileRefs) {
         referenceFileTable.setValueAt(fileRefs, 0, 0);
         failureReasonLabel.setVisible(false);
-        tableScrollPane.setVisible(true); // Ensure table scrollpane is visible
+        var scrollPane = SwingUtilities.getAncestorOfClass(JScrollPane.class, referenceFileTable);
+        if (scrollPane != null) {
+            scrollPane.setVisible(true); // Ensure table scrollpane is visible
+        }
         suggestionCardLayout.show(suggestionContentPanel, "TABLE"); // Show table
     }
 
@@ -1393,12 +1367,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     newWorktreeIP.runArchitectCommand(originalInstructions, options);
                 };
 
-                MainProject mainProject = (currentProject instanceof MainProject)
-                                                ? (MainProject) currentProject
+                MainProject mainProject = (currentProject instanceof MainProject mainProj)
+                                                ? mainProj
                                                 : (MainProject) currentProject.getParent();
-                assert mainProject != null;
+        assert mainProject != null;
 
-                new Brokk.OpenProjectBuilder(newWorktreePath)
+        new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProject)
                         .initialTask(initialArchitectTask)
                         .sourceContextForSession(cm.topContext())
@@ -1562,7 +1536,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public Future<?> submitAction(String action, String input, Runnable task) {
         var cm = chrome.getContextManager();
         // need to set the correct parser here since we're going to append to the same fragment during the action
-        String finalAction = (action + " MODE").toUpperCase();
+        String finalAction = (action + " MODE").toUpperCase(Locale.ROOT);
         chrome.setLlmOutput(new ContextFragment.TaskFragment(cm, cm.getParserForWorkspace(), List.of(new UserMessage(finalAction, input)), input));
         return cm.submitUserTask(finalAction, true, () -> {
             try {
@@ -1817,7 +1791,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             isPopupOpen = true;
             try {
                 Rectangle r = instructionsArea.modelToView2D(atOffset).getBounds();
-                Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame());
+                // Point p = SwingUtilities.convertPoint(instructionsArea, r.x, r.y + r.height, chrome.getFrame()); // Unused variable p
 
                 JPopupMenu popup = AddMenuFactory.buildAddPopup(chrome.getContextPanel());
 

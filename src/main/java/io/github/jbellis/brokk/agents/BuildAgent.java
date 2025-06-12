@@ -108,7 +108,7 @@ public class BuildAgent {
                 }
                 // include non-existing paths if they end with `/` in case they get created later
                 var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!(pattern.startsWith("!")) && isDirectory) {
+                if (!pattern.startsWith("!") && isDirectory) {
                     this.currentExcludedDirectories.add(pattern);
                     addedFromGitignore.add(pattern);
                 }
@@ -294,42 +294,6 @@ public class BuildAgent {
              return "Abort signal received and processed.";
         }
 
-    /**
-     * Removes markdown code block syntax (single and triple backticks) from a string.
-     *
-     * @param text The string to process.
-     * @return The string with markdown code blocks removed, or an empty string if input is null/blank.
-     */
-    private static String unmarkdown(@Nullable String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        String trimmedText = text.trim();
-
-        // Check for triple backticks (e.g., ```text``` or ```lang\ntext```)
-        if (trimmedText.startsWith("```") && trimmedText.endsWith("```") && trimmedText.length() >= 6) {
-            String content = trimmedText.substring(3, trimmedText.length() - 3);
-            int firstNewline = content.indexOf('\n');
-
-            if (firstNewline == 0) { // Starts with a newline, e.g. ```\ncode\n```
-                content = content.substring(1); // Remove the leading newline
-            } else if (firstNewline > 0) { // Has a newline, content before it could be lang specifier
-                // Assumes the first line is a language specifier if present and removes it
-                content = content.substring(firstNewline + 1);
-            }
-
-            // fall through to single-backtick check
-            trimmedText = content.trim();
-        }
-
-        // Check for single backticks (e.g., `text`)
-        if (trimmedText.startsWith("`") && trimmedText.endsWith("`") && trimmedText.length() >= 2) {
-            return trimmedText.substring(1, trimmedText.length() - 1).trim();
-        }
-
-        return trimmedText;
-    }
-
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(String buildLintCommand,
                                String testAllCommand,
@@ -369,7 +333,7 @@ public class BuildAgent {
             }
 
             // Check project setting for test scope
-            MainProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+            IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
             if (testScope == IProject.CodeAgentTestScope.ALL) {
                 logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
                 return details.testAllCommand();

@@ -18,6 +18,10 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.UUID;
 
@@ -79,7 +83,7 @@ public class SessionsDialog extends JDialog {
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
                     MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
                     if (sessionInfo != null) {
-                        return "Last modified: " + new java.util.Date(sessionInfo.modified()).toString();
+                        return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
                     }
                 }
                 return super.getToolTipText(event);

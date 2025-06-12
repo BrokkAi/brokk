@@ -30,18 +30,20 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
     }
 
     /**
-     * @return The fully qualified name constructed from package and short name.
+     * Returns the fully qualified name constructed from package and short name.
      * For MODULE, shortName is often a fixed placeholder like "_module_", so fqName becomes "packageName._module_".
+     * @return The fully qualified name.
      */
     public String fqName() {
         return packageName.isEmpty() ? shortName : packageName + "." + shortName;
     }
 
     /**
-     * @return just the last symbol name component.
+     * Returns just the last symbol name component.
      * For CLASS: simple class name (C, C$D).
      * For FUNCTION/FIELD: member name (foo from a.b.C.foo).
      * For MODULE: the shortName itself (e.g., "_module_").
+     * @return just the last symbol name component.
      */
     public String identifier() {
         return switch (kind) {
@@ -64,6 +66,7 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
      * </ul>
      * @return The short name.
      */
+    @Override
     public String shortName() {
         return shortName;
     }
@@ -78,17 +81,19 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
 
     public boolean isModule() { return kind == CodeUnitType.MODULE; }
 
-
     /**
+     * Returns accessor for the package name component.
      * @return Accessor for the package name component.
      */
+    @Override
     public String packageName() {
         return packageName;
     }
 
     /**
-     * @return The CodeUnit representing the containing class, if this is a member (function/field).
+     * Returns the CodeUnit representing the containing class, if this is a member (function/field).
      * Returns empty for CLASS or MODULE.
+     * @return The CodeUnit representing the containing class, if this is a member (function/field).
      */
     public Optional<CodeUnit> classUnit() {
         return switch (kind) {

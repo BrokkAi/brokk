@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
-    private final IProject project; // Changed from IProject to Project
+    // private final IProject project; // Unused field
     private final Map<ProjectFile, List<CodeUnit>> declarationsByFile;
     final Map<CodeUnit, List<TreeSitterAnalyzer.Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
@@ -28,18 +28,18 @@ public class SqlAnalyzer implements IAnalyzer {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(IProject project, Set<Path> excludedFiles) { // Changed from IProject to Project
-        this.project = project;
+    public SqlAnalyzer(IProject projectInstance, Set<Path> excludedFiles) { // Renamed parameter to avoid confusion with unused field
+        // this.project = project; // Unused field
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
         this.allDeclarationsList = new ArrayList<>();
         this.definitionsByFqName = new HashMap<>();
 
         var normalizedExclusions = excludedFiles.stream()
-                .map(p -> project.getRoot().resolve(p).toAbsolutePath().normalize())
+                .map(p -> projectInstance.getRoot().resolve(p).toAbsolutePath().normalize())
                 .collect(Collectors.toSet());
 
-        var filesToAnalyze = project.getAllFiles().stream()
+        var filesToAnalyze = projectInstance.getAllFiles().stream()
                 .filter(pf -> {
                     // Check extension
                     if (!pf.absPath().toString().toLowerCase(Locale.ROOT).endsWith(".sql")) {
@@ -55,12 +55,12 @@ public class SqlAnalyzer implements IAnalyzer {
                 })
                 .toList();
 
-        logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), project.getRoot());
+        logger.info("Found {} SQL files to analyze for project {}", filesToAnalyze.size(), projectInstance.getRoot()); // Use projectInstance
 
         for (var pf : filesToAnalyze) {
             try {
                 String content = Files.readString(pf.absPath(), StandardCharsets.UTF_8);
-                byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // For byte offsets
+                // byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8); // Unused variable removed
 
                 var matcher = CREATE_STMT_PATTERN.matcher(content);
                 int searchOffset = 0;
@@ -80,8 +80,8 @@ public class SqlAnalyzer implements IAnalyzer {
                     int statementEndOffsetInChars = semicolonCharPos; // inclusive of semicolon
 
                     // Convert char offsets to byte offsets
-                    int statementStartByte = new String(content.substring(0, statementStartOffsetInChars).getBytes(StandardCharsets.UTF_8)).length();
-                    int statementEndByte = new String(content.substring(0, statementEndOffsetInChars + 1).getBytes(StandardCharsets.UTF_8)).length();
+                    int statementStartByte = new String(content.substring(0, statementStartOffsetInChars).getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8).length();
+                    int statementEndByte = new String(content.substring(0, statementEndOffsetInChars + 1).getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8).length();
 
 
                     String packageName;

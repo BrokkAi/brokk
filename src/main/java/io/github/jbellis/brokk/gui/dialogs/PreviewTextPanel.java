@@ -63,13 +63,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private JButton saveButton;
     private final ContextManager contextManager;
 
-    // Theme manager reference
-    private GuiTheme themeManager;
-
     // Nullable
     private final ProjectFile file;
     private final String contentBeforeSave;
-    private final ContextFragment fragment;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
     private Future<Set<CodeUnit>> fileDeclarations;
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
@@ -86,10 +82,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         assert guiTheme != null;
 
         this.contextManager = contextManager;
-        this.themeManager = guiTheme;
         this.file = file;
         this.contentBeforeSave = content; // Store initial content
-        this.fragment = fragment;
 
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
@@ -384,10 +378,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Create quick edit dialog
         Window ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog quickEditDialog;
-        if (ancestor instanceof Frame) {
-            quickEditDialog = new JDialog((Frame) ancestor, "Quick Edit", true);
-        } else if (ancestor instanceof Dialog) {
-            quickEditDialog = new JDialog((Dialog) ancestor, "Quick Edit", true);
+        if (ancestor instanceof Frame frame) {
+            quickEditDialog = new JDialog(frame, "Quick Edit", true);
+        } else if (ancestor instanceof Dialog dialog) {
+            quickEditDialog = new JDialog(dialog, "Quick Edit", true);
         } else {
             quickEditDialog = new JDialog((Frame) null, "Quick Edit", true);
         }
@@ -553,10 +547,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private void openQuickResultsDialog(String selectedText, String instructions) {
         Window ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog resultsDialog;
-        if (ancestor instanceof Frame) {
-            resultsDialog = new JDialog((Frame) ancestor, "Quick Edit", false);
-        } else if (ancestor instanceof Dialog) {
-            resultsDialog = new JDialog((Dialog) ancestor, "Quick Edit", false);
+        if (ancestor instanceof Frame frame) {
+            resultsDialog = new JDialog(frame, "Quick Edit", false);
+        } else if (ancestor instanceof Dialog dialog) {
+            resultsDialog = new JDialog(dialog, "Quick Edit", false);
         } else {
             resultsDialog = new JDialog((Frame) null, "Quick Edit", false);
         }

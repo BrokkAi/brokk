@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -79,7 +78,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
         // Default Models Tab
-        defaultModelsPanel = createModelsPanel(chrome.getProject()); // Store reference
+        defaultModelsPanel = createModelsPanel(); // Store reference
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, defaultModelsPanel, "Default model selection and configuration");
 
         // Quick Models Tab
@@ -125,8 +124,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private void setEnabledRecursive(Container container, boolean enabled) {
         for (Component c : container.getComponents()) {
             c.setEnabled(enabled);
-            if (c instanceof Container) {
-                setEnabledRecursive((Container) c, enabled);
+            if (c instanceof Container containerC) {
+                setEnabledRecursive(containerC, enabled);
             }
         }
     }
@@ -346,7 +345,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         TableColumn reasoningColumn = quickModelsTable.getColumnModel().getColumn(2);
         var reasoningComboBoxEditor = new JComboBox<>(reasoningLevels);
         reasoningColumn.setCellEditor(new ReasoningCellEditor(reasoningComboBoxEditor, models, quickModelsTable));
-        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(models, quickModelsTable));
+        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(models));
         reasoningColumn.setPreferredWidth(100);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -386,9 +385,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return panel;
     }
 
-    private JPanel createModelsPanel(IProject project) {
+    private JPanel createModelsPanel() {
         var panel = new JPanel(new GridBagLayout()); // Always create, enable/disable content
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var project = chrome.getProject();
 
         if (project == null) {
             // Add a placeholder label if no project, actual model controls are added below
@@ -765,10 +765,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         // Models Tab (Project specific)
         var project = chrome.getProject();
         if (project != null) {
-            applyModelConfig(project, architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
-            applyModelConfig(project, codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
-            applyModelConfig(project, askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
-            applyModelConfig(project, searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
+            applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
+            applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
+            applyModelConfig(askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
+            applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
         }
 
         // Quick Models Tab
@@ -792,8 +792,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return true;
     }
 
-    private void applyModelConfig(IProject project,
-                                  JComboBox<String> modelCombo,
+    private void applyModelConfig(JComboBox<String> modelCombo,
                                   JComboBox<Service.ReasoningLevel> reasoningCombo,
                                   Supplier<Service.ModelConfig> currentConfigGetter,
                                   Consumer<Service.ModelConfig> configSetter) {
@@ -868,13 +867,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         @Override public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             if (rowIndex < 0 || rowIndex >= favorites.size()) return;
             Service.FavoriteModel oldFavorite = favorites.get(rowIndex);
-            Service.FavoriteModel newFavorite = oldFavorite;
+            Service.FavoriteModel newFavorite;
             try {
-                switch (columnIndex) {
-                    case 0: if (aValue instanceof String alias) newFavorite = new Service.FavoriteModel(alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning()); break;
-                    case 1: if (aValue instanceof String modelName) newFavorite = new Service.FavoriteModel(oldFavorite.alias(), modelName, oldFavorite.reasoning()); break;
-                    case 2: if (aValue instanceof Service.ReasoningLevel reasoning) newFavorite = new Service.FavoriteModel(oldFavorite.alias(), oldFavorite.modelName(), reasoning); break;
-                }
+                newFavorite = switch (columnIndex) {
+                    case 0 -> {
+                        if (aValue instanceof String alias) {
+                            yield new Service.FavoriteModel(alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning());
+                        }
+                        yield oldFavorite;
+                    }
+                    case 1 -> {
+                        if (aValue instanceof String modelName) {
+                            yield new Service.FavoriteModel(oldFavorite.alias(), modelName, oldFavorite.reasoning());
+                        }
+                        yield oldFavorite;
+                    }
+                    case 2 -> {
+                        if (aValue instanceof Service.ReasoningLevel reasoning) {
+                            yield new Service.FavoriteModel(oldFavorite.alias(), oldFavorite.modelName(), reasoning);
+                        }
+                        yield oldFavorite;
+                    }
+                    default -> oldFavorite;
+                };
             } catch (Exception e) {
                 logger.error("Error setting value at ({}, {}) to {}", rowIndex, columnIndex, aValue, e);
                 return;
@@ -882,14 +897,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (!newFavorite.equals(oldFavorite)) {
                 favorites.set(rowIndex, newFavorite);
                 fireTableCellUpdated(rowIndex, columnIndex);
-                if (columnIndex == 1) fireTableCellUpdated(rowIndex, 2);
+                if (columnIndex == 1) fireTableCellUpdated(rowIndex, 2); // If model name changed, reasoning support might change
             }
         }
     }
 
     private static class ReasoningCellRenderer extends DefaultTableCellRenderer {
         private final Service models;
-        public ReasoningCellRenderer(Service service, JTable table) { this.models = service; }
+        public ReasoningCellRenderer(Service service) { this.models = service; }
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             String modelName = (String) table.getModel().getValueAt(row, 1);

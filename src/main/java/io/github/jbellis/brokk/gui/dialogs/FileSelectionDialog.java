@@ -3,8 +3,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,7 +21,6 @@ import java.util.function.Predicate;
  * Uses FileSelectionPanel for its core UI.
  */
 public class FileSelectionDialog extends JDialog {
-    private static final Logger logger = LogManager.getLogger(FileSelectionDialog.class);
 
     private final FileSelectionPanel fileSelectionPanel;
     private final JButton okButton;

@@ -171,7 +171,7 @@ public final class IncrementalBlockRenderer {
             
             if (compacted) {
                 // Re-apply compaction after processing
-                components = mergeMarkdownBlocks(components, -1L);
+                components = mergeMarkdownBlocks(components);
                 // Clear and rebuild UI for compacted state
                 root.removeAll();
                 registry.clear();
@@ -380,7 +380,7 @@ public final class IncrementalBlockRenderer {
 
         var html = createHtml(currentMarkdown);
         var originalComponents = buildComponentData(html);
-        var merged = mergeMarkdownBlocks(originalComponents, roundId);
+        var merged = mergeMarkdownBlocks(originalComponents);
         return merged;
     }
 
@@ -428,7 +428,7 @@ public final class IncrementalBlockRenderer {
      * @param src The source list of ComponentData objects
      * @return A new list with consecutive MarkdownComponentData blocks merged
      */
-    private List<ComponentData> mergeMarkdownBlocks(List<ComponentData> src, long roundId) {
+    private List<ComponentData> mergeMarkdownBlocks(List<ComponentData> src) {
         var out = new ArrayList<ComponentData>();
         MarkdownComponentData acc = null;
         StringBuilder htmlBuf = null;
@@ -442,16 +442,16 @@ public final class IncrementalBlockRenderer {
                     htmlBuf.append('\n').append(md.html());
                 }
             } else {
-                flush(out, acc, htmlBuf, roundId);
+                flush(out, acc, htmlBuf);
                 out.add(cd);
                 acc = null;
                 htmlBuf = null;
             }
         }
-        flush(out, acc, htmlBuf, roundId);
+        flush(out, acc, htmlBuf);
         if (out.size() > 1 && src.stream().allMatch(c -> c instanceof MarkdownComponentData)) {
-             logger.warn("[COMPACTION][{}] mergeMarkdownBlocks: Multiple MarkdownComponentData blocks in source did not merge into one. Output size: {}. Source types: {}",
-                         roundId, out.size(), src.stream().map(c -> c.getClass().getSimpleName()).collect(Collectors.joining(", ")));
+             logger.warn("[COMPACTION] mergeMarkdownBlocks: Multiple MarkdownComponentData blocks in source did not merge into one. Output size: {}. Source types: {}",
+                         out.size(), src.stream().map(c -> c.getClass().getSimpleName()).collect(Collectors.joining(", ")));
         }
         return out;
     }
@@ -463,7 +463,7 @@ public final class IncrementalBlockRenderer {
      * @param acc The accumulated MarkdownComponentData
      * @param htmlBuf The StringBuilder containing the merged HTML content
      */
-    private void flush(List<ComponentData> out, MarkdownComponentData acc, StringBuilder htmlBuf, long roundId) {
+    private void flush(List<ComponentData> out, MarkdownComponentData acc, StringBuilder htmlBuf) {
         if (acc == null || htmlBuf == null) return;
         var merged = markdownFactory.fromText(acc.id(), htmlBuf.toString());
         out.add(merged);
@@ -490,12 +490,12 @@ public final class IncrementalBlockRenderer {
             var html = extractHtmlFromComponent(jc);
             if (html != null && !html.isEmpty()) {
                 var matcher = MARKER_ID_PATTERN.matcher(html);
-                boolean foundAny = false;
+                // boolean foundAny = false; // foundAny was unused
                 while (matcher.find()) {
                     try {
                         int id = Integer.parseInt(matcher.group(1));
                         markerIndex.put(id, jc);
-                        foundAny = true;
+                        // foundAny = true; // foundAny was unused
                         // Found marker in component
                     } catch (NumberFormatException ignore) {
                         // should never happen – regex enforces digits

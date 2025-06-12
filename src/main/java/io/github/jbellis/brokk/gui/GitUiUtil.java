@@ -14,7 +14,9 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import com.google.common.base.Splitter;
 
 /**
  * Static utilities for showing diffs, capturing diffs, or editing files
@@ -400,17 +402,19 @@ public final class GitUiUtil
         }
 
         // Split by '/' or ':' treating multiple delimiters as one
-        var segments = cleaned.split("[/:]+");
+        var segments = Splitter.on(Pattern.compile("[/:]+"))
+                               .omitEmptyStrings() // Important to handle cases like "host:/path" or "host//path"
+                               .splitToList(cleaned);
 
-        if (segments.length < 2) {
+        if (segments.size() < 2) {
             logger.warn("Unable to parse owner/repo from cleaned remote URL: {} (original: {})", cleaned, remoteUrl);
             return null;
         }
 
         // The repository name is the last segment
-        String repo = segments[segments.length - 1];
+        String repo = segments.getLast();
         // The owner is the second to last segment
-        String owner = segments[segments.length - 2];
+        String owner = segments.get(segments.size() - 2);
 
         if (owner.isBlank() || repo.isBlank()) {
             logger.warn("Parsed blank owner or repo from remote URL: {} (owner: '{}', repo: '{}')", remoteUrl, owner, repo);

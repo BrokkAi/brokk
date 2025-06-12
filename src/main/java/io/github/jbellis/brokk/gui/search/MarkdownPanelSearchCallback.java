@@ -9,6 +9,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -83,7 +84,7 @@ public class MarkdownPanelSearchCallback implements SearchCallback {
             Runnable processSearchResults = () -> {
                 // This runs after each panel's customizer is applied
                 if (remainingOperations.decrementAndGet() == 0) {
-                    handleSearchComplete(finalSearchTerm);
+                    handleSearchComplete();
                 }
             };
             
@@ -286,7 +287,7 @@ public class MarkdownPanelSearchCallback implements SearchCallback {
         if (currentCaseSensitive) {
             return componentText.contains(currentSearchTerm);
         } else {
-            return componentText.toLowerCase().contains(currentSearchTerm.toLowerCase());
+            return componentText.toLowerCase(Locale.ROOT).contains(currentSearchTerm.toLowerCase(Locale.ROOT));
         }
     }
     
@@ -417,7 +418,7 @@ public class MarkdownPanelSearchCallback implements SearchCallback {
     /**
      * Handles the completion of search processing across all panels.
      */
-    private void handleSearchComplete(String finalSearchTerm) {
+    private void handleSearchComplete() {
         // All panels processed, now collect marker IDs in visual order
         allMarkerIds.clear();
         collectMarkerIdsInVisualOrder();
@@ -429,7 +430,7 @@ public class MarkdownPanelSearchCallback implements SearchCallback {
         if (!allMarkerIds.isEmpty()) {
             handleSearchResults();
         } else {
-            handleNoSearchResults(finalSearchTerm);
+            handleNoSearchResults();
         }
         
         notifySearchBarPanel();
@@ -448,7 +449,7 @@ public class MarkdownPanelSearchCallback implements SearchCallback {
     /**
      * Handles the case when no search results are found.
      */
-    private void handleNoSearchResults(String searchTerm) {
+    private void handleNoSearchResults() {
         // No matches found - clear search state and highlighting, then scroll to top
         
         // Clear search state first

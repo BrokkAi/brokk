@@ -60,11 +60,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
     private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
-    private final AtomicReference<Thread> userActionThread = new AtomicReference<>();
+    private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); //_FIX_
 
     // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
-    private static final Pattern TEST_FILE_PATTERN = Pattern.compile(
-            "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
+    private static final Pattern TEST_FILE_PATTERN = Pattern.compile( // Javadoc for TEST_FILE_PATTERN not needed here
+                                                                      "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
     );
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
@@ -98,7 +98,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
     // Multiple of these can run concurrently
     private final LoggingExecutorService contextActionExecutor = createLoggingExecutorService(
-            new ThreadPoolExecutor(2, 4,
+            new ThreadPoolExecutor(4, 4, // Core and Max are same due to unbounded queue behavior
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue
                                    Executors.defaultThreadFactory()));
@@ -107,13 +107,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Lots of threads allowed since AutoContext updates get dropped here
     // Use unbounded queue to prevent task rejection
     private final LoggingExecutorService backgroundTasks = createLoggingExecutorService(
-            new ThreadPoolExecutor(2, max(8, Runtime.getRuntime().availableProcessors()),
+            new ThreadPoolExecutor(max(8, Runtime.getRuntime().availableProcessors()), // Core and Max are same
+                                   max(8, Runtime.getRuntime().availableProcessors()),
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
                                    Executors.defaultThreadFactory()),
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") // Finnish comment, keep as is
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
@@ -126,6 +128,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private volatile Context liveContext;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
 
+    @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
     }
@@ -228,7 +231,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Called from Brokk to finish wiring up references to Chrome and Coder
-     *
+     * <p>
      * Returns the future doing off-EDT context loading
      */
     public CompletableFuture<Void> createGui() {
@@ -406,7 +409,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return false;
         }
     }
-    
+
+    @Override
     public AbstractProject getProject() {
         return project;
     }
@@ -827,7 +831,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * appended to the current live context's history. A new state representing this action is pushed to the context history.
      *
      * @param sourceFrozenContext The historical context to source fragments and history from.
-     * @param fragmentsToKeep A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
+     * @param fragmentsToKeep     A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
      * @return A Future representing the completion of the task.
      */
     public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
@@ -1108,6 +1112,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A list containing two messages: a UserMessage with the string representation of the task history,
      * and an AiMessage acknowledging it. Returns an empty list if there is no history.
      */
+    @Override
     public List<ChatMessage> getHistoryMessages() {
         var taskHistory = topContext().getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
@@ -1240,6 +1245,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Shutdown all executors
      */
+    @Override
     public void close() {
         userActionExecutor.shutdown();
         contextActionExecutor.shutdown();
@@ -1289,6 +1295,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return CodePrompts.instance.getWorkspaceSummaryMessages(this);
     }
 
+    /**
+     * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
+     * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
+     */
     private String readOnlySummaryDescription(ContextFragment cf) {
         if (cf.getType().isPathFragment()) {
             return cf.files().stream().findFirst().map(BrokkFile::toString).orElseGet(() -> {
@@ -1319,6 +1329,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return "\"%s\"".formatted(cf.description());
     }
 
+    @Override
     public String getReadOnlySummary() {
         return topContext().getReadOnlyFragments()
                 .map(this::readOnlySummaryDescription)
@@ -1326,12 +1337,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .collect(Collectors.joining(", "));
     }
 
+    @Override
     public String getEditableSummary() {
         return topContext().getEditableFragments()
                 .map(this::editableSummaryDescription)
                 .collect(Collectors.joining(", "));
     }
 
+    @Override
     public Set<ProjectFile> getEditableFiles() {
         return topContext().editableFiles()
                 .filter(ContextFragment.ProjectPathFragment.class::isInstance)
@@ -1360,7 +1373,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Context pushContext(Function<Context, Context> contextGenerator) {
         Instant start = Instant.now();
-        while (liveContext == null && java.time.Duration.between(start, Instant.now()).getSeconds() < 5) {
+        while (liveContext == null && java.time.Duration.between(start, Instant.now()).toSeconds() < 5) {
             Thread.onSpinWait();
         }
         if (liveContext == null) {
@@ -1396,7 +1409,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     int choice = io.showConfirmDialog("""
                                                       The conversation history is getting long (%,d lines or about %,d tokens).
                                                       Compressing it can improve performance and reduce cost.
-
+                                                      
                                                       Compress history now?
                                                       """.formatted(cf.format().split("\n").length, tokenCount),
                                                       "Compress History?",
@@ -1415,6 +1428,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Updates the selected FROZEN context in history from the UI.
      * Called by Chrome when the user selects a row in the history table.
+     *
      * @param frozenContextFromHistory The FROZEN context selected in the UI.
      */
     public void setSelectedContext(Context frozenContextFromHistory) {
@@ -1582,6 +1596,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
     public EditBlockParser getParserForWorkspace() {
         // text() on live fragment
         var allText = topContext().allFragments()
@@ -1660,7 +1675,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     } catch (IOException e) {
                         logger.error("Failed to read {}: {}", relativePath, e.getMessage());
                         // Skip this file on error
-                        continue; // Ensure we continue to the next file even on error
+                        // continue; // This continue is redundant
                     }
                 }
 
@@ -1861,7 +1876,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * and switches to it asynchronously.
      *
      * @param sourceFrozenContext The context whose workspace items will be copied.
-     * @param newSessionName The name for the new session.
+     * @param newSessionName      The name for the new session.
      * @return A CompletableFuture representing the completion of the session creation task.
      */
     public CompletableFuture<Void> createSessionFromContextAsync(Context sourceFrozenContext, String newSessionName) {
@@ -1926,8 +1941,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     .findFirst()
                     .map(IProject.SessionInfo::name).orElse("Unknown session");
             io.systemNotify("Session '" + sessionName + "' (" + sessionId.toString().substring(0, 8) + ")" +
-                                " is currently active in another Brokk window.\n" +
-                                "Please close it there or choose a different session.", "Session In Use", JOptionPane.WARNING_MESSAGE);
+                                    " is currently active in another Brokk window.\n" +
+                                    "Please close it there or choose a different session.", "Session In Use", JOptionPane.WARNING_MESSAGE);
             return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
         }
 
@@ -1970,7 +1985,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Renames an existing session asynchronously.
      *
      * @param sessionId The UUID of the session to rename
-     * @param newName The new name for the session
+     * @param newName   The new name for the session
      * @return A CompletableFuture representing the completion of the session rename task
      */
     public CompletableFuture<Void> renameSessionAsync(UUID sessionId, String newName) {
@@ -2015,7 +2030,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Copies an existing session with a new name and switches to it asynchronously.
      *
-     * @param originalSessionId The UUID of the session to copy
+     * @param originalSessionId   The UUID of the session to copy
      * @param originalSessionName The name of the session to copy
      * @return A CompletableFuture representing the completion of the session copy task
      */

@@ -25,7 +25,7 @@ public class AutoScalingHtmlPane {
 
         /** Paint the image shrunk if necessary */
         @Override public void paint(Graphics g, Shape a) {
-            Rectangle r = (a instanceof Rectangle) ? (Rectangle) a : a.getBounds();
+            Rectangle r = (a instanceof Rectangle rectangle) ? rectangle : a.getBounds();
             Image img = getImage();
             if (img == null) return;
 
