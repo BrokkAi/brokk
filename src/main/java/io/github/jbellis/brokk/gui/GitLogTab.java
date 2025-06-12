@@ -669,9 +669,12 @@ public class GitLogTab extends JPanel {
         JMenuItem viewHistoryItem = new JMenuItem("View History");
         JMenuItem editFileItem = new JMenuItem("Edit File(s)");
         JMenuItem comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
+        JMenuItem rollbackFilesItem = new JMenuItem("Rollback Files to This Commit");
 
         changesContextMenu.add(addFileToContextItem);
         changesContextMenu.add(editFileItem);
+        changesContextMenu.addSeparator();
+        changesContextMenu.add(rollbackFilesItem);
         changesContextMenu.addSeparator();
         changesContextMenu.add(viewHistoryItem);
         changesContextMenu.addSeparator();
@@ -709,6 +712,7 @@ public class GitLogTab extends JPanel {
                     viewHistoryItem.setEnabled(singleFileSelected);
                     addFileToContextItem.setEnabled(hasFileSelection);
                     editFileItem.setEnabled(hasFileSelection);
+                    rollbackFilesItem.setEnabled(hasFileSelection && isSingleCommit);
                     viewFileAtRevisionItem.setEnabled(singleFileSelected && isSingleCommit);
                     viewDiffItem.setEnabled(singleFileSelected && isSingleCommit);
                     compareFileWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
@@ -831,6 +835,25 @@ public class GitLogTab extends JPanel {
                 var selectedFiles = getSelectedFilePaths(paths);
                 for (var fp : selectedFiles) {
                     GitUiUtil.editFile(contextManager, fp);
+                }
+            }
+        });
+        rollbackFilesItem.addActionListener(e -> {
+            TreePath[] paths = changesTree.getSelectionPaths();
+            int[] selRows = commitsTable.getSelectedRows();
+            if (paths != null && paths.length > 0 && selRows.length == 1) {
+                List<String> selectedFilePaths = getSelectedFilePaths(paths);
+                if (!selectedFilePaths.isEmpty()) {
+                    // Get CommitInfo from hidden column 5
+                    ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], 5);
+                    String commitId = commitInfo.id();
+                    
+                    // Convert file paths to ProjectFile objects
+                    List<ProjectFile> projectFiles = selectedFilePaths.stream()
+                            .map(fp -> new ProjectFile(contextManager.getRoot(), fp))
+                            .toList();
+                    
+                    GitUiUtil.rollbackFilesToCommit(contextManager, chrome, commitId, projectFiles);
                 }
             }
         });

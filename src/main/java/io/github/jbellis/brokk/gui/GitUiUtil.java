@@ -543,4 +543,67 @@ public final class GitUiUtil
             }
         });
     }
+
+    /**
+     * Rollback selected files to their state at a specific commit.
+     * This will overwrite the current working directory versions of these files.
+     */
+    public static void rollbackFilesToCommit
+    (
+            ContextManager contextManager,
+            Chrome chrome,
+            String commitId,
+            List<ProjectFile> files
+    ) {
+        if (files == null || files.isEmpty()) {
+            chrome.systemOutput("No files selected for rollback");
+            return;
+        }
+
+        var fileNames = files.stream()
+                .map(ProjectFile::getFileName)
+                .collect(Collectors.joining(", "));
+        var shortCommitId = commitId.length() > 7 ? commitId.substring(0, 7) : commitId;
+
+        // Show confirmation dialog
+        var message = String.format(
+                "This will rollback the following file(s) to their state at commit %s:\n\n%s\n\n" +
+                "Any local changes to these files will be lost. Continue?",
+                shortCommitId, fileNames
+        );
+        
+        int result = JOptionPane.showConfirmDialog(
+                null,
+                message,
+                "Confirm Rollback Files",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+
+        if (result != JOptionPane.YES_OPTION) {
+            chrome.systemOutput("Rollback cancelled");
+            return;
+        }
+
+        var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
+        
+        contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
+            try {
+                repo.checkoutFilesFromCommit(commitId, files);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.systemOutput(String.format(
+                            "Successfully rolled back %d file(s) to commit %s",
+                            files.size(), shortCommitId
+                    ));
+                    // Refresh Git panels to show the changed files
+                    chrome.getGitPanel().updateCommitPanel();
+                });
+            } catch (Exception e) {
+                logger.error("Error rolling back files", e);
+                SwingUtilities.invokeLater(() -> 
+                    chrome.toolError("Error rolling back files: " + e.getMessage())
+                );
+            }
+        });
+    }
 }
