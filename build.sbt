@@ -145,4 +145,4 @@ javaOptions ++= Seq(
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
-
+Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))
