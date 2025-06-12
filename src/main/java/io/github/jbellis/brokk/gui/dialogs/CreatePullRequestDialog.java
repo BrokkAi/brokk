@@ -25,6 +25,7 @@ public class CreatePullRequestDialog extends JDialog {
     private JComboBox<String> targetBranchComboBox;
     private GitCommitBrowserPanel commitBrowserPanel;
     private JLabel branchFlowLabel;
+    private JButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
 
@@ -131,6 +132,7 @@ public class CreatePullRequestDialog extends JDialog {
                 // so the label updates immediately before async refresh completes.
                 this.currentCommits = Collections.emptyList();
                 this.flowUpdater.run();
+                updateCreatePrButtonState(); // Update button state
             }
             refreshCommitList();
         };
@@ -146,6 +148,7 @@ public class CreatePullRequestDialog extends JDialog {
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Select branches");
             if (this.flowUpdater != null) this.flowUpdater.run();
+            updateCreatePrButtonState();
             return;
         }
 
@@ -155,6 +158,7 @@ public class CreatePullRequestDialog extends JDialog {
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName);
             if (this.flowUpdater != null) this.flowUpdater.run();
+            updateCreatePrButtonState();
             return;
         }
 
@@ -173,6 +177,7 @@ public class CreatePullRequestDialog extends JDialog {
                     this.currentCommits = finalCommits;
                     commitBrowserPanel.setCommits(finalCommits, Set.of(), false, false, contextName);
                     if (this.flowUpdater != null) this.flowUpdater.run();
+                    updateCreatePrButtonState();
                 });
                 return commits;
             } catch (Exception e) {
@@ -181,21 +186,28 @@ public class CreatePullRequestDialog extends JDialog {
                     this.currentCommits = Collections.emptyList();
                     commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)");
                     if (this.flowUpdater != null) this.flowUpdater.run();
+                    updateCreatePrButtonState();
                 });
                 throw e;
             }
         });
     }
 
+    private void updateCreatePrButtonState() {
+        if (createPrButton != null) {
+            createPrButton.setEnabled(!currentCommits.isEmpty());
+        }
+    }
+
     private JPanel createButtonPanel() {
         var buttonPanel = new JPanel(new FlowLayout());
         
-        var createButton = new JButton("Create PR");
-        createButton.addActionListener(e -> {
+        this.createPrButton = new JButton("Create PR"); // Assign to field
+        this.createPrButton.addActionListener(e -> {
             // TODO: Implement PR creation logic
             dispose();
         });
-        buttonPanel.add(createButton);
+        buttonPanel.add(this.createPrButton);
         
         var cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
@@ -235,11 +247,13 @@ public class CreatePullRequestDialog extends JDialog {
 
             if (this.flowUpdater != null) this.flowUpdater.run(); // Update label based on defaults
             refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater
+            updateCreatePrButtonState(); // Set initial button state
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
             this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
             if (this.flowUpdater != null) this.flowUpdater.run();
+            updateCreatePrButtonState(); // Ensure button is disabled on error
         }
     }
 
