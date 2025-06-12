@@ -145,7 +145,8 @@ public class CreatePullRequestDialog extends JDialog {
                 var repo = contextManager.getProject().getRepo();
                 List<CommitInfo> commits;
                 if (repo instanceof GitRepo gitRepo) {
-                    commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch);
+                    // For PRs, we want to exclude merge commits from the target branch
+                    commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch, true);
                 } else {
                     commits = Collections.emptyList();
                 }

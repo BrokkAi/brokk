@@ -1693,7 +1693,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
     @Override
     public List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
-        var revCommits = getRevCommitsBetween(branchName, targetBranchName);
+        var revCommits = getRevCommitsBetween(branchName, targetBranchName, false);
         return revCommits.stream()
                 .map(RevCommit::getShortMessage)
                 .collect(Collectors.toList());
@@ -1703,20 +1703,15 @@ public class GitRepo implements Closeable, IGitRepo {
      * Lists commits between two branches, returning detailed CommitInfo objects.
      * The commits are those on {@code sourceBranchName} that are not on {@code targetBranchName}.
      * Commits are returned in chronological order (oldest first).
-     *
-     * @param sourceBranchName The source branch (e.g., feature branch).
-     * @param targetBranchName The target branch (e.g., main branch).
-     * @return A list of CommitInfo objects.
-     * @throws GitAPIException if there's an error accessing Git data.
      */
-    public List<CommitInfo> listCommitsBetweenBranches(String sourceBranchName, String targetBranchName) throws GitAPIException {
-        var revCommits = getRevCommitsBetween(sourceBranchName, targetBranchName);
+    public List<CommitInfo> listCommitsBetweenBranches(String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
+        var revCommits = getRevCommitsBetween(sourceBranchName, targetBranchName, excludeMergeCommitsFromTarget);
         return revCommits.stream()
                 .map(this::fromRevCommit)
                 .collect(Collectors.toList());
     }
 
-    private List<RevCommit> getRevCommitsBetween(String sourceBranchName, String targetBranchName) throws GitAPIException {
+    private List<RevCommit> getRevCommitsBetween(String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
         List<RevCommit> commits = new ArrayList<>();
         ObjectId sourceHead = resolve(sourceBranchName);
         ObjectId targetHead = resolve(targetBranchName);
@@ -1726,41 +1721,51 @@ public class GitRepo implements Closeable, IGitRepo {
             return commits; // Return empty list if source branch cannot be resolved
         }
         // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
-        // In this case, we list all commits from the source branch.
 
         try (RevWalk revWalk = new RevWalk(repository)) {
             RevCommit sourceCommit = revWalk.parseCommit(sourceHead);
             revWalk.markStart(sourceCommit);
 
+            RevCommit targetCommit = null;
             if (targetHead != null) {
-                RevCommit targetCommit = revWalk.parseCommit(targetHead);
-                // Find merge base
-                RevWalk mergeBaseWalk = new RevWalk(repository); // Use a new RevWalk for merge-base to not interfere
-                try {
-                    mergeBaseWalk.setRevFilter(RevFilter.MERGE_BASE);
-                    mergeBaseWalk.markStart(sourceCommit);
-                    mergeBaseWalk.markStart(targetCommit);
-                    RevCommit mergeBase = mergeBaseWalk.next();
-
-                    if (mergeBase != null) {
-                        revWalk.markUninteresting(mergeBase);
-                    } else {
-                        // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
-                        // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
-                        logger.warn("No common merge base found between {} and {}. Listing commits from {} not on {}.",
-                                    sourceBranchName, targetBranchName, sourceBranchName, targetBranchName);
-                        revWalk.markUninteresting(targetCommit);
-                    }
-                } finally {
-                    mergeBaseWalk.dispose();
-                }
-            } else {
-                logger.warn("Target branch {} could not be resolved. Listing all commits from source branch {}.",
-                            targetBranchName, sourceBranchName);
-                // No target head, so list all commits from sourceCommit. Nothing to mark uninteresting.
+                targetCommit = revWalk.parseCommit(targetHead);
             }
 
-            // RevFilter.ALL is the default, so no need to set it explicitly after reset if that was intended.
+            if (excludeMergeCommitsFromTarget) {
+                if (targetCommit != null) {
+                    revWalk.markUninteresting(targetCommit); // Hide everything reachable from target
+                }
+                revWalk.setRevFilter(RevFilter.NO_MERGES); // Exclude all merge commits
+            } else {
+                // Original logic for "target..source"
+                if (targetCommit != null) {
+                    // Find merge base
+                    RevWalk mergeBaseWalk = new RevWalk(repository); // Use a new RevWalk for merge-base to not interfere
+                    try {
+                        mergeBaseWalk.setRevFilter(RevFilter.MERGE_BASE);
+                        mergeBaseWalk.markStart(sourceCommit);
+                        mergeBaseWalk.markStart(targetCommit);
+                        RevCommit mergeBase = mergeBaseWalk.next();
+
+                        if (mergeBase != null) {
+                            revWalk.markUninteresting(mergeBase);
+                        } else {
+                            // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
+                            // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
+                            logger.warn("No common merge base found between {} and {}. Listing commits from {} not on {}.",
+                                        sourceBranchName, targetBranchName, sourceBranchName, targetBranchName);
+                            revWalk.markUninteresting(targetCommit);
+                        }
+                    } finally {
+                        mergeBaseWalk.dispose();
+                    }
+                } else {
+                    logger.warn("Target branch {} could not be resolved. Listing all commits from source branch {}.",
+                                targetBranchName, sourceBranchName);
+                    // No target head, so list all commits from sourceCommit. Nothing to mark uninteresting.
+                }
+            }
+
             // Iterate and collect commits
             for (RevCommit commit : revWalk) {
                 commits.add(commit);
