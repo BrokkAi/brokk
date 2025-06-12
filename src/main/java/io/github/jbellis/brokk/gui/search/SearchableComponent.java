@@ -47,6 +47,15 @@ public interface SearchableComponent {
          * @param currentMatchIndex the current match index (1-based), or 0 if no current match
          */
         void onSearchComplete(int totalMatches, int currentMatchIndex);
+        
+        /**
+         * Called when a search operation encounters an error.
+         * 
+         * @param error description of the error that occurred
+         */
+        default void onSearchError(String error) {
+            // Default implementation does nothing - components can override for error handling
+        }
     }
     
     /**
@@ -57,6 +66,29 @@ public interface SearchableComponent {
      * @param callback the callback to notify when operations complete
      */
     void setSearchCompleteCallback(SearchCompleteCallback callback);
+    
+    /**
+     * Convenience method to notify immediate feedback when starting a search.
+     * This can be used by implementations to provide instant UI feedback.
+     * 
+     * @param searchText the search text being processed
+     */
+    default void notifySearchStart(String searchText) {
+        var callback = getSearchCompleteCallback();
+        if (callback != null) {
+            callback.onSearchComplete(0, 0); // Immediate feedback with no matches initially
+        }
+    }
+    
+    /**
+     * Gets the current search complete callback.
+     * Useful for implementations that need to access the callback.
+     * 
+     * @return the current callback, or null if none is set
+     */
+    default SearchCompleteCallback getSearchCompleteCallback() {
+        return null; // Default implementation - components should override if they store the callback
+    }
 
     /**
      * Highlights all occurrences of the search text in the component.

@@ -21,6 +21,10 @@ public class GenericSearchBar extends JPanel {
     private final SearchableComponent targetComponent;
     private int currentMatchIndex = 0;
     private int totalMatches = 0;
+    
+    // Performance optimization: debouncing
+    private Timer searchTimer;
+    private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -60,21 +64,36 @@ public class GenericSearchBar extends JPanel {
     }
 
     private void setupEventHandlers() {
-        // Real-time search as user types
+        // Initialize debouncing timer
+        searchTimer = new Timer(SEARCH_DELAY_MS, e -> updateSearchHighlights(true));
+        searchTimer.setRepeats(false);
+        
+        // Real-time search as user types with debouncing
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
+            }
+            
+            private void scheduleSearch() {
+                // Restart the timer for each keystroke (debouncing)
+                searchTimer.restart();
+                
+                // Provide immediate feedback for empty search
+                String query = searchField.getText();
+                if (query == null || query.trim().isEmpty()) {
+                    updateMatchCount(0, 0);
+                }
             }
         });
 

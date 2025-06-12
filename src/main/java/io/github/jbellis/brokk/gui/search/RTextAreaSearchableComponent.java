@@ -51,17 +51,26 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     public void setSearchCompleteCallback(SearchCompleteCallback callback) {
         this.searchCompleteCallback = callback;
     }
+    
+    @Override
+    public SearchCompleteCallback getSearchCompleteCallback() {
+        return searchCompleteCallback;
+    }
 
     @Override
     public void highlightAll(String searchText, boolean caseSensitive) {
         if (searchText == null || searchText.trim().isEmpty()) {
             clearHighlights();
             // Notify callback with 0 matches
-            if (searchCompleteCallback != null) {
-                searchCompleteCallback.onSearchComplete(0, 0);
+            var callback = getSearchCompleteCallback();
+            if (callback != null) {
+                callback.onSearchComplete(0, 0);
             }
             return;
         }
+
+        // Provide immediate feedback that search is starting
+        notifySearchStart(searchText);
 
         var context = new SearchContext(searchText);
         context.setMatchCase(caseSensitive);
@@ -71,13 +80,21 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         context.setSearchForward(true);
         context.setSearchWrap(true);
 
-        SearchEngine.markAll(textArea, context);
-        
-        // For sync implementation, immediately notify callback with results
-        if (searchCompleteCallback != null) {
-            int totalMatches = countMatches(searchText, caseSensitive);
-            int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
-            searchCompleteCallback.onSearchComplete(totalMatches, currentMatch);
+        try {
+            SearchEngine.markAll(textArea, context);
+            
+            // For sync implementation, immediately notify callback with results
+            var callback = getSearchCompleteCallback();
+            if (callback != null) {
+                int totalMatches = countMatches(searchText, caseSensitive);
+                int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
+                callback.onSearchComplete(totalMatches, currentMatch);
+            }
+        } catch (Exception e) {
+            var callback = getSearchCompleteCallback();
+            if (callback != null) {
+                callback.onSearchError("Search highlighting failed: " + e.getMessage());
+            }
         }
     }
 
@@ -108,10 +125,13 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         boolean found = result.wasFound();
         
         // Notify callback with updated match index
-        if (found && searchCompleteCallback != null) {
-            int totalMatches = countMatches(searchText, caseSensitive);
-            int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
-            searchCompleteCallback.onSearchComplete(totalMatches, currentMatch);
+        if (found) {
+            var callback = getSearchCompleteCallback();
+            if (callback != null) {
+                int totalMatches = countMatches(searchText, caseSensitive);
+                int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
+                callback.onSearchComplete(totalMatches, currentMatch);
+            }
         }
         
         return found;

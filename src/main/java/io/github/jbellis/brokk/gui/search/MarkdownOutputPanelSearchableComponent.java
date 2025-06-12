@@ -97,6 +97,9 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         final String finalSearchTerm = searchText.trim();
         this.currentSearchTerm = finalSearchTerm;
         this.currentCaseSensitive = caseSensitive;
+        
+        // Provide immediate feedback that search is starting
+        notifySearchStart(finalSearchTerm);
         this.previousHighlightedMarkerId = null;
         
         // Create search customizer with CSS classes
@@ -124,7 +127,16 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 }
             };
             
-            panel.setHtmlCustomizerWithCallback(searchCustomizer, processSearchResults);
+            try {
+                panel.setHtmlCustomizerWithCallback(searchCustomizer, processSearchResults);
+            } catch (Exception e) {
+                logger.error("Error applying search customizer to panel", e);
+                var callback = getSearchCompleteCallback();
+                if (callback != null) {
+                    callback.onSearchError("Search failed: " + e.getMessage());
+                }
+                return;
+            }
         }
     }
     
@@ -170,8 +182,9 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         scrollToCurrentMarker();
         
         // Update the search bar with new position
-        if (searchCompleteCallback != null) {
-            searchCompleteCallback.onSearchComplete(allMarkerIds.size(), currentMarkerIndex + 1);
+        var callback = getSearchCompleteCallback();
+        if (callback != null) {
+            callback.onSearchComplete(allMarkerIds.size(), currentMarkerIndex + 1);
         }
         
         return true;
@@ -205,9 +218,10 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         }
         
         // Notify the GenericSearchBar that search is complete
-        if (searchCompleteCallback != null) {
+        var callback = getSearchCompleteCallback();
+        if (callback != null) {
             int matchIndex = allMarkerIds.isEmpty() ? 0 : currentMarkerIndex + 1; // 1-based
-            searchCompleteCallback.onSearchComplete(allMarkerIds.size(), matchIndex);
+            callback.onSearchComplete(allMarkerIds.size(), matchIndex);
         }
     }
     
@@ -420,6 +434,11 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     @Override
     public void setSearchCompleteCallback(SearchCompleteCallback callback) {
         this.searchCompleteCallback = callback;
+    }
+    
+    @Override
+    public SearchCompleteCallback getSearchCompleteCallback() {
+        return searchCompleteCallback;
     }
     
     /**
