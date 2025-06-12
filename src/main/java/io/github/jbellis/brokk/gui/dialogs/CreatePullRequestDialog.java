@@ -24,6 +24,9 @@ public class CreatePullRequestDialog extends JDialog {
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
     private GitCommitBrowserPanel commitBrowserPanel;
+    private JLabel branchFlowLabel;
+    private Runnable flowUpdater;
+    private List<CommitInfo> currentCommits = Collections.emptyList();
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         super(owner, "Create a Pull Request", true);
@@ -61,8 +64,11 @@ public class CreatePullRequestDialog extends JDialog {
         splitPane.setResizeWeight(0.8); // Give more space to commit browser initially
         add(splitPane, BorderLayout.CENTER);
 
+        // Initialize flowUpdater after branchFlowLabel is initialized by createBranchSelectorPanel
+        this.flowUpdater = createFlowUpdater();
+
         // Load branches after UI is built
-        loadBranches(createFlowUpdater((JLabel) branchSelectorPanel.getComponent(4))); // Assuming JLabel is at index 4
+        loadBranches();
     }
 
     private JPanel createBranchSelectorPanel() {
@@ -72,15 +78,14 @@ public class CreatePullRequestDialog extends JDialog {
         row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox = new JComboBox<>(), row);
         row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox = new JComboBox<>(), row);
 
-        var branchFlowLabel = createBranchFlowIndicator(branchPanel, row);
-        // var updateFlowLabel = createFlowUpdater(branchFlowLabel); // updateFlowLabel is created and passed from buildLayout via loadBranches
+        this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
 
         // setupBranchListeners is now called in loadBranches after defaults are set
         // loadBranches is called after the main layout is built
 
         return branchPanel;
     }
-    
+
     private int addBranchSelectorToPanel(JPanel parent, String labelText, JComboBox<String> comboBox, int row) {
         var gbc = createGbc(0, row);
         parent.add(new JLabel(labelText), gbc);
@@ -104,20 +109,29 @@ public class CreatePullRequestDialog extends JDialog {
         
         return branchFlowLabel;
     }
-    
-    private Runnable createFlowUpdater(JLabel branchFlowLabel) {
+
+    private Runnable createFlowUpdater() {
         return () -> {
             var target = (String) targetBranchComboBox.getSelectedItem();
             var source = (String) sourceBranchComboBox.getSelectedItem();
             if (target != null && source != null) {
-                branchFlowLabel.setText(target + " ← " + source);
+                String baseText = target + " ← " + source;
+                // currentCommits is initialized to emptyList, so it's never null.
+                this.branchFlowLabel.setText(baseText + " (" + currentCommits.size() + " commits)");
+            } else {
+                this.branchFlowLabel.setText(""); // Clear if branches not selected
             }
         };
     }
-    
-    private void setupBranchListeners(Runnable updateFlowLabel) {
+
+    private void setupBranchListeners() {
         ActionListener branchChangedListener = e -> {
-            updateFlowLabel.run();
+            if (this.flowUpdater != null) {
+                // Temporarily set commits to empty when branches change,
+                // so the label updates immediately before async refresh completes.
+                this.currentCommits = Collections.emptyList();
+                this.flowUpdater.run();
+            }
             refreshCommitList();
         };
         targetBranchComboBox.addActionListener(branchChangedListener);
@@ -129,14 +143,18 @@ public class CreatePullRequestDialog extends JDialog {
         var targetBranch = (String) targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
+            this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Select branches");
+            if (this.flowUpdater != null) this.flowUpdater.run();
             return;
         }
 
         var contextName = targetBranch + " ← " + sourceBranch;
 
         if (sourceBranch.equals(targetBranch)) {
+            this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName);
+            if (this.flowUpdater != null) this.flowUpdater.run();
             return;
         }
 
@@ -150,20 +168,25 @@ public class CreatePullRequestDialog extends JDialog {
                 } else {
                     commits = Collections.emptyList();
                 }
-                SwingUtilities.invokeLater(() ->
-                    commitBrowserPanel.setCommits(commits, Set.of(), false, false, contextName)
-                );
+                List<CommitInfo> finalCommits = commits;
+                SwingUtilities.invokeLater(() -> {
+                    this.currentCommits = finalCommits;
+                    commitBrowserPanel.setCommits(finalCommits, Set.of(), false, false, contextName);
+                    if (this.flowUpdater != null) this.flowUpdater.run();
+                });
                 return commits;
             } catch (Exception e) {
                 logger.error("Error fetching commits for " + contextName, e);
-                SwingUtilities.invokeLater(() ->
-                    commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)")
-                );
+                SwingUtilities.invokeLater(() -> {
+                    this.currentCommits = Collections.emptyList();
+                    commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)");
+                    if (this.flowUpdater != null) this.flowUpdater.run();
+                });
                 throw e;
             }
         });
     }
-    
+
     private JPanel createButtonPanel() {
         var buttonPanel = new JPanel(new FlowLayout());
         
@@ -189,8 +212,8 @@ public class CreatePullRequestDialog extends JDialog {
         gbc.anchor = GridBagConstraints.WEST;
         return gbc;
     }
-    
-    private void loadBranches(Runnable updateFlowLabel) {
+
+    private void loadBranches() {
         var repo = contextManager.getProject().getRepo();
         if (!(repo instanceof GitRepo gitRepo)) {
             logger.warn("PR dialog opened for non-Git repository");
@@ -206,18 +229,20 @@ public class CreatePullRequestDialog extends JDialog {
             
             populateBranchDropdowns(targetBranches, sourceBranches);
             setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
-            
+
             // Listeners must be set up AFTER default items are selected to avoid premature firing.
-            setupBranchListeners(updateFlowLabel);
-            
-            updateFlowLabel.run(); // Update label based on defaults
-            refreshCommitList();   // Load commits based on defaults
+            setupBranchListeners();
+
+            if (this.flowUpdater != null) this.flowUpdater.run(); // Update label based on defaults
+            refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
+            this.currentCommits = Collections.emptyList();
             commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
+            if (this.flowUpdater != null) this.flowUpdater.run();
         }
     }
-    
+
     private List<String> getTargetBranches(List<String> remoteBranches) {
         return remoteBranches.stream()
                 .filter(branch -> branch.startsWith("origin/"))
