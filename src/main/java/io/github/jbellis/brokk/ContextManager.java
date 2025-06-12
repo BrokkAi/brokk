@@ -629,6 +629,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Add the given files to editable.
      */
     public void editFiles(List<ContextFragment.ProjectPathFragment> fragments) {
+        assert fragments.stream().noneMatch(f -> isImage(f.file().absPath())) : "Image files cannot be editable";
         // Operate on liveContext
         var currentReadOnlyFiles = liveContext.readonlyFiles().collect(Collectors.toSet());
         var filesToEditSet = fragments.stream().map(ContextFragment.ProjectPathFragment::file).collect(Collectors.toSet());
