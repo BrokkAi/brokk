@@ -51,7 +51,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     public void setSearchCompleteCallback(SearchCompleteCallback callback) {
         this.searchCompleteCallback = callback;
     }
-    
+
     @Override
     public SearchCompleteCallback getSearchCompleteCallback() {
         return searchCompleteCallback;
@@ -82,7 +82,28 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
 
         try {
             SearchEngine.markAll(textArea, context);
-            
+
+            // Scroll to first match if any
+            if (countMatches(searchText, caseSensitive) > 0) {
+                // Save current position
+                var originalPosition = textArea.getCaretPosition();
+                textArea.setCaretPosition(0);
+
+                // Find and jump to first match
+                var findContext = new SearchContext(searchText);
+                findContext.setMatchCase(caseSensitive);
+                findContext.setSearchForward(true);
+                var result = SearchEngine.find(textArea, findContext);
+
+                if (!result.wasFound() && originalPosition > 0) {
+                    // Restore position if no match found
+                    textArea.setCaretPosition(originalPosition);
+                } else if (result.wasFound()) {
+                    // Center the first match
+                    centerCaretInView();
+                }
+            }
+
             // For sync implementation, immediately notify callback with results
             var callback = getSearchCompleteCallback();
             if (callback != null) {
@@ -113,7 +134,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
             return false;
         }
 
-        SearchContext context = new SearchContext(searchText);
+        var context = new SearchContext(searchText);
         context.setMatchCase(caseSensitive);
         context.setMarkAll(true);
         context.setWholeWord(false);
@@ -123,7 +144,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
 
         var result = SearchEngine.find(textArea, context);
         boolean found = result.wasFound();
-        
+
         // Notify callback with updated match index
         if (found) {
             var callback = getSearchCompleteCallback();
@@ -133,7 +154,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
                 callback.onSearchComplete(totalMatches, currentMatch);
             }
         }
-        
+
         return found;
     }
 
@@ -144,8 +165,8 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
             var viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
             if (viewport != null && matchRect != null) {
                 // Calculate the target Y position (1/3 from the top)
-                int viewportHeight = viewport.getHeight();
-                int targetY = Math.max(0, (int) (matchRect.y - viewportHeight * 0.33));
+                var viewportHeight = viewport.getHeight();
+                var targetY = Math.max(0, (int) (matchRect.y - viewportHeight * 0.33));
 
                 // Create a new point for scrolling
                 var viewRect = viewport.getViewRect();
@@ -161,24 +182,24 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     public JComponent getComponent() {
         return textArea;
     }
-    
+
     // Helper methods for internal use
     private int countMatches(String searchText, boolean caseSensitive) {
         if (searchText == null || searchText.trim().isEmpty()) {
             return 0;
         }
 
-        String text = getText();
+        var text = getText();
         if (text.isEmpty()) {
             return 0;
         }
 
         // Use regex to count matches
-        Pattern pattern = Pattern.compile(
+        var pattern = Pattern.compile(
             Pattern.quote(searchText),
             caseSensitive ? 0 : Pattern.CASE_INSENSITIVE
         );
-        Matcher matcher = pattern.matcher(text);
+        var matcher = pattern.matcher(text);
 
         int count = 0;
         while (matcher.find()) {
@@ -192,19 +213,19 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
             return 0;
         }
 
-        String text = getText();
+        var text = getText();
         if (text.isEmpty()) {
             return 0;
         }
 
-        int caretPos = getCaretPosition();
+        var caretPos = getCaretPosition();
 
         // Use regex to find all matches and determine current position
-        Pattern pattern = Pattern.compile(
+        var pattern = Pattern.compile(
             Pattern.quote(searchText),
             caseSensitive ? 0 : Pattern.CASE_INSENSITIVE
         );
-        Matcher matcher = pattern.matcher(text);
+        var matcher = pattern.matcher(text);
 
         int index = 0;
         while (matcher.find()) {

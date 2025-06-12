@@ -390,7 +390,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         assert ctx != null;
 
         logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
-        // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
+        // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away
 
         final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
         setSkipNextUpdateOutputPanelOnContextChange(false);
@@ -461,16 +461,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // System message label (left side)
         systemMessageLabel = new JLabel(SYSMSG_EMPTY);
         systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
-        
+
         // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
         backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
 
         // Panel to hold both labels
-        JPanel statusPanel = new JPanel(new BorderLayout());
+        var statusPanel = new JPanel(new BorderLayout());
         statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
-        
+
         return statusPanel;
     }
 
@@ -662,49 +662,49 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
-        
+
         // If single panel, create a scroll pane for it
         JComponent contentComponent;
         var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
             var scrollPane = new JScrollPane(markdownPanels.getFirst());
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
         } else {
             // Multiple panels - create container with BoxLayout
-            JPanel messagesContainer = new JPanel();
+            var messagesContainer = new JPanel();
             messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
             componentsWithChatBackground.add(messagesContainer);
-            
+
             for (MarkdownOutputPanel panel : markdownPanels) {
                 messagesContainer.add(panel);
             }
-            
+
             var scrollPane = new JScrollPane(messagesContainer);
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
         }
-        
+
         // Create main content panel to hold search bar and content
-        JPanel contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        var contentPanel = new SearchableContentPanel(componentsWithChatBackground);
         componentsWithChatBackground.add(contentPanel);
-        
+
         // Create searchable component adapter and generic search bar
         var searchableComponent = new MarkdownOutputPanelSearchableComponent(markdownPanels);
         var searchBar = new GenericSearchBar(searchableComponent);
         componentsWithChatBackground.add(searchBar);
 
         componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
-        
+
         // Add components to content panel
         contentPanel.add(searchBar, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
-        
+
         // Register Ctrl/Cmd+F to focus search field
         searchBar.registerGlobalShortcuts(contentPanel);
-        
+
         return contentPanel;
     }
 
@@ -868,7 +868,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                boolean escapeHtml = outputFragment.isEscapeHtml();
+                var escapeHtml = outputFragment.isEscapeHtml();
 
                 for (TaskEntry entry : outputFragment.entries()) {
                     var markdownPanel = new MarkdownOutputPanel(escapeHtml);

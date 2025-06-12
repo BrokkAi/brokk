@@ -11,11 +11,13 @@ public interface SearchableComponent {
 
     /**
      * Gets the text content of this component for searching.
+     * This method is synchronous and should return immediately.
      */
     String getText();
 
     /**
      * Gets the currently selected text, if any.
+     * This method is synchronous and should return immediately.
      *
      * @return the selected text, or null if no text is selected
      */
@@ -23,16 +25,19 @@ public interface SearchableComponent {
 
     /**
      * Gets the current caret position in the text.
+     * This method is synchronous and should return immediately.
      */
     int getCaretPosition();
 
     /**
      * Sets the caret position in the text.
+     * This method is synchronous and should complete immediately.
      */
     void setCaretPosition(int position);
 
     /**
      * Requests focus for this component.
+     * This method is synchronous and should complete immediately.
      */
     void requestFocusInWindow();
 
@@ -42,35 +47,36 @@ public interface SearchableComponent {
     interface SearchCompleteCallback {
         /**
          * Called when search highlighting is complete and results are available.
-         * 
+         *
          * @param totalMatches the total number of matches found
          * @param currentMatchIndex the current match index (1-based), or 0 if no current match
          */
         void onSearchComplete(int totalMatches, int currentMatchIndex);
-        
+
         /**
          * Called when a search operation encounters an error.
-         * 
+         *
          * @param error description of the error that occurred
          */
         default void onSearchError(String error) {
             // Default implementation does nothing - components can override for error handling
         }
     }
-    
+
     /**
      * Sets a callback to be notified when search operations complete.
      * All SearchableComponent implementations must support this async pattern.
      * Synchronous implementations should call the callback immediately.
-     * 
+     *
      * @param callback the callback to notify when operations complete
      */
     void setSearchCompleteCallback(SearchCompleteCallback callback);
-    
+
     /**
      * Convenience method to notify immediate feedback when starting a search.
+     * This method is synchronous and executes immediately.
      * This can be used by implementations to provide instant UI feedback.
-     * 
+     *
      * @param searchText the search text being processed
      */
     default void notifySearchStart(String searchText) {
@@ -79,11 +85,11 @@ public interface SearchableComponent {
             callback.onSearchComplete(0, 0); // Immediate feedback with no matches initially
         }
     }
-    
+
     /**
      * Gets the current search complete callback.
      * Useful for implementations that need to access the callback.
-     * 
+     *
      * @return the current callback, or null if none is set
      */
     default SearchCompleteCallback getSearchCompleteCallback() {
@@ -101,12 +107,18 @@ public interface SearchableComponent {
 
     /**
      * Clears all search highlights.
+     * This method is synchronous and should complete immediately.
+     * Visual updates should be applied before this method returns.
      */
     void clearHighlights();
 
     /**
      * Finds the next occurrence of the search text relative to the current position.
-     * May trigger SearchCompleteCallback if match index changes.
+     * This method has hybrid behavior: it returns synchronously but may trigger
+     * SearchCompleteCallback asynchronously if the match index changes.
+     *
+     * For async implementations, this method should still return immediately with
+     * a boolean indicating if navigation was initiated successfully.
      *
      * @param searchText the text to search for
      * @param caseSensitive whether the search should be case-sensitive
@@ -117,6 +129,7 @@ public interface SearchableComponent {
 
     /**
      * Centers the current caret position in the viewport if this component is scrollable.
+     * This method is synchronous and should complete immediately.
      * This is called after a successful search to ensure the match is visible.
      */
     default void centerCaretInView() {
@@ -125,6 +138,7 @@ public interface SearchableComponent {
 
     /**
      * Gets the underlying Swing component for event handling and parent component operations.
+     * This method is synchronous and should return immediately.
      */
     JComponent getComponent();
 }

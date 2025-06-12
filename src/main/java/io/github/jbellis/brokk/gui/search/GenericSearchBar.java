@@ -19,9 +19,7 @@ public class GenericSearchBar extends JPanel {
     private final JButton previousButton;
     private final JLabel matchCountLabel;
     private final SearchableComponent targetComponent;
-    private int currentMatchIndex = 0;
-    private int totalMatches = 0;
-    
+
     // Performance optimization: debouncing
     private Timer searchTimer;
     private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
@@ -58,16 +56,16 @@ public class GenericSearchBar extends JPanel {
 
         // Initialize tooltip
         updateTooltip();
-        
+
         // Setup async search callback
         targetComponent.setSearchCompleteCallback(this::onSearchComplete);
     }
 
     private void setupEventHandlers() {
         // Initialize debouncing timer
-        searchTimer = new Timer(SEARCH_DELAY_MS, e -> updateSearchHighlights(true));
+        searchTimer = new Timer(SEARCH_DELAY_MS, e -> updateSearchHighlights());
         searchTimer.setRepeats(false);
-        
+
         // Real-time search as user types with debouncing
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -84,11 +82,11 @@ public class GenericSearchBar extends JPanel {
             public void changedUpdate(DocumentEvent e) {
                 scheduleSearch();
             }
-            
+
             private void scheduleSearch() {
                 // Restart the timer for each keystroke (debouncing)
                 searchTimer.restart();
-                
+
                 // Provide immediate feedback for empty search
                 String query = searchField.getText();
                 if (query == null || query.trim().isEmpty()) {
@@ -105,7 +103,7 @@ public class GenericSearchBar extends JPanel {
         previousButton.addActionListener(e -> findPrevious());
         caseSensitiveButton.addActionListener(e -> {
             updateTooltip();
-            updateSearchHighlights(false);
+            updateSearchHighlights();
         });
     }
 
@@ -182,7 +180,7 @@ public class GenericSearchBar extends JPanel {
         String query = searchField.getText();
         if (query != null && !query.trim().isEmpty()) {
             int originalCaretPosition = targetComponent.getCaretPosition();
-            updateSearchHighlights(false);
+            updateSearchHighlights();
             targetComponent.setCaretPosition(originalCaretPosition);
         }
     }
@@ -197,9 +195,8 @@ public class GenericSearchBar extends JPanel {
     /**
      * Updates search highlights in the target component.
      *
-     * @param jumpToFirst If true, jump to the first occurrence; if false, maintain current position
      */
-    private void updateSearchHighlights(boolean jumpToFirst) {
+    private void updateSearchHighlights() {
         String query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
@@ -210,30 +207,16 @@ public class GenericSearchBar extends JPanel {
         // Highlight all occurrences (this will trigger async callback)
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
 
-        if (jumpToFirst) {
-            // Jump to the first occurrence as the user types (once async search completes)
-            // The callback will handle updating the match count
-            int originalCaretPosition = targetComponent.getCaretPosition();
-            targetComponent.setCaretPosition(0); // Start search from beginning
-            boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), true);
-            if (!found && originalCaretPosition > 0) {
-                // If not found from beginning, restore caret position
-                targetComponent.setCaretPosition(originalCaretPosition);
-            } else if (found) {
-                // Center the match in the viewport
-                targetComponent.centerCaretInView();
-            }
-        }
+        // For async components, the scrolling to first match will happen in the callback
+        // when the search completes (see onSearchComplete and MarkdownOutputPanelSearchableComponent.handleSearchComplete)
     }
-    
+
     /**
      * Callback method for async search completion.
      * This will be called by async SearchableComponent implementations when search is complete.
      */
     private void onSearchComplete(int totalMatches, int currentMatchIndex) {
         SwingUtilities.invokeLater(() -> {
-            this.totalMatches = totalMatches;
-            this.currentMatchIndex = currentMatchIndex;
             updateMatchCount(currentMatchIndex, totalMatches);
         });
     }
