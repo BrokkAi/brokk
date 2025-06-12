@@ -320,10 +320,9 @@ public abstract class CodePrompts {
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
-        var styleGuide = cm.getProject().getStyleGuide();
 
         // 1. System Intro + Style Guide
-        messages.add(systemMessage(cm, styleGuide));
+        messages.add(systemMessage(cm, ""));
         // 2. No examples provided for full-file replacement
 
         // 3. History Messages (provides conversational context)
@@ -364,6 +363,58 @@ public abstract class CodePrompts {
             You MUST include the backtick fences, even if the correct content is an empty file.
             DO NOT modify the file except for the changes pertaining to the goal!
             DO NOT use the SEARCH/REPLACE format you see earlier -- that didn't work!
+            """.formatted(goal, targetFile, currentContent);
+        messages.add(new UserMessage(userMessage));
+
+        return messages;
+    }
+
+    public List<ChatMessage> getSimpleFileReplaceMessages(IProject project, ProjectFile targetFile, String goal) {
+        var messages = new ArrayList<ChatMessage>();
+        var styleGuide = project.getStyleGuide();
+
+        // 1. System Intro + Style Guide
+        var text = """
+          <instructions>
+          %s
+          </instructions>
+          <style_guide>
+          %s
+          </style_guide>
+          """.stripIndent().formatted(systemIntro(""), styleGuide).trim();
+        messages.add(new SystemMessage(text));
+
+        // 2. Target File Content + Goal
+        String currentContent;
+        try {
+            currentContent = targetFile.read();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
+        }
+
+        var userMessage = """
+            You are now performing a full-file replacement of a single file.
+            
+            Here is your goal:
+            <goal>
+            %s
+            </goal>
+            
+            Here is the current content of the file:
+            <file source="%s">
+            %s
+            </file>
+            
+            Figure out the necessary changes to implement the goal,
+            then provide the *complete and updated* new content for the entire file,
+            fenced with triple backticks. Omit language identifiers or other markdown options.
+
+            Think about your answer before starting to edit.
+            You MUST include the backtick fences, even if the correct content is an empty file.
+            DO NOT modify the file except for the changes pertaining to the goal!
+            
+            As a special case, if no changes are required, then give the special marker BRK_NO_CHANGES_REQUIRED
+            and do not repeat the file contents.
             """.formatted(goal, targetFile, currentContent);
         messages.add(new UserMessage(userMessage));
 

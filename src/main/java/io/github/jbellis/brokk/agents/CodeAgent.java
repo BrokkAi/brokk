@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -406,8 +405,6 @@ public class CodeAgent {
             return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement.");
         }
 
-        var succeededCount = new AtomicInteger(0);
-
         // Process files in parallel using streams
         var futures = filesToProcess.stream().parallel().map(file -> CompletableFuture.supplyAsync(() -> {
              try {
@@ -419,34 +416,7 @@ public class CodeAgent {
                  var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
                  var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
-                 // Send request
-                 StreamingResult result = coder.sendRequest(messages, false);
-
-                 // Process response
-                 if (result.error() != null) {
-                     return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
-                 }
-                 var response = result.chatResponse();
-                 if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
-                     return Optional.of("Empty LLM response for %s".formatted(file));
-                 }
-
-                 // Extract and apply
-                 var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
-                 if (newContent == null || newContent.isBlank()) {
-                     // Allow empty if response wasn't just ``` ```
-                     if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
-                         // Treat explicitly empty fenced block as success
-                         newContent = "";
-                     } else {
-                         return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
-                     }
-                 }
-
-                 file.write(newContent);
-                 logger.debug("Successfully applied full file replacement for {}", file);
-                 succeededCount.incrementAndGet();
-                 return Optional.<String>empty(); // Success
+                 return executeReplace(file, coder, messages);
              } catch (InterruptedException e) {
                  throw new CancellationException();
              } catch (IOException e) {
@@ -486,18 +456,58 @@ public class CodeAgent {
                 .flatMap(Optional::stream)
                 .toList();
 
-        if (succeededCount.get() == failuresByFile.size()) {
-            assert actualFailureMessages.isEmpty() : actualFailureMessages;
+        if (actualFailureMessages.isEmpty()) {
             return null;
-        } else {
-            // Report combined errors
-            var combinedError = String.join("\n", actualFailureMessages);
-            if (succeededCount.get() < failuresByFile.size()) {
-                combinedError = "%d/%d files succeeded.\n".formatted(succeededCount.get(), failuresByFile.size()) + combinedError;
-            }
-            logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
-            return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(failuresByFile.size() - succeededCount.get()));
         }
+
+        // Report combined errors
+        var combinedError = String.join("\n", actualFailureMessages);
+        if (actualFailureMessages.size() < failuresByFile.size()) {
+            int succeeded = failuresByFile.size() - actualFailureMessages.size();
+            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, failuresByFile.size()) + combinedError;
+        }
+        logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
+        return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(actualFailureMessages.size()));
+    }
+
+    /**
+     * @return an error message, or empty if successful
+     */
+    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages)
+    throws InterruptedException, IOException
+    {
+        // Send request
+        StreamingResult result = coder.sendRequest(messages, false);
+
+        // Process response
+        if (result.error() != null) {
+            return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
+        }
+        var response = result.chatResponse();
+        if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
+            return Optional.of("Empty LLM response for %s".formatted(file));
+        }
+
+        // for Upgrade Agent
+        if (response.aiMessage().text().contains("BRK_NO_CHANGES_REQUIRED")) {
+            return Optional.empty();
+        }
+
+        // Extract and apply
+        var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
+        if (newContent == null || newContent.isBlank()) {
+            // Allow empty if response wasn't just ``` ```
+            if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
+                // Treat explicitly empty fenced block as success
+                newContent = "";
+            } else {
+                return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
+            }
+        }
+
+        file.write(newContent);
+        logger.debug("Successfully applied full file replacement for {}", file);
+        return Optional.empty();
     }
 
     /**
