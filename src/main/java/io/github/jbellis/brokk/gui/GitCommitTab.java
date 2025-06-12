@@ -44,6 +44,7 @@ public class GitCommitTab extends JPanel {
     private JButton commitButton;
     private JButton stashButton;
     private final Map<ProjectFile, String> fileStatusMap = new HashMap<>();
+    private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
         super(new BorderLayout());
@@ -123,9 +124,10 @@ public class GitCommitTab extends JPanel {
                 if (e.getClickCount() == 2) {
                     int row = uncommittedFilesTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
+                        // keep the visual feedback
                         uncommittedFilesTable.setRowSelectionInterval(row, row);
-                        var projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                        GitUiUtil.showUncommittedFileDiff(contextManager, chrome, projectFile.toString());
+                        var clickedFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
+                        openDiffForAllUncommittedFiles(clickedFile);
                     }
                 }
             }
@@ -138,7 +140,7 @@ public class GitCommitTab extends JPanel {
         var captureDiffItem = new JMenuItem("Capture Diff");
         uncommittedContextMenu.add(captureDiffItem);
 
-        var viewDiffItem = new JMenuItem("View Diff");
+        var viewDiffItem = new JMenuItem("View Diff (All Files)");
         uncommittedContextMenu.add(viewDiffItem);
 
         var editFileItem = new JMenuItem("Edit File(s)");
@@ -156,8 +158,14 @@ public class GitCommitTab extends JPanel {
                     var point = MouseInfo.getPointerInfo().getLocation();
                     SwingUtilities.convertPointFromScreen(point, uncommittedFilesTable);
                     int row = uncommittedFilesTable.rowAtPoint(point);
-                    if (row >= 0 && !uncommittedFilesTable.isRowSelected(row)) {
-                        uncommittedFilesTable.setRowSelectionInterval(row, row);
+                    if (row >= 0) {
+                        // Store the right-clicked file for later use
+                        rightClickedFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
+                        if (!uncommittedFilesTable.isRowSelected(row)) {
+                            uncommittedFilesTable.setRowSelectionInterval(row, row);
+                        }
+                    } else {
+                        rightClickedFile = null;
                     }
                     // Update menu items
                     updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem);
@@ -175,54 +183,8 @@ public class GitCommitTab extends JPanel {
 
         // Context menu actions:
         viewDiffItem.addActionListener(e -> {
-            var selectedFiles = getSelectedFilesFromTable();
-            if (selectedFiles.isEmpty()) {
-                return;
-            }
-            
-            if (selectedFiles.size() == 1) {
-                // Single file - use the existing single file diff viewer
-                GitUiUtil.showUncommittedFileDiff(contextManager, chrome, selectedFiles.get(0).toString());
-            } else {
-                // Multiple files - use the multi-file diff viewer
-                contextManager.submitUserTask("Opening multi-file diff", () -> {
-                    try {
-                        var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
-                        
-                        for (var file : selectedFiles) {
-                            // Get the working copy content (right side)
-                            var rightSource = new BufferSource.FileSource(
-                                file.absPath().toFile(), file.getFileName()
-                            );
-                            
-                            // Get the HEAD content (left side)
-                            String headContent = "";
-                            try {
-                                var repo = contextManager.getProject().getRepo();
-                                if (repo != null) {
-                                    headContent = repo.getFileContent("HEAD", file);
-                                }
-                            } catch (Exception ex) {
-                                // File might be new
-                                headContent = "";
-                            }
-                            
-                            var leftSource = new BufferSource.StringSource(
-                                headContent, "HEAD", file.getFileName()
-                            );
-                            
-                            builder.addComparison(leftSource, rightSource);
-                        }
-                        
-                        SwingUtilities.invokeLater(() -> {
-                            var panel = builder.build();
-                            panel.showInFrame("Uncommitted Changes Diff");
-                        });
-                    } catch (Exception ex) {
-                        chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
-                    }
-                });
-            }
+            // Use the stored right-clicked file as priority
+            openDiffForAllUncommittedFiles(rightClickedFile);
         });
 
         captureDiffItem.addActionListener(e -> {
@@ -600,8 +562,98 @@ public class GitCommitTab extends JPanel {
     }
 
     /**
-     * Sets the text in the commit message area (used by LLM suggestions).
+     * Helper to get a list of all files from the uncommittedFilesTable.
      */
+    private List<ProjectFile> getAllFilesFromTable()
+    {
+        var model = (DefaultTableModel) uncommittedFilesTable.getModel();
+        var files = new ArrayList<ProjectFile>();
+        int rowCount = model.getRowCount();
+
+        for (int i = 0; i < rowCount; i++) {
+            // Retrieve ProjectFile directly from the hidden column
+            ProjectFile projectFile = (ProjectFile) model.getValueAt(i, 2);
+            files.add(projectFile);
+        }
+        return files;
+    }
+
+    /**
+     * Opens a diff view for all uncommitted files in the table.
+     * @param priorityFile File to show first (e.g., the double-clicked file), or null for default ordering
+     */
+    private void openDiffForAllUncommittedFiles(ProjectFile priorityFile) {
+        var allFiles = getAllFilesFromTable();
+        if (allFiles.isEmpty()) {
+            return; // nothing to diff
+        }
+
+        // Reorder files based on priority
+        var orderedFiles = new ArrayList<ProjectFile>();
+
+        if (priorityFile != null && allFiles.contains(priorityFile)) {
+            // Priority file goes first
+            orderedFiles.add(priorityFile);
+            // Then selected files (excluding the priority file if it's already selected)
+            var selectedFiles = getSelectedFilesFromTable();
+            for (var file : selectedFiles) {
+                if (!file.equals(priorityFile)) {
+                    orderedFiles.add(file);
+                }
+            }
+            // Finally, all other files
+            for (var file : allFiles) {
+                if (!file.equals(priorityFile) && !selectedFiles.contains(file)) {
+                    orderedFiles.add(file);
+                }
+            }
+        } else {
+            // No priority file, use selected files first, then the rest
+            var selectedFiles = getSelectedFilesFromTable();
+            orderedFiles.addAll(selectedFiles);
+            for (var file : allFiles) {
+                if (!selectedFiles.contains(file)) {
+                    orderedFiles.add(file);
+                }
+            }
+        }
+
+        contextManager.submitUserTask("show-uncomitted-files", () -> {
+            try {
+                var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
+
+                for (var file : orderedFiles) {
+                    var rightSource = new BufferSource.FileSource(
+                            file.absPath().toFile(), file.getFileName()
+                    );
+
+                    String headContent = "";
+                    try {
+                        var repo = contextManager.getProject().getRepo();
+                        if (repo != null) {
+                            headContent = repo.getFileContent("HEAD", file);
+                        }
+                    } catch (Exception ex) {
+                        // new file or retrieval error – treat as empty
+                        headContent = "";
+                    }
+
+                    var leftSource = new BufferSource.StringSource(
+                            headContent, "HEAD", file.getFileName()
+                    );
+                    builder.addComparison(leftSource, rightSource);
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    var panel = builder.build();
+                    panel.showInFrame("Uncommitted Changes Diff");
+                });
+            } catch (Exception ex) {
+                chrome.toolError("Error opening diff for all uncommitted files: " + ex.getMessage());
+            }
+        });
+    }
+
     /**
      * Performs the actual stash operation and updates the UI.
      */
