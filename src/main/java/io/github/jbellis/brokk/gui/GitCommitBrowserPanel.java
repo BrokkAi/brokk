@@ -69,8 +69,6 @@ public class GitCommitBrowserPanel extends JPanel {
     private JButton pushButton;
 
     private String currentBranchOrContextName; // Used by push/pull actions
-    private List<ICommitInfo> currentCommitsList; // To hold the currently displayed commits
-    private Set<String> currentUnpushedIds = Set.of(); // To hold the unpushed IDs for the current view
 
 
     public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
@@ -78,7 +76,6 @@ public class GitCommitBrowserPanel extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.reloader = reloader;
-        this.currentCommitsList = new ArrayList<>();
         buildCommitBrowserUI();
     }
 
@@ -817,7 +814,6 @@ public class GitCommitBrowserPanel extends JPanel {
     }
     
     public void clearCommitView() {
-        this.currentCommitsList.clear();
         this.currentBranchOrContextName = null;
         SwingUtil.runOnEdt(() -> {
             commitsTableModel.setRowCount(0);
@@ -833,8 +829,6 @@ public class GitCommitBrowserPanel extends JPanel {
 
     public void setCommits(List<? extends ICommitInfo> commits, Set<String> unpushedCommitIds,
                            boolean canPush, boolean canPull, String activeBranchOrContextName) {
-        this.currentCommitsList = new ArrayList<>(commits); // Store for potential re-display after search clear
-        this.currentUnpushedIds = Set.copyOf(unpushedCommitIds); // Store for use when search is cleared
         this.currentBranchOrContextName = activeBranchOrContextName;
 
         var commitRows = new ArrayList<Object[]>();
