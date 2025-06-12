@@ -608,10 +608,32 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (modelComboBox == null || reasoningComboBox == null) return;
         String selectedModelName = (String) modelComboBox.getSelectedItem();
         boolean supportsReasoning = selectedModelName != null && service.supportsReasoningEffort(selectedModelName);
+
+        // Build the allowed list of levels
+        var levels = new java.util.ArrayList<Service.ReasoningLevel>();
+        levels.add(Service.ReasoningLevel.DEFAULT);
+        if (supportsReasoning) {
+            levels.add(Service.ReasoningLevel.LOW);
+            levels.add(Service.ReasoningLevel.MEDIUM);
+            levels.add(Service.ReasoningLevel.HIGH);
+            if (service.supportsReasoningDisable(selectedModelName)) {
+                levels.add(Service.ReasoningLevel.DISABLE);
+            }
+        }
+
+        // Remember previously selected level
+        var prevSelection = (Service.ReasoningLevel) reasoningComboBox.getSelectedItem();
+        reasoningComboBox.setModel(new DefaultComboBoxModel<>(levels.toArray(Service.ReasoningLevel[]::new)));
         reasoningComboBox.setEnabled(supportsReasoning);
         reasoningComboBox.setToolTipText(supportsReasoning ? "Select reasoning effort" : "Reasoning effort not supported by this model");
-        if (!supportsReasoning) {
+
+        if (supportsReasoning && levels.contains(prevSelection)) {
+            reasoningComboBox.setSelectedItem(prevSelection);
+        } else {
             reasoningComboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
+        }
+
+        if (!supportsReasoning) {
             reasoningComboBox.setRenderer(new DefaultListCellRenderer() {
                 @Override
                 public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {

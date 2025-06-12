@@ -140,7 +140,7 @@ public final class Service {
      * Enum defining the reasoning effort levels for models.
      */
     public enum ReasoningLevel {
-        DEFAULT, LOW, MEDIUM, HIGH;
+        DEFAULT, LOW, MEDIUM, HIGH, DISABLE;
 
         @Override
         public String toString() {
@@ -602,6 +602,25 @@ public final class Service {
      * @param modelName The display name of the model (e.g., "gemini-2.5-pro").
      * @return True if "reasoning_effort" is in "supported_openai_params", false otherwise.
      */
+    /**
+     * Returns true if the given model exposes the toggle to completely disable reasoning
+     * (independent of the usual LOW/MEDIUM/HIGH levels).
+     */
+    public boolean supportsReasoningDisable(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
+            return false;
+        }
+        var info = modelInfoMap.get(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
+            return false;
+        }
+        var v = info.get("supports_reasoning_disable");
+        return v instanceof Boolean && (Boolean) v;
+    }
+
     public boolean supportsReasoningEffort(String modelName) {
         var location = modelLocations.get(modelName);
         if (location == null) {
@@ -680,7 +699,7 @@ public final class Service {
         builder.defaultRequestParameters(params.build());
 
         if (modelName.contains("sonnet")) {
-            // "Claude 3.7 Sonnet may be less likely to make make parallel tool calls in a response,
+            // "Claude 3.7 Sonnet may be less likely to make parallel tool calls in a response,
             // even when you have not set disable_parallel_tool_use. To work around this, we recommend
             // enabling token-efficient tool use, which helps encourage Claude to use parallel tools."
             builder = builder.customHeaders(Map.of("anthropic-beta", "token-efficient-tools-2025-02-19,output-128k-2025-02-19"));
@@ -763,9 +782,13 @@ public final class Service {
             return false;
         }
 
-        // every reasoning model, except Sonnet, defaults to enabling it
-        return !location.toLowerCase().contains("sonnet")
-                || om.defaultRequestParameters().reasoningEffort() != null;
+        var effort = om.defaultRequestParameters().reasoningEffort();
+        // Everyone except Anthropic turns thinking on by default
+        var locationLower = location.toLowerCase(Locale.ROOT);
+        var isDisable = locationLower.contains("sonnet") || locationLower.contains("opus")
+                        ? effort == null || "disable".equalsIgnoreCase(effort)
+                        : "disable".equalsIgnoreCase(effort);
+        return !isDisable;
     }
 
     public boolean isReasoning(ModelConfig config) {
@@ -776,10 +799,16 @@ public final class Service {
         }
         // If not Sonnet, all reasoning models default to enabling it. If Sonnet,
         // only consider it reasoning if the level is not DEFAULT.
-        var lowerName = modelName.toLowerCase();
+        // Disable means explicitly no reasoning
+        if (config.reasoning() == ReasoningLevel.DISABLE) {
+            return false;
+        }
+
+        var lowerName = modelName.toLowerCase(Locale.ROOT);
         if (!lowerName.contains("sonnet")) {
             return true;
         }
+        // For Sonnet, reasoning is ON only when level is not DEFAULT
         return config.reasoning() != ReasoningLevel.DEFAULT;
     }
 

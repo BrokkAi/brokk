@@ -25,18 +25,20 @@ model_list:
 
   - model_name: gemini-2.5-pro
     litellm_params:
-      model: gemini/gemini-2.5-pro-preview-05-06
+      model: gemini/gemini-2.5-pro-preview-06-05
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       supports_reasoning: true # override incorrect default
+      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
 
   - model_name: gemini-2.5-flash
     litellm_params:
-      model: gemini/gemini-2.5-flash-preview-04-17
+      model: gemini/gemini-2.5-flash-preview-05-20
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
+      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
 
@@ -61,6 +63,7 @@ model_list:
       model: anthropic/claude-opus-4-20250514
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
+      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
 
@@ -69,6 +72,7 @@ model_list:
       model: anthropic/claude-sonnet-4-20250514
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
+      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
@@ -80,6 +84,7 @@ model_list:
       model: anthropic/claude-3-7-sonnet-latest
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
+      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
