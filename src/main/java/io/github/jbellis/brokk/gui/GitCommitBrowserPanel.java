@@ -1,0 +1,996 @@
+package io.github.jbellis.brokk.gui;
+
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.difftool.utils.Colors;
+import io.github.jbellis.brokk.git.CommitInfo;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.ICommitInfo;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+import javax.swing.tree.TreeSelectionModel;
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.nio.file.Path;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.*;
+import java.util.List;
+
+public class GitCommitBrowserPanel extends JPanel {
+
+    private static final Logger logger = LogManager.getLogger(GitCommitBrowserPanel.class);
+
+    private final Chrome chrome;
+    private final ContextManager contextManager;
+
+    @FunctionalInterface
+    private interface StashActionPerformer {
+        void perform(int index) throws GitAPIException;
+    }
+
+    private JTable commitsTable;
+    private DefaultTableModel commitsTableModel;
+    private JTree changesTree;
+    private DefaultTreeModel changesTreeModel;
+    private DefaultMutableTreeNode changesRootNode;
+    private JLabel revisionTextLabel;
+    private JTextArea revisionIdTextArea;
+    private JTextField commitSearchTextField;
+
+    private JMenuItem addToContextItem;
+    private JMenuItem softResetItem;
+    private JMenuItem revertCommitItem;
+    private JMenuItem viewChangesItem;
+    private JMenuItem compareAllToLocalItem;
+    private JMenuItem popStashCommitItem;
+    private JMenuItem applyStashCommitItem;
+    private JMenuItem dropStashCommitItem;
+
+    private JButton pullButton;
+    private JButton pushButton;
+
+    private String currentBranchOrContextName; // Used by push/pull actions
+    private List<CommitInfo> currentCommitsList; // To hold the currently displayed commits
+
+
+    public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager) {
+        super(new BorderLayout());
+        this.chrome = chrome;
+        this.contextManager = contextManager;
+        this.currentCommitsList = new ArrayList<>();
+        buildCommitBrowserUI();
+    }
+
+    private void buildCommitBrowserUI() {
+        setLayout(new GridBagLayout());
+        GridBagConstraints constraints = new GridBagConstraints();
+        constraints.fill = GridBagConstraints.BOTH;
+        constraints.weighty = 1.0;
+
+        JPanel commitsPanel = buildCommitsPanel();
+        JPanel changesPanel = buildChangesPanel();
+
+        Dimension nominalPreferredSize = new Dimension(1, 1);
+        commitsPanel.setPreferredSize(nominalPreferredSize);
+        changesPanel.setPreferredSize(nominalPreferredSize);
+
+        constraints.gridx = 0;
+        constraints.weightx = 0.65;
+        add(commitsPanel, constraints);
+
+        constraints.gridx = 1;
+        constraints.weightx = 0.35;
+        add(changesPanel, constraints);
+    }
+
+    private JPanel buildCommitsPanel() {
+        JPanel commitsPanel = new JPanel(new BorderLayout());
+        commitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
+
+        JPanel commitSearchInputPanel = new JPanel(new BorderLayout(5, 0));
+        commitSearchInputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 5, 0));
+        commitSearchTextField = new JTextField();
+        commitSearchInputPanel.add(commitSearchTextField, BorderLayout.CENTER);
+
+        JButton commitSearchButton = new JButton("Search");
+        Runnable searchAction = () -> {
+            String query = commitSearchTextField.getText().trim();
+            if (!query.isEmpty()) {
+                searchCommitsInPanel(query);
+            } else {
+                // If search query is cleared, re-display the original set of commits
+                // if they were previously set.
+                 if (this.currentCommitsList != null && !this.currentCommitsList.isEmpty()) {
+                    // This assumes setCommits can handle an empty unpushedCommitIds if not relevant
+                    setCommits(this.currentCommitsList, Collections.emptySet(),
+                               pullButton.isEnabled(), pushButton.isEnabled(), currentBranchOrContextName);
+                } else {
+                    clearCommitView();
+                }
+            }
+        };
+
+        commitSearchButton.addActionListener(e -> searchAction.run());
+        commitSearchTextField.addActionListener(e -> searchAction.run());
+
+        commitSearchInputPanel.add(commitSearchButton, BorderLayout.EAST);
+        commitsPanel.add(commitSearchInputPanel, BorderLayout.NORTH);
+
+        setupCommitsTable();
+        commitsPanel.add(new JScrollPane(commitsTable), BorderLayout.CENTER);
+
+        JPanel commitsPanelButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        pullButton = new JButton("Pull");
+        pullButton.setToolTipText("Pull changes from remote repository");
+        pullButton.setEnabled(false);
+        commitsPanelButtons.add(pullButton);
+
+        pushButton = new JButton("Push");
+        pushButton.setToolTipText("Push commits to remote repository");
+        pushButton.setEnabled(false);
+        commitsPanelButtons.add(pushButton);
+        commitsPanel.add(commitsPanelButtons, BorderLayout.SOUTH);
+
+        return commitsPanel;
+    }
+
+    private JPanel buildChangesPanel() {
+        JPanel changesPanel = new JPanel(new BorderLayout());
+        changesPanel.setBorder(BorderFactory.createTitledBorder("Changes"));
+
+        JPanel revisionDisplayPanel = new JPanel(new BorderLayout(5, 0));
+        revisionTextLabel = new JLabel("Revision:");
+        revisionIdTextArea = new JTextArea("N/A", 1, 1);
+        revisionIdTextArea.setEditable(false);
+        revisionIdTextArea.setLineWrap(true);
+        revisionIdTextArea.setWrapStyleWord(true);
+        revisionIdTextArea.setBackground(UIManager.getColor("Label.background"));
+        revisionIdTextArea.setForeground(UIManager.getColor("Label.foreground"));
+        revisionIdTextArea.setFont(UIManager.getFont("Label.font"));
+        revisionIdTextArea.setBorder(BorderFactory.createEmptyBorder(2,2,2,2));
+
+        revisionDisplayPanel.add(revisionTextLabel, BorderLayout.WEST);
+        revisionDisplayPanel.add(revisionIdTextArea, BorderLayout.CENTER);
+        changesPanel.add(revisionDisplayPanel, BorderLayout.NORTH);
+
+        setupChangesTree();
+        changesPanel.add(new JScrollPane(changesTree), BorderLayout.CENTER);
+
+        return changesPanel;
+    }
+
+    private void setupCommitsTable() {
+        commitsTableModel = new DefaultTableModel(
+                new Object[]{"Message", "Author", "Date", "ID", "Unpushed", "CommitObject"}, 0
+        ) {
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return switch (columnIndex) {
+                    case 4 -> Boolean.class;
+                    case 5 -> ICommitInfo.class;
+                    default -> String.class;
+                };
+            }
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+        };
+
+        commitsTable = new JTable(commitsTableModel) {
+            @Override
+            public String getToolTipText(MouseEvent e) {
+                int row = rowAtPoint(e.getPoint());
+                if (row >= 0 && columnAtPoint(e.getPoint()) == 0) {
+                    return (String) getValueAt(row, 0);
+                }
+                return super.getToolTipText(e);
+            }
+        };
+        commitsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
+
+        // Hide ID, Unpushed, CommitObject columns
+        final int ID_COLUMN_INDEX = 3;
+        final int UNPUSHED_COLUMN_INDEX = 4;
+        final int COMMIT_OBJECT_COLUMN_INDEX = 5;
+
+        var idColumn = commitsTable.getColumnModel().getColumn(ID_COLUMN_INDEX);
+        idColumn.setMinWidth(0); idColumn.setMaxWidth(0); idColumn.setWidth(0);
+
+        var unpushedColumn = commitsTable.getColumnModel().getColumn(UNPUSHED_COLUMN_INDEX);
+        unpushedColumn.setMinWidth(0); unpushedColumn.setMaxWidth(0); unpushedColumn.setWidth(0);
+
+        var commitObjectColumn = commitsTable.getColumnModel().getColumn(COMMIT_OBJECT_COLUMN_INDEX);
+        commitObjectColumn.setMinWidth(0); commitObjectColumn.setMaxWidth(0); commitObjectColumn.setWidth(0);
+
+
+        commitsTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(
+                    JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
+                boolean unpushed = (boolean) table.getModel().getValueAt(row, 4);
+
+                if (!isSelected) {
+                    c.setBackground(unpushed ? Colors.getChanged(isDark) : table.getBackground());
+                    c.setForeground(table.getForeground());
+                } else {
+                    c.setBackground(unpushed ? Colors.getChanged(isDark).darker() : table.getSelectionBackground());
+                    c.setForeground(table.getSelectionForeground());
+                }
+                setValue(value);
+                return c;
+            }
+        });
+
+        setupCommitSelectionListener();
+        setupCommitContextMenu();
+    }
+
+    private void setupChangesTree() {
+        changesRootNode = new DefaultMutableTreeNode("Changes");
+        changesTreeModel = new DefaultTreeModel(changesRootNode);
+        changesTree = new JTree(changesTreeModel);
+        changesTree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
+        setupChangesTreeContextMenu();
+        setupChangesTreeDoubleClick();
+    }
+
+    private void setupCommitSelectionListener() {
+        commitsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) return;
+
+            int[] selectedRows = commitsTable.getSelectedRows();
+            final List<ICommitInfo> allSelectedCommitsFlat;
+            String labelPrefixToSet;
+            String idTextToSet;
+
+            if (selectedRows.length == 0) {
+                allSelectedCommitsFlat = List.of();
+                labelPrefixToSet = "Revision:";
+                idTextToSet = "N/A";
+            } else {
+                Arrays.sort(selectedRows);
+                allSelectedCommitsFlat = Arrays.stream(selectedRows)
+                        .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, 5))
+                        .toList();
+
+                var labelParts = new ArrayList<String>();
+                if (selectedRows.length == 1) {
+                    labelParts.add(getShortId(allSelectedCommitsFlat.getFirst().id()));
+                } else {
+                    List<List<Integer>> contiguousRowIndexGroups = groupContiguous(selectedRows);
+                    for (var rowIndexGroup : contiguousRowIndexGroups) {
+                        ICommitInfo firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), 5);
+                        String firstShortId = getShortId(firstCommitInGroup.id());
+                        if (rowIndexGroup.size() == 1) {
+                            labelParts.add(firstShortId);
+                        } else {
+                            ICommitInfo lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), 5);
+                            labelParts.add(String.format("%s..%s", firstShortId, getShortId(lastCommitInGroup.id())));
+                        }
+                    }
+                }
+                idTextToSet = String.join(", ", labelParts);
+                labelPrefixToSet = (labelParts.size() <= 1) ? "Revision:" : "Revisions:";
+            }
+            revisionTextLabel.setText(labelPrefixToSet);
+            revisionIdTextArea.setText(idTextToSet);
+            updateChangesForCommits(allSelectedCommitsFlat);
+        });
+    }
+
+    private void setupCommitContextMenu() {
+        JPopupMenu commitsContextMenu = new JPopupMenu();
+        if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(commitsContextMenu);
+        else SwingUtilities.invokeLater(() -> { if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(commitsContextMenu); });
+        
+        addToContextItem = new JMenuItem("Capture Diff");
+        softResetItem = new JMenuItem("Soft Reset to Here");
+        revertCommitItem = new JMenuItem("Revert Commit");
+        viewChangesItem = new JMenuItem("View Diff");
+        compareAllToLocalItem = new JMenuItem("Compare All to Local");
+        popStashCommitItem = new JMenuItem("Apply and Remove");
+        applyStashCommitItem = new JMenuItem("Apply Stash");
+        dropStashCommitItem = new JMenuItem("Drop Stash");
+
+        commitsContextMenu.add(addToContextItem);
+        commitsContextMenu.add(viewChangesItem);
+        commitsContextMenu.add(compareAllToLocalItem);
+        commitsContextMenu.add(softResetItem);
+        commitsContextMenu.add(revertCommitItem);
+        commitsContextMenu.add(popStashCommitItem);
+        commitsContextMenu.add(applyStashCommitItem);
+        commitsContextMenu.add(dropStashCommitItem);
+
+        setupCommitContextMenuActions();
+        setupCommitContextMenuListener(commitsContextMenu);
+    }
+
+    private void setupCommitContextMenuListener(JPopupMenu commitsContextMenu) {
+        commitsTable.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) { maybeShowPopup(e); }
+            @Override public void mouseReleased(MouseEvent e) { maybeShowPopup(e); }
+            private void maybeShowPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = commitsTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        if (!commitsTable.isRowSelected(row)) {
+                            commitsTable.setRowSelectionInterval(row, row);
+                        } else {
+                            boolean clickedRowInSelection = Arrays.stream(commitsTable.getSelectedRows()).anyMatch(sr -> sr == row);
+                            if (!clickedRowInSelection) commitsTable.setRowSelectionInterval(row, row);
+                        }
+                    }
+                    updateCommitContextMenuState();
+                    SwingUtilities.invokeLater(() -> { if (commitsTable.rowAtPoint(e.getPoint()) >=0) commitsContextMenu.show(commitsTable, e.getX(), e.getY()); });
+                }
+            }
+        });
+    }
+    
+    private void updateCommitContextMenuState() {
+        int[] selectedRows = commitsTable.getSelectedRows();
+        if (selectedRows.length == 0) {
+            setAllCommitMenuContextItemsVisible(false);
+            return;
+        }
+        setAllCommitMenuContextItemsVisible(true); // Default to visible, then adjust
+
+        ICommitInfo firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5);
+        boolean isStash = firstCommitInfo.stashIndex().isPresent();
+
+        viewChangesItem.setEnabled(selectedRows.length == 1);
+        compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
+        softResetItem.setVisible(!isStash);
+        softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
+        revertCommitItem.setVisible(!isStash);
+        revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash);
+
+        boolean allSelectedAreStashes = Arrays.stream(selectedRows)
+                .mapToObj(r -> (ICommitInfo) commitsTableModel.getValueAt(r, 5))
+                .allMatch(ci -> ci.stashIndex().isPresent());
+
+        popStashCommitItem.setVisible(allSelectedAreStashes);
+        popStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
+        applyStashCommitItem.setVisible(allSelectedAreStashes);
+        applyStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
+        dropStashCommitItem.setVisible(allSelectedAreStashes);
+        dropStashCommitItem.setEnabled(allSelectedAreStashes && selectedRows.length == 1);
+
+        // Hide non-stash items if all are stashes
+        if (allSelectedAreStashes) {
+            softResetItem.setVisible(false);
+            revertCommitItem.setVisible(false);
+            compareAllToLocalItem.setVisible(false);
+        }
+        // Hide stash items if not all are stashes (or none are)
+        if (!allSelectedAreStashes) {
+            popStashCommitItem.setVisible(false);
+            applyStashCommitItem.setVisible(false);
+            dropStashCommitItem.setVisible(false);
+        }
+    }
+
+    private void setAllCommitMenuContextItemsVisible(boolean visible) {
+        addToContextItem.setVisible(visible);
+        viewChangesItem.setVisible(visible);
+        compareAllToLocalItem.setVisible(visible);
+        softResetItem.setVisible(visible);
+        revertCommitItem.setVisible(visible);
+        popStashCommitItem.setVisible(visible);
+        applyStashCommitItem.setVisible(visible);
+        dropStashCommitItem.setVisible(visible);
+    }
+
+    private void setupCommitContextMenuActions() {
+        addToContextItem.addActionListener(e -> {
+            int[] selectedRows = commitsTable.getSelectedRows();
+            if (selectedRows.length == 0) return;
+            Arrays.sort(selectedRows);
+            List<List<Integer>> contiguousRowGroups = groupContiguous(selectedRows);
+
+            for (var group : contiguousRowGroups) {
+                if (group.isEmpty()) continue;
+                GitUiUtil.addCommitRangeToContext(contextManager, chrome, group.stream().mapToInt(Integer::intValue).toArray(), commitsTableModel, 5);
+            }
+        });
+        
+        softResetItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow();
+            if (row != -1) {
+                ICommitInfo ci = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
+                String firstLine = ci.message().split("\n", 2)[0];
+                softResetToCommitInternal(ci.id(), firstLine);
+            }
+        });
+        
+        viewChangesItem.addActionListener(e -> {
+            if (commitsTable.getSelectedRowCount() == 1) {
+                ICommitInfo ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), 5);
+                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+            }
+        });
+        
+        revertCommitItem.addActionListener(e -> {
+            int row = commitsTable.getSelectedRow(); // Assuming single selection for revert, or first of multiple
+            if (row != -1) {
+                ICommitInfo ci = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
+                revertCommitInternal(ci.id());
+            }
+        });
+        
+        popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
+        applyStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
+        dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
+        
+        compareAllToLocalItem.addActionListener(e -> {
+            if (commitsTable.getSelectedRowCount() == 1) {
+                ICommitInfo ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), 5);
+                GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
+            }
+        });
+    }
+    
+    private void handleStashAction(java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
+                                   java.util.function.IntConsumer stashOperation) {
+        int row = commitsTable.getSelectedRow();
+        if (row != -1) {
+            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
+            Optional<Integer> stashIdxOpt = stashIndexExtractor.apply(commitInfo);
+            stashIdxOpt.ifPresentOrElse(
+                stashOperation::accept,
+                () -> logger.warn("Stash action triggered on a non-stash commit: {}", commitInfo.id())
+            );
+        }
+    }
+
+    private void setupChangesTreeContextMenu() {
+        JPopupMenu changesContextMenu = new JPopupMenu();
+        if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(changesContextMenu);
+        else SwingUtilities.invokeLater(() -> { if (chrome.themeManager != null) chrome.themeManager.registerPopupMenu(changesContextMenu); });
+        
+        JMenuItem addFileToContextItem = new JMenuItem("Capture Diff");
+        JMenuItem compareFileWithLocalItem = new JMenuItem("Compare with Local");
+        JMenuItem viewFileAtRevisionItem = new JMenuItem("View File at Revision");
+        JMenuItem viewDiffItem = new JMenuItem("View Diff");
+        JMenuItem viewHistoryItem = new JMenuItem("View History");
+        JMenuItem editFileItem = new JMenuItem("Edit File(s)");
+        JMenuItem comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
+
+        changesContextMenu.add(addFileToContextItem);
+        changesContextMenu.add(editFileItem);
+        changesContextMenu.addSeparator();
+        changesContextMenu.add(viewHistoryItem);
+        changesContextMenu.addSeparator();
+        changesContextMenu.add(viewFileAtRevisionItem);
+        changesContextMenu.add(viewDiffItem);
+        changesContextMenu.add(compareFileWithLocalItem);
+        changesContextMenu.add(comparePrevWithLocalItem);
+
+        setupChangesTreeContextMenuListener(changesContextMenu);
+        setupChangesTreeContextMenuActions(addFileToContextItem, compareFileWithLocalItem, 
+                                         viewFileAtRevisionItem, viewDiffItem, viewHistoryItem, 
+                                         editFileItem, comparePrevWithLocalItem);
+    }
+
+    private void setupChangesTreeContextMenuListener(JPopupMenu changesContextMenu) {
+        changesTree.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) { handleChangesPopup(e); }
+            @Override public void mouseReleased(MouseEvent e) { handleChangesPopup(e); }
+            private void handleChangesPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = changesTree.getRowForLocation(e.getX(), e.getY());
+                    if (row >= 0 && !changesTree.isRowSelected(row)) changesTree.setSelectionRow(row);
+                    
+                    TreePath[] paths = changesTree.getSelectionPaths();
+                    boolean hasFileSel = (paths != null && paths.length > 0 && hasFileNodesSelected(paths));
+                    boolean isSingleCommit = (commitsTable.getSelectedRowCount() == 1);
+                    boolean singleFileSel = (paths != null && paths.length == 1 && hasFileSel);
+
+                    for (Component comp : changesContextMenu.getComponents()) {
+                        if (comp instanceof JMenuItem mi) {
+                            switch (mi.getText()) {
+                                case "View History", "Capture Diff", "Edit File(s)" -> mi.setEnabled(hasFileSel);
+                                case "View File at Revision", "View Diff", "Compare with Local", "Compare Previous with Local" -> 
+                                    mi.setEnabled(singleFileSel && isSingleCommit);
+                            }
+                        }
+                    }
+                    changesContextMenu.show(changesTree, e.getX(), e.getY());
+                }
+            }
+        });
+    }
+
+    private void setupChangesTreeContextMenuActions(JMenuItem addFileToContextItem, JMenuItem compareFileWithLocalItem,
+                                                   JMenuItem viewFileAtRevisionItem, JMenuItem viewDiffItem,
+                                                   JMenuItem viewHistoryItem, JMenuItem editFileItem,
+                                                   JMenuItem comparePrevWithLocalItem) {
+        addFileToContextItem.addActionListener(e -> {
+            List<String> files = getSelectedFilePathsFromTree();
+            if (!files.isEmpty() && commitsTable.getSelectedRowCount() >= 1) {
+                int[] selRows = commitsTable.getSelectedRows(); Arrays.sort(selRows);
+                String firstCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[0],5)).id();
+                String lastCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[selRows.length-1],5)).id();
+                GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(fp -> contextManager.toFile(fp)).toList());
+            }
+        });
+        
+        compareFileWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
+        comparePrevWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
+        viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
+        viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
+        
+        viewHistoryItem.addActionListener(e -> getSelectedFilePathsFromTree().forEach(fp -> chrome.getGitPanel().addFileHistoryTab(contextManager.toFile(fp))));
+        editFileItem.addActionListener(e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
+    }
+    
+    private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
+        TreePath[] paths = changesTree.getSelectionPaths();
+        int[] selRows = commitsTable.getSelectedRows();
+        if (paths != null && paths.length == 1 && selRows.length == 1 && isFileNode(paths[0])) {
+            String filePath = getFilePathFromTreePath(paths[0]);
+            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], 5);
+            action.accept(commitInfo.id(), filePath);
+        }
+    }
+
+    private void setupChangesTreeDoubleClick() {
+        changesTree.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp)));
+                }
+            }
+        });
+    }
+
+    private void updateChangesForCommits(List<ICommitInfo> commits) {
+        if (commits == null || commits.isEmpty()) {
+            changesRootNode.removeAllChildren();
+            changesTreeModel.reload();
+            return;
+        }
+        contextManager.submitBackgroundTask("Fetching changes for commits", () -> {
+            try {
+                var allChangedFiles = commits.stream()
+                                             .flatMap(c -> {
+                                                 try {
+                                                     List<ProjectFile> changedFilesList = c.changedFiles();
+                                                     if (changedFilesList == null) {
+                                                         // Attempt to get commit ID for logging, safely
+                                                         String commitIdStr = "unknown";
+                                                         try { commitIdStr = c.id(); } catch (Exception idEx) { /* ignore */ }
+                                                         logger.warn("Commit {} returned null for changedFiles()", commitIdStr);
+                                                         return Stream.<ProjectFile>empty();
+                                                     }
+                                                     return changedFilesList.stream();
+                                                 } catch (GitAPIException ex) {
+                                                     String commitIdStr = "unknown";
+                                                     try { commitIdStr = c.id(); } catch (Exception idEx) {  logger.warn("Could not get ID for commit during GitAPIException logging", idEx); }
+                                                     logger.error("GitAPIException fetching changed files for commit {}: {}", commitIdStr, ex.getMessage());
+                                                     return Stream.<ProjectFile>empty();
+                                                 } catch (Exception ex) {
+                                                     String commitIdStr = "unknown";
+                                                     try { commitIdStr = c.id(); } catch (Exception idEx) { logger.warn("Could not get ID for commit during general exception logging", idEx); }
+                                                     logger.error("Unexpected exception fetching changed files for commit {}: {}", commitIdStr, ex.getMessage(), ex);
+                                                     return Stream.<ProjectFile>empty();
+                                                 }
+                                             })
+                                             .collect(Collectors.toSet());
+                SwingUtilities.invokeLater(() -> {
+                    changesRootNode.removeAllChildren();
+                    if (allChangedFiles.isEmpty()) {
+                        changesTreeModel.reload(); return;
+                    }
+                    Map<Path, List<String>> filesByDir = new HashMap<>();
+                    for (var file : allChangedFiles) {
+                        filesByDir.computeIfAbsent(file.getParent(), k -> new ArrayList<>()).add(file.getFileName());
+                    }
+                    var sortedDirs = new ArrayList<>(filesByDir.keySet());
+                    sortedDirs.sort(Comparator.comparing(Path::toString));
+                    for (var dirPath : sortedDirs) {
+                        var files = filesByDir.get(dirPath); files.sort(String::compareTo);
+                        DefaultMutableTreeNode dirNode = dirPath.equals(Path.of("")) ? changesRootNode : new DefaultMutableTreeNode(dirPath);
+                        if (dirNode != changesRootNode) changesRootNode.add(dirNode);
+                        for (var f : files) dirNode.add(new DefaultMutableTreeNode(f));
+                    }
+                    changesTreeModel.reload();
+                    expandAllNodes(changesTree, 0, changesTree.getRowCount());
+                });
+            } catch (Exception e) {
+                logger.error("Error fetching changes for multiple commits", e);
+                SwingUtilities.invokeLater(() -> {
+                    changesRootNode.removeAllChildren();
+                    changesRootNode.add(new DefaultMutableTreeNode("Error: " + e.getMessage()));
+                    changesTreeModel.reload();
+                });
+            }
+            return null;
+        });
+    }
+
+    private void softResetToCommitInternal(String commitId, String commitMessage) {
+        contextManager.submitUserTask("Soft resetting to " + getShortId(commitId), () -> {
+            String oldHeadId = getOldHeadId();
+            try {
+                getRepo().softReset(commitId);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.systemOutput("Soft reset from " + getShortId(oldHeadId) + " to " + getShortId(commitId) + ": " + commitMessage);
+                    refreshCurrentViewAfterGitOp(); // Assumes this method exists or is adapted
+                });
+            } catch (GitAPIException e) {
+                logger.error("Error soft reset to {}: {}", commitId, e.getMessage());
+                SwingUtil.runOnEdt(() -> chrome.toolError("Error soft reset: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void revertCommitInternal(String commitId) {
+        contextManager.submitUserTask("Reverting " + getShortId(commitId), () -> {
+            try {
+                getRepo().revertCommit(commitId);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput("Commit " + getShortId(commitId) + " reverted.");
+                    refreshCurrentViewAfterGitOp();
+                });
+            } catch (GitAPIException e) {
+                logger.error("Error reverting {}: {}", commitId, e.getMessage());
+                SwingUtil.runOnEdt(() -> chrome.toolError("Error reverting commit: " + e.getMessage()));
+            }
+        });
+    }
+    
+    private void performStashOp(int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
+        contextManager.submitUserTask(description + " @" + idx, () -> {
+            try {
+                repoCall.perform(idx);
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput(successMsg);
+                    if (refreshView) {
+                        refreshCurrentViewAfterGitOp();
+                    }
+                });
+            } catch (Exception e) {
+                logger.error("{} failed: {}", description, e.getMessage(), e);
+                SwingUtil.runOnEdt(() -> chrome.toolError(description + " error: " + e.getMessage()));
+            }
+        });
+    }
+
+    private void popStashInternal(int stashIndex) {
+        performStashOp(stashIndex, "Popping stash", getRepo()::popStash, "Stash popped successfully.", true);
+    }
+
+    private void applyStashInternal(int stashIndex) {
+        performStashOp(stashIndex, "Applying stash", getRepo()::applyStash, "Stash applied successfully.", false);
+    }
+
+    private void dropStashInternal(int stashIndex) {
+        int result = JOptionPane.showConfirmDialog(this, "Delete stash@{" + stashIndex + "}?", "Confirm Drop", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        if (result != JOptionPane.YES_OPTION) return;
+        performStashOp(stashIndex, "Dropping stash", getRepo()::dropStash, "Stash dropped successfully.", true);
+    }
+
+    private void pullBranchInternal(String branchName) {
+        if (branchName == null || branchName.equals("stashes") || branchName.contains("/")) {
+            logger.warn("Pull attempted on invalid context: {}", branchName);
+            return;
+        }
+        contextManager.submitBackgroundTask("Checking upstream for " + branchName, () -> {
+            boolean hasUpstream = getRepo().hasUpstreamBranch(branchName);
+            if (!hasUpstream) {
+                SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(this, "Branch '" + branchName + "' has no upstream.", "Pull Error", JOptionPane.WARNING_MESSAGE));
+                return null;
+            }
+            contextManager.submitUserTask("Pulling " + branchName, () -> {
+                try {
+                    getRepo().pull(); // Assumes pull on current branch is intended if branchName matches
+                    SwingUtil.runOnEdt(() -> {
+                        chrome.systemOutput("Pulled " + branchName);
+                        refreshCurrentViewAfterGitOp();
+                        chrome.getGitPanel().updateCommitPanel(); // For uncommitted changes
+                    });
+                } catch (GitAPIException e) {
+                    logger.error("Error pulling {}: {}", branchName, e.getMessage());
+                    SwingUtil.runOnEdt(() -> chrome.toolError("Pull error: " + e.getMessage()));
+                }
+            });
+            return null;
+        });
+    }
+
+    private void pushBranchInternal(String branchName) {
+         if (branchName == null || branchName.equals("stashes")) {
+            logger.warn("Push attempted on invalid context: {}", branchName);
+            return;
+        }
+        // If it's a remote branch name (e.g. origin/main), it means we are in the context of a remote branch view
+        // and push should ideally operate on its local tracking counterpart.
+        // For simplicity here, we assume push is on the *current* local branch if `branchName` is its name.
+        // The dialog using this panel will provide commits for specific source/target, this is simpler for now.
+
+        contextManager.submitUserTask("Pushing " + branchName, () -> {
+            try {
+                getRepo().push(); // Pushes current branch
+                SwingUtil.runOnEdt(() -> {
+                    chrome.systemOutput("Pushed " + branchName);
+                    refreshCurrentViewAfterGitOp();
+                });
+            } catch (GitRepo.GitPushRejectedException e) {
+                 logger.warn("Push rejected for {}: {}", branchName, e.getMessage());
+                 SwingUtil.runOnEdt(() -> chrome.toolError("Push rejected. Tip: Pull changes first.\nDetails: " + e.getMessage(), "Push Rejected"));
+            } catch (GitAPIException e) {
+                logger.error("Error pushing {}: {}", branchName, e.getMessage());
+                SwingUtil.runOnEdt(() -> chrome.toolError("Push error: " + e.getMessage()));
+            }
+        });
+    }
+    
+    // This is a placeholder. The actual refresh logic might be more complex
+    // or handled by the parent component (GitLogTab or CreatePullRequestDialog).
+    private void refreshCurrentViewAfterGitOp() {
+        if (currentBranchOrContextName != null) {
+            // Re-fetch and display commits for the current context.
+            // This is a simplified call; actual parameters for unpushed, canPush/Pull might need re-evaluation.
+            // For now, assume a simple refresh of the commit list.
+            if ("stashes".equals(currentBranchOrContextName)) {
+                loadStashesInPanel();
+            } else {
+                loadCommitsForBranchInPanel(currentBranchOrContextName);
+            }
+        }
+    }
+
+    private void loadStashesInPanel() {
+        contextManager.submitBackgroundTask("Fetching stashes", () -> {
+            try {
+                List<CommitInfo> stashes = getRepo().listStashes();
+                setCommits(stashes, Collections.emptySet(), false, false, "stashes");
+            } catch (Exception e) {
+                logger.error("Error fetching stashes for panel", e);
+                SwingUtil.runOnEdt(() -> {
+                    commitsTableModel.setRowCount(0);
+                    commitsTableModel.addRow(new Object[]{"Error loading stashes: " + e.getMessage(), "", "", "", false, null});
+                });
+            }
+            return null;
+        });
+    }
+
+    private void loadCommitsForBranchInPanel(String branchName) {
+        contextManager.submitBackgroundTask("Fetching commits for " + branchName, () -> {
+            try {
+                List<CommitInfo> commits = getRepo().listCommitsDetailed(branchName);
+                Set<String> unpushedIds = new HashSet<>();
+                boolean canP = false; boolean canPl = false;
+                if (!branchName.contains("/")) { // Local branch
+                    canPl = getRepo().hasUpstreamBranch(branchName);
+                    if (canPl) {
+                         unpushedIds.addAll(getRepo().getUnpushedCommitIds(branchName));
+                         canP = !unpushedIds.isEmpty();
+                    }
+                }
+                setCommits(commits, unpushedIds, canP, canPl, branchName);
+            } catch (Exception e) {
+                logger.error("Error fetching commits for panel (branch: {}): {}", branchName, e);
+                SwingUtil.runOnEdt(() -> {
+                    commitsTableModel.setRowCount(0);
+                    commitsTableModel.addRow(new Object[]{"Error loading commits: " + e.getMessage(), "", "", "", false, null});
+                });
+            }
+            return null;
+        });
+    }
+
+    private void searchCommitsInPanel(String query) {
+        contextManager.submitBackgroundTask("Searching commits for: " + query, () -> {
+            try {
+                List<CommitInfo> searchResults = getRepo().searchCommits(query);
+                // For search results, unpushed status and push/pull buttons are less relevant,
+                // so we pass empty/false for them.
+                setCommits(searchResults, Collections.emptySet(), false, false, "Search: " + query);
+                SwingUtil.runOnEdt(() -> {
+                     if (searchResults.isEmpty()) chrome.systemOutput("No commits found matching: " + query);
+                     else chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
+                });
+            } catch (Exception e) {
+                logger.error("Error searching commits for panel: {}", query, e);
+                SwingUtil.runOnEdt(() -> {
+                    commitsTableModel.setRowCount(0);
+                    commitsTableModel.addRow(new Object[]{"Error searching: " + e.getMessage(), "", "", "", false, null});
+                    chrome.toolError("Error searching commits: " + e.getMessage());
+                });
+            }
+            return null;
+        });
+    }
+    
+    public void clearCommitView() {
+        this.currentCommitsList.clear();
+        this.currentBranchOrContextName = null;
+        SwingUtil.runOnEdt(() -> {
+            commitsTableModel.setRowCount(0);
+            changesRootNode.removeAllChildren();
+            changesTreeModel.reload();
+            revisionTextLabel.setText("Revision:");
+            revisionIdTextArea.setText("N/A");
+            pullButton.setEnabled(false);
+            pushButton.setEnabled(false);
+            commitSearchTextField.setText("");
+        });
+    }
+
+    public void setCommits(List<CommitInfo> commits, Set<String> unpushedCommitIds,
+                           boolean canPush, boolean canPull, String activeBranchOrContextName) {
+        this.currentCommitsList = new ArrayList<>(commits); // Store for potential re-display after search clear
+        this.currentBranchOrContextName = activeBranchOrContextName;
+
+        List<Object[]> commitRows = new ArrayList<>();
+        java.time.LocalDate today = java.time.LocalDate.now();
+        for (CommitInfo commit : commits) {
+            commitRows.add(new Object[]{
+                    commit.message(), commit.author(), GitLogTab.formatCommitDate(commit.date(), today),
+                    commit.id(), unpushedCommitIds.contains(commit.id()), commit
+            });
+        }
+
+        SwingUtil.runOnEdt(() -> {
+            commitsTableModel.setRowCount(0);
+            changesRootNode.removeAllChildren();
+            changesTreeModel.reload();
+
+            boolean isStashView = "stashes".equals(activeBranchOrContextName);
+            boolean isSearchView = activeBranchOrContextName != null && activeBranchOrContextName.startsWith("Search:");
+            boolean isRemoteBranchView = activeBranchOrContextName != null && activeBranchOrContextName.contains("/");
+
+            String pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
+            java.awt.event.ActionListener pullListener = (canPull && !isStashView && !isRemoteBranchView)
+                                                       ? e -> pullBranchInternal(activeBranchOrContextName)
+                                                       : null;
+            configureButton(pullButton, canPull, !isStashView && !isSearchView, pullTooltip, pullListener);
+            
+            String pushTooltip = canPush ? "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName : "Nothing to push or no upstream for " + activeBranchOrContextName;
+            java.awt.event.ActionListener pushListener = (canPush && !isStashView && !isRemoteBranchView)
+                                                        ? e -> pushBranchInternal(activeBranchOrContextName)
+                                                        : null;
+            configureButton(pushButton, canPush, !isStashView && !isSearchView, pushTooltip, pushListener);
+
+            if (commitRows.isEmpty()) {
+                revisionTextLabel.setText("Revision:");
+                revisionIdTextArea.setText("N/A");
+                if (!activeBranchOrContextName.startsWith("Search:")) { // Don't show "no commits" for empty search
+                     commitsTableModel.addRow(new Object[]{"No commits found.", "", "", "", false, null});
+                }
+                return;
+            }
+
+            for (Object[] rowData : commitRows) commitsTableModel.addRow(rowData);
+            TableUtils.fitColumnWidth(commitsTable, 1); // Author
+            TableUtils.fitColumnWidth(commitsTable, 2); // Date
+
+            if (commitsTableModel.getRowCount() > 0) commitsTable.setRowSelectionInterval(0, 0);
+            else {
+                revisionTextLabel.setText("Revision:");
+                revisionIdTextArea.setText("N/A");
+            }
+        });
+    }
+
+    // Helper methods from GitLogTab (static or instance methods if they don't depend on GitLogTab's specific state)
+    private String getShortId(String commitId) {
+        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+    }
+
+    private GitRepo getRepo() {
+        return (GitRepo) contextManager.getProject().getRepo();
+    }
+
+    private String getOldHeadId() {
+        try { return getRepo().getCurrentCommitId(); }
+        catch (GitAPIException e) { return "unknown"; }
+    }
+
+    private void expandAllNodes(JTree tree, int startingIndex, int rowCount) {
+        for (int i = startingIndex; i < rowCount; i++) tree.expandRow(i);
+        if (tree.getRowCount() > rowCount) expandAllNodes(tree, rowCount, tree.getRowCount());
+    }
+
+    private boolean hasFileNodesSelected(TreePath[] paths) {
+        if (paths == null) return false;
+        for (TreePath path : paths) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+            if (node != changesRootNode && node.getParent() != null && node.getParent() != changesRootNode) return true;
+        }
+        return false;
+    }
+
+    private List<String> getSelectedFilePathsFromTree() {
+        TreePath[] paths = changesTree.getSelectionPaths();
+        if (paths == null) return List.of();
+        return Arrays.stream(paths)
+                .map(this::getFilePathFromTreePath)
+                .filter(s -> s != null && !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+    }
+    
+    private String getFilePathFromTreePath(TreePath path) {
+        if (path == null) return null;
+        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        if (node == changesRootNode || node.getParent() == null || node.getParent() == changesRootNode && node.isLeaf()) { // Top level file or empty dir
+             if (node != changesRootNode && node.isLeaf() && node.getParent() == changesRootNode) return node.getUserObject().toString(); // File in root
+             return null; // Is root or directory node at top level
+        }
+        if (node.getParent() == changesRootNode) return null; // Directory node at top level
+
+        // File node (parent is a directory node, or parent is root if file is in root)
+        String fileName = node.getUserObject().toString();
+        DefaultMutableTreeNode parentNode = (DefaultMutableTreeNode) node.getParent();
+        // If parentNode is root, dirPath is effectively empty.
+        String dirPath = (parentNode == changesRootNode) ? "" : parentNode.getUserObject().toString();
+        return dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
+    }
+
+    private boolean isFileNode(TreePath path) {
+        if (path == null) return false;
+        var node = (DefaultMutableTreeNode) path.getLastPathComponent();
+        // A file node is one that is not the root, and its parent is not the root (meaning parent is a dir node)
+        // OR its parent IS the root, but it's a leaf (file in root dir).
+        return (node != changesRootNode && node.getParent() != null &&
+               (node.getParent() != changesRootNode || (node.getParent() == changesRootNode && node.isLeaf())));
+    }
+
+    public List<ICommitInfo> getSelectedCommits() {
+        int[] selectedRows = commitsTable.getSelectedRows();
+        if (selectedRows.length == 0) {
+            return List.of();
+        }
+        return Arrays.stream(selectedRows)
+                .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, 5))
+                .toList();
+    }
+
+    private static List<List<Integer>> groupContiguous(int[] rows) {
+        if (rows.length == 0) return List.of();
+
+        var groups = new ArrayList<List<Integer>>();
+        var currentGroup = new ArrayList<Integer>();
+        currentGroup.add(rows[0]);
+        groups.add(currentGroup);
+
+        for (int i = 1; i < rows.length; i++) {
+            if (rows[i] == rows[i - 1] + 1) {
+                currentGroup.add(rows[i]);
+            } else {
+                currentGroup = new ArrayList<>();
+                currentGroup.add(rows[i]);
+                groups.add(currentGroup);
+            }
+        }
+        return groups;
+    }
+
+    private void configureButton(JButton button, boolean enabled, boolean visible, String tooltip, java.awt.event.ActionListener listener) {
+        button.setEnabled(enabled);
+        button.setVisible(visible);
+        button.setToolTipText(tooltip);
+        for (var l : button.getActionListeners()) {
+            button.removeActionListener(l);
+        }
+        if (enabled && listener != null) {
+            button.addActionListener(listener);
+        }
+    }
+}
