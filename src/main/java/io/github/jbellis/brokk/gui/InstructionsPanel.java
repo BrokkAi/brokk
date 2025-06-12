@@ -62,6 +62,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.Toolkit;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 
@@ -347,6 +349,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public void actionPerformed(ActionEvent e) {
                 if (commandInputUndoManager.canRedo()) {
                     commandInputUndoManager.redo();
+                }
+            }
+        });
+
+        // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
+        // otherwise, use the default JTextArea paste behaviour.
+        var pasteKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V,
+                                                    java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        area.getInputMap().put(pasteKeyStroke, "smartPaste");
+        area.getActionMap().put("smartPaste", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var clipboard  = Toolkit.getDefaultToolkit().getSystemClipboard();
+                var contents   = clipboard.getContents(null);
+                boolean imageHandled = false;
+
+                if (contents != null) {
+                    for (var flavor : contents.getTransferDataFlavors()) {
+                        try {
+                            if (flavor.equals(DataFlavor.imageFlavor)
+                                || flavor.isFlavorJavaFileListType()
+                                || flavor.getMimeType().startsWith("image/")) {
+                                // Re-use existing WorkspacePanel logic
+                                chrome.getContextPanel()
+                                      .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                                imageHandled = true;
+                                break;
+                            }
+                        } catch (Exception ex) {
+                            // Ignore and fall back to default paste handling
+                        }
+                    }
+                }
+
+                if (!imageHandled) {
+                    area.paste(); // Default text paste
                 }
             }
         });
