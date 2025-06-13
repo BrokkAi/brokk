@@ -35,7 +35,7 @@ import io.github.jbellis.brokk.AbstractProject;
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
-    private static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
+    public static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
 
     // Action command constants for build details inference button
     private static final String ACTION_INFER = "infer";
@@ -1051,6 +1051,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
 
         return true;
+    }
+
+    public void forceShowBuildBanner() {
+        if (bannerPanel != null) {
+            bannerPanel.setVisible(true);
+        }
     }
     
     public void refreshDataRetentionPanel() {

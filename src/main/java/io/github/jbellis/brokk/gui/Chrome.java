@@ -197,14 +197,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Listen for context changes (Chrome already implements IContextManager.ContextListener)
         contextManager.addContextListener(this);
 
-        // If this is the first build for the project, show the settings dialog (Build tab)
-        // once the build details are available.
-        if (!getProject().hasBuildDetails()) {
-            getProject().getBuildDetailsFuture()
-                    .thenRun(() -> SwingUtilities.invokeLater(
-                            () -> io.github.jbellis.brokk.gui.dialogs.SettingsDialog.showBuildTab(this)));
-        }
-
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
 

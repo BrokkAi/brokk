@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -1499,6 +1500,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
+
+            // --- NEW: show the Build tab once, with banner ---
+            // If the banner has never been shown and the UI is ready,
+            // open the Settings dialog to the Build tab.
+            if (io instanceof Chrome chrome) { // Ensure UI is ready
+                // Pass true to force the banner if it hasn't been shown.
+                // The showBuildTab method internally handles the logic of whether
+                // the banner has already been dismissed via project.isBuildBannerShown().
+                // However, for this specific first-time auto-open, we want to ensure it's shown.
+                SwingUtilities.invokeLater(() ->
+                        SettingsDialog.showBuildTab(chrome, !project.isBuildBannerShown()));
+            }
+
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
         });
