@@ -1500,6 +1500,17 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Returns the SHA-1 of the merge base between the two rev-specs (or null
+     * if none exists).  revA and revB may be branch names, tags, commit IDs, etc.
+     */
+    public String getMergeBase(String revA, String revB) throws GitAPIException {
+        var idA = resolve(revA);
+        var idB = resolve(revB);
+        var mb = computeMergeBase(idA, idB);
+        return mb == null ? null : mb.getName();
+    }
+
+    /**
      * Lists all worktrees in the repository.
      */
     @Override

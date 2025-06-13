@@ -1,6 +1,9 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
+import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -13,12 +16,17 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
+
 public class CreatePullRequestDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(CreatePullRequestDialog.class);
+    private static final int PROJECT_FILE_MODEL_COLUMN_INDEX = 2;
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -32,6 +40,7 @@ public class CreatePullRequestDialog extends JDialog {
     private JButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
+    private String mergeBaseCommit = null;
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         super(owner, "Create a Pull Request", true);
@@ -88,6 +97,34 @@ public class CreatePullRequestDialog extends JDialog {
         loadBranches();
         setupInputListeners(); // Setup listeners for title and description
         updateCreatePrButtonState(); // Initial state for PR button based on (empty) title/desc
+        setupFileStatusTableInteractions(); // Wire up diff viewer interactions
+    }
+
+    private void setupFileStatusTableInteractions() {
+        var tbl = fileStatusTable.getTable();
+
+        // Double-click listener
+        tbl.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int viewRow = tbl.rowAtPoint(e.getPoint());
+                    if (viewRow >= 0) {
+                        tbl.setRowSelectionInterval(viewRow, viewRow);
+                        int modelRow = tbl.convertRowIndexToModel(viewRow);
+                        ProjectFile clickedFile = (ProjectFile) tbl.getModel().getValueAt(modelRow, PROJECT_FILE_MODEL_COLUMN_INDEX);
+                        openPrDiffViewer(clickedFile);
+                    }
+                }
+            }
+        });
+
+        // Context Menu
+        var popupMenu = new JPopupMenu();
+        var viewDiffItem = new JMenuItem("View Diff");
+        viewDiffItem.addActionListener(e -> openPrDiffViewer(null)); // Passing null for priorityFile
+        popupMenu.add(viewDiffItem);
+        tbl.setComponentPopupMenu(popupMenu);
     }
 
     private JPanel createPrInfoPanel() {
@@ -234,6 +271,8 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void refreshCommitList() {
+        this.mergeBaseCommit = null; // Ensure merge base is reset for each refresh
+
         var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
         var targetBranch = (String) targetBranchComboBox.getSelectedItem();
 
@@ -253,11 +292,16 @@ public class CreatePullRequestDialog extends JDialog {
             try {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
+                    String nonGitMessage = "Project is not a Git repository.";
                     SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(),
                                                                            Collections.emptyList(),
-                                                                           contextName));
+                                                                           nonGitMessage));
                     return Collections.emptyList();
                 }
+
+                // Calculate and store merge base
+                this.mergeBaseCommit = gitRepo.getMergeBase(sourceBranch, targetBranch);
+                logger.debug("Calculated merge base between {} and {}: {}", sourceBranch, targetBranch, this.mergeBaseCommit);
 
                 var diff = getBranchDiff(gitRepo, sourceBranch, targetBranch);
 
@@ -266,7 +310,7 @@ public class CreatePullRequestDialog extends JDialog {
                                                                        contextName));
                 return diff.commits();
             } catch (Exception e) {
-                logger.error("Error fetching commits or changed files for " + contextName, e);
+                logger.error("Error fetching commits or changed files (and merge base) for " + contextName, e);
                 SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)"));
                 throw e;
             }
@@ -434,5 +478,104 @@ public class CreatePullRequestDialog extends JDialog {
         panel.add(label, BorderLayout.NORTH);
         panel.add(contentComponent, BorderLayout.CENTER);
         return panel;
+    }
+
+    private List<ProjectFile> getAllFilesFromFileStatusTable() {
+        var files = new ArrayList<ProjectFile>();
+        var model = fileStatusTable.getTable().getModel();
+        for (int i = 0; i < model.getRowCount(); i++) {
+            files.add((ProjectFile) model.getValueAt(i, PROJECT_FILE_MODEL_COLUMN_INDEX));
+        }
+        return files;
+    }
+
+    private BufferSource.StringSource createBufferSource(GitRepo repo, String commitSHA,
+                                                         ProjectFile f) throws GitAPIException {
+        var content = repo.getFileContent(commitSHA, f);
+        return new BufferSource.StringSource(content, commitSHA, f.getFileName());
+    }
+
+    private List<ProjectFile> getOrderedFilesForDiff(ProjectFile priorityFile) {
+        var allFilesInTable = getAllFilesFromFileStatusTable();
+        var selectedFiles = fileStatusTable.getSelectedFiles();
+        var orderedFiles = new ArrayList<ProjectFile>();
+
+        if (priorityFile != null) {
+            orderedFiles.add(priorityFile);
+        }
+
+        selectedFiles.stream()
+                .filter(selected -> !orderedFiles.contains(selected))
+                .forEach(orderedFiles::add);
+
+        allFilesInTable.stream()
+                .filter(fileInTable -> !orderedFiles.contains(fileInTable))
+                .forEach(orderedFiles::add);
+
+        return orderedFiles;
+    }
+
+    private record FileComparisonSources(BufferSource left, BufferSource right) {}
+
+    private FileComparisonSources createFileComparisonSources(GitRepo gitRepo, String mergeBaseSha,
+                                                              String sourceCommitIsh, ProjectFile file,
+                                                              String status) throws GitAPIException {
+        BufferSource leftSrc;
+        BufferSource rightSrc;
+
+        if ("deleted".equals(status)) {
+            leftSrc = createBufferSource(gitRepo, mergeBaseSha, file);
+            rightSrc = new BufferSource.StringSource("", "Source Branch (Deleted)", file.getFileName());
+        } else {
+            // For "added" files, createBufferSource(gitRepo, mergeBaseSha, file) will attempt to load from merge base.
+            // Assumes GitRepo.getFileContent handles non-existent files gracefully (e.g., returns empty string).
+            leftSrc = createBufferSource(gitRepo, mergeBaseSha, file);
+            rightSrc = createBufferSource(gitRepo, sourceCommitIsh, file);
+        }
+        return new FileComparisonSources(leftSrc, rightSrc);
+    }
+
+    private void buildAndShowDiffPanel(List<ProjectFile> orderedFiles, String mergeBaseCommitSha, String sourceBranchName) {
+        try {
+            var repo = contextManager.getProject().getRepo();
+            if (!(repo instanceof GitRepo gitRepo)) {
+                chrome.toolError("Repository is not a Git repository.", "Diff Error");
+                return;
+            }
+
+            var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
+
+            for (var f : orderedFiles) {
+                String status = fileStatusTable.statusFor(f);
+                var sources = createFileComparisonSources(gitRepo, mergeBaseCommitSha, sourceBranchName, f, status);
+                builder.addComparison(sources.left(), sources.right());
+            }
+            SwingUtilities.invokeLater(() -> builder.build().showInFrame("Pull Request Diff"));
+        } catch (Exception ex) {
+            logger.error("Unable to open PR diff viewer", ex);
+            chrome.toolError("Unable to open diff: " + ex.getMessage(), "Diff Error");
+        }
+    }
+
+    private void openPrDiffViewer(ProjectFile priorityFile) {
+        var orderedFiles = getOrderedFilesForDiff(priorityFile);
+
+        final String currentMergeBase = this.mergeBaseCommit;
+        final String currentSourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+
+        if (currentSourceBranch == null) { 
+            chrome.toolError("Source branch is not selected.", "Diff Error");
+            return;
+        }
+        if (currentMergeBase == null) {
+            chrome.toolError("Merge base could not be determined. Cannot show diff.", "Diff Error");
+            logger.warn("Merge base is null when trying to open PR diff viewer. Source: {}, Target: {}", currentSourceBranch, targetBranchComboBox.getSelectedItem());
+            return;
+        }
+
+        contextManager.submitUserTask("Show PR diff", () -> {
+            buildAndShowDiffPanel(orderedFiles, currentMergeBase, currentSourceBranch);
+            return null;
+        });
     }
 }
