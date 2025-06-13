@@ -79,8 +79,13 @@ public class CreatePullRequestDialog extends JDialog {
         var branchPanel = new JPanel(new GridBagLayout());
         var row = 0;
 
-        row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox = new JComboBox<>(), row);
-        row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox = new JComboBox<>(), row);
+        // Create combo boxes first
+        targetBranchComboBox = new JComboBox<>();
+        sourceBranchComboBox = new JComboBox<>();
+        
+        // Then add them to the panel
+        row = addBranchSelectorToPanel(branchPanel, "Target branch:", targetBranchComboBox, row);
+        row = addBranchSelectorToPanel(branchPanel, "Source branch:", sourceBranchComboBox, row);
 
         this.branchFlowLabel = createBranchFlowIndicator(branchPanel, row); // Assign to field
 
@@ -114,18 +119,21 @@ public class CreatePullRequestDialog extends JDialog {
         return branchFlowLabel;
     }
 
+    // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
+    private void updateBranchFlow() {
+        var target = (String) targetBranchComboBox.getSelectedItem();
+        var source = (String) sourceBranchComboBox.getSelectedItem();
+        if (target != null && source != null) {
+            String baseText = target + " ← " + source;
+            // currentCommits is initialized to emptyList, so it's never null.
+            this.branchFlowLabel.setText(baseText + " (" + currentCommits.size() + " commits)");
+        } else {
+            this.branchFlowLabel.setText(""); // Clear if branches not selected
+        }
+    }
+
     private Runnable createFlowUpdater() {
-        return () -> {
-            var target = (String) targetBranchComboBox.getSelectedItem();
-            var source = (String) sourceBranchComboBox.getSelectedItem();
-            if (target != null && source != null) {
-                String baseText = target + " ← " + source;
-                // currentCommits is initialized to emptyList, so it's never null.
-                this.branchFlowLabel.setText(baseText + " (" + currentCommits.size() + " commits)");
-            } else {
-                this.branchFlowLabel.setText(""); // Clear if branches not selected
-            }
-        };
+        return this::updateBranchFlow;
     }
 
     private void setupBranchListeners() {

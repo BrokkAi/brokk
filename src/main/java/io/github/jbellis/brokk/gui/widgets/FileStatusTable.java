@@ -9,6 +9,7 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.util.*;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Scroll-pane component that displays a list of files plus their git status.
@@ -51,7 +52,7 @@ public final class FileStatusTable extends JScrollPane {
 
                 var pf = (ProjectFile) tbl.getModel().getValueAt(row, 2);
                 String st = statusMap.getOrDefault(pf, "");
-                boolean dk = UIManager.getLookAndFeel().getName().toLowerCase().contains("dark");
+                boolean dk = UIManager.getLookAndFeel().getName().toLowerCase(Locale.ROOT).contains("dark");
 
                 var newC = ThemeColors.getColor(dk, "git_status_new");
                 var modC = ThemeColors.getColor(dk, "git_status_modified");

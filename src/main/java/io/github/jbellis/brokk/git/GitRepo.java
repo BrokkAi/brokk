@@ -1862,25 +1862,22 @@ public class GitRepo implements Closeable, IGitRepo {
                     // and relying on toProjectFile which would inherently handle or error on /dev/null if it were a real project path.
                     // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
 
-                    switch (entry.getChangeType()) {
-                        case ADD:
-                        case COPY:
-                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "new"));
-                            break;
-                        case MODIFY:
-                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "modified"));
-                            break;
-                        case DELETE:
+                    var result = switch (entry.getChangeType()) {
+                        case ADD, COPY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
+                        case MODIFY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "modified");
+                        case DELETE -> new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted");
+                        case RENAME -> {
                             modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
-                            break;
-                        case RENAME:
-                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
-                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getNewPath()), "new"));
-                            break;
-                        default:
+                            yield new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
+                        }
+                        default -> {
                             logger.warn("Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
                                         entry.getChangeType(), entry.getOldPath(), entry.getNewPath());
-                            break;
+                            yield null;
+                    }
+                    };
+                    if (result != null) {
+                        modifiedFiles.add(result);
                     }
                 }
             }

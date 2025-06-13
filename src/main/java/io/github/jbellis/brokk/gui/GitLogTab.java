@@ -677,14 +677,6 @@ public class GitLogTab extends JPanel {
         return (GitRepo) contextManager.getProject().getRepo();
     }
 
-    private String getOldHeadId() {
-        try {
-            return getRepo().getCurrentCommitId();
-        } catch (GitAPIException e) {
-            return "unknown";
-        }
-    }
-
     /**
      * Recursively expand all nodes in the JTree.
      */

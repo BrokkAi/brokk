@@ -855,7 +855,7 @@ public class GitCommitBrowserPanel extends JPanel {
         this.currentBranchOrContextName = activeBranchOrContextName;
 
         var commitRows = new ArrayList<Object[]>();
-        var today = java.time.LocalDate.now();
+        var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
         for (ICommitInfo commit : commits) {
             commitRows.add(new Object[]{
                     commit.message(), commit.author(), GitLogTab.formatCommitDate(commit.date(), today),
