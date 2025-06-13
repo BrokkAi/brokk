@@ -21,10 +21,12 @@ public class StringNode implements Comparable<StringNode>, BufferNode {
         return document;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public long getSize() {
         return content.length();
     }
@@ -36,7 +38,7 @@ public class StringNode implements Comparable<StringNode>, BufferNode {
 
     @Override
     public boolean equals(Object o) {
-        return (o instanceof StringNode) && name.equals(((StringNode) o).getName());
+        return (o instanceof StringNode stringNode) && name.equals(stringNode.getName());
     }
 
     @Override

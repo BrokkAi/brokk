@@ -8,14 +8,44 @@ version := "0.9.14"
 organization := "io.github.jbellis"
 name := "brokk"
 
-val javaVersion = "21"
-javacOptions ++= Seq(
-  "-source", javaVersion,
-  "-target", javaVersion,
-  // Reflection-specific flags
-  "-parameters",           // Preserve method parameter names
-  "-g:source,lines,vars"   // Generate full debugging information
+// Add local Error Prone JAR and its dependencies to the compile classpath for javac -Xplugin:ErrorProne
+Compile / unmanagedJars ++= Seq(
+  baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
+  baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar" // Dependency for Error Prone dataflow checks
 )
+
+val javaVersion = "21"
+javacOptions := {
+  Seq(
+    "--release", javaVersion,
+    // Reflection-specific flags
+    "-parameters",           // Preserve method parameter names
+    "-g:source,lines,vars",  // Generate full debugging information
+    // Error Prone configuration
+    "-Xplugin:ErrorProne -Xep:FutureReturnValueIgnored:OFF -Xep:MissingSummary:OFF -Xep:EmptyBlockTag:OFF -Xep:NonCanonicalType:OFF",
+    "-Werror",
+
+    // JVM arguments for the forked javac process to run Error Prone on JDK 16+
+    // The -J prefix is needed because Compile / javaHome is set, which forks javac.
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+    "-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+    "-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
+    // Error Prone flags for compilation policy
+    "-XDcompilePolicy=simple",
+    "--should-stop=ifError=FLOW",
+  )
+}
+
+// Set javaHome to force forking javac, ensuring -J flags are passed
+Compile / javaHome := Some(file(System.getProperty("java.home")))
+
 scalacOptions ++= Seq(
   "-Xfatal-warnings",
   "-print-lines",
@@ -123,4 +153,4 @@ javaOptions ++= Seq(
 }.getOrElse(Seq.empty)
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
-
+Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))

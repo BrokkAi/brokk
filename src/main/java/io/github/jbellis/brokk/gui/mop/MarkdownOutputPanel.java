@@ -262,37 +262,35 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         }
 
         // Determine styling based on message type
-        String title = null;
-        Icon iconEmoji = null;
-        Color highlightColor = null;
-        
-        switch (message.type()) {
-            case AI:
-                title = "Brokk";
+        Icon iconEmoji;
+        Color highlightColor;
+        String title = switch (message.type()) {
+            case AI -> {
                 iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_ai");
-                break;
-            case USER:
-                if (message instanceof UserMessage userMessage && userMessage.name() != null 
-                        && !userMessage.name().isEmpty() && !userMessage.name().contains("MODE")) {
-                    title = userMessage.name();
-                } else {
-                    title = "You";
-                }
+                yield "Brokk";
+            }
+            case USER -> {
                 iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_user");
-                break;
-            case CUSTOM:
-            case SYSTEM:
-                title = "System";
+                if (message instanceof UserMessage userMessage && userMessage.name() != null
+                    && !userMessage.name().isEmpty() && !userMessage.name().contains("MODE")) {
+                    yield userMessage.name();
+                } else {
+                    yield "You";
+                }
+            }
+            case CUSTOM, SYSTEM -> {
                 iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
-                break;
-            default:
-                title = message.type().toString();
+                yield "System";
+            }
+            default -> { // Should ideally not be reached if all ChatMessageType cases are handled.
                 iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
-        }
+                yield message.type().toString();
+            }
+        };
         
         // Create a new renderer for this message - disable edit blocks for user messages
         boolean enableEditBlocks = message.type() != ChatMessageType.USER;

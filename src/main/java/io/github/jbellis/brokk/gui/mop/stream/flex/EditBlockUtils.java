@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -29,12 +30,11 @@ public final class EditBlockUtils {
     // Pattern for opening code fence (captures optional language or filename token)
     public static final Pattern OPENING_FENCE =
             Pattern.compile("^ {0,3}```(?:\\s*(\\S[^`\\s]*))?\\s*$");
-    
+
     // Default fence markers
-    public static final String[] DEFAULT_FENCE = {"```", "```"};
+    public static final List<String> DEFAULT_FENCE = List.of("```", "```");
 
     private EditBlockUtils() {}
-    
     /**
      * Determines if a string looks like a path or filename.
      * Simple heuristic: contains a dot or slash character.
@@ -69,8 +69,8 @@ public final class EditBlockUtils {
         }
         // If triple-backtick block
         if (lines.length >= 2
-                && lines[0].startsWith(DEFAULT_FENCE[0])
-                && lines[lines.length - 1].startsWith(DEFAULT_FENCE[1])) {
+                && lines[0].startsWith(DEFAULT_FENCE.getFirst())
+                && lines[lines.length - 1].startsWith(DEFAULT_FENCE.getLast())) {
             lines = Arrays.copyOfRange(lines, 1, lines.length - 1);
         }
         String result = String.join("\n", lines);
@@ -89,7 +89,7 @@ public final class EditBlockUtils {
      */
     public static String stripFilename(String line) {
         String s = line.trim();
-        if (s.equals("...") || s.equals(DEFAULT_FENCE[0])) {
+        if (s.equals("...") || s.equals(DEFAULT_FENCE.getFirst())) {
             return null;
         }
         // remove trailing colons, leading #, etc.

@@ -1,8 +1,8 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+// import org.slf4j.Logger; // Unused, log field is now package-private
+// import org.slf4j.LoggerFactory; // Unused
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterCSharp;
@@ -11,7 +11,7 @@ import java.util.Collections;
 import java.util.Set;
 
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
-    protected static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
+    static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CSharpAnalyzer.class); // Changed to package-private
 
     // CS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(

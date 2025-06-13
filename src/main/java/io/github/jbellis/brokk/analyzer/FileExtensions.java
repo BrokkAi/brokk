@@ -1,13 +1,14 @@
 package io.github.jbellis.brokk.analyzer;
 
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Arrays;
 
 public class FileExtensions {
     public static boolean matches(Path path, String extension) {
-        return path.getFileName().toString().toLowerCase().endsWith(extension.toLowerCase());
+        return path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(extension.toLowerCase(Locale.ROOT));
     }
 
     public static final Set<String> IMAGE_EXTENSIONS = new HashSet<>(Arrays.asList(

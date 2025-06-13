@@ -298,7 +298,7 @@ public class Context {
             }
             var sourceFile = sourceFileOption.get();
             // Check if the class or its parent is in ineligible classnames
-            boolean eligible = !(ineligibleSources.contains(codeUnit));
+            boolean eligible = !ineligibleSources.contains(codeUnit);
             if (fqcn.contains("$")) {
                 var parentFqcn = fqcn.substring(0, fqcn.indexOf('$'));
                 // FIXME generalize this
@@ -315,7 +315,7 @@ public class Context {
                 }
             }
 
-            if (eligible) {
+            if (eligible) { // Parentheses removed around condition
                 // Check if skeleton exists before adding, to ensure it's a valid target for summary
                 if (analyzer.getSkeleton(fqcn).isPresent()) {
                     targetFqns.add(fqcn);

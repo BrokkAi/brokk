@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.TreeMap;
@@ -189,7 +190,7 @@ public class ImportDependencyDialog {
                 // This branch is only reachable if one of the project languages is Java,
                 // because the JAR radio button is only shown for Java projects.
                 assert chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA) : "JAR source type should only be possible for Java projects";
-                filter = file -> file.isDirectory() || file.getName().toLowerCase().endsWith(".jar");
+                filter = file -> file.isDirectory() || file.getName().toLowerCase(Locale.ROOT).endsWith(".jar");
                 // For JARs, use Java language's candidates. Passing null to getDependencyCandidates might be
                 // for fetching general, non-project-specific JARs (e.g. from a global cache).
                 candidates = chrome.getContextManager().submitBackgroundTask("Scanning for JAR files",
@@ -336,7 +337,7 @@ public class ImportDependencyDialog {
             }
 
             if (currentSourceType == SourceType.JAR) {
-                if (Files.isRegularFile(path) && path.toString().toLowerCase().endsWith(".jar")) {
+                if (Files.isRegularFile(path) && path.toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
                     selectedBrokkFileForImport = file;
                     previewArea.setText(generateJarPreviewText(path));
                     importButton.setEnabled(true);
@@ -395,7 +396,7 @@ public class ImportDependencyDialog {
                     String fileName = p.getFileName().toString();
                     int lastDot = fileName.lastIndexOf('.');
                     if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                        String ext = fileName.substring(lastDot + 1).toLowerCase();
+                        String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                         return extensions.contains(ext);
                     }
                     return false;
@@ -417,7 +418,7 @@ public class ImportDependencyDialog {
                                 String fileName = p.getFileName().toString();
                                 int lastDot = fileName.lastIndexOf('.');
                                 if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                                    String ext = fileName.substring(lastDot + 1).toLowerCase();
+                                    String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                                     return extensions.contains(ext);
                                 }
                                 return false;
@@ -442,10 +443,10 @@ public class ImportDependencyDialog {
             if (projectLangs.isEmpty()) {
                 languagesDisplay = "configured"; // Fallback, should ideally not happen for a valid project
             } else if (projectLangs.size() == 1) {
-                languagesDisplay = projectLangs.iterator().next().name().toLowerCase();
+                languagesDisplay = projectLangs.iterator().next().name().toLowerCase(Locale.ROOT);
             } else {
                 languagesDisplay = projectLangs.stream()
-                                               .map(l -> l.name().toLowerCase())
+                                               .map(l -> l.name().toLowerCase(Locale.ROOT))
                                                .sorted()
                                                .collect(Collectors.joining("/"));
             }
@@ -484,9 +485,12 @@ public class ImportDependencyDialog {
                                                  .anyMatch(lang -> lang.isAnalyzed(project, sourcePath));
                 if (isAlreadyAnalyzed) {
                     int proceedResponse = JOptionPane.showConfirmDialog(dialog,
-                        "The selected directory might already be part of the project's analyzed sources.\n" +
-                        "Importing it as a dependency could lead to duplicate analysis or conflicts.\n\n" +
-                        "Proceed with import?",
+                        """
+                        The selected directory might already be part of the project's analyzed sources.
+                        Importing it as a dependency could lead to duplicate analysis or conflicts.
+
+                        Proceed with import?\
+                        """,
                         "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                     if (proceedResponse == JOptionPane.NO_OPTION) {
                         importButton.setEnabled(true); // Re-enable if user cancels here
@@ -567,7 +571,7 @@ public class ImportDependencyDialog {
                 int lastDot = fileName.lastIndexOf('.');
                 // Ensure dot is not the first or last character and an extension exists
                 if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                    String extension = fileName.substring(lastDot + 1).toLowerCase();
+                    String extension = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                     if (allowedExtensions.contains(extension)) {
                         Files.copy(file, destination.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
                     }

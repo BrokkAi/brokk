@@ -326,10 +326,13 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
         // Add a popup menu listener to request focus on the search field when the popup becomes visible.
         pop.addPopupMenuListener(new PopupMenuListener() {
+            @Override
             public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(search::requestFocusInWindow);
             }
+            @Override
             public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 

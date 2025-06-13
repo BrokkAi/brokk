@@ -1,7 +1,13 @@
 package io.github.jbellis.brokk.gui.mop.stream.flex;
 
 import com.vladsch.flexmark.parser.InlineParser;
-import com.vladsch.flexmark.parser.block.*;
+import com.vladsch.flexmark.parser.block.AbstractBlockParser;
+import com.vladsch.flexmark.parser.block.BlockContinue;
+import com.vladsch.flexmark.parser.block.BlockStart;
+import com.vladsch.flexmark.parser.block.CustomBlockParserFactory;
+import com.vladsch.flexmark.parser.block.MatchedBlockParser;
+import com.vladsch.flexmark.parser.block.ParserState;
+import com.vladsch.flexmark.parser.block.BlockParserFactory;
 import com.vladsch.flexmark.util.ast.Block;
 import com.vladsch.flexmark.util.data.DataHolder;
 import com.vladsch.flexmark.util.sequence.BasedSequence;
@@ -72,13 +78,13 @@ public class EditBlockParser extends AbstractBlockParser {
 
     @Override
     public BlockContinue tryContinue(ParserState state) {
-        BasedSequence line = state.getLine();
-        String lineStr = line.toString();
+        var line = state.getLine();
+        var lineStr = line.toString();
         
-        switch (phase) {
-            case FILENAME:
+        var blockContinueResult = switch (phase) {
+            case FILENAME -> {
                 // First line after opening fence should be the filename
-                String possibleFilename = stripFilename(lineStr);
+                var possibleFilename = stripFilename(lineStr);
                 
                 // If this is already a SEARCH line, don't treat it as filename
                 if (HEAD.matcher(lineStr).matches()) {
@@ -86,7 +92,7 @@ public class EditBlockParser extends AbstractBlockParser {
                     phase = Phase.SEARCH;
                     
                     // Try to extract filename from the SEARCH line
-                    Matcher headMatcher = HEAD.matcher(lineStr);
+                    var headMatcher = HEAD.matcher(lineStr);
                     if (headMatcher.matches() && headMatcher.group(1) != null) {
                         currentFilename = headMatcher.group(1).trim();
                         block.setFilename(currentFilename);
@@ -99,45 +105,45 @@ public class EditBlockParser extends AbstractBlockParser {
                     phase = Phase.SEARCH;
                     logger.trace("Set filename from line after fence: {}", currentFilename);
                 }
-                return BlockContinue.atIndex(state.getIndex());
-                
-            case SEARCH:
+                yield BlockContinue.atIndex(state.getIndex());
+            }
+            case SEARCH -> {
                 // Check for HEAD marker (<<<<<<< SEARCH)
                 if (!sawHeadLine && HEAD.matcher(lineStr).matches()) {
                     sawHeadLine = true;
                     // Extract filename from head line if none was provided before
                     if ((currentFilename == null || currentFilename.isBlank()) && lineStr.trim().length() > 14) {
-                        Matcher filenameMatcher = HEAD.matcher(lineStr);
+                        var filenameMatcher = HEAD.matcher(lineStr);
                         if (filenameMatcher.matches() && filenameMatcher.group(1) != null) {
                             currentFilename = filenameMatcher.group(1).trim();
                             block.setFilename(currentFilename);
                         }
                     }
-                    return BlockContinue.atIndex(state.getIndex());
+                    yield BlockContinue.atIndex(state.getIndex());
                 }
                 
                 // Check for divider (=======)
                 if (DIVIDER.matcher(lineStr).matches()) {
                     phase = Phase.REPLACE;
                     this.divider = line;
-                    return BlockContinue.atIndex(state.getIndex());
+                    yield BlockContinue.atIndex(state.getIndex());
                 }
                 
                 // Still in search part - only add content after we've seen the HEAD marker
                 if (sawHeadLine || !parsingFenced) {
                     searchContent.append(searchContent.length() > 0 ? "\n" : "").append(line);
                 }
-                return BlockContinue.atIndex(state.getIndex());
-                
-            case REPLACE:
+                yield BlockContinue.atIndex(state.getIndex());
+            }
+            case REPLACE -> {
                 // Check for end marker (>>>>>>> REPLACE)
                 if (UPDATED.matcher(lineStr).matches()) {
                     phase = Phase.DONE;
                     this.closingMarker = line;
                     replaceKeyword = BasedSequence.of("REPLACE");
                     
-                    String beforeText = stripQuotedWrapping(searchContent.toString(), currentFilename);
-                    String afterText = stripQuotedWrapping(replaceContent.toString(), currentFilename);
+                    var beforeText = stripQuotedWrapping(searchContent.toString(), currentFilename);
+                    var afterText = stripQuotedWrapping(replaceContent.toString(), currentFilename);
                     
                     block.setSegments(openingMarker, searchKeyword, 
                                      BasedSequence.of(beforeText),
@@ -146,26 +152,26 @@ public class EditBlockParser extends AbstractBlockParser {
                                      closingMarker);
                     
                     if (!parsingFenced) {
-                        return BlockContinue.finished();
+                        yield BlockContinue.finished();
                     }
-                    return BlockContinue.atIndex(state.getIndex());
+                    yield BlockContinue.atIndex(state.getIndex());
                 }
                 
                 // Still in replace part
                 replaceContent.append(replaceContent.length() > 0 ? "\n" : "").append(line);
-                return BlockContinue.atIndex(state.getIndex());
-                
-            case DONE:
+                yield BlockContinue.atIndex(state.getIndex());
+            }
+            case DONE -> {
                 // We're done parsing this block
-                if (parsingFenced && lineStr.trim().equals(DEFAULT_FENCE[0])) {
+                if (parsingFenced && lineStr.trim().equals(DEFAULT_FENCE.get(0))) {
                     // Consume the closing fence line and finish
-                    return BlockContinue.finished();
+                    yield BlockContinue.finished();
                 }
-                return BlockContinue.atIndex(state.getIndex());
-                
-            default:
-                return BlockContinue.none();
-        }
+                yield BlockContinue.atIndex(state.getIndex());
+            }
+            default -> BlockContinue.none();
+        };
+        return blockContinueResult;
     }
 
     @Override
@@ -177,8 +183,8 @@ public class EditBlockParser extends AbstractBlockParser {
     public void closeBlock(ParserState state) {
         // If we haven't already set segments, do it now
         if (block.getOpeningMarker() == null) {
-            String beforeText = stripQuotedWrapping(searchContent.toString(), currentFilename);
-            String afterText = stripQuotedWrapping(replaceContent.toString(), currentFilename);
+            var beforeText = stripQuotedWrapping(searchContent.toString(), currentFilename);
+            var afterText = stripQuotedWrapping(replaceContent.toString(), currentFilename);
             
             block.setSegments(openingMarker, searchKeyword, 
                              BasedSequence.of(beforeText),
@@ -197,14 +203,14 @@ public class EditBlockParser extends AbstractBlockParser {
     /**
      * Factory for creating EditBlockParser.
      */
-    public static class Factory implements com.vladsch.flexmark.parser.block.CustomBlockParserFactory {
+    public static class Factory implements CustomBlockParserFactory {
         @Override
         public BlockParserFactory apply(DataHolder options) {
             return new BlockParserFactory() {
                 @Override
                 public BlockStart tryStart(ParserState state, MatchedBlockParser matchedBlockParser) {
-                    BasedSequence line = state.getLine();
-                    String lineStr = line.toString();
+                    var line = state.getLine();
+                    var lineStr = line.toString();
                     Set<ProjectFile> projectFiles = null; // Would need to be passed from elsewhere
                     String previousFilename = null; // Would need tracking
                     
@@ -212,7 +218,7 @@ public class EditBlockParser extends AbstractBlockParser {
                     // of flexmark, so we'll proceed with standard block handling
                     
                     // Check if this line is a fence opening
-                    Matcher fenceMatcher = OPENING_FENCE.matcher(lineStr);
+                    var fenceMatcher = OPENING_FENCE.matcher(lineStr);
                     if (fenceMatcher.matches()) {
                         // logger.trace("Found potential fence opening: {}", line);
                         
@@ -241,7 +247,7 @@ public class EditBlockParser extends AbstractBlockParser {
                         }
                         
                         // Extract token from fence line (may be language or filename)
-                        String token = fenceMatcher.group(1);
+                        var token = fenceMatcher.group(1);
                         String filenameFromFence = null;
                         
                         // If token contains . or / treat it as a filename
@@ -258,19 +264,19 @@ public class EditBlockParser extends AbstractBlockParser {
                     }
                     
                     // Check if this line matches the edit block start pattern (<<<<<<< SEARCH)
-                    Matcher headMatcher = HEAD.matcher(lineStr);
+                    var headMatcher = HEAD.matcher(lineStr);
                     if (headMatcher.matches()) {
                         // Find proper boundaries for each component
                         int startOfSearch = lineStr.indexOf("SEARCH");
                         int endOfSearch = startOfSearch + "SEARCH".length();
                         
-                        BasedSequence openingMarker = line.subSequence(0, lineStr.indexOf("SEARCH") - 1);
-                        BasedSequence searchKeyword = line.subSequence(startOfSearch, endOfSearch);
-                        BasedSequence searchText = BasedSequence.NULL; // Default to empty
+                        var openingMarker = line.subSequence(0, lineStr.indexOf("SEARCH") - 1);
+                        var searchKeyword = line.subSequence(startOfSearch, endOfSearch);
+                        var searchText = BasedSequence.NULL; // Default to empty
                         
                         // Only include content after "SEARCH" if it's not empty
                         if (endOfSearch < lineStr.length()) {
-                            String afterSearch = lineStr.substring(endOfSearch).trim();
+                            var afterSearch = lineStr.substring(endOfSearch).trim();
                             if (!afterSearch.isEmpty()) {
                                 searchText = line.subSequence(endOfSearch + (lineStr.charAt(endOfSearch) == ' ' ? 1 : 0));
                             }
@@ -278,23 +284,21 @@ public class EditBlockParser extends AbstractBlockParser {
                         
                         // Extract filename from the SEARCH line or guess
                         String filename = null;
-                        String filenameText = headMatcher.group(1);
+                        var filenameText = headMatcher.group(1);
                         
                         if (filenameText != null && !filenameText.isBlank()) {
                             filename = filenameText.trim();
                         } else {
                             // Try to find filename by checking context in the document
-                        String[] allLines;
-                        int lineIdx;
                         
                         // Get the full document through the base sequence of the current line
-                        BasedSequence docChars = state.getLine().getBaseSequence();
-                        String docContent = docChars.toString();
-                        allLines = docContent.split("\n", -1);
+                        var docChars = state.getLine().getBaseSequence();
+                        var docContent = docChars.toString();
+                        var allLines = docContent.split("\n", -1);
                         
                         // Calculate proper document line index by counting newlines
                         int headStartChar = state.getLine().getStartOffset();
-                        lineIdx = 0;
+                        int lineIdx = 0;
                         for (int pos = 0; pos < headStartChar; pos++) {
                             if (docChars.charAt(pos) == '\n') lineIdx++;
                         }

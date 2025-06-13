@@ -317,7 +317,7 @@ public class WorkspacePanel extends JPanel {
                         var fragment = new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
                         panel.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
-                        panel.chrome.toolError("Cannot " + label.toLowerCase() + ": " + fileRef.getFullPath() + " - no ProjectFile available");
+                        panel.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": " + fileRef.getFullPath() + " - no ProjectFile available");
                     }
                     
                     // Apply edit restrictions
@@ -1223,7 +1223,9 @@ public class WorkspacePanel extends JPanel {
                 .collect(Collectors.toSet());
         
         return !allFiles.isEmpty() && allFiles.stream()
-                .allMatch(f -> f instanceof ProjectFile pf && project.getRepo().getTrackedFiles().contains(pf));
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .allMatch(pf -> pf.exists() && project.getRepo().getTrackedFiles().contains(pf));
     }
 
     /**

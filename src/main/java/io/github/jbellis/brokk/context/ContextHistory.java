@@ -50,7 +50,11 @@ public class ContextHistory {
         return selected;
     }
 
-    /** @return {@code true} iff {@code ctx} is present in history. */
+    /**
+     * Returns {@code true} iff {@code ctx} is present in history.
+     * @param ctx the context to check
+     * @return {@code true} iff {@code ctx} is present in history.
+     */
     public synchronized boolean setSelectedContext(Context ctx) {
         if (ctx != null && history.contains(ctx)) {
             selected = ctx;
@@ -105,7 +109,11 @@ public class ContextHistory {
         return distance == 0 ? UndoResult.none() : undo(distance, io);
     }
 
-    /** @return {@code true} if something was redone. */
+    /**
+     * Redoes the last undone operation.
+     * @param io the console IO for feedback
+     * @return {@code true} if something was redone.
+     */
     public synchronized boolean redo(IConsoleIO io) {
         if (redo.isEmpty()) return false;
         var popped = redo.removeLast();

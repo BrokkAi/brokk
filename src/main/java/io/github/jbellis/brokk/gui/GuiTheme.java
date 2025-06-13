@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -247,7 +248,7 @@ public class GuiTheme {
                 var dirPath = java.nio.file.Paths.get(directoryUrl.toURI());
                 try (var stream = java.nio.file.Files.list(dirPath)) {
                     stream.filter(path -> {
-                        String name = path.getFileName().toString().toLowerCase();
+                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                         return name.endsWith(".png") || name.endsWith(".gif");
                     }).forEach(path -> {
                         String filename = path.getFileName().toString();
@@ -268,7 +269,7 @@ public class GuiTheme {
                             var entry = entries.nextElement();
                             var entryName = entry.getName();
                             if (entryName.startsWith(entryPath) && !entry.isDirectory()) {
-                                var filename = entryName.substring(entryName.lastIndexOf('/') + 1).toLowerCase();
+                                var filename = entryName.substring(entryName.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
                                 if (filename.endsWith(".png") || filename.endsWith(".gif")) {
                                     iconFiles.add("/" + entryName);
                                 }

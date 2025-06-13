@@ -317,8 +317,6 @@ public class FuzzyMatcher {
 
         final var first = fragments.getHead();
         boolean startMatch = first.getStartOffset() == 0;
-        // valueStartCaseMatch is always false in our default scenario as we don't support FIRST_LETTER sensitivity
-        boolean valueStartCaseMatch = false;
 
         int matchingCaseScore = 0; // Renamed from matchingCase to avoid confusion
         int patternPos = -1;       // Tracks the index in patternChars corresponding to the last matched name character
@@ -397,7 +395,7 @@ public class FuzzyMatcher {
                 }
 
                 // Evaluate score contribution of this character match *inside* the loop
-                matchingCaseScore += evaluateCaseMatching(valueStartCaseMatch, patternPos, humpStartMatchedUpperCase, i, afterGap, isHumpStart, nameChar);
+                matchingCaseScore += evaluateCaseMatching(patternPos, humpStartMatchedUpperCase, i, afterGap, isHumpStart, nameChar);
 
             } // End inner loop (character iteration)
         } // End outer loop (fragment iteration)
@@ -427,8 +425,7 @@ public class FuzzyMatcher {
      * Evaluates the score contribution of a single character match based on case, position, etc.
      * Based on {@code MinusculeMatcherImpl.evaluateCaseMatching}.
      */
-    private int evaluateCaseMatching(boolean valueStartCaseMatch, // Unused in default case-insensitive mode
-                                     int patternIndex,
+    private int evaluateCaseMatching(int patternIndex,
                                      boolean humpStartMatchedUpperCase,
                                      int nameIndex,
                                      boolean afterGap,

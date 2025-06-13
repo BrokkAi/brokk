@@ -98,8 +98,8 @@ public class Messages {
             case UserMessage um -> {
                 yield um.contents().stream()
                         .map(c -> {
-                            if (c instanceof TextContent) {
-                                return ((TextContent) c).text();
+                            if (c instanceof TextContent textContent) {
+                                return textContent.text();
                             } else if (c instanceof ImageContent) {
                                 return "[Image]";
                             } else {

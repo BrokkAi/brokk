@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.agents;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter; // Added import
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -209,7 +210,7 @@ public class SearchAgent {
                     %s
                     </fragment>
                     """.stripIndent().formatted(f.description(),
-                                                (f.sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))), // No analyzer
+                                                f.sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")), // No analyzer, parentheses removed
                                                 text);
         }).collect(Collectors.joining("\n\n"));
         if (!contextWithClasses.isBlank()) {
@@ -982,7 +983,7 @@ public class SearchAgent {
                 } else if (value instanceof String str && str.contains("\n")) {
                     // Use YAML block scalar for multi-line strings
                     yamlBuilder.append(key).append(": |\n");
-                    for (String line : str.split("\n")) {
+                    for (String line : com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
                         yamlBuilder.append("  ").append(line).append("\n");
                     }
                 } else {
@@ -1103,36 +1104,22 @@ public class SearchAgent {
         }
 
         // Tool-specific state updates
-        switch (execResult.toolName()) {
-            case "searchSymbols":
-                // Logic specific to AFTER searchSymbols runs successfully
-                this.allowTextSearch = true; // Enable text search capability
-                // Check if the result indicates symbols were actually found
+        String toolName = execResult.toolName();
+        // Use expression switch
+        switch (toolName) {
+            case "searchSymbols" -> {
+                this.allowTextSearch = true;
                 if (!execResult.resultText().startsWith("No definitions found")) {
                     this.symbolsFound = true;
-                    // Track names ONLY if symbols were found
                     trackClassNamesFromResult(execResult.resultText());
                 }
-                break;
-
-            // Track class names from results of various tools
-            case "getUsages":
-            case "getRelatedClasses":
-            case "getClassSkeletons":
-            case "getClassSources":
-            case "getMethodSources":
+            }
+            case "getUsages", "getRelatedClasses", "getClassSkeletons", "getClassSources", "getMethodSources" ->
                 trackClassNamesFromResult(execResult.resultText());
-                break;
-
-            // Add cases for other tools needing specific post-execution logic
-
-            default:
+            default -> {
                 // No specific post-execution logic for this tool
-                break;
+            }
         }
-
-        // Common logic after any successful tool execution?
-        // e.g., update token counts, log generic success
     }
 
     /**

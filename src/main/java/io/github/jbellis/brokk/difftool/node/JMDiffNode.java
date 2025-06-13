@@ -16,8 +16,6 @@ public class JMDiffNode implements TreeNode
 {
     private String name;
     private String shortName;
-    private String parentName;
-    private JMDiffNode parent; // Should be final if set in constructor and never changed
     private List<JMDiffNode> children; // Consider final if populated once
     private BufferNode nodeLeft;
     private BufferNode nodeRight;
@@ -127,7 +125,7 @@ public class JMDiffNode implements TreeNode
 
     @Override
     public TreeNode getParent() {
-        return parent;
+        return null;
     }
 
     @Override
@@ -138,11 +136,7 @@ public class JMDiffNode implements TreeNode
     private void calculateNames() {
         // Use File.separator for cross-platform compatibility
         int index = name.lastIndexOf(File.separatorChar);
-        if (index == -1) {
-            parentName = ""; // No parent path component
-            // shortName is already set to name
-        } else {
-            parentName = name.substring(0, index);
+        if (index != -1) {
             shortName = name.substring(index + 1);
         }
     }

@@ -69,11 +69,9 @@ public class Environment {
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
-            // Collect any output produced before interruption
-            String stdout = stdoutFuture.join(); // Try to get output, might be empty
-            String stderr = stderrFuture.join();
-            combinedOutput = formatOutput(stdout, stderr);
-            logger.warn("Process '{}' interrupted. Output so far: {}", command, combinedOutput);
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
+            logger.warn("Process '{}' interrupted.", command);
             throw ie; // Propagate InterruptedException
         }
 
@@ -92,7 +90,7 @@ public class Environment {
 
     private static String readStream(java.io.InputStream in, java.util.function.Consumer<String> outputConsumer) {
         var lines = new java.util.ArrayList<String>();
-        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(in))) {
+        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
             String line;
             while ((line = reader.readLine()) != null) {
                 outputConsumer.accept(line);
@@ -187,23 +185,22 @@ public class Environment {
      * Determines if the current operating system is Windows.
      */
     public static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase(Locale.ENGLISH).contains("win");
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
     }
 
     public static boolean isMacOs() {
-        return System.getProperty("os.name").toLowerCase(Locale.ENGLISH).contains("mac");
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac");
     }
 
     /**
      * Sends a desktop notification asynchronously.
      *
-     * @param title    The title of the notification.
      * @param message  The message body of the notification.
      */
     public void sendNotificationAsync(String message) {
         CompletableFuture.runAsync(() -> {
             try {
-                String os = System.getProperty("os.name").toLowerCase();
+                String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
                 if (isSystemTrayNotificationSupported()) {
                     sendSystemTrayNotification(message);
                 } else if (os.contains("linux")) {

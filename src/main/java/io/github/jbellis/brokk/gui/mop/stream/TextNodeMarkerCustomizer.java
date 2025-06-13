@@ -5,7 +5,11 @@ import org.jsoup.nodes.*;
 import org.jsoup.select.NodeTraversor;
 import org.jsoup.select.NodeVisitor;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -130,7 +134,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
             if (tn.isBlank()) return;
             if (hasAncestorMarker(tn)) return;
             if (tn.parent() instanceof Element el &&
-                    SKIP_TAGS.contains(el.tagName().toLowerCase())) {
+                    SKIP_TAGS.contains(el.tagName().toLowerCase(Locale.ROOT))) {
                 return; // skip inside forbidden tags
             }
 

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.util.Messages;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 /**
@@ -17,7 +18,6 @@ import java.util.stream.Collectors;
  * @param summary  The compressed representation of the chat messages (summary). Null if uncompressed.
  */
 public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String summary) {
-    private static final System.Logger logger = System.getLogger(TaskEntry.class.getName());
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {
@@ -76,11 +76,11 @@ public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String s
         return messages.stream()
                   .map(message -> {
                       var text = Messages.getRepr(message);
-                      return """
+                      return (CharSequence) """
                       <message type=%s>
                       %s
                       </message>
-                      """.stripIndent().formatted(message.type().name().toLowerCase(), text.indent(2).stripTrailing());
+                      """.stripIndent().formatted(message.type().name().toLowerCase(Locale.ROOT), text.indent(2).stripTrailing());
                   })
                   .collect(Collectors.joining("\n"));
     }

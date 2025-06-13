@@ -38,10 +38,12 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
         }
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public long getSize() {
         return (file != null) ? file.length() : 0;
     }
@@ -53,7 +55,7 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
 
     @Override
     public boolean equals(Object o) {
-        return (o instanceof FileNode) && name.equals(((FileNode) o).getName());
+        return (o instanceof FileNode fileNode) && name.equals(fileNode.getName());
     }
 
     @Override

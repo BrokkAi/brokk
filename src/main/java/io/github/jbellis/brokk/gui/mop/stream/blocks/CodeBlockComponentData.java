@@ -14,6 +14,7 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 import java.io.IOException;
+import java.util.Locale; // Added import
 import java.util.Optional;
 
 /**
@@ -132,7 +133,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
     private JPanel createMessageBubble(RSyntaxTextArea textArea, String fenceInfo, boolean isDarkTheme) {
         // Format the title based on fence info
         String title = fenceInfo.isEmpty() ? "Code" :
-                       fenceInfo.substring(0, 1).toUpperCase() + fenceInfo.substring(1);
+                       fenceInfo.substring(0, 1).toUpperCase(Locale.ROOT) + fenceInfo.substring(1);
 
         // Use code icon
         var icon = SwingUtil.uiIcon("FileChooser.listViewIcon");
@@ -158,7 +159,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
         }
 
         // Map common markdown language identifiers (lowercase) to RSyntaxTextArea style constants
-        return switch(lang.toLowerCase()) {
+        return switch(lang.toLowerCase(Locale.ROOT)) {
             // Existing + common aliases
             case "java" -> SyntaxConstants.SYNTAX_STYLE_JAVA;
             case "python", "py" -> SyntaxConstants.SYNTAX_STYLE_PYTHON;

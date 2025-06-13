@@ -700,13 +700,13 @@ public class GitLogTab extends JPanel {
     /**
      * Format commit date to show e.g. "HH:MM:SS today" if it is today's date.
      */
-    static String formatCommitDate(Date date, java.time.LocalDate today) {
+    static String formatCommitDate(java.time.Instant commitInstant, java.time.LocalDate today) {
         try {
-            java.time.LocalDate commitDate = date.toInstant()
-                    .atZone(java.time.ZoneId.systemDefault())
-                    .toLocalDate();
+            java.time.ZonedDateTime commitZonedDateTime = commitInstant.atZone(java.time.ZoneId.systemDefault());
+            java.time.LocalDate commitDate = commitZonedDateTime.toLocalDate();
 
-            String timeStr = new java.text.SimpleDateFormat("HH:mm:ss").format(date);
+            java.time.format.DateTimeFormatter timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+            String timeStr = commitZonedDateTime.format(timeFormatter);
 
             if (commitDate.equals(today)) {
                 // If it's today's date, just show the time with "today"
@@ -716,16 +716,18 @@ public class GitLogTab extends JPanel {
                 return "Yesterday " + timeStr;
             } else if (commitDate.isAfter(today.minusDays(7))) {
                 // If within the last week, show day of week
-                String dayName = commitDate.getDayOfWeek().toString();
-                dayName = dayName.substring(0, 1).toUpperCase() + dayName.substring(1).toLowerCase();
+                String dayName = commitDate.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault());
+                // Ensure proper capitalization (e.g., "Monday" not "MONDAY")
+                dayName = com.google.common.base.Ascii.toUpperCase(dayName.substring(0, 1)) + com.google.common.base.Ascii.toLowerCase(dayName.substring(1));
                 return dayName + " " + timeStr;
             }
 
             // Otherwise, show the standard date format
-            return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(date);
+            java.time.format.DateTimeFormatter dateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            return commitZonedDateTime.format(dateTimeFormatter);
         } catch (Exception e) {
-            logger.debug("Could not format date: {}", date, e);
-            return date.toString();
+            logger.debug("Could not format date: {}", commitInstant, e);
+            return commitInstant.toString();
         }
     }
 

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.util.MarkdownImageParser;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import com.google.common.collect.ImmutableList;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
@@ -20,6 +21,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -76,18 +78,14 @@ public class GitHubIssueService implements IssueService {
             if (status == null || status.equalsIgnoreCase("ALL") || status.isBlank()) {
                 apiState = GHIssueState.ALL;
             } else {
-                switch (status.toUpperCase()) {
-                    case "OPEN":
-                        apiState = GHIssueState.OPEN;
-                        break;
-                    case "CLOSED":
-                        apiState = GHIssueState.CLOSED;
-                        break;
-                    default:
-                        apiState = GHIssueState.ALL;
+                apiState = switch (status.toUpperCase(Locale.ROOT)) {
+                    case "OPEN" -> GHIssueState.OPEN;
+                    case "CLOSED" -> GHIssueState.CLOSED;
+                    default -> {
                         logger.warn("Unrecognized status filter '{}', defaulting to ALL.", status);
-                        break;
-                }
+                        yield GHIssueState.ALL;
+                    }
+                };
             }
 
             List<GHIssue> fetchedIssues = getAuth().listIssues(apiState);
@@ -113,7 +111,7 @@ public class GitHubIssueService implements IssueService {
         q.append(" is:issue");
 
         if (options.status() != null && !options.status().equalsIgnoreCase("ALL") && !options.status().isBlank()) {
-            q.append(" state:").append(options.status().toLowerCase().trim());
+            q.append(" state:").append(options.status().trim().toLowerCase(Locale.ROOT));
         }
         if (options.author() != null && !options.author().isBlank()) {
             q.append(" author:").append(options.author().trim());
@@ -210,21 +208,21 @@ public class GitHubIssueService implements IssueService {
         return List.of("Open", "Closed");
     }
 
-    private List<Comment> mapToComments(List<GHIssueComment> ghComments) {
-        if (ghComments == null) return Collections.emptyList();
-        List<Comment> comments = new ArrayList<>();
+    private ImmutableList<Comment> mapToComments(List<GHIssueComment> ghComments) {
+        if (ghComments == null) return ImmutableList.of();
+        var builder = ImmutableList.<Comment>builder();
         for (GHIssueComment gc : ghComments) {
             try {
                 String author = getAuthorLogin(gc.getUser()); // Handles potential IOException for getUser
                 String body = gc.getBody() == null ? "" : gc.getBody();
                 Date created = gc.getCreatedAt(); // Can throw IOException
-                comments.add(new Comment(author, body, created));
+                builder.add(new Comment(author, body, created));
             } catch (IOException e) {
                 logger.warn("IOException mapping GHIssueComment ID {} to Comment DTO: {}", gc.getId(), e.getMessage(), e);
                 // Skip this comment or add with default values
             }
         }
-        return comments;
+        return builder.build();
     }
 
     private List<URI> extractAttachmentUrls(String issueBodyMarkdown, List<Comment> dtoComments) {

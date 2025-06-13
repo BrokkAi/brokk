@@ -256,7 +256,7 @@ public class DtoMapper {
             case ContextFragment.ImageFileFragment imf -> {
                 var file = imf.file();
                 String absPath = file.absPath().toString();
-                String fileName = file.getFileName().toLowerCase();
+                String fileName = file.getFileName().toLowerCase(java.util.Locale.ROOT);
                 String mediaType = null;
                 if (fileName.endsWith(".png")) mediaType = "image/png";
                 else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mediaType = "image/jpeg";
@@ -417,7 +417,8 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
     }
 
     private static ChatMessageDto toChatMessageDto(ChatMessage message) {
-        return new ChatMessageDto(message.type().name().toLowerCase(), Messages.getRepr(message));
+        return new ChatMessageDto(message.type().name().toLowerCase(java.util.Locale.ROOT),
+                                  Messages.getRepr(message));
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto) {
@@ -426,7 +427,7 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
 
     private static ChatMessage fromChatMessageDto(ChatMessageDto dto) {
         // Convert role string back to ChatMessage
-        return switch (dto.role().toLowerCase()) {
+        return switch (dto.role().toLowerCase(java.util.Locale.ROOT)) {
             case "user" -> dev.langchain4j.data.message.UserMessage.from(dto.content());
             case "ai" -> dev.langchain4j.data.message.AiMessage.from(dto.content());
             case "system" -> dev.langchain4j.data.message.SystemMessage.from(dto.content());

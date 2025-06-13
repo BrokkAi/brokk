@@ -175,6 +175,7 @@ public final class WorktreeProject extends AbstractProject {
         return parent.isDataShareAllowed();
     }
 
+    @Override
     public String getCommitMessageFormat() {
         return parent.getCommitMessageFormat();
     }
@@ -184,14 +185,17 @@ public final class WorktreeProject extends AbstractProject {
         parent.setCommitMessageFormat(format);
     }
 
+    @Override
     public CodeAgentTestScope getCodeAgentTestScope() {
         return parent.getCodeAgentTestScope();
     }
 
+    @Override
     public boolean isGitHubRepo() {
         return parent.isGitHubRepo();
     }
 
+    @Override
     public boolean isGitIgnoreSet() {
         return parent.isGitIgnoreSet();
     }
