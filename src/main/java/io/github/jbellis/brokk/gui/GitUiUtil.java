@@ -30,6 +30,15 @@ public final class GitUiUtil
     private GitUiUtil() {}
 
     /**
+     * Shortens a commit ID to 7 characters for display purposes.
+     * @param commitId The full commit ID, may be null
+     * @return The shortened commit ID, or the original if null or shorter than 7 characters
+     */
+    public static String shortenCommitId(String commitId) {
+        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+    }
+
+    /**
      * Capture uncommitted diffs for the specified files, adding the result to the context.
      */
     public static void captureUncommittedDiff
@@ -51,11 +60,7 @@ public final class GitUiUtil
                     chrome.systemOutput("No uncommitted changes found for selected files");
                     return;
                 }
-                var description = "Diff of %s".formatted(
-                        selectedFiles.stream()
-                                .map(ProjectFile::getFileName)
-                                .collect(Collectors.joining(", "))
-                );
+                var description = "Diff of %s".formatted(formatFileList(selectedFiles));
                 var syntaxStyle = selectedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
                                  SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
@@ -111,7 +116,7 @@ public final class GitUiUtil
                     chrome.systemOutput("No changes found for " + file.getFileName());
                     return;
                 }
-                var shortHash = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
+                var shortHash = shortenCommitId(commitId);
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
@@ -133,7 +138,7 @@ public final class GitUiUtil
     {
         var repo = cm.getProject().getRepo();
 
-        var shortCommitId = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
+        var shortCommitId = shortenCommitId(commitId);
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
 
@@ -231,8 +236,8 @@ public final class GitUiUtil
                         .collect(Collectors.toList());
                 var filesTxt  = String.join(", ", fileNames);
 
-                var firstShort = firstCommitId.substring(0, 7);
-                var lastShort  = lastCommitId.substring(0, 7);
+                var firstShort = shortenCommitId(firstCommitId);
+                var lastShort  = shortenCommitId(lastCommitId);
                 var hashTxt    = firstCommitId.equals(lastCommitId)
                         ? firstShort
                         : firstShort + ".." + lastShort;
@@ -283,8 +288,8 @@ public final class GitUiUtil
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = firstCommitId.substring(0, 7);
-                var lastShort = lastCommitId.substring(0, 7);
+                var firstShort = shortenCommitId(firstCommitId);
+                var lastShort = shortenCommitId(lastCommitId);
                 var shortHash = firstCommitId.equals(lastCommitId)
                                 ? firstShort
                                 : "%s..%s".formatted(firstShort, lastShort);
@@ -323,14 +328,14 @@ public final class GitUiUtil
                 // 2) Figure out the base commit ID and title components
                 String baseCommitId = commitId;
                 String baseCommitTitle = commitId;
-                String baseCommitShort = (commitId.length() >= 7) ? commitId.substring(0, 7) : commitId;
+                String baseCommitShort = shortenCommitId(commitId);
 
                 if (useParent) {
                     var parentObjectId = repo.resolve(commitId + "^");
                     if (parentObjectId != null) {
                         baseCommitId = commitId + "^";
                         baseCommitTitle = commitId + "^";
-                        baseCommitShort = ((commitId.length() >= 7) ? commitId.substring(0, 7) : commitId) + "^";
+                        baseCommitShort = shortenCommitId(commitId) + "^";
                     } else {
                         baseCommitId = null; // Indicates no parent, so old content will be empty
                         baseCommitTitle = "[No Parent]";
@@ -444,7 +449,7 @@ public final class GitUiUtil
     ) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
+        cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files == null || files.isEmpty()) {
@@ -467,7 +472,7 @@ public final class GitUiUtil
 
                 var title = "Commit Diff: %s (%s)".formatted(
                         commitInfo.message().lines().findFirst().orElse(""),
-                        commitInfo.id().substring(0, 7)
+                        shortenCommitId(commitInfo.id())
                 );
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
@@ -495,7 +500,7 @@ public final class GitUiUtil
 
                 var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
                 var repo = contextManager.getProject().getRepo();
-                var shortId = commitInfo.id().substring(0, 7);
+                var shortId = shortenCommitId(commitInfo.id());
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
@@ -544,4 +549,62 @@ public final class GitUiUtil
             }
         });
     }
+
+    /**
+     * Rollback selected files to their state at a specific commit.
+     * This will overwrite the current working directory versions of these files.
+     */
+    public static void rollbackFilesToCommit
+    (
+            ContextManager contextManager,
+            Chrome chrome,
+            String commitId,
+            List<ProjectFile> files
+    ) {
+        if (files == null || files.isEmpty()) {
+            chrome.systemOutput("No files selected for rollback");
+            return;
+        }
+
+        var shortCommitId = shortenCommitId(commitId);
+
+        var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
+
+        contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
+            try {
+                repo.checkoutFilesFromCommit(commitId, files);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.systemOutput(String.format(
+                            "Successfully rolled back %d file(s) to commit %s",
+                            files.size(), shortCommitId
+                    ));
+                    // Refresh Git panels to show the changed files
+                    chrome.getGitPanel().updateCommitPanel();
+                });
+            } catch (Exception e) {
+                logger.error("Error rolling back files", e);
+                SwingUtilities.invokeLater(() ->
+                    chrome.toolError("Error rolling back files: " + e.getMessage())
+                );
+            }
+        });
+    }
+
+    /**
+     * Formats a list of files for display in UI messages.
+     * Shows individual filenames for 3 or fewer files, otherwise shows a count.
+     *
+     * @param files List of ProjectFile objects
+     * @return A formatted string like "file1.java, file2.java" or "5 files"
+     */
+    public static String formatFileList(List<ProjectFile> files) {
+        if (files == null || files.isEmpty()) {
+            return "no files";
+        }
+
+        return files.size() <= 3
+               ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
+               : files.size() + " files";
+    }
 }
+
