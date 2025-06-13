@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -24,16 +25,12 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
+import java.security.Security;
+import java.util.*;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -55,6 +52,15 @@ public class Brokk {
     // Helper record for key validation result
     private record KeyValidationResult(boolean isValid, Path dialogProjectPath) {}
 
+    static {
+        // Register Bouncy Castle provider for JGit SSH operations if not already present.
+        if (Security.getProvider("BC") == null) {
+            Security.addProvider(new BouncyCastleProvider());
+            logger.info("Bouncy Castle security provider registered.");
+        } else {
+            logger.info("Bouncy Castle security provider was already registered.");
+        }
+    }
 
     static {
         embeddingModelFuture = CompletableFuture.supplyAsync(() -> {

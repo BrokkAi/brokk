@@ -98,6 +98,9 @@ libraryDependencies ++= Seq(
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
   "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
 
+  // Bouncy Castle for JGit SSH
+  "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
+
   // TreeSitter Java parser
   "io.github.bonede" % "tree-sitter" % "0.25.3",
   "io.github.bonede" % "tree-sitter-c-sharp" % "0.23.1",
