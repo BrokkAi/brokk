@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
@@ -19,6 +18,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -45,6 +45,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private JScrollPane scrollPane;
     private RSyntaxTextArea editor;
     private JMHighlighter jmHighlighter;
+    @Nullable
     private BufferDocumentIF bufferDocument;
 
     /* ------------- mirroring PlainDocument <-> RSyntaxDocument ------------- */
@@ -120,12 +121,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return editor;
     }
 
+    @Nullable
     public BufferDocumentIF getBufferDocument() {
         return bufferDocument;
     }
 
-
-    public void setBufferDocument(BufferDocumentIF bd) {
+    public void setBufferDocument(@Nullable BufferDocumentIF bd) {
         assert SwingUtilities.isEventDispatchThread();
         Document previousDocument;
         Document newDocument;
@@ -375,7 +376,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Refresh the diff of whole document.
             timer.restart();
         } else {
-//             Try to update the revision instead of doing a full diff.
+            // Try to update the revision instead of doing a full diff.
             if (!diffPanel.revisionChanged(de)) {
                 timer.restart();
             }
@@ -420,7 +421,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // --------------------------- Heuristic 1 -----------------------------
         if (bufferDocument != null) {
             var fileName = bufferDocument.getName();
-            if (fileName != null && !fileName.isBlank()) {
+            if (!fileName.isBlank()) {
                 // Remove trailing '~'
                 var candidate = fileName.endsWith("~")
                                 ? fileName.substring(0, fileName.length() - 1)

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.search;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Interface for components that can be searched by SearchBarPanel.
  */
@@ -10,7 +12,7 @@ public interface SearchCallback {
      * @param command The search command containing search term and options
      * @return SearchResults containing information about matches, or null if no matches
      */
-    SearchResults performSearch(SearchCommand command);
+    @Nullable SearchResults performSearch(SearchCommand command);
     
     /**
      * Moves to the previous search result.

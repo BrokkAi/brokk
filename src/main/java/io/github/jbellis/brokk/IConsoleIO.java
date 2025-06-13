@@ -103,7 +103,7 @@ public interface IConsoleIO {
     }
 
     default InstructionsPanel getInstructionsPanel() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     default void updateContextHistoryTable() {

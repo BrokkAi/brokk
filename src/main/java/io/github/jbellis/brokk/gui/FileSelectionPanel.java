@@ -32,6 +32,8 @@ import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import org.jetbrains.annotations.Nullable;
+
 public class FileSelectionPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(FileSelectionPanel.class);
 
@@ -52,8 +54,8 @@ public class FileSelectionPanel extends JPanel {
     }
 
     private final Config config;
-    private final IProject project; // May be null
-    private final Path rootPath;  // May be null
+    private final IProject project; // Initialized from config, which requires it
+    private final @Nullable Path rootPath;  // May be null if project.getRoot() returns null
     private final FileSelectionTree tree;
     private final JTextComponent fileInputComponent; // JTextField or JTextArea
 
@@ -201,7 +203,7 @@ public class FileSelectionPanel extends JPanel {
         fileInputComponent.requestFocusInWindow();
     }
 
-    private String getPathStringFromNode(DefaultMutableTreeNode node, TreePath path) {
+    private @Nullable String getPathStringFromNode(DefaultMutableTreeNode node, TreePath path) {
         if (node.getUserObject() instanceof FileSelectionTree.FileTreeNode fileNode) {
             return fileNode.getFile().getAbsolutePath();
         } else if (!config.allowExternalFiles() && node.getUserObject() instanceof String) {
@@ -296,9 +298,7 @@ public class FileSelectionPanel extends JPanel {
 
     public void setInputText(String text) {
         fileInputComponent.setText(text);
-        if (text != null) {
-            fileInputComponent.setCaretPosition(text.length());
-        }
+        fileInputComponent.setCaretPosition(text.length());
     }
 
     public String getInputText() {
@@ -317,7 +317,7 @@ public class FileSelectionPanel extends JPanel {
     // Helper: Splits a string by whitespace, respecting double quotes.
     private static List<String> splitQuotedString(String input) {
         List<String> tokens = new ArrayList<>();
-        if (input == null || input.isBlank()) return tokens;
+        if (input.isBlank()) return tokens;
 
         StringBuilder currentToken = new StringBuilder();
         boolean inQuotes = false;
@@ -353,7 +353,7 @@ public class FileSelectionPanel extends JPanel {
      * Handles project files, external paths, and different input component types.
      */
     private static class FilePanelCompletionProvider extends DefaultCompletionProvider {
-        private final IProject project; // Can be null
+        private final @Nullable IProject project; // Can be null
         private final Future<List<Path>> autocompleteCandidatesFuture;
         private final boolean allowExternalFiles;
         private final boolean multiSelectMode; // To determine how to get_already_entered_text
@@ -447,7 +447,6 @@ public class FileSelectionPanel extends JPanel {
             // This suggests AutoCompleteUtil.sizePopupWindows should be called outside, or AC passed in.
             // For now, let's assume the caller of provider might do this, or we omit it here.
             // If `autoCompletion` field is accessible (e.g., provider is inner class of panel), then it can be used.
-            // Let's assume this provider is an inner class and has access to the panel's `autoCompletion` instance.
             // This is not a static class, so it can access outer class members if needed.
             // The autoCompletion instance that this provider is registered with is what matters.
 
@@ -571,10 +570,6 @@ public class FileSelectionPanel extends JPanel {
 
             // If token starts with a quote, and caret is effectively inside, pattern is from after quote
             String currentToken = text.substring(tokenStart, caretPos);
-            if (currentToken.startsWith("\"") && currentToken.endsWith("\"") && currentToken.length() > 1) {
-                 // If it's fully quoted, complete based on content inside quotes
-                 // return currentToken.substring(1, currentToken.length() - 1); NO, pattern includes quotes
-            }
             if (currentToken.startsWith("\"") && ! (text.substring(tokenStart,caretPos).chars().filter(ch -> ch == '"').count() % 2 == 0) ) {
                 // if token starts with quote and we are "in" that quote block for completion
                 return currentToken.substring(1);

@@ -1205,10 +1205,6 @@ public final class MainProject extends AbstractProject {
                     recentProjectsMapModified = true;
                 }
             }
-        } else {
-            if (recentProjectsMap.remove(mainProjectPathKey) != null) {
-                recentProjectsMapModified = true;
-            }
         }
         
         if (recentProjectsMapModified) {

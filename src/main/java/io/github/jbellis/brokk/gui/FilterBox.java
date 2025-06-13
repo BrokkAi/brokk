@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.*;
@@ -14,7 +15,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
     private final String label;                     // e.g. "Author"
     private final Supplier<List<String>> choices;   // lazy source of values
-    private String selected;                        // null == “nothing”
+    private @Nullable String selected;             // null == “nothing”
 
     private final JLabel textLabel;
     private final JLabel iconLabel;
@@ -99,7 +100,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         this(chrome, label, choices, null);
     }
 
-    public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices, String initialSelection) {
+    public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices, @Nullable String initialSelection) {
         this.chrome = chrome;
         this.label = label;
         this.choices = choices;
@@ -221,7 +222,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         // Initial selection and icon state
         if (initialSelection != null) {
             List<String> actualChoices = choices.get();
-            if (actualChoices != null && actualChoices.contains(initialSelection)) {
+            if (actualChoices.contains(initialSelection)) {
                 this.selected = initialSelection;
                 textLabel.setText(this.selected);
                 iconLabel.setIcon(CLEAR_BASE);
@@ -255,9 +256,6 @@ public final class FilterBox extends JPanel implements ThemeAware {
 
             String q = search.getText().toLowerCase(Locale.ROOT);
             List<String> currentChoices = choices.get();
-            if (currentChoices == null) {
-                currentChoices = List.of();
-            }
 
             currentChoices.stream()
                     .filter(s -> s.toLowerCase(Locale.ROOT).contains(q))
@@ -375,7 +373,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
         firePropertyChange("value", old, null);
     }
 
-    public String getSelected() {
+    public @Nullable String getSelected() {
         return selected;
     }
 

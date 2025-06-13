@@ -69,6 +69,7 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private final AtomicInteger searchAgentId = new AtomicInteger(1);
+    private boolean offerUndoToolNext = false;
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -152,8 +153,7 @@ public class ArchitectAgent {
         var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // always add to history
-        var entry = contextManager.addToHistory(result, true); // Keep changes on success
+        var entry = contextManager.addToHistory(result, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
             String summary = """
@@ -161,21 +161,12 @@ public class ArchitectAgent {
                     <summary>
                     %s
                     </summary>
-                    """.stripIndent().formatted(entry.summary(), stopDetails);
+                    """.stripIndent().formatted(entry.summary(), stopDetails); // stopDetails may be redundant for success
             logger.debug("Summary for successful callCodeAgent: {}", summary);
             return summary;
         }
 
-        // Revert changes for all non-SUCCESS outcomes by restoring original contents
-        result.originalContents().forEach((file, contents) -> {
-            try {
-                file.write(contents);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
-        logger.debug("Reverted changes from CodeAgent due to stop reason: {}", reason);
-
+        // For non-SUCCESS outcomes:
         // throw errors that should halt the architect
         if (reason == TaskResult.StopReason.INTERRUPTED) {
             throw new InterruptedException();
@@ -185,9 +176,11 @@ public class ArchitectAgent {
             throw new FatalLlmException(stopDetails.explanation());
         }
 
-        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.), return the summary with failure details
+        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.),
+        // set flag to offer undo and return the summary with failure details.
+        this.offerUndoToolNext = true;
         String summary = """
-                CodeAgent was not successful; changes have been reverted.
+                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
                 <summary>
                 %s
                 </summary>
@@ -196,8 +189,31 @@ public class ArchitectAgent {
                 %s
                 </stop-details>
                 """.stripIndent().formatted(entry.summary(), stopDetails);
-        logger.debug("Summary for failed callCodeAgent (changes reverted): {}", summary);
+        logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
         return summary;
+    }
+
+    @Tool("Undo the changes made by the most recent CodeAgent call. This is only available if the last CodeAgent call reported errors but did not automatically revert its changes.")
+    public String undoLastChanges() throws InterruptedException {
+        logger.debug("undoLastChanges invoked");
+        io.systemOutput("Undoing last CodeAgent changes...");
+        Future<?> undoFuture = contextManager.undoContextAsync();
+        try {
+            undoFuture.get(); // Block until completion
+            String resultMsg = "Successfully reverted the last CodeAgent changes.";
+            logger.debug(resultMsg);
+            io.systemOutput(resultMsg);
+            return resultMsg;
+        } catch (InterruptedException e) {
+            logger.warn("Undo operation was interrupted.", e);
+            io.systemOutput("Undo operation was interrupted.");
+            throw e;
+        } catch (ExecutionException e) {
+            logger.error("Error executing undo operation.", e.getCause());
+            String errorMsg = "Failed to revert CodeAgent changes: " + e.getCause().getMessage();
+            io.systemOutput(errorMsg);
+            return errorMsg;
+        }
     }
 
     /**
@@ -334,6 +350,13 @@ public class ArchitectAgent {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("callSearchAgent")));
                 }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
+            }
+
+            // Add undo tool if the last CodeAgent call failed and made changes
+            if (this.offerUndoToolNext) {
+                logger.debug("Offering undoLastChanges tool for this turn.");
+                toolSpecs.addAll(toolRegistry.getTools(this, List.of("undoLastChanges")));
+                this.offerUndoToolNext = false; // Reset the flag, offer is for this turn only
             }
 
             // Ask the LLM for the next step

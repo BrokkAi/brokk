@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.context;
 import io.github.jbellis.brokk.IConsoleIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
@@ -26,7 +27,7 @@ public class ContextHistory {
     private final Deque<Context> redo   = new ArrayDeque<>();
 
     /** UI-selection; never {@code null} once an initial context is set. */
-    private Context selected;
+    private @Nullable Context selected;
 
     /* ───────────────────────── public API ─────────────────────────── */
 
@@ -36,7 +37,7 @@ public class ContextHistory {
     }
 
     /** Latest context or {@code null} when uninitialised. */
-    public synchronized Context topContext() {
+    public synchronized @Nullable Context topContext() {
         return history.peekLast();
     }
 
@@ -55,7 +56,7 @@ public class ContextHistory {
      * @param ctx the context to check
      * @return {@code true} iff {@code ctx} is present in history.
      */
-    public synchronized boolean setSelectedContext(Context ctx) {
+    public synchronized boolean setSelectedContext(@Nullable Context ctx) {
         if (ctx != null && history.contains(ctx)) {
             selected = ctx;
             return true;

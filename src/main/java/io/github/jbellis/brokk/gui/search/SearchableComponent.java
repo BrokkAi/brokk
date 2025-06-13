@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.search;
 
 import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Interface for components that can be searched by a search bar.
@@ -19,6 +20,7 @@ public interface SearchableComponent {
      *
      * @return the selected text, or null if no text is selected
      */
+    @Nullable
     String getSelectedText();
 
     /**

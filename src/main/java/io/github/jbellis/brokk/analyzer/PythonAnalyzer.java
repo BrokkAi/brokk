@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
@@ -50,10 +51,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    @Nullable
     protected CodeUnit createCodeUnit(ProjectFile file,
                                       String captureName,
                                       String simpleName,
-                                      String packageName, // Changed from namespaceName
+                                      String packageName,
                                       String classChain) {
         // The packageName parameter is now supplied by determinePackageName.
         // The classChain parameter is used for Joern-style short name generation.
@@ -115,7 +117,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
-        String pyReturnTypeSuffix = (returnTypeText != null && !returnTypeText.isEmpty()) ? " -> " + returnTypeText : "";
+        String pyReturnTypeSuffix = !returnTypeText.isEmpty() ? " -> " + returnTypeText : "";
         // The 'indent' parameter is now "" when called from buildSignatureString,
         // so it's effectively ignored here for constructing the stored signature.
         String signature = String.format("%s%sdef %s%s%s:", exportPrefix, asyncPrefix, functionName, paramsText, pyReturnTypeSuffix);

@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
+import io.github.jbellis.brokk.gui.dialogs.UpgradeAgentDialog;
 
 import javax.swing.*;
 import java.awt.*;
@@ -65,7 +66,22 @@ public class MenuBar {
 
         var recentProjectsMenu = new JMenu("Recent Projects");
         fileMenu.add(recentProjectsMenu);
-        rebuildRecentProjectsMenu(recentProjectsMenu);
+        recentProjectsMenu.addMenuListener(new MenuListener() {
+            @Override
+            public void menuSelected(MenuEvent e) {
+                rebuildRecentProjectsMenu(recentProjectsMenu);
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent e) {
+                // No action needed
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent e) {
+                // No action needed
+            }
+        });
 
         var settingsItem = new JMenuItem("Settings...");
         settingsItem.addActionListener(e -> {
@@ -262,6 +278,27 @@ public class MenuBar {
         contextMenu.add(dropAllItem);
 
         menuBar.add(contextMenu);
+
+        // Tools menu
+        var toolsMenu = new JMenu("Tools");
+        toolsMenu.setEnabled(hasProject);
+
+        if (System.getProperty("brokk.upgradeagenttab", "false").equals("true")) {
+            var upgradeAgentItem = new JMenuItem("Upgrade Agent...");
+            upgradeAgentItem.addActionListener(e -> {
+                if (chrome.getProject() != null && chrome.getContextManager() != null) {
+                    SwingUtilities.invokeLater(() -> {
+                        var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
+                        dialog.setVisible(true);
+                    });
+                }
+            });
+            upgradeAgentItem.setEnabled(hasProject); // Enable only if a project is open
+            toolsMenu.add(upgradeAgentItem);
+        }
+        if (toolsMenu.getItemCount() > 0) {
+            menuBar.add(toolsMenu);
+        }
 
         // Window menu
         var windowMenu = new JMenu("Window");

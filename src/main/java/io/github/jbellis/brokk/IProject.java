@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.IGitRepo;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -29,7 +30,7 @@ public interface IProject extends AutoCloseable {
     }
 
     default Path getRoot() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     /**
@@ -63,7 +64,7 @@ public interface IProject extends AutoCloseable {
         return "";
     }
 
-    default Path getMasterRootPathForConfig() {
+    default @Nullable Path getMasterRootPathForConfig() {
         return null;
     }
 

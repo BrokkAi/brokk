@@ -98,6 +98,9 @@ libraryDependencies ++= Seq(
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
   "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
 
+  // Bouncy Castle for JGit SSH
+  "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
+
   // TreeSitter Java parser
   "io.github.bonede" % "tree-sitter" % "0.25.3",
   "io.github.bonede" % "tree-sitter-c-sharp" % "0.23.1",
@@ -141,7 +144,8 @@ javaOptions ++= Seq(
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
   "-Dbrokk.prtab=true",
-  "-Dbrokk.issuetab=true"
+  "-Dbrokk.issuetab=true",
+  "-Dbrokk.upgradeagenttab=true"
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")

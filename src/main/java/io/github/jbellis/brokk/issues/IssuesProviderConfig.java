@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.issues;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Marker parent.  Concrete records hold the supplier‐specific data.
  */
@@ -10,7 +12,7 @@ public sealed interface IssuesProviderConfig
     record NoneConfig() implements IssuesProviderConfig {}
 
     /** GitHub provider */
-    record GithubConfig(String owner, String repo, String host) implements IssuesProviderConfig {
+    record GithubConfig(@Nullable String owner, @Nullable String repo, @Nullable String host) implements IssuesProviderConfig {
         /** Convenience ctor -> default to current repo on github.com */
         public GithubConfig() { this("", "", ""); }
 

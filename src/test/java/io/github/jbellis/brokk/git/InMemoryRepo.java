@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.git;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -24,9 +25,7 @@ public class InMemoryRepo implements IGitRepo {
     }
 
     public InMemoryRepo(Set<ProjectFile> initialTrackedFiles) {
-        if (initialTrackedFiles != null) {
-            this.trackedFiles.addAll(initialTrackedFiles);
-        }
+        this.trackedFiles.addAll(initialTrackedFiles);
     }
 
     @Override
@@ -99,7 +98,7 @@ public class InMemoryRepo implements IGitRepo {
     // or be implemented with simple stubs if needed by tests.
 
     @Override
-    public String showDiff(String newCommitId, String oldCommitId) throws GitAPIException {
+    public String showDiff(@Nullable String newCommitId, @Nullable String oldCommitId) throws GitAPIException {
         if (newCommitId == null || oldCommitId == null) {
             throw new GitAPIException("Commit IDs cannot be null for diffing in InMemoryRepo") {};
         }

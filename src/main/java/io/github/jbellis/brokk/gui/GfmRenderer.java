@@ -8,6 +8,7 @@ import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
 import com.vladsch.flexmark.util.data.MutableDataSet;
 import com.vladsch.flexmark.util.misc.Extension;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -49,7 +50,7 @@ public class GfmRenderer {
      * @param markdownText The Markdown text to render.
      * @return The rendered HTML string.
      */
-    public String render(String markdownText) {
+    public String render(@Nullable String markdownText) {
         Node document = this.flexmarkParser.parse(markdownText == null ? "" : markdownText);
         return this.flexmarkRenderer.render(document);
     }

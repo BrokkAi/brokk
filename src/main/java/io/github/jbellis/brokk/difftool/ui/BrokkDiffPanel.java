@@ -9,6 +9,7 @@ import static javax.swing.SwingUtilities.invokeLater;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
@@ -145,12 +146,10 @@ public class BrokkDiffPanel extends JPanel {
 
         public Builder rightSource(BufferSource source) {
             this.rightSource = source;
-            // Automatically add the comparison when both sources are set
-            if (leftSource != null && rightSource != null) {
-                addComparison(leftSource, rightSource);
-                leftSource = null; // Clear to prevent duplicate additions
-                rightSource = null;
-            }
+            // Automatically add the comparison
+            addComparison(leftSource, rightSource);
+            leftSource = null; // Clear to prevent duplicate additions
+            rightSource = null;
             return this;
         }
         
@@ -453,6 +452,7 @@ public class BrokkDiffPanel extends JPanel {
     }
 
 
+    @Nullable
     public AbstractContentPanel getCurrentContentPanel() {
         Component selectedComponent = getTabbedPane().getSelectedComponent();
         if (selectedComponent instanceof AbstractContentPanel abstractContentPanel) {
@@ -557,6 +557,7 @@ public class BrokkDiffPanel extends JPanel {
         }
     }
     
+    @Nullable
     private String detectFilename(BufferSource leftSource, BufferSource rightSource) {
         if (leftSource instanceof BufferSource.StringSource s && s.filename() != null) {
             return s.filename();

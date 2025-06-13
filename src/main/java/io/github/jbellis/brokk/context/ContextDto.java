@@ -16,10 +16,10 @@ public record ContextDto(List<ReferencedFragmentDto> editableFiles, // Changed f
 {
     public ContextDto {
         // Defensive copying for immutability
-        editableFiles = editableFiles != null ? List.copyOf(editableFiles) : List.of();
-        readonlyFiles = readonlyFiles != null ? List.copyOf(readonlyFiles) : List.of();
-        virtualFragments = virtualFragments != null ? List.copyOf(virtualFragments) : List.of();
-        taskHistory = taskHistory != null ? List.copyOf(taskHistory) : List.of();
+        editableFiles = List.copyOf(editableFiles);
+        readonlyFiles = List.copyOf(readonlyFiles);
+        virtualFragments = List.copyOf(virtualFragments);
+        taskHistory = List.copyOf(taskHistory);
         // parsedOutput is already immutable (record), no copying needed
         // actionSummary is already immutable (String), no copying needed
     }

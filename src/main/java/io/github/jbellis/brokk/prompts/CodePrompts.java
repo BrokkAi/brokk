@@ -16,10 +16,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
@@ -62,7 +59,9 @@ public abstract class CodePrompts {
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
-                                                       UserMessage request)
+                                                       UserMessage request,
+                                                       Collection<ProjectFile> changedFiles,
+                                                       List<ChatMessage> originalWorkspaceEditableMessages)
     throws InterruptedException
     {
         // TODO revisit cache-friendly message ordering with the next generation of models,
@@ -73,10 +72,11 @@ public abstract class CodePrompts {
 
         messages.add(systemMessage(cm, reminder));
         messages.addAll(cm.getWorkspaceReadOnlyMessages());
+        messages.addAll(originalWorkspaceEditableMessages);
         messages.addAll(parser.exampleMessages());
         messages.addAll(cm.getHistoryMessages());
         messages.addAll(taskMessages);
-        messages.addAll(cm.getWorkspaceEditableMessages());
+        messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
         messages.add(request);
 
         return messages;
@@ -320,10 +320,9 @@ public abstract class CodePrompts {
     throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
-        var styleGuide = cm.getProject().getStyleGuide();
 
         // 1. System Intro + Style Guide
-        messages.add(systemMessage(cm, styleGuide));
+        messages.add(systemMessage(cm, ""));
         // 2. No examples provided for full-file replacement
 
         // 3. History Messages (provides conversational context)
@@ -364,6 +363,58 @@ public abstract class CodePrompts {
             You MUST include the backtick fences, even if the correct content is an empty file.
             DO NOT modify the file except for the changes pertaining to the goal!
             DO NOT use the SEARCH/REPLACE format you see earlier -- that didn't work!
+            """.formatted(goal, targetFile, currentContent);
+        messages.add(new UserMessage(userMessage));
+
+        return messages;
+    }
+
+    public List<ChatMessage> getSimpleFileReplaceMessages(IProject project, ProjectFile targetFile, String goal) {
+        var messages = new ArrayList<ChatMessage>();
+        var styleGuide = project.getStyleGuide();
+
+        // 1. System Intro + Style Guide
+        var text = """
+          <instructions>
+          %s
+          </instructions>
+          <style_guide>
+          %s
+          </style_guide>
+          """.stripIndent().formatted(systemIntro(""), styleGuide).trim();
+        messages.add(new SystemMessage(text));
+
+        // 2. Target File Content + Goal
+        String currentContent;
+        try {
+            currentContent = targetFile.read();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
+        }
+
+        var userMessage = """
+            You are now performing a full-file replacement of a single file.
+            
+            Here is your goal:
+            <goal>
+            %s
+            </goal>
+            
+            Here is the current content of the file:
+            <file source="%s">
+            %s
+            </file>
+            
+            Figure out the necessary changes to implement the goal,
+            then provide the *complete and updated* new content for the entire file,
+            fenced with triple backticks. Omit language identifiers or other markdown options.
+
+            Think about your answer before starting to edit.
+            You MUST include the backtick fences, even if the correct content is an empty file.
+            DO NOT modify the file except for the changes pertaining to the goal!
+            
+            As a special case, if no changes are required, then give the special marker BRK_NO_CHANGES_REQUIRED
+            and do not repeat the file contents.
             """.formatted(goal, targetFile, currentContent);
         messages.add(new UserMessage(userMessage));
 
@@ -586,5 +637,64 @@ public abstract class CodePrompts {
 
         var summaryUserMessage = new UserMessage(summaryText);
         return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
+    }
+
+    /**
+     * Returns messages containing the original editable workspace content at the start of the task.
+     */
+    public final List<ChatMessage> getOriginalWorkspaceEditableMessages(IContextManager cm) {
+        var originalWorkspaceEditableContent = cm.liveContext().getEditableFragments()
+                .map(ContextFragment::format)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
+
+        if (originalWorkspaceEditableContent.isEmpty()) {
+            return List.of();
+        }
+
+        String editableText = """
+                              <workspace_editable_original>
+                              Here are the EDITABLE files and code fragments in your Workspace.
+                              This is *the only context in the Workspace to which you should make changes*.
+                              This represents the ORIGINAL state before any modifications during this session.
+                              
+                              Note: These files may be modified during the session. If they are changed, you will see 
+                              their CURRENT versions in a separate section later in this conversation.
+                              
+                              %s
+                              </workspace_editable_original>
+                              """.stripIndent().formatted(originalWorkspaceEditableContent);
+
+        var editableUserMessage = new UserMessage(editableText);
+        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable workspace state."));
+    }
+
+    /**
+     * Returns messages containing the current state of files that have been changed during the task.
+     */
+    public final Collection<ChatMessage> getCurrentChangedFilesMessages(IContextManager cm, Collection<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            return List.of();
+        }
+
+        var changedFilesSet = Set.copyOf(changedFiles);
+        var changedFilesText = cm.liveContext().getEditableFragments()
+                .map(fragment -> (ContextFragment.ProjectPathFragment) fragment)
+                .filter(fragment -> changedFilesSet.contains(fragment.file()))
+                .map(ContextFragment::format)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
+
+        String currentStateText = """
+                                 <workspace_editable_changed>
+                                 Here are the CURRENT versions of files that have been CREATED or MODIFIED during this session.
+                                 *Trust these as the true current contents of these files!*
+                                 
+                                 %s
+                                 </workspace_editable_changed>
+                                 """.stripIndent().formatted(changedFilesText);
+
+        var currentStateUserMessage = new UserMessage(currentStateText);
+        return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of modified files."));
     }
 }
