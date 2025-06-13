@@ -24,6 +24,8 @@ public class CreatePullRequestDialog extends JDialog {
     private final ContextManager contextManager;
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
+    private JTextField titleField;
+    private JTextArea descriptionArea;
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
@@ -50,44 +52,80 @@ public class CreatePullRequestDialog extends JDialog {
         setLayout(new BorderLayout());
 
         // --- top panel: branch selectors -------------------------------------------------------
+        var topPanel = new JPanel(new BorderLayout());
         var branchSelectorPanel = createBranchSelectorPanel();
-        add(branchSelectorPanel, BorderLayout.NORTH);
+        topPanel.add(branchSelectorPanel, BorderLayout.NORTH);
+
+        // --- title and description panel ----------------------------------------------------
+        var prInfoPanel = createPrInfoPanel();
+        topPanel.add(prInfoPanel, BorderLayout.CENTER);
+        add(topPanel, BorderLayout.NORTH);
 
         // --- middle: commit browser and file list ---------------------------------------------
         var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false);
         commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> { /* no-op */ }, commitBrowserOptions);
-
+        // The duplicate initializations that were here have been removed.
+        // commitBrowserPanel and fileStatusTable are now initialized once above.
         fileStatusTable = new FileStatusTable();
 
-        // --- middle: commit browser and file list ---------------------------------------------
-        // Panel for Commits
-        var commitsPanel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
-        var commitsLabel = new JLabel("Commits in Pull Request", SwingConstants.LEFT);
-        commitsLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
-        commitsPanel.add(commitsLabel, BorderLayout.NORTH);
-        commitsPanel.add(commitBrowserPanel, BorderLayout.CENTER);
-
-        // Panel for Files Changed
-        var filesPanel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
-        var filesLabel = new JLabel("Files Changed", SwingConstants.LEFT);
-        filesLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
-        filesPanel.add(filesLabel, BorderLayout.NORTH);
-        filesPanel.add(fileStatusTable, BorderLayout.CENTER);
+        var commitsPanel = createTitledPanel("Commits in Pull Request", commitBrowserPanel);
+        var filesPanel = createTitledPanel("Files Changed", fileStatusTable);
 
         var middleSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsPanel, filesPanel);
         middleSplit.setResizeWeight(0.5);
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
-        var rootSplit   = new JSplitPane(JSplitPane.VERTICAL_SPLIT, middleSplit, buttonPanel);
-        rootSplit.setResizeWeight(0.9);
-        add(rootSplit, BorderLayout.CENTER);
+        add(middleSplit, BorderLayout.CENTER);
+        add(buttonPanel, BorderLayout.SOUTH);
+
+        SwingUtilities.invokeLater(() -> middleSplit.setDividerLocation(0.5));
 
         // flow-label updater
         this.flowUpdater = createFlowUpdater();
 
         // initial data load
         loadBranches();
+        setupInputListeners(); // Setup listeners for title and description
+        updateCreatePrButtonState(); // Initial state for PR button based on (empty) title/desc
+    }
+
+    private JPanel createPrInfoPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 10, 5, 10);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        // Title
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panel.add(new JLabel("Title:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 0;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        titleField = new JTextField();
+        panel.add(titleField, gbc);
+
+        // Description
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0.0;
+        gbc.fill = GridBagConstraints.NONE;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Align label to top
+        panel.add(new JLabel("Description:"), gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 1;
+        gbc.weightx = 1.0;
+        gbc.weighty = 1.0; // Allow description to take vertical space
+        gbc.fill = GridBagConstraints.BOTH;
+        descriptionArea = new JTextArea(5, 20); // Initial rows and columns
+        var scrollPane = new JScrollPane(descriptionArea);
+        panel.add(scrollPane, gbc);
+        
+        return panel;
     }
 
     private JPanel createBranchSelectorPanel() {
@@ -134,6 +172,24 @@ public class CreatePullRequestDialog extends JDialog {
         return branchFlowLabel;
     }
 
+    /**
+     * Simple immutable holder for commits and changed files between two branches.
+     */
+    private record BranchDiff(List<CommitInfo> commits,
+                              List<GitRepo.ModifiedFile> changedFiles) {}
+
+    /**
+     * Collects both commits and changed files between the given branches.
+     */
+    private BranchDiff getBranchDiff(GitRepo gitRepo,
+                                     String sourceBranch,
+                                     String targetBranch) throws GitAPIException {
+        assert gitRepo != null;
+        var commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch, true);
+        var files   = gitRepo.listFilesChangedBetweenBranches(sourceBranch, targetBranch);
+        return new BranchDiff(commits, files);
+    }
+
     // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
     private void updateBranchFlow() {
         var target = (String) targetBranchComboBox.getSelectedItem();
@@ -153,17 +209,28 @@ public class CreatePullRequestDialog extends JDialog {
 
     private void setupBranchListeners() {
         ActionListener branchChangedListener = e -> {
+            // Immediately update flow label for responsiveness before async refresh.
+            this.currentCommits = Collections.emptyList();
             if (this.flowUpdater != null) {
-                // Temporarily set commits to empty when branches change,
-                // so the label updates immediately before async refresh completes.
-                this.currentCommits = Collections.emptyList();
                 this.flowUpdater.run();
-                updateCreatePrButtonState(); // Update button state
             }
+            // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
         };
         targetBranchComboBox.addActionListener(branchChangedListener);
         sourceBranchComboBox.addActionListener(branchChangedListener);
+    }
+
+    private void updateCommitRelatedUI(List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+        this.currentCommits = newCommits;
+        commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
+        if (fileStatusTable != null) {
+            fileStatusTable.setFiles(newFiles == null ? Collections.emptyList() : newFiles);
+        }
+        if (this.flowUpdater != null) {
+            this.flowUpdater.run();
+        }
+        updateCreatePrButtonState();
     }
 
     private void refreshCommitList() {
@@ -171,62 +238,36 @@ public class CreatePullRequestDialog extends JDialog {
         var targetBranch = (String) targetBranchComboBox.getSelectedItem();
 
         if (sourceBranch == null || targetBranch == null) {
-            this.currentCommits = Collections.emptyList();
-            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Select branches");
-            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
-            if (this.flowUpdater != null) this.flowUpdater.run();
-            updateCreatePrButtonState();
+            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Select branches");
             return;
         }
 
         var contextName = targetBranch + " ← " + sourceBranch;
 
         if (sourceBranch.equals(targetBranch)) {
-            this.currentCommits = Collections.emptyList();
-            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName);
-            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
-            if (this.flowUpdater != null) this.flowUpdater.run();
-            updateCreatePrButtonState();
+            updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName);
             return;
         }
 
         contextManager.submitBackgroundTask("Fetching commits for " + contextName, () -> {
             try {
                 var repo = contextManager.getProject().getRepo();
-                List<CommitInfo> commits;
-                if (repo instanceof GitRepo gitRepo) {
-                    // For PRs, we want to exclude merge commits from the target branch
-                    commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch, true);
-                } else {
-                    commits = Collections.emptyList();
+                if (!(repo instanceof GitRepo gitRepo)) {
+                    SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(),
+                                                                           Collections.emptyList(),
+                                                                           contextName));
+                    return Collections.emptyList();
                 }
-                List<CommitInfo> finalCommits = commits;
-                List<GitRepo.ModifiedFile> changedFiles;
-                if (repo instanceof GitRepo gitRepo) {
-                    changedFiles = gitRepo.listFilesChangedBetweenBranches(sourceBranch, targetBranch);
-                } else {
-                    changedFiles = Collections.emptyList();
-                }
-                List<GitRepo.ModifiedFile> finalChangedFiles = changedFiles == null ? List.of() : changedFiles;
 
+                var diff = getBranchDiff(gitRepo, sourceBranch, targetBranch);
 
-                SwingUtilities.invokeLater(() -> {
-                    this.currentCommits = finalCommits;
-                    commitBrowserPanel.setCommits(finalCommits, Set.of(), false, false, contextName);
-                    fileStatusTable.setFiles(finalChangedFiles);
-                    if (this.flowUpdater != null) this.flowUpdater.run();
-                    updateCreatePrButtonState();
-                });
-                return commits;
+                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(diff.commits(),
+                                                                       diff.changedFiles(),
+                                                                       contextName));
+                return diff.commits();
             } catch (Exception e) {
                 logger.error("Error fetching commits or changed files for " + contextName, e);
-                SwingUtilities.invokeLater(() -> {
-                    this.currentCommits = Collections.emptyList();
-                    commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, contextName + " (error)");
-                    fileStatusTable.setFiles(Collections.emptyList());
-                    if (this.flowUpdater != null) this.flowUpdater.run();
-                    updateCreatePrButtonState();
-                });
+                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)"));
                 throw e;
             }
         });
@@ -234,8 +275,45 @@ public class CreatePullRequestDialog extends JDialog {
 
     private void updateCreatePrButtonState() {
         if (createPrButton != null) {
-            createPrButton.setEnabled(!currentCommits.isEmpty());
+            createPrButton.setEnabled(isCreatePrReady());
         }
+    }
+
+    /**
+     * Checks whether the dialog has sufficient information to enable PR creation.
+     */
+    private boolean isCreatePrReady() {
+        var title = titleField.getText();
+        var description = descriptionArea.getText();
+        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+
+        var branchesDifferentAndSelected = sourceBranch != null
+                                           && targetBranch != null
+                                           && !sourceBranch.equals(targetBranch);
+        var prInfoFilled = title != null && !title.trim().isEmpty()
+                           && description != null && !description.trim().isEmpty();
+
+        return !currentCommits.isEmpty() && branchesDifferentAndSelected && prInfoFilled;
+    }
+    
+    private void setupInputListeners() {
+        javax.swing.event.DocumentListener inputChangedListener = new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                updateCreatePrButtonState();
+            }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                updateCreatePrButtonState();
+            }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                updateCreatePrButtonState();
+            }
+        };
+        titleField.getDocument().addDocumentListener(inputChangedListener);
+        descriptionArea.getDocument().addDocumentListener(inputChangedListener);
     }
 
     private JPanel createButtonPanel() {
@@ -285,15 +363,12 @@ public class CreatePullRequestDialog extends JDialog {
             setupBranchListeners();
 
             if (this.flowUpdater != null) this.flowUpdater.run(); // Update label based on defaults
-            refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater
-            updateCreatePrButtonState(); // Set initial button state
+            refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater and update button state
+            // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
         } catch (GitAPIException e) {
             logger.error("Error loading branches for PR dialog", e);
-            this.currentCommits = Collections.emptyList();
-            commitBrowserPanel.setCommits(Collections.emptyList(), Set.of(), false, false, "Error loading branches");
-            if (fileStatusTable != null) fileStatusTable.setFiles(Collections.emptyList());
-            if (this.flowUpdater != null) this.flowUpdater.run();
-            updateCreatePrButtonState(); // Ensure button is disabled on error
+            // Ensure UI is updated consistently on error, using the new helper method
+            SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), "Error loading branches"));
         }
     }
 
@@ -350,5 +425,14 @@ public class CreatePullRequestDialog extends JDialog {
     public static void show(Frame owner, Chrome chrome, ContextManager contextManager) {
         CreatePullRequestDialog dialog = new CreatePullRequestDialog(owner, chrome, contextManager);
         dialog.setVisible(true);
+    }
+
+    private JPanel createTitledPanel(String title, JComponent contentComponent) {
+        var panel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
+        var label = new JLabel(title, SwingConstants.LEFT);
+        label.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(contentComponent, BorderLayout.CENTER);
+        return panel;
     }
 }
