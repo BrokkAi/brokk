@@ -41,7 +41,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void initializeDialog() {
-        setSize(800, 800); 
+        setSize(1000, 900);
         setLocationRelativeTo(getOwner());
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
     }
@@ -59,8 +59,23 @@ public class CreatePullRequestDialog extends JDialog {
 
         fileStatusTable = new FileStatusTable();
 
-        var middleSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitBrowserPanel, fileStatusTable);
-        middleSplit.setResizeWeight(0.6);
+        // --- middle: commit browser and file list ---------------------------------------------
+        // Panel for Commits
+        var commitsPanel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
+        var commitsLabel = new JLabel("Commits in Pull Request", SwingConstants.LEFT);
+        commitsLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
+        commitsPanel.add(commitsLabel, BorderLayout.NORTH);
+        commitsPanel.add(commitBrowserPanel, BorderLayout.CENTER);
+
+        // Panel for Files Changed
+        var filesPanel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
+        var filesLabel = new JLabel("Files Changed", SwingConstants.LEFT);
+        filesLabel.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
+        filesPanel.add(filesLabel, BorderLayout.NORTH);
+        filesPanel.add(fileStatusTable, BorderLayout.CENTER);
+
+        var middleSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsPanel, filesPanel);
+        middleSplit.setResizeWeight(0.5);
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
