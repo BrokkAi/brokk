@@ -62,7 +62,10 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
 
         // Track original contents of files before any changes
-        var originalContents = new HashMap<ProjectFile, String>();
+        var originalContentsOfChangedFiles = new HashMap<ProjectFile, String>();
+
+        // Keep original workspace editable messages at the start of the task
+        var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
 
         // Start verification command inference concurrently
         var verificationCommandFuture = BuildAgent.determineVerificationCommandAsync(contextManager);
@@ -94,7 +97,9 @@ public class CodeAgent {
                                                                            model,
                                                                            parser,
                                                                            taskMessages,
-                                                                           nextRequest);
+                                                                           nextRequest,
+                                                                           originalContentsOfChangedFiles.keySet(),
+                                                                           originalWorkspaceEditableMessages);
                 streamingResult = coder.sendRequest(allMessages, true);
             } catch (InterruptedException e) {
                 logger.debug("CodeAgent interrupted during sendRequest");
@@ -222,7 +227,7 @@ public class CodeAgent {
                 int succeeded = blocks.size() - editResult.failedBlocks().size();
                 io.llmOutput("\n" + succeeded + " SEARCH/REPLACE blocks applied.", ChatMessageType.CUSTOM);
             }
-            editResult.originalContents().forEach(originalContents::putIfAbsent);
+            editResult.originalContents().forEach(originalContentsOfChangedFiles::putIfAbsent);
             int succeededCount = (blocks.size() - editResult.failedBlocks().size());
             blocksAppliedWithoutBuild += succeededCount;
             blocks.clear(); // Clear them out: either successful or moved to editResult.failed
@@ -250,7 +255,7 @@ public class CodeAgent {
                 if (!parseRetryPrompt.isEmpty()) {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {
                         logger.debug("Apply failure limit reached ({}), attempting full file replacement fallback.", applyFailures);
-                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContents, userInput, taskMessages);
+                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContentsOfChangedFiles, userInput, taskMessages);
                         if (stopDetails != null) {
                             // Full replacement also failed or was interrupted
                             io.systemOutput("Code Agent stopping after failing to apply edits to " + stopDetails.explanation());
@@ -304,7 +309,7 @@ public class CodeAgent {
         var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
         return new TaskResult("Code: " + finalActionDescription,
                               new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
-                              originalContents,
+                              originalContentsOfChangedFiles,
                               stopDetails);
     }
 

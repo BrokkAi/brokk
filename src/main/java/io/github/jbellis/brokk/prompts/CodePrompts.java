@@ -16,10 +16,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 
@@ -62,7 +59,9 @@ public abstract class CodePrompts {
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
-                                                       UserMessage request)
+                                                       UserMessage request,
+                                                       Collection<ProjectFile> changedFiles,
+                                                       List<ChatMessage> originalWorkspaceEditableMessages)
     throws InterruptedException
     {
         // TODO revisit cache-friendly message ordering with the next generation of models,
@@ -73,10 +72,11 @@ public abstract class CodePrompts {
 
         messages.add(systemMessage(cm, reminder));
         messages.addAll(cm.getWorkspaceReadOnlyMessages());
+        messages.addAll(originalWorkspaceEditableMessages);
         messages.addAll(parser.exampleMessages());
         messages.addAll(cm.getHistoryMessages());
         messages.addAll(taskMessages);
-        messages.addAll(cm.getWorkspaceEditableMessages());
+        messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
         messages.add(request);
 
         return messages;
@@ -637,5 +637,64 @@ public abstract class CodePrompts {
 
         var summaryUserMessage = new UserMessage(summaryText);
         return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
+    }
+
+    /**
+     * Returns messages containing the original editable workspace content at the start of the task.
+     */
+    public final List<ChatMessage> getOriginalWorkspaceEditableMessages(IContextManager cm) {
+        var originalWorkspaceEditableContent = cm.liveContext().getEditableFragments()
+                .map(ContextFragment::format)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
+
+        if (originalWorkspaceEditableContent.isEmpty()) {
+            return List.of();
+        }
+
+        String editableText = """
+                              <workspace_editable_original>
+                              Here are the EDITABLE files and code fragments in your Workspace.
+                              This is *the only context in the Workspace to which you should make changes*.
+                              This represents the ORIGINAL state before any modifications during this session.
+                              
+                              Note: These files may be modified during the session. If they are changed, you will see 
+                              their CURRENT versions in a separate section later in this conversation.
+                              
+                              %s
+                              </workspace_editable_original>
+                              """.stripIndent().formatted(originalWorkspaceEditableContent);
+
+        var editableUserMessage = new UserMessage(editableText);
+        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable workspace state."));
+    }
+
+    /**
+     * Returns messages containing the current state of files that have been changed during the task.
+     */
+    public final Collection<ChatMessage> getCurrentChangedFilesMessages(IContextManager cm, Collection<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            return List.of();
+        }
+
+        var changedFilesSet = Set.copyOf(changedFiles);
+        var changedFilesText = cm.liveContext().getEditableFragments()
+                .map(fragment -> (ContextFragment.ProjectPathFragment) fragment)
+                .filter(fragment -> changedFilesSet.contains(fragment.file()))
+                .map(ContextFragment::format)
+                .collect(Collectors.joining("\n\n"))
+                .trim();
+
+        String currentStateText = """
+                                 <workspace_editable_changed>
+                                 Here are the CURRENT versions of files that have been CREATED or MODIFIED during this session.
+                                 *Trust these as the true current contents of these files!*
+                                 
+                                 %s
+                                 </workspace_editable_changed>
+                                 """.stripIndent().formatted(changedFilesText);
+
+        var currentStateUserMessage = new UserMessage(currentStateText);
+        return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of modified files."));
     }
 }
