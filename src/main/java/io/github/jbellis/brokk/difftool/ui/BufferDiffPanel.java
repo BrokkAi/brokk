@@ -10,7 +10,7 @@ import io.github.jbellis.brokk.difftool.node.BufferNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
-import io.github.jbellis.brokk.difftool.search.SearchBarDialog;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
@@ -45,8 +45,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private AbstractDelta<String> selectedDelta;
 
     private int selectedLine;
-    private SearchBarDialog leftBar;
-    private SearchBarDialog rightBar;
+    private io.github.jbellis.brokk.gui.search.GenericSearchBar leftSearchBar;
+    private io.github.jbellis.brokk.gui.search.GenericSearchBar rightSearchBar;
     private JCheckBox caseSensitiveCheckBox;
 
     // The left & right "file panels"
@@ -185,7 +185,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         setLayout(new BorderLayout());
 
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, activateBarDialog(), buildFilePanel(columns, rows));
+        // Build file panels first so they exist when creating search bars
+        var filePanelComponent = buildFilePanel(columns, rows);
+        var searchBarComponent = activateBarDialog();
+        
+        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, searchBarComponent, filePanelComponent);
         add(splitPane);
 
         // Create the scroll synchronizer for the left & right panels
@@ -211,12 +215,22 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         caseSensitiveCheckBox = new JCheckBox("Case Sensitive");
         caseSensitiveCheckBox.setFocusable(false);
 
-        leftBar = new SearchBarDialog(mainPanel, this);
-        rightBar = new SearchBarDialog(mainPanel, this);
+        // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
+        // Note: This assumes filePanels are already initialized. We'll need to call this after buildFilePanel.
+        if (filePanels != null && filePanels[LEFT] != null && filePanels[RIGHT] != null) {
+            leftSearchBar = new GenericSearchBar(filePanels[LEFT].createSearchableComponent());
+            rightSearchBar = new GenericSearchBar(filePanels[RIGHT].createSearchableComponent());
+            
+            // Set up reverse synchronization: when GenericSearchBar case-sensitive buttons change, update external checkbox
+            leftSearchBar.addCaseSensitiveListener(isSelected -> caseSensitiveCheckBox.setSelected(isSelected));
+            rightSearchBar.addCaseSensitiveListener(isSelected -> caseSensitiveCheckBox.setSelected(isSelected));
+        }
 
         var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         leftPanel.add(Box.createHorizontalStrut(5));
-        leftPanel.add(leftBar);
+        if (leftSearchBar != null) {
+            leftPanel.add(leftSearchBar);
+        }
 
         var topLinePanelLeft = new JPanel(new FlowLayout(FlowLayout.LEADING));
         topLinePanelLeft.add(caseSensitiveCheckBox);
@@ -231,17 +245,24 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         leftMostPane.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
 
         var rightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        rightPanel.add(rightBar);
+        if (rightSearchBar != null) {
+            rightPanel.add(rightSearchBar);
+        }
         rightPanel.add(Box.createHorizontalStrut(5));
 
         barContainer.add(leftMostPane, BorderLayout.WEST);
         barContainer.add(leftPanel, BorderLayout.CENTER);
         barContainer.add(rightPanel, BorderLayout.EAST);
 
-        // Re-run search whenever user toggles "Case Sensitive"
+        // Synchronize the external case-sensitive checkbox with the GenericSearchBar case-sensitive buttons
         caseSensitiveCheckBox.addActionListener(e -> {
-            if (filePanels[LEFT] != null) filePanels[LEFT].doSearch();
-            if (filePanels[RIGHT] != null) filePanels[RIGHT].doSearch();
+            boolean isSelected = caseSensitiveCheckBox.isSelected();
+            if (leftSearchBar != null) {
+                leftSearchBar.setCaseSensitive(isSelected);
+            }
+            if (rightSearchBar != null) {
+                rightSearchBar.setCaseSensitive(isSelected);
+            }
         });
 
         return barContainer;
@@ -257,8 +278,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var panel = new JPanel(layout);
 
         filePanels = new FilePanel[NUMBER_OF_PANELS];
-        filePanels[LEFT] = new FilePanel(this, BufferDocumentIF.ORIGINAL, leftBar);
-        filePanels[RIGHT] = new FilePanel(this, BufferDocumentIF.REVISED, rightBar);
+        filePanels[LEFT] = new FilePanel(this, BufferDocumentIF.ORIGINAL);
+        filePanels[RIGHT] = new FilePanel(this, BufferDocumentIF.REVISED);
 
         // Left side revision bar
         panel.add(new RevisionBar(this, filePanels[LEFT], true), cc.xy(2, 4));
