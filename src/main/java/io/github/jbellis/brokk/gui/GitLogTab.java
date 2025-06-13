@@ -74,6 +74,7 @@ public class GitLogTab extends JPanel {
     private JMenuItem popStashCommitItem;
     private JMenuItem applyStashCommitItem;
     private JMenuItem dropStashCommitItem;
+    private JMenuItem createBranchFromCommitItem;
 
     /**
      * Constructor. Builds and arranges the UI components for the Log tab.
@@ -380,6 +381,10 @@ public class GitLogTab extends JPanel {
         commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
         commitsContextMenu.add(revertCommitItem);
+
+        createBranchFromCommitItem = new JMenuItem("Create Branch From Commit");
+        commitsContextMenu.add(createBranchFromCommitItem);
+
         commitsContextMenu.add(popStashCommitItem);
         commitsContextMenu.add(applyStashCommitItem);
         commitsContextMenu.add(dropStashCommitItem);
@@ -456,12 +461,15 @@ public class GitLogTab extends JPanel {
                 compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash); // only single non-stash commit
 
                 softResetItem.setVisible(!isStash);
-                softResetItem.setEnabled(selectedRows.length == 1 && !isStash); // Only for single, non-stash selection
-                revertCommitItem.setVisible(!isStash);
-                revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash); // Allow reverting multiple commits? Git revert doesn't directly do ranges. Enable if any non-stash selected.
+                    softResetItem.setEnabled(selectedRows.length == 1 && !isStash); // Only for single, non-stash selection
+                    revertCommitItem.setVisible(!isStash);
+                    revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash);
 
-                // Stash actions only visible if *all* selected commits are stashes
-                boolean allSelectedAreStashes = true;
+                    createBranchFromCommitItem.setVisible(!isStash);
+                    createBranchFromCommitItem.setEnabled(selectedRows.length == 1 && !isStash);
+
+                    // Stash actions only visible if *all* selected commits are stashes
+                    boolean allSelectedAreStashes = true;
                 if (selectedRows.length > 0) {
                      var firstStashIndex = ((ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5)).stashIndex();
                      if (!firstStashIndex.isPresent()) {
@@ -603,6 +611,11 @@ public class GitLogTab extends JPanel {
             
             ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
             GitUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
+        });
+        createBranchFromCommitItem.addActionListener(e -> {
+            int[] selectedRows = commitsTable.getSelectedRows();
+            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5);
+            promptToCreateBranchFromCommit(commitInfo.id(), getShortId(commitInfo.id()));
         });
 
         // The duplicated old mouse listener and action listener code has been removed.
@@ -1959,5 +1972,126 @@ public class GitLogTab extends JPanel {
 
         // If not found in the current view, let the user know
         chrome.systemOutput("Commit " + commitId.substring(0, 7) + " not found in current branch view");
+    }
+
+    private String performBasicBranchNameSanitization(String proposedName) {
+        if (proposedName == null) return "";
+        String sanitized = proposedName.trim().toLowerCase(Locale.ROOT);
+        sanitized = sanitized.replaceAll("\\s+", "-");
+        // Same regex as in GitRepo.sanitizeBranchName for consistency in allowed characters
+        sanitized = sanitized.replaceAll("[^a-z0-9-/_]", "");
+        sanitized = sanitized.replaceAll("^-+|-+$", "");
+        // Unlike GitRepo.sanitizeBranchName, we don't default to "branch" here,
+        // as an empty result from user input means it's invalid.
+        return sanitized;
+    }
+
+    private void promptToCreateBranchFromCommit(String commitId, String shortCommitId) {
+        Window parentWindow = SwingUtilities.getWindowAncestor(this);
+        JDialog dialog = new JDialog(parentWindow instanceof Frame frame ? frame : null,
+                                     "Create Branch from Commit " + shortCommitId, true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setLayout(new BorderLayout(10, 10));
+
+        JPanel formPanel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        formPanel.add(new JLabel("Branch name:"), gbc);
+
+        gbc.gridx = 1; gbc.gridy = 0; gbc.weightx = 1.0;
+        JTextField branchNameField = new JTextField(25);
+        formPanel.add(branchNameField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 2; gbc.weightx = 0;
+        JLabel feedbackLabel = new JLabel(" "); // Placeholder for feedback
+        formPanel.add(feedbackLabel, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.gridwidth = 2;
+        JCheckBox checkoutCheckBox = new JCheckBox("Checkout after creation", true);
+        formPanel.add(checkoutCheckBox, gbc);
+
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton okButton = new JButton("OK");
+        JButton cancelButton = new JButton("Cancel");
+        buttonPanel.add(okButton);
+        buttonPanel.add(cancelButton);
+
+        okButton.setEnabled(false); // Initially disabled until valid input
+
+        branchNameField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { validate(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { validate(); }
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { validate(); }
+
+            void validate() {
+                String currentText = branchNameField.getText();
+                String sanitizedText = performBasicBranchNameSanitization(currentText);
+
+                if (sanitizedText.isEmpty()) {
+                    feedbackLabel.setText("Branch name is invalid (empty or only illegal characters).");
+                    feedbackLabel.setForeground(UIManager.getColor("Label.errorForeground")); // Use theme-aware error color
+                    okButton.setEnabled(false);
+                    return;
+                }
+
+                try {
+                    List<String> localBranches = getRepo().listLocalBranches();
+                    if (localBranches.contains(sanitizedText)) {
+                        String finalNameSuggestion = getRepo().sanitizeBranchName(currentText);
+                        feedbackLabel.setText("'" + sanitizedText + "' exists. Actual name will be: '" + finalNameSuggestion + "'.");
+                        feedbackLabel.setForeground(UIManager.getColor("Label.foreground")); // Neutral color
+                        okButton.setEnabled(true);
+                    } else {
+                        feedbackLabel.setText("Will create: '" + sanitizedText + "'.");
+                        feedbackLabel.setForeground(UIManager.getColor("Label.foreground"));
+                        okButton.setEnabled(true);
+                    }
+                } catch (GitAPIException ex) {
+                    feedbackLabel.setText("Error checking branches: " + ex.getMessage());
+                    feedbackLabel.setForeground(UIManager.getColor("Label.errorForeground"));
+                    okButton.setEnabled(false);
+                }
+            }
+        });
+
+        okButton.addActionListener(e -> {
+            String userInputBranchName = branchNameField.getText();
+            boolean checkoutAfter = checkoutCheckBox.isSelected();
+            dialog.dispose();
+
+            contextManager.submitUserTask("Creating branch", () -> {
+                try {
+                    String finalBranchName = getRepo().sanitizeBranchName(userInputBranchName);
+                    getRepo().createBranchFromCommit(finalBranchName, commitId);
+                    chrome.systemOutput("Successfully created branch '" + finalBranchName + "' from commit " + shortCommitId);
+
+                    if (checkoutAfter) {
+                        getRepo().checkout(finalBranchName);
+                        chrome.systemOutput("Checked out branch '" + finalBranchName + "'.");
+                    }
+                    update(); // Refreshes branch list, commit list, etc.
+                    if (checkoutAfter) {
+                        selectCurrentBranch(); // Highlight the newly checked-out branch
+                    }
+                } catch (GitAPIException gitEx) {
+                    logger.error("Error creating or checking out branch: {}", gitEx.getMessage(), gitEx);
+                    chrome.toolError("Error: " + gitEx.getMessage());
+                }
+            });
+        });
+
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        dialog.add(formPanel, BorderLayout.CENTER);
+        dialog.add(buttonPanel, BorderLayout.SOUTH);
+        dialog.pack();
+        dialog.setLocationRelativeTo(parentWindow); // Center on main window
+        dialog.setVisible(true);
     }
 }
