@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.context.FragmentDtos.*;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -101,7 +102,7 @@ public class DtoMapper {
                                                           Map<String, VirtualFragmentDto> virtualDtos,
                                                           Map<String, TaskFragmentDto> taskDtos,
                                                           IContextManager mgr,
-                                                          Map<String, byte[]> imageBytesMap,
+                                                          @Nullable Map<String, byte[]> imageBytesMap,
                                                           Map<String, ContextFragment> fragmentCacheForRecursion) {
         if (referencedDtos.containsKey(idToResolve)) {
             return _buildReferencedFragment(referencedDtos.get(idToResolve), mgr, imageBytesMap);
@@ -116,7 +117,7 @@ public class DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve + " during resolveAndBuildFragment");
     }
 
-    private static ContextFragment _buildReferencedFragment(ReferencedFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap) {
+    private static @Nullable ContextFragment _buildReferencedFragment(@Nullable ReferencedFragmentDto dto, IContextManager mgr, @Nullable Map<String, byte[]> imageBytesMap) {
         if (dto == null) return null;
 
         return switch (dto) {
@@ -138,7 +139,7 @@ public class DtoMapper {
                     ffd.description(),
                     ffd.shortDescription(),
                     ffd.textContent(),
-                    imageBytesMap.get(ffd.id()),
+                    imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                     ffd.isTextFragment(),
                     ffd.syntaxStyle(),
                     ffd.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
@@ -148,7 +149,7 @@ public class DtoMapper {
         };
     }
 
-    private static ContextFragment.TaskFragment _buildTaskFragment(TaskFragmentDto dto, IContextManager mgr) {
+    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(@Nullable TaskFragmentDto dto, IContextManager mgr) {
         if (dto == null) return null;
 
         var messages = dto.messages().stream()
@@ -157,7 +158,7 @@ public class DtoMapper {
         return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
     }
 
-    private static ContextFragment.VirtualFragment _buildVirtualFragment(VirtualFragmentDto dto, IContextManager mgr, Map<String, byte[]> imageBytesMap,
+    private static @Nullable ContextFragment.VirtualFragment _buildVirtualFragment(@Nullable VirtualFragmentDto dto, IContextManager mgr, @Nullable Map<String, byte[]> imageBytesMap,
                                                                         Map<String, ContextFragment> fragmentCacheForRecursion,
                                                                         Map<String, ReferencedFragmentDto> allReferencedDtos,
                                                                         Map<String, VirtualFragmentDto> allVirtualDtos,
@@ -173,7 +174,7 @@ public class DtoMapper {
                     frozenDto.description(),
                     frozenDto.shortDescription(),
                     frozenDto.textContent(),
-                    imageBytesMap.get(frozenDto.id()),
+                    imageBytesMap != null ? imageBytesMap.get(frozenDto.id()) : null,
                     frozenDto.isTextFragment(),
                     frozenDto.syntaxStyle(),
                     frozenDto.files().stream().map(DtoMapper::fromProjectFileDto).collect(Collectors.toSet()),
@@ -189,7 +190,7 @@ public class DtoMapper {
                         .toList();
                 yield new ContextFragment.SearchFragment(searchDto.id(), mgr, searchDto.query(), messages, sources);
             }
-            case TaskFragmentDto taskDto -> // This case implies a TaskFragmentDto was listed under "virtual"
+            case TaskFragmentDto taskDto ->
                 _buildTaskFragment(taskDto, mgr);
             case StringFragmentDto stringDto ->
                 new ContextFragment.StringFragment(stringDto.id(), mgr, stringDto.text(), stringDto.description(), stringDto.syntaxStyle());
@@ -218,9 +219,6 @@ public class DtoMapper {
                         .toList();
                 yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
-            // If any VirtualFragmentDto subtype was missed, it would fall through.
-            // Ensure all subtypes of VirtualFragmentDto are handled in the switch.
-            // default -> throw new IllegalArgumentException("Unsupported VirtualFragmentDto subtype: " + dto.getClass().getName());
         };
     }
 

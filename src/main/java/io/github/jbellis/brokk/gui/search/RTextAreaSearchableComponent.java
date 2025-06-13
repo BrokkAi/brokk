@@ -5,7 +5,6 @@ import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
 import org.fife.ui.rtextarea.SearchResult;
 
-
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import javax.swing.*;
@@ -59,7 +58,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
 
     @Override
     public void highlightAll(String searchText, boolean caseSensitive) {
-        if (searchText == null || searchText.trim().isEmpty()) {
+        if (searchText.trim().isEmpty()) {
             clearHighlights();
             // Notify callback with 0 matches
             var callback = getSearchCompleteCallback();
@@ -130,7 +129,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
 
     @Override
     public boolean findNext(String searchText, boolean caseSensitive, boolean forward) {
-        if (searchText == null || searchText.trim().isEmpty()) {
+        if (searchText.trim().isEmpty()) {
             return false;
         }
 
@@ -183,13 +182,12 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         return textArea;
     }
 
-    // Helper methods for internal use
     private int countMatches(String searchText, boolean caseSensitive) {
-        if (searchText == null || searchText.trim().isEmpty()) {
+        if (searchText.trim().isEmpty()) {
             return 0;
         }
 
-        var text = getText();
+        String text = getText();
         if (text.isEmpty()) {
             return 0;
         }
@@ -209,16 +207,16 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     }
 
     private int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
-        if (searchText == null || searchText.trim().isEmpty()) {
+        if (searchText.trim().isEmpty()) {
             return 0;
         }
 
-        var text = getText();
+        String text = getText();
         if (text.isEmpty()) {
             return 0;
         }
 
-        var caretPos = getCaretPosition();
+        int caretPos = getCaretPosition();
 
         // Use regex to find all matches and determine current position
         var pattern = Pattern.compile(

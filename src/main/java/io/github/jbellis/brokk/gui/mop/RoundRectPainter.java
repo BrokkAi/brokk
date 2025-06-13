@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.mop;
 
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility class for drawing rounded rectangles with optional fill and stroke.
@@ -22,7 +23,7 @@ final class RoundRectPainter {
      * @param strokeW The stroke width (ignored if stroke is null).
      */
     static void paint(Graphics2D g2, int x, int y, int w, int h,
-                      int radius, Color fill, Color stroke, int strokeW)
+                      int radius, @Nullable Color fill, @Nullable Color stroke, int strokeW)
     {
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         

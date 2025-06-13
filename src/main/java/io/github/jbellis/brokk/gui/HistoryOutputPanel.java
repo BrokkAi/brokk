@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -312,10 +313,8 @@ public class HistoryOutputPanel extends JPanel {
                 if (row >= 0 && row < historyTable.getRowCount()) {
                     // Get the context object from the hidden third column
                     var ctx = (Context) historyModel.getValueAt(row, 2);
-                    if (ctx != null) { // Check for null, though unlikely with current logic
-                        contextManager.setSelectedContext(ctx);
-                        chrome.setContext(ctx);
-                    }
+                    contextManager.setSelectedContext(ctx);
+                    chrome.setContext(ctx);
                 }
             }
         });
@@ -520,9 +519,10 @@ public class HistoryOutputPanel extends JPanel {
      *
      * @param contextToSelect Context to select in the history table
      */
-    public void updateHistoryTable(Context contextToSelect) {
+    public void updateHistoryTable(@Nullable Context contextToSelect) {
         logger.debug("Updating context history table with context {}",
                      contextToSelect != null ? contextToSelect.getAction() : "null");
+        assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
@@ -802,7 +802,7 @@ public class HistoryOutputPanel extends JPanel {
          * @param titleHint A hint for the window title (e.g., task summary or spinner message)
          * @param isDark Whether to use dark theme
          */
-        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, String titleHint, boolean isDark, boolean isBlockingMode) {
+        public OutputWindow(HistoryOutputPanel parentPanel, ContextFragment.TaskFragment output, @Nullable String titleHint, boolean isDark, boolean isBlockingMode) {
             super(determineWindowTitle(titleHint, isBlockingMode)); // Call superclass constructor first
 
                 // Set icon from Chrome.newFrame
@@ -880,7 +880,7 @@ public class HistoryOutputPanel extends JPanel {
             setVisible(true);
         }
 
-        private static String determineWindowTitle(String titleHint, boolean isBlockingMode) {
+        private static String determineWindowTitle(@Nullable String titleHint, boolean isBlockingMode) {
             String windowTitle;
             if (isBlockingMode) {
                 windowTitle = "Output (In progress)";

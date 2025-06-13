@@ -4,6 +4,7 @@ import com.github.difflib.DiffUtils;
 import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.StringDocument;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.tree.TreeNode;
 import java.io.File;
@@ -15,14 +16,14 @@ import java.util.List;
 public class JMDiffNode implements TreeNode
 {
     private String name;
-    private String shortName;
+    @Nullable private String shortName;
     private List<JMDiffNode> children; // Consider final if populated once
-    private BufferNode nodeLeft;
-    private BufferNode nodeRight;
+    @Nullable private BufferNode nodeLeft;
+    @Nullable private BufferNode nodeRight;
     private final boolean leaf;
 
     // We now store the diff result here instead of JMRevision.
-    private Patch<String> patch;
+    @Nullable private Patch<String> patch;
 
     // Placeholder for an empty document, used when a side is missing.
     private static final BufferDocumentIF EMPTY_DOC = new StringDocument("", "<empty>", true);
@@ -39,7 +40,7 @@ public class JMDiffNode implements TreeNode
     // public void setParent(JMDiffNode parent) { this.parent = parent; }
     // public void addChild(JMDiffNode child) { this.children.add(child); child.setParent(this); }
 
-    public void setBufferNodeLeft(BufferNode bufferNode) {
+    public void setBufferNodeLeft(@Nullable BufferNode bufferNode) {
         nodeLeft = bufferNode;
     }
 
@@ -47,7 +48,7 @@ public class JMDiffNode implements TreeNode
         return nodeLeft;
     }
 
-    public void setBufferNodeRight(BufferNode bufferNode) {
+    public void setBufferNodeRight(@Nullable BufferNode bufferNode) {
         nodeRight = bufferNode;
     }
 
@@ -80,6 +81,7 @@ public class JMDiffNode implements TreeNode
     /**
      * Retrieve the computed Patch. May be null if diff() not called or error occurred.
      */
+    @Nullable
     public Patch<String> getPatch() {
         return patch;
     }
@@ -114,9 +116,6 @@ public class JMDiffNode implements TreeNode
 
     @Override
     public int getIndex(TreeNode node) {
-        if (node == null) {
-            throw new IllegalArgumentException("argument is null");
-        }
         if (!(node instanceof JMDiffNode)) {
             return -1; // Or throw an exception, depending on expected usage
         }
@@ -143,7 +142,7 @@ public class JMDiffNode implements TreeNode
 
     @Override
     public String toString() {
-        // Return shortName if available, otherwise the full name.
-        return (shortName != null && !shortName.isEmpty()) ? shortName : name;
+        // Return shortName if available and not empty, otherwise the full name.
+        return !shortName.isEmpty() ? shortName : name;
     }
 }

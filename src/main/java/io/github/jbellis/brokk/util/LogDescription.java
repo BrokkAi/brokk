@@ -23,7 +23,7 @@ public final class LogDescription {
      * and at most {@code maxWords} tokens.
      */
     public static String getShortDescription(String description, int maxWords) {
-        if (description == null || description.isBlank()) {
+        if (description.isBlank()) {
             return "";
         }
 
@@ -68,4 +68,3 @@ public final class LogDescription {
         return getShortDescription(description, 7);
     }
 }
-

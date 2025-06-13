@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.issues;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Marker interface for issue filter options.
  * Specific implementations (records) will define the actual filter fields.
@@ -11,7 +13,7 @@ public interface FilterOptions {
     /**
      * @return The text query for searching issues, or null if no text search is applied.
      */
-    default String query() {
+    default @Nullable String query() {
         return null;
     }
 }

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.tools;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents the result of executing a tool, providing more context than
@@ -45,7 +46,7 @@ public record ToolExecutionResult(
      * @param resultText The textual result for the LLM (can be null, will default to "Success").
      * @return A new ToolExecutionResult instance.
      */
-    public static ToolExecutionResult success(ToolExecutionRequest request, String resultText) {
+    public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
         String finalText = (resultText == null || resultText.isBlank()) ? "Success" : resultText;
         return new ToolExecutionResult(request, Status.SUCCESS, finalText);
     }
@@ -57,7 +58,7 @@ public record ToolExecutionResult(
      * @param errorMessage The error message describing the failure.
      * @return A new ToolExecutionResult instance.
      */
-    public static ToolExecutionResult failure(ToolExecutionRequest request, String errorMessage) {
+    public static ToolExecutionResult failure(ToolExecutionRequest request, @Nullable String errorMessage) {
         String finalError = (errorMessage == null || errorMessage.isBlank()) ? "Unknown error" : errorMessage;
         // Store the error message in the resultText field for simplicity
         return new ToolExecutionResult(request, Status.FAILURE, finalError);

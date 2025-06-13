@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.FragmentUtils;
+import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
 import java.awt.*;
@@ -40,11 +41,16 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
 
     // Captured fragment state for behavior and unfreezing
     private final ContextFragment.FragmentType originalType;
+    @Nullable
     private final String descriptionContent; // Full description
+    @Nullable
     private final String shortDescriptionContent; // Short description
+    @Nullable
     private final String textContent; // Null if image fragment
+    @Nullable
     private final byte[] imageBytesContent; // Null if text fragment
     private final boolean isTextFragment;
+    @Nullable
     private final String syntaxStyle;
     private final Set<ProjectFile> files; // Files associated at time of freezing
 
@@ -58,12 +64,12 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      */
     private FrozenFragment(String contentHashAsId, IContextManager contextManager,
                            ContextFragment.FragmentType originalType,
-                           String description,
-                           String shortDescription,
-                           String textContent,
-                           byte[] imageBytesContent,
+                           @Nullable String description,
+                           @Nullable String shortDescription,
+                           @Nullable String textContent,
+                           @Nullable byte[] imageBytesContent,
                            boolean isTextFragment,
-                           String syntaxStyle,
+                           @Nullable String syntaxStyle,
                            Set<ProjectFile> files,
                            String originalClassName,
                            Map<String, String> meta) {
@@ -192,6 +198,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      *
      * @return The image bytes, or null if this is a text fragment
      */
+    @Nullable
     public byte[] imageBytesContent() {
         return imageBytesContent;
     }
@@ -220,8 +227,8 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      */
     public static FrozenFragment fromDto(String idFromDto, IContextManager contextManager, // id is String
                                          ContextFragment.FragmentType originalType,
-                                         String description, String shortDescription, String textContent, byte[] imageBytesContent,
-                                         boolean isTextFragment, String syntaxStyle,
+                                         @Nullable String description, @Nullable String shortDescription, @Nullable String textContent, @Nullable byte[] imageBytesContent,
+                                         boolean isTextFragment, @Nullable String syntaxStyle,
                                          Set<ProjectFile> files,
                                          String originalClassName, Map<String, String> meta) {
         // idFromDto is the contentHash. Use INTERN_POOL to ensure global uniqueness.
@@ -257,9 +264,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             String shortDescription = liveFragment.shortDescription();
             var isText = liveFragment.isText();
             var syntaxStyle = liveFragment.syntaxStyle();
-            var files = liveFragment.files().stream()
-                .filter(Objects::nonNull)
-                .collect(Collectors.toSet());
+            var files = liveFragment.files().stream().collect(Collectors.toSet());  // Removed unnecessary filter
             var originalClassName = liveFragment.getClass().getName();
 
             String textContent = null;
@@ -433,7 +438,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return PNG bytes, or null if image is null
      * @throws IOException If conversion fails
      */
-    public static byte[] imageToBytes(Image image) throws IOException {
+    public static byte[] imageToBytes(@Nullable Image image) throws IOException {
         if (image == null) {
             return null;
         }
@@ -465,7 +470,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
      * @return The converted image, or null if bytes is null
      * @throws IOException If conversion fails
      */
-    public static Image bytesToImage(byte[] bytes) throws IOException {
+    public static Image bytesToImage(@Nullable byte[] bytes) throws IOException {
         if (bytes == null) {
             return null;
         }

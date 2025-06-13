@@ -14,8 +14,8 @@ public enum IssueProviderType {
     }
 
     public static IssueProviderType fromString(String text) {
-        if (text == null || text.isBlank()) {
-            return NONE; // Default to NONE if not specified or blank
+        if (text.isBlank()) {
+            return NONE; // Default to NONE if blank
         }
         for (IssueProviderType type : IssueProviderType.values()) {
             if (type.name().equalsIgnoreCase(text.trim()) || 

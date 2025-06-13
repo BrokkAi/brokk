@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.context;
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Map;
@@ -66,19 +67,18 @@ public class FragmentDtos {
     /**
      * DTO for ImageFile - contains absolute path and media type.
      */
-    public record ImageFileDto(String id, String absPath, String mediaType) implements PathFragmentDto { // id changed to String
+    public record ImageFileDto(String id, String absPath, @Nullable String mediaType) implements PathFragmentDto { // id changed to String
         public ImageFileDto {
             if (absPath == null || absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
-            // mediaType can be null for unknown types
         }
     }
     
     /**
      * DTO for TaskEntry - represents a task history entry.
      */
-    public record TaskEntryDto(int sequence, TaskFragmentDto log, String summary) {
+    public record TaskEntryDto(int sequence, @Nullable TaskFragmentDto log, @Nullable String summary) {
         public TaskEntryDto {
             // Exactly one of log or summary must be non-null (same constraint as TaskEntry)
             if ((log == null) == (summary == null)) {
@@ -95,7 +95,7 @@ public class FragmentDtos {
      */
     public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String sessionName) implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
-            messages = messages != null ? List.copyOf(messages) : List.of();
+            messages = List.copyOf(messages);
             if (sessionName == null) {
                 throw new IllegalArgumentException("sessionName cannot be null");
             }
@@ -144,8 +144,8 @@ public class FragmentDtos {
             if (explanation == null) {
                 throw new IllegalArgumentException("explanation cannot be null");
             }
-            sources = sources != null ? Set.copyOf(sources) : Set.of();
-            messages = messages != null ? List.copyOf(messages) : List.of();
+            sources = Set.copyOf(sources);
+            messages = List.copyOf(messages);
         }
     }
     
@@ -237,7 +237,7 @@ public class FragmentDtos {
             if (code == null) {
                 throw new IllegalArgumentException("code cannot be null");
             }
-            sources = sources != null ? Set.copyOf(sources) : Set.of();
+            sources = Set.copyOf(sources);
         }
     }
     
@@ -289,17 +289,14 @@ public class FragmentDtos {
             if (description == null) {
                 throw new IllegalArgumentException("description cannot be null");
             }
-            if (shortDescription == null) {
-                shortDescription = description;
-            }
             if (syntaxStyle == null) {
                 throw new IllegalArgumentException("syntaxStyle cannot be null");
             }
             if (originalClassName == null || originalClassName.isEmpty()) {
                 throw new IllegalArgumentException("originalClassName cannot be null or empty");
             }
-            files = files != null ? Set.copyOf(files) : Set.of();
-            meta = meta != null ? Map.copyOf(meta) : Map.of();
+            files = Set.copyOf(files);
+            meta = Map.copyOf(meta);
         }
     }
     
@@ -336,9 +333,9 @@ public class FragmentDtos {
             if (version < 1) {
                 throw new IllegalArgumentException("Version must be 1 or greater");
             }
-            referenced = referenced != null ? Map.copyOf(referenced) : Map.of();
-            virtual = virtual != null ? Map.copyOf(virtual) : Map.of();
-            task = task != null ? Map.copyOf(task) : Map.of();
+            referenced = Map.copyOf(referenced);
+            virtual = Map.copyOf(virtual);
+            task = Map.copyOf(task);
         }
     }
 
@@ -352,14 +349,13 @@ public class FragmentDtos {
             List<String> readonly,      
             List<String> virtuals,      
             List<TaskEntryRefDto> tasks,
-            String parsedOutputId,   
+            @Nullable String parsedOutputId,   
             String action) {
         public CompactContextDto {
-            editable = editable != null ? List.copyOf(editable) : List.of();
-            readonly = readonly != null ? List.copyOf(readonly) : List.of();
-            virtuals = virtuals != null ? List.copyOf(virtuals) : List.of();
-            tasks = tasks != null ? List.copyOf(tasks) : List.of();
-            // parsedOutputId can be null
+            editable = List.copyOf(editable);
+            readonly = List.copyOf(readonly);
+            virtuals = List.copyOf(virtuals);
+            tasks = List.copyOf(tasks);
             if (action == null) {
                 throw new IllegalArgumentException("action cannot be null");
             }
@@ -370,7 +366,7 @@ public class FragmentDtos {
      * Compact DTO for TaskEntry, referring to its log fragment by ID.
      * Used within CompactContextDto.
      */
-    public record TaskEntryRefDto(int sequence, String logId, String summary) { // logId changed to String
+    public record TaskEntryRefDto(int sequence, @Nullable String logId, @Nullable String summary) { // logId changed to String
         public TaskEntryRefDto {
             // logId can be null if summary is present, and vice-versa
             if ((logId == null) == (summary == null)) {

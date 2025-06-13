@@ -1,14 +1,14 @@
-
 package io.github.jbellis.brokk.difftool.node;
 
 import io.github.jbellis.brokk.difftool.doc.FileDocument;
+import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.lang.ref.SoftReference;
 
 public class FileNode implements Comparable<FileNode>, BufferNode {
     private final String name;
     private final File file;
-    private volatile SoftReference<FileDocument> documentRef;
+    private volatile @Nullable SoftReference<FileDocument> documentRef;
     private final Object lock = new Object(); // For synchronizing document creation
 
     public FileNode(String name, File file) {
@@ -45,7 +45,7 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
 
     @Override
     public long getSize() {
-        return (file != null) ? file.length() : 0;
+        return file.length();
     }
 
     @Override
@@ -68,4 +68,3 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
         return name;
     }
 }
-

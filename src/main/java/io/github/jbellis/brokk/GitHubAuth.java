@@ -15,7 +15,7 @@ import org.kohsuke.github.GitHub;
 import org.kohsuke.github.GitHubBuilder;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.List;
@@ -32,12 +32,12 @@ public class GitHubAuth
 
     private final String owner;
     private final String repoName;
-    private final String host; // For GHES endpoint
+    @Nullable private final String host; // For GHES endpoint
 
     private GitHub githubClient;
     private GHRepository ghRepository;
 
-    public GitHubAuth(String owner, String repoName, String host)
+    public GitHubAuth(String owner, String repoName, @Nullable String host)
     {
         this.owner = owner;
         this.repoName = repoName;
@@ -55,10 +55,6 @@ public class GitHubAuth
      * @throws IllegalArgumentException If the project is null.
      */
     public static synchronized GitHubAuth getOrCreateInstance(IProject project) throws IOException {
-        if (project == null) {
-            throw new IllegalArgumentException("Project cannot be null for GitHubAuth.");
-        }
-
         io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
         String effectiveOwner = null;
         String effectiveRepoName = null;

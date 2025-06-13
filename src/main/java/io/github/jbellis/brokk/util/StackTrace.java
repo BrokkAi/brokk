@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.util;
 
 import com.google.common.base.Splitter;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -122,7 +123,7 @@ public class StackTrace {
     private static final String STACK_TRACE_LINE_REGEX = ".*\\s+at\\s+([^(]+)\\((?:([^:]+):([0-9]+)|([^)]+))\\).*$";
     private static final Pattern STACK_TRACE_LINE_PATTERN = Pattern.compile(STACK_TRACE_LINE_REGEX);
     
-    private static String parseExceptionType(String firstLine) {
+    private static @Nullable String parseExceptionType(String firstLine) {
         List<String> parts = Splitter.on(':').splitToList(firstLine);
         if (parts.isEmpty()) {
             return null;
@@ -140,7 +141,7 @@ public class StackTrace {
      * @return a StackTrace containing the first (error) line and a list of {@code StackTraceElements},
      *         or null if no stack trace could be parsed
      */
-    public static StackTrace parse(String stackTraceString) {
+    public static @Nullable StackTrace parse(String stackTraceString) {
         List<String> lines = Splitter.on('\n').splitToList(stackTraceString);
         
         // Find the exception line (which might have a prefix) and the first stack trace line

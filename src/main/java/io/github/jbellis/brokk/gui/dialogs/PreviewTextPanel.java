@@ -47,6 +47,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -64,18 +65,18 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
 
     // Nullable
-    private final ProjectFile file;
+    @Nullable private final ProjectFile file;
     private final String contentBeforeSave;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
-    private Future<Set<CodeUnit>> fileDeclarations;
+    @Nullable private Future<Set<CodeUnit>> fileDeclarations;
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     public PreviewTextPanel(ContextManager contextManager,
-                            ProjectFile file,
+                            @Nullable ProjectFile file,
                             String content,
-                            String syntaxStyle,
+                            @Nullable String syntaxStyle,
                             GuiTheme guiTheme,
-                            ContextFragment fragment)
+                            @Nullable ContextFragment fragment)
     {
         super(new BorderLayout());
         assert contextManager != null;

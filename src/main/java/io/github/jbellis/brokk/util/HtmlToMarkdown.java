@@ -5,7 +5,6 @@ import com.vladsch.flexmark.html2md.converter.HtmlNodeRendererHandler;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataHolder;
 import com.vladsch.flexmark.util.data.MutableDataSet;
-import org.jetbrains.annotations.NotNull;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -43,7 +42,6 @@ public class HtmlToMarkdown {
 
     // Very simple check: if it has <html> or <body> or typical markup tags, assume HTML
     private static boolean looksLikeHtml(String input) {
-        if (input == null) return false;
         String lower = input.toLowerCase(java.util.Locale.ROOT);
         return lower.contains("<html") || lower.contains("<body")
                 || lower.contains("<div") || lower.contains("<p")
@@ -59,12 +57,12 @@ public class HtmlToMarkdown {
         }
 
         @Override
-        public void rendererOptions(@NotNull MutableDataHolder options) {
+        public void rendererOptions(MutableDataHolder options) {
             // no-op
         }
 
         @Override
-        public void extend(@NotNull FlexmarkHtmlConverter.Builder builder) {
+        public void extend(FlexmarkHtmlConverter.Builder builder) {
             builder.htmlNodeRendererFactory(dataHolder -> () -> new HashSet<>(Arrays.asList(
                     // Ignore <a> tag; output only its text
                     new HtmlNodeRendererHandler<>("a", Element.class, (node, context, out) -> {

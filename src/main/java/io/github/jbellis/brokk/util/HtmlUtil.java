@@ -11,9 +11,6 @@ public class HtmlUtil {
      * @return A Markdown representation of the HTML content.
      */
     public static String convertToMarkdown(String htmlContent) {
-        if (htmlContent == null) {
-            return "";
-        }
         // Placeholder implementation
         return "<!-- HTML Content (conversion to Markdown pending) -->\n" + htmlContent;
     }

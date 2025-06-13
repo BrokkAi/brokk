@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -11,6 +10,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -129,7 +129,7 @@ public class ProjectFilesPanel extends JPanel {
                                 return false;
                             }
                         })
-                        .collect(Collectors.toList());
+                        .toList();
 
                     if (matches.size() == 1) {
                         projectTree.selectAndExpandToFile(matches.getFirst());
@@ -174,7 +174,7 @@ public class ProjectFilesPanel extends JPanel {
             }
 
             // Fallback: If toFile didn't find it, check if current text exactly matches a completion's replacement.
-            List<Completion> completions = ((ProjectFileCompletionProvider) ac.getCompletionProvider()).getCompletions(searchField);
+            List<Completion> completions = ac.getCompletionProvider().getCompletions(searchField);
             for (Completion comp : completions) {
                 if (comp instanceof ProjectFileCompletion pfc && pfc.getReplacementText().equals(searchText)) {
                     projectTree.selectAndExpandToFile(pfc.getProjectFile());
@@ -188,7 +188,7 @@ public class ProjectFilesPanel extends JPanel {
         }
     }
 
-    public void showFileInTree(ProjectFile file) {
+    public void showFileInTree(@Nullable ProjectFile file) {
         if (projectTree != null && file != null) {
             projectTree.selectAndExpandToFile(file);
         }

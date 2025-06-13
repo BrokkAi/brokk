@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Base component for chat message panels with common styling and structure.
@@ -87,7 +88,7 @@ public class MessageBubble extends JPanel {
      */
     public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor,
-                         Color messageBgColor, Color chatBgColor)
+                         @Nullable Color messageBgColor, @Nullable Color chatBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, chatBgColor);
@@ -104,7 +105,7 @@ public class MessageBubble extends JPanel {
      * @param messageBgColor   The background color for the message (optional)
      */
     public MessageBubble(String title, Icon iconText, Component contentComponent,
-                         boolean isDarkTheme, Color highlightColor, Color messageBgColor)
+                         boolean isDarkTheme, Color highlightColor, @Nullable Color messageBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, null);
@@ -131,7 +132,7 @@ public class MessageBubble extends JPanel {
      */
     private void initialize(String title, Icon iconText, Component contentComponent,
                             boolean isDarkTheme, Color highlightColor,
-                            Color customMessageBgColor, Color customChatBgColor)
+                            @Nullable Color customMessageBgColor, @Nullable Color customChatBgColor)
     {
         setLayout(new BorderLayout());
         Color chatBgColor = customChatBgColor != null ? 
