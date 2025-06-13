@@ -66,7 +66,22 @@ public class MenuBar {
 
         var recentProjectsMenu = new JMenu("Recent Projects");
         fileMenu.add(recentProjectsMenu);
-        rebuildRecentProjectsMenu(recentProjectsMenu);
+        recentProjectsMenu.addMenuListener(new MenuListener() {
+            @Override
+            public void menuSelected(MenuEvent e) {
+                rebuildRecentProjectsMenu(recentProjectsMenu);
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent e) {
+                // No action needed
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent e) {
+                // No action needed
+            }
+        });
 
         var settingsItem = new JMenuItem("Settings...");
         settingsItem.addActionListener(e -> {
