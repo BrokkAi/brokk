@@ -2,6 +2,7 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -199,6 +200,18 @@ public interface IProject extends AutoCloseable {
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
+
+    default ArchitectAgent.ArchitectOptions getArchitectOptions() {
+        throw new UnsupportedOperationException();
+    }
+
+    default boolean getArchitectRunInWorktree() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        throw new UnsupportedOperationException();
+    }
 
     /**
      * @deprecated Use {@link #getIssuesProvider()} and access {@link io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig#projectKey()} instead.
