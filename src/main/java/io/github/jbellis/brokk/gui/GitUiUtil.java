@@ -50,11 +50,7 @@ public final class GitUiUtil
                     chrome.systemOutput("No uncommitted changes found for selected files");
                     return;
                 }
-                var description = "Diff of %s".formatted(
-                        selectedFiles.stream()
-                                .map(ProjectFile::getFileName)
-                                .collect(Collectors.joining(", "))
-                );
+                var description = "Diff of %s".formatted(formatFileList(selectedFiles));
                 var syntaxStyle = selectedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
                                  SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
@@ -563,7 +559,7 @@ public final class GitUiUtil
         var shortCommitId = commitId.length() > 7 ? commitId.substring(0, 7) : commitId;
 
         var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
-        
+
         contextManager.submitUserTask("Rolling back files to commit " + shortCommitId, () -> {
             try {
                 repo.checkoutFilesFromCommit(commitId, files);
@@ -577,10 +573,28 @@ public final class GitUiUtil
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);
-                SwingUtilities.invokeLater(() -> 
+                SwingUtilities.invokeLater(() ->
                     chrome.toolError("Error rolling back files: " + e.getMessage())
                 );
             }
         });
     }
+
+    /**
+     * Formats a list of files for display in UI messages.
+     * Shows individual filenames for 3 or fewer files, otherwise shows a count.
+     *
+     * @param files List of ProjectFile objects
+     * @return A formatted string like "file1.java, file2.java" or "5 files"
+     */
+    public static String formatFileList(List<ProjectFile> files) {
+        if (files == null || files.isEmpty()) {
+            return "no files";
+        }
+
+        return files.size() <= 3
+               ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
+               : files.size() + " files";
+    }
 }
+

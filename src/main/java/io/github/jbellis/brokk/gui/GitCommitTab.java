@@ -713,6 +713,7 @@ public class GitCommitTab extends JPanel {
                     getRepo().checkoutFilesFromCommit("HEAD", selectedFiles);
 
                     // Create a task result for the activity history
+                    String fileList = GitUiUtil.formatFileList(selectedFiles);
                     var rollbackDescription = "Rollback " + fileList + " to HEAD";
                     var taskResult = new TaskResult(
                         rollbackDescription,
@@ -757,9 +758,7 @@ public class GitCommitTab extends JPanel {
             if (selectedFiles.isEmpty()) {
                 chrome.systemOutput("All changes stashed successfully: " + stashDescription);
             } else {
-                String fileList = selectedFiles.size() <= 3
-                                  ? selectedFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
-                                  : selectedFiles.size() + " files";
+                String fileList = GitUiUtil.formatFileList(selectedFiles);
                 chrome.systemOutput("Stashed " + fileList + ": " + stashDescription);
             }
             commitMessageArea.setText("");
