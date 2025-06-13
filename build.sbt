@@ -112,7 +112,12 @@ javaOptions ++= Seq(
   "-Dbrokk.devmode=true",
   "-Dbrokk.prtab=true",
   "-Dbrokk.issuetab=true"
-)
+) ++ sys.env.get("UI_SCALE").map { scale =>
+  Seq(
+    s"-Dsun.java2d.uiScale=$scale",
+    "-Dsun.java2d.dpiaware=true"
+  )
+}.getOrElse(Seq.empty)
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
 
