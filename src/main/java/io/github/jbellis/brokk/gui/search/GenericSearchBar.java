@@ -23,6 +23,9 @@ public class GenericSearchBar extends JPanel {
     // Performance optimization: debouncing
     private Timer searchTimer;
     private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
+    
+    // Case sensitive listeners
+    private final java.util.List<java.util.function.Consumer<Boolean>> caseSensitiveListeners = new java.util.ArrayList<>();
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -104,6 +107,7 @@ public class GenericSearchBar extends JPanel {
         caseSensitiveButton.addActionListener(e -> {
             updateTooltip();
             updateSearchHighlights();
+            fireCaseSensitiveChanged(caseSensitiveButton.isSelected());
         });
     }
 
@@ -286,5 +290,28 @@ public class GenericSearchBar extends JPanel {
     public void setCaseSensitive(boolean caseSensitive) {
         caseSensitiveButton.setSelected(caseSensitive);
         updateTooltip();
+    }
+
+    /**
+     * Adds a listener that will be notified when the case-sensitive button is toggled.
+     */
+    public void addCaseSensitiveListener(java.util.function.Consumer<Boolean> listener) {
+        caseSensitiveListeners.add(listener);
+    }
+
+    /**
+     * Removes a case-sensitive listener.
+     */
+    public void removeCaseSensitiveListener(java.util.function.Consumer<Boolean> listener) {
+        caseSensitiveListeners.remove(listener);
+    }
+
+    /**
+     * Notifies all case-sensitive listeners of a change.
+     */
+    private void fireCaseSensitiveChanged(boolean isSelected) {
+        for (var listener : caseSensitiveListeners) {
+            listener.accept(isSelected);
+        }
     }
 }

@@ -54,6 +54,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private DocumentListener editorToPlainListener;
     private Timer timer;
     private SearchHits searchHits;
+    @Nullable
     private final SearchBarDialog bar;
     private volatile boolean initialSetupComplete = false;
 
@@ -61,6 +62,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         this.diffPanel = diffPanel;
         this.name = name;
         this.bar = bar;
+        init();
+    }
+
+    /**
+     * Constructor for use with GenericSearchBar (without SearchBarDialog dependency).
+     */
+    public FilePanel(@NotNull BufferDiffPanel diffPanel, String name) {
+        this.diffPanel = diffPanel;
+        this.name = name;
+        this.bar = null; // Will be set later if needed
         init();
     }
 
@@ -79,7 +90,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.setHighlighter(compositeHighlighter);  // layered: syntax first, diff/search second
 
         editor.addFocusListener(getFocusListener());
-        bar.setFilePanel(this);
+        if (bar != null) {
+            bar.setFilePanel(this);
+        }
         // Undo listener will be added in setBufferDocument when editor is active
 
         // Wrap editor inside a scroll pane with optimized scrolling
@@ -119,6 +132,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     public RSyntaxTextArea getEditor() {
         return editor;
+    }
+
+    /**
+     * Creates a SearchableComponent adapter for this FilePanel's editor.
+     * This enables the editor to work with GenericSearchBar.
+     */
+    public io.github.jbellis.brokk.gui.search.SearchableComponent createSearchableComponent() {
+        return io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent.wrap(getEditor());
     }
 
     @Nullable
@@ -610,7 +631,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     SearchCommand getSearchCommand() {
-        return bar.getCommand();
+        if (bar != null) {
+            return bar.getCommand();
+        }
+        // Fallback for GenericSearchBar usage - get case sensitivity from BufferDiffPanel
+        return new SearchCommand("", diffPanel.getCaseSensitiveCheckBox().isSelected());
     }
 
     public SearchHits doSearch() {
