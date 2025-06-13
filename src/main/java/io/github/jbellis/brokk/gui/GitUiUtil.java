@@ -560,30 +560,7 @@ public final class GitUiUtil
             return;
         }
 
-        var fileNames = files.stream()
-                .map(ProjectFile::getFileName)
-                .collect(Collectors.joining(", "));
         var shortCommitId = commitId.length() > 7 ? commitId.substring(0, 7) : commitId;
-
-        // Show confirmation dialog
-        var message = String.format(
-                "This will rollback the following file(s) to their state at commit %s:\n\n%s\n\n" +
-                "Any local changes to these files will be lost. Continue?",
-                shortCommitId, fileNames
-        );
-        
-        int result = JOptionPane.showConfirmDialog(
-                null,
-                message,
-                "Confirm Rollback Files",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE
-        );
-
-        if (result != JOptionPane.YES_OPTION) {
-            chrome.systemOutput("Rollback cancelled");
-            return;
-        }
 
         var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
         
