@@ -5,7 +5,6 @@ import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
-import io.github.jbellis.brokk.difftool.search.SearchBarDialog;
 import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
 import io.github.jbellis.brokk.difftool.utils.Colors;
@@ -54,24 +53,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private DocumentListener editorToPlainListener;
     private Timer timer;
     private SearchHits searchHits;
-    @Nullable
-    private final SearchBarDialog bar;
     private volatile boolean initialSetupComplete = false;
 
-    public FilePanel(@NotNull BufferDiffPanel diffPanel, String name, SearchBarDialog bar) {
-        this.diffPanel = diffPanel;
-        this.name = name;
-        this.bar = bar;
-        init();
-    }
-
-    /**
-     * Constructor for use with GenericSearchBar (without SearchBarDialog dependency).
-     */
     public FilePanel(@NotNull BufferDiffPanel diffPanel, String name) {
         this.diffPanel = diffPanel;
         this.name = name;
-        this.bar = null; // Will be set later if needed
         init();
     }
 
@@ -90,9 +76,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.setHighlighter(compositeHighlighter);  // layered: syntax first, diff/search second
 
         editor.addFocusListener(getFocusListener());
-        if (bar != null) {
-            bar.setFilePanel(this);
-        }
         // Undo listener will be added in setBufferDocument when editor is active
 
         // Wrap editor inside a scroll pane with optimized scrolling
@@ -117,9 +100,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 theme.apply(editor)
         );
 
-//        diffPanel.getCaseSensitiveCheckBox().addActionListener(e -> {
-//            doSearch()
-//        });
     }
 
     public JComponent getVisualComponent() {
@@ -631,11 +611,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     SearchCommand getSearchCommand() {
-        if (bar != null) {
-            return bar.getCommand();
-        }
-        // Fallback for GenericSearchBar usage - get case sensitivity from BufferDiffPanel
-        return new SearchCommand("", diffPanel.getCaseSensitiveCheckBox().isSelected());
+        // Default to case insensitive - GenericSearchBar handles case sensitivity through its own toggle
+        return new SearchCommand("", false);
     }
 
     public SearchHits doSearch() {
