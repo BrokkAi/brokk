@@ -522,6 +522,7 @@ public class HistoryOutputPanel extends JPanel {
     public void updateHistoryTable(@Nullable Context contextToSelect) {
         logger.debug("Updating context history table with context {}",
                      contextToSelect != null ? contextToSelect.getAction() : "null");
+        assert contextToSelect == null || !contextToSelect.containsDynamicFragments();
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);

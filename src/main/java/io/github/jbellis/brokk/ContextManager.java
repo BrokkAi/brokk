@@ -802,7 +802,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory())); // freeze() in pushContext will handle freezing
+                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory()));
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace canceled.");
@@ -817,7 +817,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context and history", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory())); // freeze() in pushContext
+                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory()));
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace and history canceled.");
@@ -1851,7 +1851,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // notifications
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
     }
 
@@ -1970,7 +1970,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 liveContext = Context.unfreeze(topContext());
             }
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
         return CompletableFuture.runAsync(() -> {
             try {
@@ -2057,7 +2057,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(copiedSessionInfo.id());
 
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
         return CompletableFuture.runAsync(() -> {
             try {

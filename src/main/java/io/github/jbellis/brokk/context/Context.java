@@ -617,7 +617,7 @@ public class Context {
     }
 
     /**
-     * Creates a new Context that copies specific elements from the provided context.
+     * Creates a new (live) Context that copies specific elements from the provided context.
      * This creates a reset point by:
      * - Using the files and fragments from the source context
      * - Keeping the history messages from the current context
