@@ -686,56 +686,51 @@ public class GitCommitTab extends JPanel {
             return;
         }
 
-
-        // Add files to context first (this ensures they can be restored)
-        contextManager.editFiles(selectedFiles);
-
-        // Wait a moment for the context to update
-        SwingUtilities.invokeLater(() -> {
-            contextManager.submitUserTask("Rolling back files", () -> {
-                try {
-                    // Capture original file contents for the task history
-                    var originalContents = new HashMap<ProjectFile, String>();
-                    for (var file : selectedFiles) {
-                        try {
-                            originalContents.put(file, file.read());
-                        } catch (IOException e) {
-                            logger.warn("Could not read original content of {}: {}", file, e.getMessage());
-                        }
+        contextManager.submitUserTask("Rolling back files", () -> {
+            try {
+                // Add files to context first (this ensures they can be restored)
+                contextManager.editFiles(selectedFiles);
+                // Capture original file contents for the task history
+                var originalContents = new HashMap<ProjectFile, String>();
+                for (var file : selectedFiles) {
+                    try {
+                        originalContents.put(file, file.read());
+                    } catch (IOException e) {
+                        logger.warn("Could not read original content of {}: {}", file, e.getMessage());
                     }
-
-                    // Take a snapshot of the current state before rollback
-                    var frozen = contextManager.liveContext().freezeAndCleanup();
-                    contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
-
-                    // Perform the actual rollback
-                    logger.debug("Rolling back {} files to HEAD", selectedFiles.size());
-                    getRepo().checkoutFilesFromCommit("HEAD", selectedFiles);
-
-                    // Create a task result for the activity history
-                    String fileList = GitUiUtil.formatFileList(selectedFiles);
-                    var rollbackDescription = "Rollback " + fileList + " to HEAD";
-                    var taskResult = new TaskResult(
-                        rollbackDescription,
-                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                        originalContents,
-                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
-                    );
-                    contextManager.addToHistory(taskResult, false);
-
-                    // Update UI on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
-                        chrome.systemOutput(successMessage);
-                        updateCommitPanel();
-                        gitPanel.updateLogTab();
-                    });
-
-                } catch (Exception ex) {
-                    logger.error("Error rolling back files:", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Error rolling back files: " + ex.getMessage()));
                 }
-            });
+
+                // Take a snapshot of the current state before rollback
+                var frozen = contextManager.liveContext().freezeAndCleanup();
+                contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+
+                // Perform the actual rollback
+                logger.debug("Rolling back {} files to HEAD", selectedFiles.size());
+                getRepo().checkoutFilesFromCommit("HEAD", selectedFiles);
+
+                // Create a task result for the activity history
+                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                var rollbackDescription = "Rollback " + fileList + " to HEAD";
+                var taskResult = new TaskResult(
+                    rollbackDescription,
+                    new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                    originalContents,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
+                );
+                contextManager.addToHistory(taskResult, false);
+
+                // Update UI on EDT
+                SwingUtilities.invokeLater(() -> {
+                    String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
+                    chrome.systemOutput(successMessage);
+                    updateCommitPanel();
+                    gitPanel.updateLogTab();
+                });
+
+            } catch (Exception ex) {
+                logger.error("Error rolling back files:", ex);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error rolling back files: " + ex.getMessage()));
+            }
         });
     }
 
