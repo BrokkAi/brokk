@@ -205,7 +205,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      */
     public JPanel activateBarDialog()
     {
-        var barContainer = new JPanel(new BorderLayout());
+        // Use the same FormLayout structure as the file panels to align search bars with text areas
+        var columns = "3px, pref, 3px, left:pref, 5px, min, 60px, left:pref, fill:0:grow";
+        var rows = "6px, pref";
+        
+        var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
+        var cc = new com.jgoodies.forms.layout.CellConstraints();
+        var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
         if (filePanels != null && filePanels[LEFT] != null && filePanels[RIGHT] != null) {
@@ -213,20 +219,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             rightSearchBar = new GenericSearchBar(filePanels[RIGHT].createSearchableComponent());
         }
 
-        var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        leftPanel.add(Box.createHorizontalStrut(5));
+        // Add search bars aligned with the text areas below
         if (leftSearchBar != null) {
-            leftPanel.add(leftSearchBar);
+            barContainer.add(leftSearchBar, cc.xy(4, 2)); // Column 4 aligns with left text area, row 2 for spacing
         }
-
-        var rightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        
         if (rightSearchBar != null) {
-            rightPanel.add(rightSearchBar);
+            barContainer.add(rightSearchBar, cc.xy(8, 2)); // Column 8 aligns with right text area, row 2 for spacing
         }
-        rightPanel.add(Box.createHorizontalStrut(5));
-
-        barContainer.add(leftPanel, BorderLayout.CENTER);
-        barContainer.add(rightPanel, BorderLayout.EAST);
 
         return barContainer;
     }
