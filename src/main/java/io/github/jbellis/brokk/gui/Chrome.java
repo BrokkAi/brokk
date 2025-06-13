@@ -1443,6 +1443,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        //noinspection MagicConstant
         return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
     }
 
@@ -1452,14 +1453,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         updateContextHistoryTable();
     }
 
-    public void showMessageDialog(String message, String title, int messageType) {
-        JOptionPane.showMessageDialog(frame, message, title, messageType);
-    }
-
     @Override
     public void systemNotify(String message, String title, int messageType) {
         SwingUtilities.invokeLater(() -> {
-            systemNotify(message, title, messageType);
+            //noinspection MagicConstant
+            JOptionPane.showMessageDialog(frame, message, title, messageType);
         });
     }
 
