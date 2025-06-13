@@ -30,6 +30,15 @@ public final class GitUiUtil
     private GitUiUtil() {}
 
     /**
+     * Shortens a commit ID to 7 characters for display purposes.
+     * @param commitId The full commit ID, may be null
+     * @return The shortened commit ID, or the original if null or shorter than 7 characters
+     */
+    public static String shortenCommitId(String commitId) {
+        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+    }
+
+    /**
      * Capture uncommitted diffs for the specified files, adding the result to the context.
      */
     public static void captureUncommittedDiff
@@ -107,7 +116,7 @@ public final class GitUiUtil
                     chrome.systemOutput("No changes found for " + file.getFileName());
                     return;
                 }
-                var shortHash = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
+                var shortHash = shortenCommitId(commitId);
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
@@ -129,7 +138,7 @@ public final class GitUiUtil
     {
         var repo = cm.getProject().getRepo();
 
-        var shortCommitId = (commitId.length() > 7) ? commitId.substring(0, 7) : commitId;
+        var shortCommitId = shortenCommitId(commitId);
         var dialogTitle = "Diff: " + file.getFileName() + " (" + shortCommitId + ")";
         var parentCommitId = commitId + "^";
 
@@ -227,8 +236,8 @@ public final class GitUiUtil
                         .collect(Collectors.toList());
                 var filesTxt  = String.join(", ", fileNames);
 
-                var firstShort = firstCommitId.substring(0, 7);
-                var lastShort  = lastCommitId.substring(0, 7);
+                var firstShort = shortenCommitId(firstCommitId);
+                var lastShort  = shortenCommitId(lastCommitId);
                 var hashTxt    = firstCommitId.equals(lastCommitId)
                         ? firstShort
                         : firstShort + ".." + lastShort;
@@ -279,8 +288,8 @@ public final class GitUiUtil
                     chrome.systemOutput("No changes found for the selected files in the commit range");
                     return;
                 }
-                var firstShort = firstCommitId.substring(0, 7);
-                var lastShort = lastCommitId.substring(0, 7);
+                var firstShort = shortenCommitId(firstCommitId);
+                var lastShort = shortenCommitId(lastCommitId);
                 var shortHash = firstCommitId.equals(lastCommitId)
                                 ? firstShort
                                 : "%s..%s".formatted(firstShort, lastShort);
@@ -319,14 +328,14 @@ public final class GitUiUtil
                 // 2) Figure out the base commit ID and title components
                 String baseCommitId = commitId;
                 String baseCommitTitle = commitId;
-                String baseCommitShort = (commitId.length() >= 7) ? commitId.substring(0, 7) : commitId;
+                String baseCommitShort = shortenCommitId(commitId);
 
                 if (useParent) {
                     var parentObjectId = repo.resolve(commitId + "^");
                     if (parentObjectId != null) {
                         baseCommitId = commitId + "^";
                         baseCommitTitle = commitId + "^";
-                        baseCommitShort = ((commitId.length() >= 7) ? commitId.substring(0, 7) : commitId) + "^";
+                        baseCommitShort = shortenCommitId(commitId) + "^";
                     } else {
                         baseCommitId = null; // Indicates no parent, so old content will be empty
                         baseCommitTitle = "[No Parent]";
@@ -440,7 +449,7 @@ public final class GitUiUtil
     ) {
         var repo = cm.getProject().getRepo();
 
-        cm.submitUserTask("Opening diff for commit " + commitInfo.id().substring(0, 7), () -> {
+        cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
                 if (files == null || files.isEmpty()) {
@@ -463,7 +472,7 @@ public final class GitUiUtil
 
                 var title = "Commit Diff: %s (%s)".formatted(
                         commitInfo.message().lines().findFirst().orElse(""),
-                        commitInfo.id().substring(0, 7)
+                        shortenCommitId(commitInfo.id())
                 );
                 SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
             } catch (Exception ex) {
@@ -491,7 +500,7 @@ public final class GitUiUtil
 
                 var builder = new BrokkDiffPanel.Builder(chrome.themeManager, contextManager);
                 var repo = contextManager.getProject().getRepo();
-                var shortId = commitInfo.id().substring(0, 7);
+                var shortId = shortenCommitId(commitInfo.id());
 
                 for (var file : changedFiles) {
                     String commitContent = getFileContentOrEmpty(repo, commitInfo.id(), file);
@@ -557,7 +566,7 @@ public final class GitUiUtil
             return;
         }
 
-        var shortCommitId = commitId.length() > 7 ? commitId.substring(0, 7) : commitId;
+        var shortCommitId = shortenCommitId(commitId);
 
         var repo = (io.github.jbellis.brokk.git.GitRepo) contextManager.getProject().getRepo();
 

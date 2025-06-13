@@ -315,7 +315,7 @@ public class GitLogTab extends JPanel {
 
                 var labelParts = new ArrayList<String>();
                 if (selectedRows.length == 1) {
-                    labelParts.add(getShortId(allSelectedCommitsFlat.getFirst().id()));
+                    labelParts.add(GitUiUtil.shortenCommitId(allSelectedCommitsFlat.getFirst().id()));
                 } else { // selectedRows.length > 1
                     var contiguousRowIndexGroups = new ArrayList<List<Integer>>();
                     var currentGroup = new ArrayList<Integer>();
@@ -334,13 +334,13 @@ public class GitLogTab extends JPanel {
 
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
                         ICommitInfo firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), 5);
-                        String firstShortId = getShortId(firstCommitInGroup.id());
+                        String firstShortId = GitUiUtil.shortenCommitId(firstCommitInGroup.id());
 
                         if (rowIndexGroup.size() == 1) {
                             labelParts.add(firstShortId);
                         } else {
                             ICommitInfo lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), 5);
-                            String lastShortId = getShortId(lastCommitInGroup.id());
+                            String lastShortId = GitUiUtil.shortenCommitId(lastCommitInGroup.id());
                             labelParts.add(String.format("%s..%s", firstShortId, lastShortId));
                         }
                     }
@@ -1379,8 +1379,8 @@ public class GitLogTab extends JPanel {
             try {
                 getRepo().softReset(commitId);
                 SwingUtilities.invokeLater(() -> {
-                    String oldHeadShort = oldHeadId.length() >= 7 ? oldHeadId.substring(0, 7) : oldHeadId;
-                    String newHeadShort = commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+                    String oldHeadShort = GitUiUtil.shortenCommitId(oldHeadId);
+                    String newHeadShort = GitUiUtil.shortenCommitId(commitId);
                     chrome.systemOutput("Soft reset from " + oldHeadShort + " to " + newHeadShort + ": " + commitMessage);
 
                     // Refresh uncommitted files or anything else if needed
@@ -1750,9 +1750,6 @@ public class GitLogTab extends JPanel {
     // Helper methods
     // ==================================================================
 
-    private String getShortId(String commitId) {
-        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
-    }
 
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
@@ -1981,6 +1978,6 @@ public class GitLogTab extends JPanel {
         }
 
         // If not found in the current view, let the user know
-        chrome.systemOutput("Commit " + commitId.substring(0, 7) + " not found in current branch view");
+        chrome.systemOutput("Commit " + GitUiUtil.shortenCommitId(commitId) + " not found in current branch view");
     }
 }

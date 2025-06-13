@@ -328,7 +328,7 @@ public class GitCommitTab extends JPanel {
                     }
                     SwingUtilities.invokeLater(() -> {
                         try {
-                            String shortHash = getRepo().getCurrentCommitId().substring(0, 7);
+                            String shortHash = GitUiUtil.shortenCommitId(getRepo().getCurrentCommitId());
                             String firstLine = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
                             chrome.systemOutput("Committed " + shortHash + ": " + firstLine);
                         } catch (Exception ex) {
