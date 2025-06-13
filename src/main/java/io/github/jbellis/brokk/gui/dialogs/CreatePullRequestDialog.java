@@ -22,6 +22,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class CreatePullRequestDialog extends JDialog {
@@ -42,6 +49,22 @@ public class CreatePullRequestDialog extends JDialog {
     private List<CommitInfo> currentCommits = Collections.emptyList();
     private String mergeBaseCommit = null;
 
+    private PrDescriptionWorker currentDescriptionWorker;
+    private ContextManager.SummarizeWorker currentTitleWorker;
+
+    private final ScheduledExecutorService debounceExec = Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
+        private final AtomicInteger threadNumber = new AtomicInteger(1);
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = Executors.defaultThreadFactory().newThread(r);
+            t.setDaemon(true);
+            t.setName("pr-description-debouncer-" + threadNumber.getAndIncrement());
+            return t;
+        }
+    });
+    private ScheduledFuture<?> pendingDebounceTask;
+    private static final long DEBOUNCE_MS = 400;
+
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         super(owner, "Create a Pull Request", true);
         this.chrome = chrome;
@@ -52,9 +75,21 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void initializeDialog() {
-        setSize(1000, 900);
+        setSize(1000, 1000);
         setLocationRelativeTo(getOwner());
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DISPOSE_ON_CLOSE); // Use WindowConstants
+    }
+
+    @Override
+    public void dispose() {
+        if (currentDescriptionWorker != null) {
+            currentDescriptionWorker.cancel(true);
+        }
+        if (currentTitleWorker != null) {
+            currentTitleWorker.cancel(true);
+        }
+        debounceExec.shutdownNow();
+        super.dispose();
     }
 
     private void buildLayout() {
@@ -158,7 +193,7 @@ public class CreatePullRequestDialog extends JDialog {
         gbc.weightx = 1.0;
         gbc.weighty = 1.0; // Allow description to take vertical space
         gbc.fill = GridBagConstraints.BOTH;
-        descriptionArea = new JTextArea(5, 20); // Initial rows and columns
+        descriptionArea = new JTextArea(10, 20); // Initial rows and columns
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
         
@@ -303,14 +338,20 @@ public class CreatePullRequestDialog extends JDialog {
                 this.mergeBaseCommit = gitRepo.getMergeBase(sourceBranch, targetBranch);
                 logger.debug("Calculated merge base between {} and {}: {}", sourceBranch, targetBranch, this.mergeBaseCommit);
 
-                var diff = getBranchDiff(gitRepo, sourceBranch, targetBranch);
+                var branchDiffData = getBranchDiff(gitRepo, sourceBranch, targetBranch);
 
-                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(diff.commits(),
-                                                                       diff.changedFiles(),
+                // Auto-generate title and description
+                // This diff is for the LLM, not for display directly
+                var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
+                debounceGenerate(diffText);
+
+
+                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiffData.commits(),
+                                                                       branchDiffData.changedFiles(),
                                                                        contextName));
-                return diff.commits();
+                return branchDiffData.commits();
             } catch (Exception e) {
-                logger.error("Error fetching commits or changed files (and merge base) for " + contextName, e);
+                logger.error("Error fetching commits, changed files, merge base, or full diff for " + contextName, e);
                 SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)"));
                 throw e;
             }
@@ -577,5 +618,122 @@ public class CreatePullRequestDialog extends JDialog {
             buildAndShowDiffPanel(orderedFiles, currentMergeBase, currentSourceBranch);
             return null;
         });
+    }
+
+    // --- PR Description and Title Generation ---
+
+    private class PrDescriptionWorker extends SwingWorker<String, Void> {
+        private final ContextManager cm;
+        private final String diff;
+
+        PrDescriptionWorker(ContextManager cm, String diff) {
+            this.cm = cm;
+            this.diff = diff;
+        }
+
+        @Override
+        protected String doInBackground() throws InterruptedException {
+            if (isCancelled()) {
+                return ""; // Early exit if cancelled before starting work
+            }
+            var msgs = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            var llm = cm.getLlm(cm.getService().quickestModel(), "PR-description");
+            var result = llm.sendRequest(msgs);
+
+            if (isCancelled()) { // Check again after potentially long LLM call
+                return "";
+            }
+
+            if (result.error() != null || result.chatResponse() == null) {
+                logger.warn("PR description generation failed: {}", result.error());
+                return "(generation failed)";
+            }
+            return result.chatResponse().aiMessage().text().trim();
+        }
+
+        @Override
+        protected void done() {
+            if (isCancelled()) return;
+            var desc = "(generation failed)";
+            try {
+                desc = get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt(); // Restore interrupt status
+                logger.warn("PR description worker interrupted", e);
+                desc = ""; // Treat as cancellation essentially
+            } catch (Exception e) {
+                logger.warn("PR description worker failed to get result", e);
+            }
+
+            var finalDesc = desc;
+            SwingUtilities.invokeLater(() -> {
+                descriptionArea.setText(finalDesc);
+                // Now that description is set, launch title generation
+                if (!"".equals(finalDesc) && !"(generation failed)".equals(finalDesc)) {
+                    spawnTitleWorker(finalDesc);
+                } else {
+                    // If description failed or was cancelled, reflect that in title field too or clear it.
+                    titleField.setText("".equals(finalDesc) ? "" : "(title generation failed)");
+                }
+            });
+        }
+    }
+
+    private void debounceGenerate(String diffTxt) {
+        if (pendingDebounceTask != null) {
+            pendingDebounceTask.cancel(false); 
+        }
+        pendingDebounceTask = debounceExec.schedule(
+                () -> spawnDescriptionWorker(diffTxt), // Will run on executor thread
+                DEBOUNCE_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void spawnDescriptionWorker(String diffTxt) {
+        // Cancel previous background LLM calls
+        if (currentDescriptionWorker != null) {
+            currentDescriptionWorker.cancel(true);
+        }
+        if (currentTitleWorker != null) {
+            currentTitleWorker.cancel(true);
+        }
+
+        // Optimistic placeholders while work runs
+        SwingUtilities.invokeLater(() -> {
+            descriptionArea.setText("Generating description ...");
+            titleField.setText("Generating title ...");
+        });
+
+        currentDescriptionWorker = new PrDescriptionWorker(contextManager, diffTxt);
+        currentDescriptionWorker.execute();
+    }
+
+    private void spawnTitleWorker(String description) {
+        if (currentTitleWorker != null) {
+            currentTitleWorker.cancel(true);
+        }
+
+        // Use the existing SummarizeWorker from ContextManager
+        currentTitleWorker = new ContextManager.SummarizeWorker(
+                contextManager,
+                description,
+                SummarizerPrompts.WORD_BUDGET_12) {
+            @Override
+            protected void done() {
+                if (isCancelled()) return;
+                var ttl = "(title generation failed)";
+                try {
+                    ttl = get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    logger.warn("Title summarization worker interrupted", e);
+                    ttl = ""; // Treat as cancellation
+                } catch (Exception e) {
+                    logger.warn("Title summarization worker failed to get result", e);
+                }
+                var finalTtl = ttl;
+                SwingUtilities.invokeLater(() -> titleField.setText(finalTtl));
+            }
+        };
+        currentTitleWorker.execute();
     }
 }
