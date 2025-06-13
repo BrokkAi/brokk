@@ -182,13 +182,11 @@ public class SearchBarPanel extends JPanel {
     public void findNext() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToNextResult();
-        updateNavigationResults();
     }
     
     public void findPrevious() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToPreviousResult();
-        updateNavigationResults();
     }
     
     public void clearSearch() {
@@ -277,14 +275,6 @@ public class SearchBarPanel extends JPanel {
     
     private ActionListener getNextAction() {
         return ae -> findNext();
-    }
-    
-    private void updateNavigationResults() {
-        // For callbacks that support getCurrentResults, update the display
-        if (searchCallback instanceof MarkdownPanelSearchCallback markdownCallback) {
-            SearchResults results = markdownCallback.getCurrentResults();
-            updateSearchResults(results);
-        }
     }
     
     /**

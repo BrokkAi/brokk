@@ -19,8 +19,10 @@ public class GenericSearchBar extends JPanel {
     private final JButton previousButton;
     private final JLabel matchCountLabel;
     private final SearchableComponent targetComponent;
-    private int currentMatchIndex = 0;
-    private int totalMatches = 0;
+
+    // Performance optimization: debouncing
+    private Timer searchTimer;
+    private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -54,24 +56,42 @@ public class GenericSearchBar extends JPanel {
 
         // Initialize tooltip
         updateTooltip();
+
+        // Setup async search callback
+        targetComponent.setSearchCompleteCallback(this::onSearchComplete);
     }
 
     private void setupEventHandlers() {
-        // Real-time search as user types
+        // Initialize debouncing timer
+        searchTimer = new Timer(SEARCH_DELAY_MS, e -> updateSearchHighlights());
+        searchTimer.setRepeats(false);
+
+        // Real-time search as user types with debouncing
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
+                scheduleSearch();
+            }
+
+            private void scheduleSearch() {
+                // Restart the timer for each keystroke (debouncing)
+                searchTimer.restart();
+
+                // Provide immediate feedback for empty search
+                String query = searchField.getText();
+                if (query == null || query.trim().isEmpty()) {
+                    updateMatchCount(0, 0);
+                }
             }
         });
 
@@ -83,7 +103,7 @@ public class GenericSearchBar extends JPanel {
         previousButton.addActionListener(e -> findPrevious());
         caseSensitiveButton.addActionListener(e -> {
             updateTooltip();
-            updateSearchHighlights(false);
+            updateSearchHighlights();
         });
     }
 
@@ -160,7 +180,7 @@ public class GenericSearchBar extends JPanel {
         String query = searchField.getText();
         if (query != null && !query.trim().isEmpty()) {
             int originalCaretPosition = targetComponent.getCaretPosition();
-            updateSearchHighlights(false);
+            updateSearchHighlights();
             targetComponent.setCaretPosition(originalCaretPosition);
         }
     }
@@ -175,9 +195,8 @@ public class GenericSearchBar extends JPanel {
     /**
      * Updates search highlights in the target component.
      *
-     * @param jumpToFirst If true, jump to the first occurrence; if false, maintain current position
      */
-    private void updateSearchHighlights(boolean jumpToFirst) {
+    private void updateSearchHighlights() {
         String query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
@@ -185,34 +204,21 @@ public class GenericSearchBar extends JPanel {
             return;
         }
 
-        // Highlight all occurrences
+        // Highlight all occurrences (this will trigger async callback)
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
 
-        // Count total matches
-        totalMatches = targetComponent.countMatches(query, caseSensitiveButton.isSelected());
+        // For async components, the scrolling to first match will happen in the callback
+        // when the search completes (see onSearchComplete and MarkdownOutputPanelSearchableComponent.handleSearchComplete)
+    }
 
-        if (jumpToFirst) {
-            // Jump to the first occurrence as the user types
-            int originalCaretPosition = targetComponent.getCaretPosition();
-            targetComponent.setCaretPosition(0); // Start search from beginning
-            boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), true);
-            if (!found && originalCaretPosition > 0) {
-                // If not found from beginning, restore caret position
-                targetComponent.setCaretPosition(originalCaretPosition);
-                currentMatchIndex = 0;
-            } else if (found) {
-                // Center the match in the viewport
-                targetComponent.centerCaretInView();
-                currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
-            } else {
-                currentMatchIndex = 0;
-            }
-        } else {
-            // Update current match index without jumping
-            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
-        }
-
-        updateMatchCount(currentMatchIndex, totalMatches);
+    /**
+     * Callback method for async search completion.
+     * This will be called by async SearchableComponent implementations when search is complete.
+     */
+    private void onSearchComplete(int totalMatches, int currentMatchIndex) {
+        SwingUtilities.invokeLater(() -> {
+            updateMatchCount(currentMatchIndex, totalMatches);
+        });
     }
 
     private void findNext() {
@@ -237,8 +243,7 @@ public class GenericSearchBar extends JPanel {
         boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
         if (found) {
             targetComponent.centerCaretInView();
-            currentMatchIndex = targetComponent.getCurrentMatchIndex(query, caseSensitiveButton.isSelected());
-            updateMatchCount(currentMatchIndex, totalMatches);
+            // The callback will handle updating the match count
         }
     }
 
