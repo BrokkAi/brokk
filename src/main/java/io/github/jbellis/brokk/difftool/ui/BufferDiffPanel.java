@@ -47,7 +47,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private int selectedLine;
     private io.github.jbellis.brokk.gui.search.GenericSearchBar leftSearchBar;
     private io.github.jbellis.brokk.gui.search.GenericSearchBar rightSearchBar;
-    private JCheckBox caseSensitiveCheckBox;
 
     // The left & right "file panels"
     private FilePanel[] filePanels;
@@ -200,30 +199,18 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         applyTheme(guiTheme);
     }
 
-    public JCheckBox getCaseSensitiveCheckBox()
-    {
-        return caseSensitiveCheckBox;
-    }
 
     /**
-     * Build the top row that holds search bars plus a "Case Sensitive" checkbox.
+     * Build the top row that holds search bars.
      */
     public JPanel activateBarDialog()
     {
         var barContainer = new JPanel(new BorderLayout());
 
-        caseSensitiveCheckBox = new JCheckBox("Case Sensitive");
-        caseSensitiveCheckBox.setFocusable(false);
-
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
-        // Note: This assumes filePanels are already initialized. We'll need to call this after buildFilePanel.
         if (filePanels != null && filePanels[LEFT] != null && filePanels[RIGHT] != null) {
             leftSearchBar = new GenericSearchBar(filePanels[LEFT].createSearchableComponent());
             rightSearchBar = new GenericSearchBar(filePanels[RIGHT].createSearchableComponent());
-            
-            // Set up reverse synchronization: when GenericSearchBar case-sensitive buttons change, update external checkbox
-            leftSearchBar.addCaseSensitiveListener(isSelected -> caseSensitiveCheckBox.setSelected(isSelected));
-            rightSearchBar.addCaseSensitiveListener(isSelected -> caseSensitiveCheckBox.setSelected(isSelected));
         }
 
         var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -232,38 +219,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             leftPanel.add(leftSearchBar);
         }
 
-        var topLinePanelLeft = new JPanel(new FlowLayout(FlowLayout.LEADING));
-        topLinePanelLeft.add(caseSensitiveCheckBox);
-
-        var topLinePanelDown = new JPanel(new FlowLayout(FlowLayout.CENTER));
-        topLinePanelDown.add(new JLabel(""));
-
-        var leftMostPane = new JPanel();
-        leftMostPane.setLayout(new BoxLayout(leftMostPane, BoxLayout.Y_AXIS));
-        leftMostPane.add(topLinePanelLeft);
-        leftMostPane.add(topLinePanelDown);
-        leftMostPane.setBorder(BorderFactory.createEmptyBorder(6, 0, 0, 0));
-
         var rightPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         if (rightSearchBar != null) {
             rightPanel.add(rightSearchBar);
         }
         rightPanel.add(Box.createHorizontalStrut(5));
 
-        barContainer.add(leftMostPane, BorderLayout.WEST);
         barContainer.add(leftPanel, BorderLayout.CENTER);
         barContainer.add(rightPanel, BorderLayout.EAST);
-
-        // Synchronize the external case-sensitive checkbox with the GenericSearchBar case-sensitive buttons
-        caseSensitiveCheckBox.addActionListener(e -> {
-            boolean isSelected = caseSensitiveCheckBox.isSelected();
-            if (leftSearchBar != null) {
-                leftSearchBar.setCaseSensitive(isSelected);
-            }
-            if (rightSearchBar != null) {
-                rightSearchBar.setCaseSensitive(isSelected);
-            }
-        });
 
         return barContainer;
     }
