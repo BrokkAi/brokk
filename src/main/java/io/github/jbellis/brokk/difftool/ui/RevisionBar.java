@@ -188,13 +188,13 @@ public class RevisionBar extends JComponent
                 if (original) {
                     // If this is the original side, we consider the left panel
                     diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.LEFT),
+                            diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT),
                             line
                     );
                 } else {
                     // Otherwise, scroll the right panel
                     diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.RIGHT),
+                            diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT),
                             line
                     );
                 }

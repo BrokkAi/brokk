@@ -1,11 +1,16 @@
 package io.github.jbellis.brokk.gui.search;
 
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.function.Consumer;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
  * A completely generic search bar component that works with any component
@@ -23,6 +28,9 @@ public class GenericSearchBar extends JPanel {
     // Performance optimization: debouncing
     private Timer searchTimer;
     private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
+
+    // Case sensitive listeners
+    private final List<Consumer<Boolean>> caseSensitiveListeners = new ArrayList<>();
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -88,7 +96,7 @@ public class GenericSearchBar extends JPanel {
                 searchTimer.restart();
 
                 // Provide immediate feedback for empty search
-                String query = searchField.getText();
+                var query = searchField.getText();
                 if (query == null || query.trim().isEmpty()) {
                     updateMatchCount(0, 0);
                 }
@@ -104,30 +112,13 @@ public class GenericSearchBar extends JPanel {
         caseSensitiveButton.addActionListener(e -> {
             updateTooltip();
             updateSearchHighlights();
+            fireCaseSensitiveChanged(caseSensitiveButton.isSelected());
         });
     }
 
     private void setupKeyboardShortcuts() {
-        var inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
-        var actionMap = searchField.getActionMap();
-
-        // Down arrow for next match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findNext");
-        actionMap.put("findNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext();
-            }
-        });
-
-        // Up arrow for previous match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "findPrevious");
-        actionMap.put("findPrevious", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findPrevious();
-            }
-        });
+        // Down/Up arrow navigation shortcuts
+        KeyboardShortcutUtil.registerSearchNavigationShortcuts(searchField, this::findNext, this::findPrevious);
     }
 
     private void updateTooltip() {
@@ -142,34 +133,30 @@ public class GenericSearchBar extends JPanel {
      * Registers global keyboard shortcuts for the search bar.
      */
     public void registerGlobalShortcuts(JComponent parentComponent) {
-        // Cmd/Ctrl+F focuses the search field
-        var ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F,
-            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        parentComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(ctrlF, "focusSearch");
-        parentComponent.getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                focusSearchField();
-            }
-        });
-
-        // ESC key clears search highlights when search field has focus
-        var escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        searchField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "clearHighlights");
-        searchField.getActionMap().put("clearHighlights", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
+        // Standard search shortcuts: Ctrl/Cmd+F to focus, Esc to clear
+        KeyboardShortcutUtil.registerStandardSearchShortcuts(
+            parentComponent,
+            searchField,
+            this::focusSearchField,
+            () -> {
                 clearHighlights();
                 targetComponent.requestFocusInWindow();
             }
-        });
+        );
+    }
+
+    /**
+     * Gets the search field component for external keyboard shortcut registration.
+     */
+    public JTextField getSearchField() {
+        return searchField;
     }
 
     /**
      * Focuses the search field and optionally populates it with selected text.
      */
     public void focusSearchField() {
-        String selected = targetComponent.getSelectedText();
+        var selected = targetComponent.getSelectedText();
         if (selected != null && !selected.isEmpty()) {
             searchField.setText(selected);
         }
@@ -177,7 +164,7 @@ public class GenericSearchBar extends JPanel {
         searchField.requestFocusInWindow();
 
         // If there's text in the search field, re-highlight matches
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query != null && !query.trim().isEmpty()) {
             int originalCaretPosition = targetComponent.getCaretPosition();
             updateSearchHighlights();
@@ -197,7 +184,7 @@ public class GenericSearchBar extends JPanel {
      *
      */
     private void updateSearchHighlights() {
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
             updateMatchCount(0, 0);
@@ -235,12 +222,12 @@ public class GenericSearchBar extends JPanel {
      * @param forward true = next match; false = previous match
      */
     private void findMatch(boolean forward) {
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             return;
         }
 
-        boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
+        var found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
         if (found) {
             targetComponent.centerCaretInView();
             // The callback will handle updating the match count
@@ -286,5 +273,28 @@ public class GenericSearchBar extends JPanel {
     public void setCaseSensitive(boolean caseSensitive) {
         caseSensitiveButton.setSelected(caseSensitive);
         updateTooltip();
+    }
+
+    /**
+     * Adds a listener that will be notified when the case-sensitive button is toggled.
+     */
+    public void addCaseSensitiveListener(Consumer<Boolean> listener) {
+        caseSensitiveListeners.add(listener);
+    }
+
+    /**
+     * Removes a case-sensitive listener.
+     */
+    public void removeCaseSensitiveListener(Consumer<Boolean> listener) {
+        caseSensitiveListeners.remove(listener);
+    }
+
+    /**
+     * Notifies all case-sensitive listeners of a change.
+     */
+    private void fireCaseSensitiveChanged(boolean isSelected) {
+        for (var listener : caseSensitiveListeners) {
+            listener.accept(isSelected);
+        }
     }
 }
