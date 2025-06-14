@@ -6,6 +6,7 @@ import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
  * A completely generic search bar component that works with any component
@@ -112,26 +113,8 @@ public class GenericSearchBar extends JPanel {
     }
 
     private void setupKeyboardShortcuts() {
-        var inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
-        var actionMap = searchField.getActionMap();
-
-        // Down arrow for next match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findNext");
-        actionMap.put("findNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext();
-            }
-        });
-
-        // Up arrow for previous match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "findPrevious");
-        actionMap.put("findPrevious", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findPrevious();
-            }
-        });
+        // Down/Up arrow navigation shortcuts
+        KeyboardShortcutUtil.registerSearchNavigationShortcuts(searchField, this::findNext, this::findPrevious);
     }
 
     private void updateTooltip() {
@@ -146,27 +129,23 @@ public class GenericSearchBar extends JPanel {
      * Registers global keyboard shortcuts for the search bar.
      */
     public void registerGlobalShortcuts(JComponent parentComponent) {
-        // Cmd/Ctrl+F focuses the search field
-        var ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F,
-            Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        parentComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(ctrlF, "focusSearch");
-        parentComponent.getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                focusSearchField();
-            }
-        });
-
-        // ESC key clears search highlights when search field has focus
-        var escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-        searchField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "clearHighlights");
-        searchField.getActionMap().put("clearHighlights", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
+        // Standard search shortcuts: Ctrl/Cmd+F to focus, Esc to clear
+        KeyboardShortcutUtil.registerStandardSearchShortcuts(
+            parentComponent,
+            searchField,
+            this::focusSearchField,
+            () -> {
                 clearHighlights();
                 targetComponent.requestFocusInWindow();
             }
-        });
+        );
+    }
+
+    /**
+     * Gets the search field component for external keyboard shortcut registration.
+     */
+    public JTextField getSearchField() {
+        return searchField;
     }
 
     /**
