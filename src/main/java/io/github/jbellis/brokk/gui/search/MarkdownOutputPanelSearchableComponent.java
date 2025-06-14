@@ -4,21 +4,27 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.stream.HtmlCustomizer;
 import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
 import io.github.jbellis.brokk.gui.mop.stream.TextNodeMarkerCustomizer;
+import io.github.jbellis.brokk.gui.mop.util.ComponentUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SearchableComponent adapter for MarkdownOutputPanel(s).
- * This bridges the SearchableComponent interface with MarkdownPanelSearchCallback functionality.
+ * This bridges the SearchableComponent interface with MarkdownPanelSearchCallback functionality,
+ * supporting search in both Markdown text and code blocks (RSyntaxTextArea).
  */
 public class MarkdownOutputPanelSearchableComponent implements SearchableComponent {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanelSearchableComponent.class);
@@ -30,10 +36,61 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     private final List<MarkdownOutputPanel> panels;
     private String currentSearchTerm = "";
     private boolean currentCaseSensitive = false;
-    private final List<Integer> allMarkerIds = new ArrayList<>();
-    private int currentMarkerIndex = -1;
-    private Integer previousHighlightedMarkerId = null;
     private SearchCompleteCallback searchCompleteCallback = null;
+
+    private final List<Match> allMatches = new ArrayList<>();
+    private int currentMatchIndex = -1;
+    private Match previousMatch = null;
+    private final List<RTextAreaSearchableComponent> codeSearchComponents = new ArrayList<>();
+
+    private record Match(
+        Type type,
+        Component actualUiComponent, // The JEditorPane or RSyntaxTextArea
+        int panelIndex,
+        int rendererIndex,
+        int componentVisualOrderInRenderer, // Index of actualUiComponent in renderer.getRoot().getComponents()
+        // For MARKDOWN:
+        int markerId,
+        // For CODE:
+        RTextAreaSearchableComponent codeSearchable,
+        int startOffset,
+        int endOffset
+    ) implements Comparable<Match> {
+        enum Type { MARKDOWN, CODE }
+
+        // Markdown Match constructor
+        Match(int markerId, Component actualUiComponent, int panelIndex, int rendererIndex, int componentVisualOrderInRenderer) {
+            this(Type.MARKDOWN, actualUiComponent, panelIndex, rendererIndex, componentVisualOrderInRenderer,
+                 markerId, null, -1, -1);
+        }
+
+        // Code Match constructor
+        Match(RTextAreaSearchableComponent codeSearchable, int startOffset, int endOffset, Component actualUiComponent, int panelIndex, int rendererIndex, int componentVisualOrderInRenderer) {
+            this(Type.CODE, actualUiComponent, panelIndex, rendererIndex, componentVisualOrderInRenderer,
+                 -1, codeSearchable, startOffset, endOffset);
+        }
+
+        @Override
+        public int compareTo(MarkdownOutputPanelSearchableComponent.Match other) {
+            int panelCmp = Integer.compare(this.panelIndex, other.panelIndex);
+            if (panelCmp != 0) return panelCmp;
+
+            int rendererCmp = Integer.compare(this.rendererIndex, other.rendererIndex);
+            if (rendererCmp != 0) return rendererCmp;
+
+            int componentOrderCmp = Integer.compare(this.componentVisualOrderInRenderer, other.componentVisualOrderInRenderer);
+            if (componentOrderCmp != 0) return componentOrderCmp;
+
+            if (this.type == Type.MARKDOWN && other.type == Type.MARKDOWN) {
+                return Integer.compare(this.markerId, other.markerId);
+            } else if (this.type == Type.CODE && other.type == Type.CODE) {
+                return Integer.compare(this.startOffset, other.startOffset);
+            } else {
+                return this.type.compareTo(other.type); // MD before Code if types differ for same component (unlikely)
+            }
+        }
+    }
+
 
     public MarkdownOutputPanelSearchableComponent(List<MarkdownOutputPanel> panels) {
         this.panels = panels;
@@ -102,9 +159,28 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
 
         // Provide immediate feedback that search is starting
         notifySearchStart(finalSearchTerm);
-        this.previousHighlightedMarkerId = null;
+        this.previousMatch = null;
+        this.allMatches.clear();
+        this.codeSearchComponents.clear();
 
-        // Create search customizer with CSS classes
+        // Highlight in code components first
+        for (MarkdownOutputPanel panel : panels) {
+            panel.renderers().forEach(renderer -> {
+                List<RSyntaxTextArea> textAreas = ComponentUtils.findComponentsOfType(renderer.getRoot(), RSyntaxTextArea.class);
+                for (RSyntaxTextArea textArea : textAreas) {
+                    RTextAreaSearchableComponent rsc = (RTextAreaSearchableComponent) RTextAreaSearchableComponent.wrap(textArea);
+                    codeSearchComponents.add(rsc);
+                    // Temporarily set a null callback to prevent RTextAreaSearchableComponent from calling back to GenericSearchBar
+                    // as we will consolidate results in handleSearchComplete.
+                    SearchableComponent.SearchCompleteCallback originalCallback = rsc.getSearchCompleteCallback();
+                    rsc.setSearchCompleteCallback(null);
+                    rsc.highlightAll(finalSearchTerm, caseSensitive);
+                    rsc.setSearchCompleteCallback(originalCallback); // Restore original if any
+                }
+            });
+        }
+
+        // Create search customizer for Markdown content
         HtmlCustomizer searchCustomizer = new TextNodeMarkerCustomizer(
             finalSearchTerm,
             caseSensitive,
@@ -113,57 +189,68 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
             "</span>"
         );
 
-        // Apply search highlighting to all panels and collect marker IDs
-        allMarkerIds.clear();
-
-        // Track how many panels need to be processed
+        // Track how many panels need to be processed for Markdown highlighting
         var panelCount = panels.size();
-        var remainingOperations = new AtomicInteger(panelCount);
+        if (panelCount == 0) {
+            handleSearchComplete(); // No panels, complete immediately
+            return;
+        }
+        var remainingMarkdownOperations = new AtomicInteger(panelCount);
 
-        // Apply customizer to all panels
+        // Apply customizer to all panels for Markdown
         for (MarkdownOutputPanel panel : panels) {
-            Runnable processSearchResults = () -> {
-                // This runs after each panel's customizer is applied
-                if (remainingOperations.decrementAndGet() == 0) {
-                    handleSearchComplete();
+            Runnable processMarkdownSearchResults = () -> {
+                if (remainingMarkdownOperations.decrementAndGet() == 0) {
+                    handleSearchComplete(); // All Markdown highlighting done, now consolidate
                 }
             };
 
             try {
-                panel.setHtmlCustomizerWithCallback(searchCustomizer, processSearchResults);
+                panel.setHtmlCustomizerWithCallback(searchCustomizer, processMarkdownSearchResults);
             } catch (Exception e) {
-                logger.error("Error applying search customizer to panel", e);
+                logger.error("Error applying search customizer to panel for Markdown", e);
                 var callback = getSearchCompleteCallback();
                 if (callback != null) {
-                    callback.onSearchError("Search failed: " + e.getMessage());
+                    callback.onSearchError("Search failed during Markdown highlighting: " + e.getMessage());
                 }
-                return;
+                // Even if one panel fails, try to complete with what we have
+                if (remainingMarkdownOperations.decrementAndGet() == 0) {
+                    handleSearchComplete();
+                }
             }
         }
     }
 
     @Override
     public void clearHighlights() {
-        // Clear search highlighting from all panels
+        // Clear Markdown highlights
         for (MarkdownOutputPanel panel : panels) {
             panel.setHtmlCustomizer(HtmlCustomizer.DEFAULT);
         }
-        currentSearchTerm = "";
-        allMarkerIds.clear();
-        currentMarkerIndex = -1;
-        previousHighlightedMarkerId = null;
+        // Clear code highlights
+        for (RTextAreaSearchableComponent codeComp : codeSearchComponents) {
+            codeComp.clearHighlights();
+            if (codeComp.getComponent() instanceof RSyntaxTextArea rsta) {
+                // Clear selection by setting selection start and end to the same position
+                int caretPos = rsta.getCaretPosition();
+                rsta.select(caretPos, caretPos);
+            }
+        }
+        codeSearchComponents.clear();
 
-        // Scroll to top after clearing search
+        currentSearchTerm = "";
+        allMatches.clear();
+        currentMatchIndex = -1;
+        previousMatch = null;
+
         scrollToTop();
     }
 
     @Override
     public boolean findNext(String searchText, boolean caseSensitive, boolean forward) {
-        // If search term or case sensitivity changed, re-trigger search
         if (!searchText.equals(currentSearchTerm) || caseSensitive != currentCaseSensitive) {
             highlightAll(searchText, caseSensitive);
-            // The search is async, so we can't navigate yet
-            return false;
+            return false; // Search is async, navigation will occur after handleSearchComplete
         }
 
         if (!canNavigate()) {
@@ -171,171 +258,195 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         }
 
         var direction = forward ? 1 : -1;
-        var previousIndex = currentMarkerIndex;
-
-        // Move to next/previous match with proper wrap-around
-        currentMarkerIndex = Math.floorMod(currentMarkerIndex + direction, allMarkerIds.size());
-
-        var currentMarkerId = allMarkerIds.get(currentMarkerIndex);
-        logger.trace("findNext: Moving from index {} to {} (marker ID: {})",
-                    previousIndex, currentMarkerIndex, currentMarkerId);
+        currentMatchIndex = Math.floorMod(currentMatchIndex + direction, allMatches.size());
 
         updateCurrentMatchHighlighting();
-        scrollToCurrentMarker();
+        scrollToCurrentMatch();
 
-        // Update the search bar with new position
         var callback = getSearchCompleteCallback();
         if (callback != null) {
-            callback.onSearchComplete(allMarkerIds.size(), currentMarkerIndex + 1);
+            callback.onSearchComplete(allMatches.size(), currentMatchIndex + 1);
         }
-
         return true;
     }
 
     @Override
     public void centerCaretInView() {
-        // This is called after a successful search - scroll to current marker
-        scrollToCurrentMarker();
+        scrollToCurrentMatch();
     }
 
     @Override
     public JComponent getComponent() {
-        // Return the first panel as the representative component
         return panels.isEmpty() ? new JPanel() : panels.get(0);
     }
 
-    // Helper methods (adapted from MarkdownPanelSearchCallback)
-
     private void handleSearchComplete() {
-        // All panels processed, now collect marker IDs in visual order
-        allMarkerIds.clear();
-        collectMarkerIdsInVisualOrder();
+        collectMatchesInVisualOrder(); // Populates and sorts allMatches
 
-        // Reset current position
-        currentMarkerIndex = allMarkerIds.isEmpty() ? -1 : 0;
+        currentMatchIndex = allMatches.isEmpty() ? -1 : 0;
+        previousMatch = null; // Reset previous match before new highlighting sequence
 
-        if (!allMarkerIds.isEmpty()) {
-            // Highlight the first match as current
+        if (!allMatches.isEmpty()) {
             updateCurrentMatchHighlighting();
-            // Scroll to the first match
-            scrollToCurrentMarker();
+            scrollToCurrentMatch();
         }
 
-        // Notify the GenericSearchBar that search is complete
         var callback = getSearchCompleteCallback();
         if (callback != null) {
-            int matchIndex = allMarkerIds.isEmpty() ? 0 : currentMarkerIndex + 1; // 1-based
-            callback.onSearchComplete(allMarkerIds.size(), matchIndex);
+            int total = allMatches.size();
+            int currentIdxDisplay = total == 0 ? 0 : currentMatchIndex + 1;
+            callback.onSearchComplete(total, currentIdxDisplay);
         }
     }
 
-    private void updateCurrentMatchHighlighting() {
-        if (allMarkerIds.isEmpty() || currentMarkerIndex < 0 || currentMarkerIndex >= allMarkerIds.size()) {
-            return;
-        }
-
-        var currentMarkerId = allMarkerIds.get(currentMarkerIndex);
-        logger.trace("updateCurrentMatchHighlighting: Setting current marker ID to {}", currentMarkerId);
-
-        // First, clear previous highlighting if it exists
-        if (previousHighlightedMarkerId != null) {
-            logger.trace("updateCurrentMatchHighlighting: Clearing previous highlight for marker ID {}", previousHighlightedMarkerId);
-            updateMarkerStyleInAllPanels(previousHighlightedMarkerId, false);
-        }
-
-        // Then highlight the current match
-        updateMarkerStyleInAllPanels(currentMarkerId, true);
-        previousHighlightedMarkerId = currentMarkerId;
-    }
-
-    private void updateMarkerStyleInAllPanels(int markerId, boolean isCurrent) {
-        // Collect all marker update operations to batch them into a single EDT call
-        List<Runnable> updateOperations = new ArrayList<>();
-
-        for (MarkdownOutputPanel panel : panels) {
-            panel.renderers().forEach(renderer -> {
-                updateOperations.add(() -> renderer.updateMarkerStyle(markerId, isCurrent));
-            });
-        }
-
-        // Execute all updates in a single EDT operation for better performance
-        SwingUtilities.invokeLater(() -> {
-            updateOperations.forEach(Runnable::run);
+    private void updateMarkdownMarkerStyle(int markerId, boolean isCurrent) {
+        SwingUtilities.invokeLater(() -> { // Ensure UI updates on EDT
+            for (MarkdownOutputPanel panel : panels) {
+                panel.renderers().forEach(renderer -> {
+                    if (renderer.findByMarkerId(markerId).isPresent()) {
+                        renderer.updateMarkerStyle(markerId, isCurrent);
+                    }
+                });
+            }
         });
     }
 
-    private void scrollToCurrentMarker() {
-        if (currentMarkerIndex < 0 || currentMarkerIndex >= allMarkerIds.size()) {
+    private void updateCurrentMatchHighlighting() {
+        if (previousMatch != null) {
+            if (previousMatch.type() == Match.Type.MARKDOWN) {
+                updateMarkdownMarkerStyle(previousMatch.markerId(), false);
+            } else if (previousMatch.type() == Match.Type.CODE && previousMatch.codeSearchable() != null) {
+                // RTextAreaSearchableComponent's clearHighlights would remove all marks.
+                // Here, we just want to "de-select" it if it was the current one.
+                // The actual highlights (marks) are managed by its highlightAll/clearHighlights.
+                // For "current" in code, we rely on selection. So, clearing selection is key.
+                if (previousMatch.actualUiComponent() instanceof RSyntaxTextArea ta) {
+                    ta.setSelectionStart(ta.getSelectionStart()); // Collapse selection
+                    ta.setSelectionEnd(ta.getSelectionStart());
+                }
+            }
+        }
+
+        if (allMatches.isEmpty() || currentMatchIndex < 0 || currentMatchIndex >= allMatches.size()) {
+            previousMatch = null;
             return;
         }
 
-        var markerId = allMarkerIds.get(currentMarkerIndex);
-        logger.trace("Scrolling to marker ID {} (index {} of {})", markerId, currentMarkerIndex + 1, allMarkerIds.size());
-
-        // Find which renderer contains this marker and scroll to it
-        for (MarkdownOutputPanel panel : panels) {
-            // Check all renderers in this panel using the direct API
-            Optional<JComponent> foundComponent = panel.renderers()
-                .map(renderer -> renderer.findByMarkerId(markerId))
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
-
-            if (foundComponent.isPresent()) {
-                logger.trace("Found component for marker ID {}: {}", markerId, foundComponent.get().getClass().getSimpleName());
-                // Scroll the component into view
-                SwingUtilities.invokeLater(() -> {
-                    JComponent comp = foundComponent.get();
-
-                    // Find the scroll pane and scroll to the component
-                    Container parent = comp.getParent();
-                    while (parent != null) {
-                        if (parent instanceof JScrollPane scrollPane) {
-                            Rectangle bounds = comp.getBounds();
-                            if (comp.getParent() != scrollPane.getViewport().getView()) {
-                                // Convert bounds to viewport coordinates if needed
-                                bounds = SwingUtilities.convertRectangle(comp.getParent(), bounds, scrollPane.getViewport().getView());
-                            }
-
-                            // Position the found marker near the top of the viewport for better context
-                            JViewport viewport = scrollPane.getViewport();
-                            Rectangle viewRect = viewport.getViewRect();
-
-                            // Calculate desired position: put the marker at configured position from the top
-                            int desiredY = Math.max(0, bounds.y - (int)(viewRect.height * SCROLL_POSITION_RATIO));
-
-                            // Ensure we don't scroll past the end of the content
-                            Component view = viewport.getView();
-                            int maxY = Math.max(0, view.getHeight() - viewRect.height);
-                            desiredY = Math.min(desiredY, maxY);
-
-                            // Set the viewport position directly for precise control
-                            viewport.setViewPosition(new Point(viewRect.x, desiredY));
-
-                            logger.trace("Scrolled to position: y={} (marker bounds: {}, viewport height: {})",
-                                       desiredY, bounds, viewRect.height);
-                            break;
-                        }
-                        parent = parent.getParent();
-                    }
+        Match currentMatch = allMatches.get(currentMatchIndex);
+        if (currentMatch.type() == Match.Type.MARKDOWN) {
+            updateMarkdownMarkerStyle(currentMatch.markerId(), true);
+        } else if (currentMatch.type() == Match.Type.CODE && currentMatch.codeSearchable() != null) {
+            if (currentMatch.actualUiComponent() instanceof RSyntaxTextArea ta) {
+                SwingUtilities.invokeLater(() -> { // Ensure focus and selection on EDT
+                    ta.requestFocusInWindow();
+                    ta.select(currentMatch.startOffset(), currentMatch.endOffset());
+                    // RTextAreaSearchableComponent's internal findNext usually calls centerCaretInView.
+                    // We might need to manually ensure it's centered if we are not calling its findNext.
+                    // scrollToCurrentMatch() which calls scrollToComponent() will handle overall scroll.
                 });
-                return; // Found and scrolled to the marker
             }
+        }
+        previousMatch = currentMatch;
+    }
+
+
+    private void scrollToCurrentMatch() {
+        if (currentMatchIndex < 0 || currentMatchIndex >= allMatches.size()) {
+            return;
+        }
+        Match match = allMatches.get(currentMatchIndex);
+        if (match.actualUiComponent() instanceof JComponent jc) {
+            scrollToComponent(jc);
+        } else {
+            logger.warn("Cannot scroll to match, actualUiComponent is not a JComponent: {}", match.actualUiComponent());
         }
     }
 
+    private void scrollToComponent(JComponent compToScroll) {
+        if (compToScroll == null) {
+            logger.trace("scrollToComponent called with null component.");
+            return;
+        }
+        SwingUtilities.invokeLater(() -> {
+            Container parent = compToScroll.getParent();
+            JScrollPane scrollPane = null;
+            while (parent != null) {
+                if (parent instanceof JScrollPane) {
+                    scrollPane = (JScrollPane) parent;
+                    break;
+                }
+                if (parent instanceof JViewport && parent.getParent() instanceof JScrollPane) {
+                    scrollPane = (JScrollPane) parent.getParent();
+                    break;
+                }
+                parent = parent.getParent();
+            }
+
+            if (scrollPane == null) {
+                 // Fallback: Try to find containing JScrollPane of the panel itself if comp is deep
+                if (!panels.isEmpty()) {
+                    parent = panels.get(0).getParent(); // Assuming all panels in similar scroll setup
+                     while (parent != null) {
+                        if (parent instanceof JScrollPane) {
+                            scrollPane = (JScrollPane) parent;
+                            break;
+                        }
+                        if (parent instanceof JViewport && parent.getParent() instanceof JScrollPane) {
+                             scrollPane = (JScrollPane) parent.getParent();
+                             break;
+                        }
+                        parent = parent.getParent();
+                    }
+                }
+            }
+            
+            if (scrollPane == null) {
+                logger.trace("Could not find JScrollPane for component: {}", compToScroll.getClass().getSimpleName());
+                // Try to scroll the component itself if it's in a viewport
+                if (compToScroll.getParent() instanceof JViewport) {
+                    Rectangle bounds = compToScroll.getBounds();
+                    JViewport viewport = (JViewport) compToScroll.getParent();
+                     Rectangle viewRect = viewport.getViewRect();
+                     int desiredY = Math.max(0, bounds.y - (int)(viewRect.height * SCROLL_POSITION_RATIO));
+                     viewport.setViewPosition(new Point(viewRect.x, desiredY));
+                } else {
+                    compToScroll.scrollRectToVisible(new Rectangle(0,0, compToScroll.getWidth(), compToScroll.getHeight()));
+                }
+                return;
+            }
+
+
+            Rectangle bounds = SwingUtilities.convertRectangle(compToScroll.getParent(), compToScroll.getBounds(), scrollPane.getViewport().getView());
+            JViewport viewport = scrollPane.getViewport();
+            Rectangle viewRect = viewport.getViewRect();
+
+            int desiredY = Math.max(0, bounds.y - (int) (viewRect.height * SCROLL_POSITION_RATIO));
+            Component view = viewport.getView();
+            int maxY = Math.max(0, view.getHeight() - viewRect.height);
+            desiredY = Math.min(desiredY, maxY);
+
+            viewport.setViewPosition(new Point(viewRect.x, desiredY));
+            logger.trace("Scrolled to component {} at y={}", compToScroll.getClass().getSimpleName(), desiredY);
+        });
+    }
+
+
     private void scrollToTop() {
         SwingUtilities.invokeLater(() -> {
-            for (MarkdownOutputPanel panel : panels) {
-                // Find scroll pane containing this panel
-                Container parent = panel.getParent();
-                while (parent != null) {
-                    if (parent instanceof JScrollPane scrollPane) {
-                        scrollPane.getViewport().setViewPosition(new Point(0, 0));
-                        break;
-                    }
-                    parent = parent.getParent();
+            if (panels.isEmpty() || panels.get(0).getParent() == null) return;
+
+            Container parent = panels.get(0).getParent();
+            while (parent != null) {
+                if (parent instanceof JViewport && parent.getParent() instanceof JScrollPane) {
+                    JScrollPane scrollPane = (JScrollPane) parent.getParent();
+                    scrollPane.getViewport().setViewPosition(new Point(0, 0));
+                    return;
                 }
+                if (parent instanceof JScrollPane) { // If panel is directly in JScrollPane (less common for MOP)
+                     ((JScrollPane)parent).getViewport().setViewPosition(new Point(0,0));
+                     return;
+                }
+                parent = parent.getParent();
             }
         });
     }
@@ -344,20 +455,14 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         if (currentSearchTerm.isEmpty()) {
             return false;
         }
-
-        // Find the component containing this marker
         Optional<JComponent> componentOpt = renderer.findByMarkerId(markerId);
         if (componentOpt.isEmpty()) {
             return false;
         }
-
-        // Extract text content from the component
-        var componentText = extractTextFromComponent(componentOpt.get());
+        String componentText = extractTextFromComponent(componentOpt.get());
         if (componentText == null || componentText.isEmpty()) {
             return false;
         }
-
-        // Check if the component text contains the current search term (respecting case sensitivity)
         if (currentCaseSensitive) {
             return componentText.contains(currentSearchTerm);
         } else {
@@ -367,7 +472,6 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
 
     private String extractTextFromComponent(JComponent component) {
         if (component instanceof JEditorPane editorPane) {
-            // For JEditorPane, get the plain text content
             try {
                 return editorPane.getDocument().getText(0, editorPane.getDocument().getLength());
             } catch (Exception e) {
@@ -375,64 +479,93 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 return "";
             }
         } else if (component instanceof JLabel label) {
-            // For JLabel, extract text from HTML
             var html = label.getText();
-            if (html != null && html.startsWith("<html>")) {
-                // Simple HTML to text conversion - remove all HTML tags
-                return html.replaceAll("<[^>]+>", "");
+            if (html != null && html.toLowerCase(Locale.ROOT).startsWith("<html>")) {
+                return html.replaceAll("<[^>]+>", ""); // Basic HTML to text
             }
             return html;
         }
+        // RSyntaxTextArea text is handled by countMatchesInTextArea directly
         return "";
     }
 
-    private void collectMarkerIdsInVisualOrder() {
-        // Helper class to track marker position context
-        record MarkerContext(int markerId, int panelIndex, int rendererIndex) {}
 
-        var markerContexts = new ArrayList<MarkerContext>();
+    private List<int[]> countMatchesInTextArea(RSyntaxTextArea textArea, String searchText, boolean caseSensitive) {
+        List<int[]> ranges = new ArrayList<>();
+        if (searchText.trim().isEmpty()) {
+            return ranges;
+        }
+        String textContent;
+        try {
+            textContent = textArea.getText();
+        } catch (NullPointerException e) { // getText can throw NPE if document is null
+            logger.warn("RSyntaxTextArea document was null, cannot search.", e);
+            return ranges;
+        }
+        if (textContent.isEmpty()) {
+            return ranges;
+        }
 
-        // Collect markers with their position context
-        for (int panelIndex = 0; panelIndex < panels.size(); panelIndex++) {
-            MarkdownOutputPanel panel = panels.get(panelIndex);
-            List<IncrementalBlockRenderer> rendererList = panel.renderers().toList();
+        Pattern pattern = Pattern.compile(
+            Pattern.quote(searchText),
+            caseSensitive ? 0 : Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE
+        );
+        Matcher matcher = pattern.matcher(textContent);
+        while (matcher.find()) {
+            ranges.add(new int[]{matcher.start(), matcher.end()});
+        }
+        return ranges;
+    }
 
-            for (int rendererIndex = 0; rendererIndex < rendererList.size(); rendererIndex++) {
-                IncrementalBlockRenderer renderer = rendererList.get(rendererIndex);
-                var markerIds = renderer.getIndexedMarkerIds();
+    private void collectMatchesInVisualOrder() {
+        allMatches.clear();
+        List<Match> tempMatches = new ArrayList<>();
 
-                // Convert marker IDs to contexts for sorting, but only include markers that contain the current search term
-                for (int markerId : markerIds) {
-                    if (markerContainsCurrentSearchTerm(renderer, markerId)) {
-                        markerContexts.add(new MarkerContext(markerId, panelIndex, rendererIndex));
-                    } else {
-                        logger.trace("Filtering out stale marker ID {} that doesn't match current search term '{}'",
-                                   markerId, currentSearchTerm);
+        for (int panelIdx = 0; panelIdx < panels.size(); panelIdx++) {
+            MarkdownOutputPanel panel = panels.get(panelIdx);
+            List<IncrementalBlockRenderer> renderers = panel.renderers().toList();
+
+            for (int rendererIdx = 0; rendererIdx < renderers.size(); rendererIdx++) {
+                IncrementalBlockRenderer renderer = renderers.get(rendererIdx);
+                JComponent rendererRoot = renderer.getRoot();
+                Component[] componentsInRenderer = rendererRoot.getComponents();
+
+                for (int compVisOrder = 0; compVisOrder < componentsInRenderer.length; compVisOrder++) {
+                    Component actualUiComp = componentsInRenderer[compVisOrder];
+
+                    // Markdown Matches
+                    if (actualUiComp instanceof JEditorPane || actualUiComp instanceof JLabel) { // Components that can host markers
+                        for (int markerId : renderer.getIndexedMarkerIds()) {
+                            if (renderer.findByMarkerId(markerId).orElse(null) == actualUiComp &&
+                                markerContainsCurrentSearchTerm(renderer, markerId)) {
+                                tempMatches.add(new Match(markerId, actualUiComp, panelIdx, rendererIdx, compVisOrder));
+                            }
+                        }
+                    }
+
+                    // Code Matches
+                    if (actualUiComp instanceof RSyntaxTextArea textArea) {
+                        RTextAreaSearchableComponent rsc = codeSearchComponents.stream()
+                            .filter(cs -> cs.getComponent() == textArea)
+                            .findFirst().orElse(null);
+
+                        if (rsc != null) {
+                            List<int[]> ranges = countMatchesInTextArea(textArea, currentSearchTerm, currentCaseSensitive);
+                            for (int[] range : ranges) { // ranges are sorted by start offset from countMatchesInTextArea
+                                tempMatches.add(new Match(rsc, range[0], range[1], actualUiComp, panelIdx, rendererIdx, compVisOrder));
+                            }
+                        }
                     }
                 }
             }
         }
-
-        // Sort by visual position: panel index first, then renderer index, then marker ID
-        markerContexts.sort((a, b) -> {
-            if (a.panelIndex != b.panelIndex) {
-                return Integer.compare(a.panelIndex, b.panelIndex);
-            }
-            if (a.rendererIndex != b.rendererIndex) {
-                return Integer.compare(a.rendererIndex, b.rendererIndex);
-            }
-            return Integer.compare(a.markerId, b.markerId);
-        });
-
-        // Extract the sorted marker IDs
-        allMarkerIds.clear();
-        for (MarkerContext context : markerContexts) {
-            allMarkerIds.add(context.markerId);
-        }
+        Collections.sort(tempMatches); // Sort using Match.compareTo
+        allMatches.addAll(tempMatches);
     }
 
+
     private boolean canNavigate() {
-        return !allMarkerIds.isEmpty() && currentMarkerIndex >= 0;
+        return !allMatches.isEmpty() && currentMatchIndex >= 0;
     }
 
     @Override
