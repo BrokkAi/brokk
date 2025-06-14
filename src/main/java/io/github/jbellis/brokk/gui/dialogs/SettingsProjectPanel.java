@@ -28,11 +28,14 @@ import io.github.jbellis.brokk.issues.FilterOptions;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import javax.swing.UIManager;
+import javax.swing.BorderFactory;
+import io.github.jbellis.brokk.AbstractProject;
 
 
 public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsProjectPanel.class);
-    private static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
+    public static final int BUILD_TAB_INDEX = 1; // General(0), Build(1), Data Retention(2)
 
     // Action command constants for build details inference button
     private static final String ACTION_INFER = "infer";
@@ -90,6 +93,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JPasswordField jiraApiTokenField;
     private JButton testJiraConnectionButton;
 
+    private final JPanel bannerPanel;
+
 
     public SettingsProjectPanel(Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -97,10 +102,46 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         this.okButtonParent = okButton;
         this.cancelButtonParent = cancelButton;
         this.applyButtonParent = applyButton;
+        this.bannerPanel = createBanner(); // Initialize banner
 
         setLayout(new BorderLayout());
         initComponents();
         loadSettings(); // Load settings after components are initialized
+    }
+
+    private JPanel createBanner() {
+        var p = new JPanel(new BorderLayout(5, 0));
+        Color infoBackground = UIManager.getColor("info");
+        p.setBackground(infoBackground != null ? infoBackground : new Color(255, 255, 204)); // Pale yellow fallback
+        p.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+
+        var msg = new JLabel("""
+            Build Agent has completed inspecting your project, \
+            please review the build configuration.
+        """);
+        p.add(msg, BorderLayout.CENTER);
+
+        var close = new JButton("×");
+        close.setMargin(new Insets(0, 4, 0, 4));
+        close.addActionListener(e -> {
+            p.setVisible(false);
+            var project = chrome.getProject();
+            if (project instanceof AbstractProject ap) {
+                ap.setBuildBannerShown(true);
+            }
+        });
+        p.add(close, BorderLayout.EAST);
+        p.setVisible(false); // Initially hidden
+        return p;
+    }
+
+    private void maybeShowBanner() {
+        var project = chrome.getProject();
+        boolean alreadyShown = false;
+        if (project instanceof AbstractProject ap) {
+            alreadyShown = ap.isBuildBannerShown();
+        }
+        bannerPanel.setVisible(!alreadyShown);
     }
 
     private void initComponents() {
@@ -488,6 +529,17 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(2, 2, 2, 2);
         gbc.fill = GridBagConstraints.HORIZONTAL;
         int row = 0;
+
+        // Add banner at the top
+        gbc.gridx = 0; gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        buildPanel.add(bannerPanel, gbc);
+        gbc.gridwidth = 1; // Reset gridwidth
+        // Check if banner should be shown
+        maybeShowBanner();
+
 
         buildCleanCommandField = new JTextField();
         allTestsCommandField = new JTextField();
@@ -999,6 +1051,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
 
         return true;
+    }
+
+    public void forceShowBuildBanner() {
+        if (bannerPanel != null) {
+            bannerPanel.setVisible(true);
+        }
     }
     
     public void refreshDataRetentionPanel() {

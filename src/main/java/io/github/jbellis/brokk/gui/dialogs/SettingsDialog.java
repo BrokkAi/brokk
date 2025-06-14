@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
+import io.github.jbellis.brokk.gui.dialogs.SettingsProjectPanel;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -231,6 +232,58 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             if (!tabSelected) {
                 logger.warn("Could not find or select target settings tab: {}", targetTabName);
             }
+        }
+        dialog.setVisible(true);
+    }
+
+    public static void showBuildTab(Chrome chrome) {
+        showBuildTab(chrome, false);
+    }
+
+    public static void showBuildTab(Chrome chrome, boolean forceBanner) {
+        var dialog = new SettingsDialog(chrome.getFrame(), chrome);
+        // Ensure the "Project" tab is selected first
+        int projectTabIndex = -1;
+        for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
+            if ("Project".equals(dialog.tabbedPane.getTitleAt(i))) {
+                projectTabIndex = i;
+                break;
+            }
+        }
+        if (projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(projectTabIndex);
+        } else {
+            logger.warn("Could not select 'Project' tab before selecting 'Build' sub-tab.");
+            // Fallback to directly trying to show the dialog without pre-selecting parent
+             showSettingsDialog(chrome, "Build"); // This might not work if parent isn't selected
+             if (forceBanner && dialog.projectSettingsPanel != null) {
+                dialog.projectSettingsPanel.forceShowBuildBanner();
+            }
+            dialog.setVisible(true);
+            return;
+        }
+
+        // Now select the "Build" sub-tab within "Project"
+        JTabbedPane projectSubTabs = dialog.projectSettingsPanel.getProjectSubTabbedPane();
+        if (projectSubTabs != null) {
+            int buildSubTabIndex = -1;
+            for (int i = 0; i < projectSubTabs.getTabCount(); i++) {
+                if ("Build".equals(projectSubTabs.getTitleAt(i))) {
+                    buildSubTabIndex = i;
+                    break;
+                }
+            }
+            if (buildSubTabIndex != -1 && projectSubTabs.isEnabledAt(buildSubTabIndex)) {
+                projectSubTabs.setSelectedIndex(buildSubTabIndex);
+            } else {
+                logger.warn("Could not select 'Build' sub-tab within 'Project' tab.");
+            }
+        } else {
+            logger.warn("'projectSubTabbedPane' is null in SettingsDialog.showBuildTab when trying to select 'Build' sub-tab.");
+        }
+
+        if (forceBanner && dialog.projectSettingsPanel != null) {
+            dialog.projectSettingsPanel.forceShowBuildBanner();
         }
         dialog.setVisible(true);
     }
