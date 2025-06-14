@@ -1,13 +1,18 @@
 package io.github.jbellis.brokk.gui.search;
 
+import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
 import org.fife.ui.rtextarea.SearchResult;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import javax.swing.*;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Highlighter;
 import java.awt.*;
 
 /**
@@ -16,6 +21,8 @@ import java.awt.*;
 public class RTextAreaSearchableComponent implements SearchableComponent {
     private final RTextArea textArea;
     private SearchCompleteCallback searchCompleteCallback;
+    private final List<Object> highlightTags = new ArrayList<>();
+    private boolean shouldJumpToFirstMatch = true;
 
     public RTextAreaSearchableComponent(RTextArea textArea) {
         this.textArea = textArea;
@@ -80,10 +87,34 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         context.setSearchWrap(true);
 
         try {
-            SearchEngine.markAll(textArea, context);
+            // Clear existing highlights first
+            clearHighlights();
+            
+            // Manually add highlights using the highlighter
+            var highlighter = textArea.getHighlighter();
+            if (highlighter != null) {
+                var pattern = Pattern.compile(
+                    Pattern.quote(searchText),
+                    caseSensitive ? 0 : Pattern.CASE_INSENSITIVE
+                );
+                var matcher = pattern.matcher(textArea.getText());
+                
+                while (matcher.find()) {
+                    try {
+                        var tag = highlighter.addHighlight(
+                            matcher.start(),
+                            matcher.end(),
+                            JMHighlightPainter.SEARCH
+                        );
+                        highlightTags.add(tag);
+                    } catch (BadLocationException e) {
+                        // Skip this match if location is invalid
+                    }
+                }
+            }
 
-            // Scroll to first match if any
-            if (countMatches(searchText, caseSensitive) > 0) {
+            // Scroll to first match if any (only if enabled)
+            if (shouldJumpToFirstMatch && countMatches(searchText, caseSensitive) > 0) {
                 // Save current position
                 var originalPosition = textArea.getCaretPosition();
                 textArea.setCaretPosition(0);
@@ -120,9 +151,15 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
 
     @Override
     public void clearHighlights() {
-        SearchContext context = new SearchContext();
-        context.setMarkAll(false);
-        SearchEngine.markAll(textArea, context);
+        // Remove all manually added highlights
+        var highlighter = textArea.getHighlighter();
+        if (highlighter != null) {
+            for (Object tag : highlightTags) {
+                highlighter.removeHighlight(tag);
+            }
+        }
+        highlightTags.clear();
+        
         // Clear the current selection/highlight as well
         textArea.setCaretPosition(textArea.getCaretPosition());
     }
@@ -236,7 +273,17 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
         return 0; // No current match
     }
 
+    public void setShouldJumpToFirstMatch(boolean shouldJump) {
+        this.shouldJumpToFirstMatch = shouldJump;
+    }
+    
     public static SearchableComponent wrap(RTextArea textArea) {
         return new RTextAreaSearchableComponent(textArea);
+    }
+    
+    public static RTextAreaSearchableComponent wrapWithoutJumping(RTextArea textArea) {
+        var component = new RTextAreaSearchableComponent(textArea);
+        component.setShouldJumpToFirstMatch(false);
+        return component;
     }
 }
