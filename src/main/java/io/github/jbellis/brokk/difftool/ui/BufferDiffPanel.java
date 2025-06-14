@@ -12,20 +12,16 @@ import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 
+import java.awt.*;
+import java.util.ArrayList;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
-import java.awt.*;
-import java.awt.KeyboardFocusManager;
-import java.awt.Component;
-import java.util.ArrayList;
-import java.util.Arrays;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
@@ -191,7 +187,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
         var searchBarComponent = activateBarDialog();
-        
         splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, searchBarComponent, filePanelComponent);
         add(splitPane);
 
@@ -201,7 +196,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         mainPanel.updateUndoRedoButtons();
         // Apply initial theme for syntax highlighting (but not diff highlights yet)
         applyTheme(guiTheme);
-        
         // Register keyboard shortcuts for search functionality
         registerSearchKeyBindings();
     }
@@ -215,7 +209,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Use the same FormLayout structure as the file panels to align search bars with text areas
         var columns = "3px, pref, 3px, left:pref, 5px, min, 60px, left:pref, fill:0:grow";
         var rows = "6px, pref";
-        
         var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
         var cc = new com.jgoodies.forms.layout.CellConstraints();
         var barContainer = new JPanel(layout);
@@ -230,7 +223,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (leftSearchBar != null) {
             barContainer.add(leftSearchBar, cc.xy(4, 2)); // Column 4 aligns with left text area, row 2 for spacing
         }
-        
         if (rightSearchBar != null) {
             barContainer.add(rightSearchBar, cc.xy(8, 2)); // Column 8 aligns with right text area, row 2 for spacing
         }
@@ -327,15 +319,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     void setSelectedPanel(FilePanel fp)
     {
         var oldIndex = filePanelSelectedIndex;
-        int newIndex = -1;
-        
+        var newIndex = -1;
         // Directly check which panel is being selected
         if (fp == filePanels[LEFT]) {
             newIndex = LEFT;
         } else if (fp == filePanels[RIGHT]) {
             newIndex = RIGHT;
         }
-        
         if (newIndex != oldIndex) {
             filePanelSelectedIndex = newIndex;
         }
@@ -640,8 +630,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      */
     private void focusActiveSearchField() {
         // Real-time focus detection: check which editor currently has focus
-        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
-        
+        var focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
         // Check if the right editor has focus
         if (filePanels[RIGHT] != null && focusOwner == filePanels[RIGHT].getEditor()) {
             if (rightSearchBar != null) {
@@ -650,14 +639,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             }
         }
         
-        // Check if the left editor has focus  
+        // Check if the left editor has focus
         if (filePanels[LEFT] != null && focusOwner == filePanels[LEFT].getEditor()) {
             if (leftSearchBar != null) {
                 leftSearchBar.focusSearchField();
                 return;
             }
         }
-        
         // Default to left search bar if we can't determine focus or no editor has focus
         if (leftSearchBar != null) {
             leftSearchBar.focusSearchField();

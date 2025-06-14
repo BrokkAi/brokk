@@ -10,7 +10,6 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.util.Objects;
-import java.util.Objects;
 
 /**
  * A reusable search bar panel that can be used with any component implementing SearchCallback.
