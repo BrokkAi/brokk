@@ -193,26 +193,20 @@ public class ArchitectAgent {
         return summary;
     }
 
-    @Tool("Undo the changes made by the most recent CodeAgent call. This is only available if the last CodeAgent call reported errors but did not automatically revert its changes.")
+    @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
     public String undoLastChanges() throws InterruptedException {
         logger.debug("undoLastChanges invoked");
         io.systemOutput("Undoing last CodeAgent changes...");
-        Future<?> undoFuture = contextManager.undoContextAsync();
-        try {
-            undoFuture.get(); // Block until completion
+        if (contextManager.undoContext()) {
             String resultMsg = "Successfully reverted the last CodeAgent changes.";
             logger.debug(resultMsg);
             io.systemOutput(resultMsg);
             return resultMsg;
-        } catch (InterruptedException e) {
-            logger.warn("Undo operation was interrupted.", e);
-            io.systemOutput("Undo operation was interrupted.");
-            throw e;
-        } catch (ExecutionException e) {
-            logger.error("Error executing undo operation.", e.getCause());
-            String errorMsg = "Failed to revert CodeAgent changes: " + e.getCause().getMessage();
-            io.systemOutput(errorMsg);
-            return errorMsg;
+        } else {
+            String resultMsg = "Nothing to undo (concurrency bug?)";
+            logger.debug(resultMsg);
+            io.systemOutput(resultMsg);
+            return resultMsg;
         }
     }
 

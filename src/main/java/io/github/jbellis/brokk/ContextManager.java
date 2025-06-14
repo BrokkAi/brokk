@@ -748,17 +748,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextAsync() {
         return submitUserTask("Undo", () -> {
-            UndoResult result = contextHistory.undo(1, io);
-            if (result.wasUndone()) {
-                // Update liveContext by unfreezing the new top of history
-                liveContext = Context.unfreeze(topContext());
-                notifyContextListeners(topContext());
-                project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-                io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
+            if (undoContext()) {
+                io.systemOutput("Undid most recent step");
             } else {
-                io.systemOutput("no undo state available");
+                io.systemOutput("Nothing to undo");
             }
         });
+    }
+
+    public boolean undoContext() {
+        UndoResult result = contextHistory.undo(1, io);
+        if (result.wasUndone()) {
+            liveContext = Context.unfreeze(topContext());
+            notifyContextListeners(topContext());
+            project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+            return true;
+        }
+
+        return false;
     }
 
     /**
