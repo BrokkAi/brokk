@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
 
@@ -29,9 +30,32 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 {
-    public static final int LEFT = 0;
-    public static final int RIGHT = 2;
-    public static final int NUMBER_OF_PANELS = 3;
+    /**
+     * Enum representing the two sides of the diff panel.
+     * Provides type safety and clarity compared to magic numbers.
+     */
+    public enum PanelSide
+    {
+        LEFT(BufferDocumentIF.ORIGINAL, 0),
+        RIGHT(BufferDocumentIF.REVISED, 1);
+
+        private final String documentType;
+        private final int index;
+
+        PanelSide(String documentType, int index) {
+            this.documentType = documentType;
+            this.index = index;
+        }
+
+        public String getDocumentType() {
+            return documentType;
+        }
+
+        public int getIndex() {
+            return index;
+        }
+    }
+
 
     @NotNull
     private final BrokkDiffPanel mainPanel;
@@ -45,12 +69,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private AbstractDelta<String> selectedDelta;
 
     private int selectedLine;
-    private io.github.jbellis.brokk.gui.search.GenericSearchBar leftSearchBar;
-    private io.github.jbellis.brokk.gui.search.GenericSearchBar rightSearchBar;
+    private GenericSearchBar leftSearchBar;
+    private GenericSearchBar rightSearchBar;
 
-    // The left & right "file panels"
-    private FilePanel[] filePanels;
-    private int filePanelSelectedIndex = -1;
+    // The left & right "file panels" using type-safe enum map
+    private final EnumMap<PanelSide, FilePanel> filePanels = new EnumMap<>(PanelSide.class);
+    private PanelSide selectedPanelSide = PanelSide.LEFT;
 
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
@@ -98,11 +122,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Set the documents into our file panels:
         // Order is important, The left panel will use the left panel syntax type if it can't figure its own
-        if (filePanels[RIGHT] != null && rightDocument != null) {
-            filePanels[RIGHT].setBufferDocument(rightDocument);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (rightPanel != null && rightDocument != null) {
+            rightPanel.setBufferDocument(rightDocument);
         }
-        if (filePanels[LEFT] != null && leftDocument != null) {
-            filePanels[LEFT].setBufferDocument(leftDocument);
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        if (leftPanel != null && leftDocument != null) {
+            leftPanel.setBufferDocument(leftDocument);
         }
 
         // Don't apply theme here - let it happen after the panel is added to the UI
@@ -127,11 +153,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      */
     private void reDisplay()
     {
-        if (filePanels != null) {
-            for (var fp : filePanels) {
-                if (fp != null) {
-                    fp.reDisplay();
-                }
+        for (var fp : filePanels.values()) {
+            if (fp != null) {
+                fp.reDisplay();
             }
         }
         mainPanel.repaint();
@@ -145,7 +169,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Fallback if diffNode or its name is not available
         var titles = new ArrayList<String>();
-        for (var fp : filePanels) {
+        for (var fp : filePanels.values()) {
             if (fp == null) continue;
             var bd = fp.getBufferDocument();
             if (bd != null && !bd.getShortName().isBlank()) {
@@ -191,8 +215,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         add(splitPane);
 
         // Create the scroll synchronizer for the left & right panels
-        scrollSynchronizer = new ScrollSynchronizer(this, filePanels[LEFT], filePanels[RIGHT]);
-        setSelectedPanel(filePanels[LEFT]);
+        scrollSynchronizer = new ScrollSynchronizer(this, requireFilePanel(PanelSide.LEFT), requireFilePanel(PanelSide.RIGHT));
+        setSelectedPanel(PanelSide.LEFT);
         mainPanel.updateUndoRedoButtons();
         // Apply initial theme for syntax highlighting (but not diff highlights yet)
         applyTheme(guiTheme);
@@ -214,9 +238,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
-        if (filePanels != null && filePanels[LEFT] != null && filePanels[RIGHT] != null) {
-            leftSearchBar = new GenericSearchBar(filePanels[LEFT].createSearchableComponent());
-            rightSearchBar = new GenericSearchBar(filePanels[RIGHT].createSearchableComponent());
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (leftPanel != null && rightPanel != null) {
+            leftSearchBar = new GenericSearchBar(leftPanel.createSearchableComponent());
+            rightSearchBar = new GenericSearchBar(rightPanel.createSearchableComponent());
         }
 
         // Add search bars aligned with the text areas below
@@ -239,23 +265,26 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var cc = new CellConstraints();
         var panel = new JPanel(layout);
 
-        filePanels = new FilePanel[NUMBER_OF_PANELS];
-        filePanels[LEFT] = new FilePanel(this, BufferDocumentIF.ORIGINAL);
-        filePanels[RIGHT] = new FilePanel(this, BufferDocumentIF.REVISED);
+        // Create file panels using enum-based approach
+        filePanels.put(PanelSide.LEFT, new FilePanel(this, PanelSide.LEFT.getDocumentType()));
+        filePanels.put(PanelSide.RIGHT, new FilePanel(this, PanelSide.RIGHT.getDocumentType()));
+
+        var leftPanel = requireFilePanel(PanelSide.LEFT);
+        var rightPanel = requireFilePanel(PanelSide.RIGHT);
 
         // Left side revision bar
-        panel.add(new RevisionBar(this, filePanels[LEFT], true), cc.xy(2, 4));
+        panel.add(new RevisionBar(this, leftPanel, true), cc.xy(2, 4));
         panel.add(new JLabel(""), cc.xy(2, 2)); // for spacing
 
-        panel.add(filePanels[LEFT].getVisualComponent(), cc.xyw(4, 4, 3));
+        panel.add(leftPanel.getVisualComponent(), cc.xyw(4, 4, 3));
 
         // The middle area for drawing the linking curves
-        var diffScrollComponent = new DiffScrollComponent(this, LEFT, RIGHT);
+        var diffScrollComponent = new DiffScrollComponent(this, PanelSide.LEFT.getIndex(), PanelSide.RIGHT.getIndex());
         panel.add(diffScrollComponent, cc.xy(7, 4));
 
         // Right side revision bar
-        panel.add(new RevisionBar(this, filePanels[RIGHT], false), cc.xy(12, 4));
-        panel.add(filePanels[RIGHT].getVisualComponent(), cc.xyw(8, 4, 3));
+        panel.add(new RevisionBar(this, rightPanel, false), cc.xy(12, 4));
+        panel.add(rightPanel.getVisualComponent(), cc.xyw(8, 4, 3));
 
         panel.setMinimumSize(new Dimension(300, 200));
         return panel;
@@ -308,27 +337,87 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return selectedLine;
     }
 
+
+    /**
+     * Type-safe method to get a file panel by side.
+     * @param side the panel side (LEFT or RIGHT)
+     * @return the FilePanel for the specified side, or null if not set
+     */
+    @Nullable
+    public FilePanel getFilePanel(PanelSide side)
+    {
+        return filePanels.get(side);
+    }
+
+    /**
+     * Type-safe method to get a file panel, throwing if not initialized.
+     * @param side the panel side (LEFT or RIGHT)
+     * @return the FilePanel for the specified side
+     * @throws IllegalStateException if the panel is not initialized
+     */
+    @NotNull
+    public FilePanel requireFilePanel(PanelSide side)
+    {
+        var panel = filePanels.get(side);
+        if (panel == null) {
+            throw new IllegalStateException("FilePanel for " + side + " is not initialized");
+        }
+        return panel;
+    }
+
+    /**
+     * Gets the currently selected panel side.
+     */
+    public PanelSide getSelectedPanelSide()
+    {
+        return selectedPanelSide;
+    }
+
+    /**
+     * Gets the currently selected file panel.
+     */
+    @Nullable
+    public FilePanel getSelectedFilePanel()
+    {
+        return filePanels.get(selectedPanelSide);
+    }
+
+    /**
+     * Legacy helper method to get a file panel by integer index.
+     * This supports compatibility with existing code that uses integer indices.
+     * @param index 0 for LEFT, 1 for RIGHT (or any other integer for RIGHT)
+     * @return the FilePanel for the specified index, or null if not set
+     */
     @Nullable
     public FilePanel getFilePanel(int index)
     {
-        if (filePanels == null) return null;
-        if (index < 0 || index >= filePanels.length) return null;
-        return filePanels[index];
+        var side = (index == 0) ? PanelSide.LEFT : PanelSide.RIGHT;
+        return filePanels.get(side);
     }
 
     void setSelectedPanel(FilePanel fp)
     {
-        var oldIndex = filePanelSelectedIndex;
-        var newIndex = -1;
-        // Directly check which panel is being selected
-        if (fp == filePanels[LEFT]) {
-            newIndex = LEFT;
-        } else if (fp == filePanels[RIGHT]) {
-            newIndex = RIGHT;
+        var oldSide = selectedPanelSide;
+        PanelSide newSide = null;
+
+        // Find which side this panel corresponds to
+        for (var entry : filePanels.entrySet()) {
+            if (entry.getValue() == fp) {
+                newSide = entry.getKey();
+                break;
+            }
         }
-        if (newIndex != oldIndex) {
-            filePanelSelectedIndex = newIndex;
+
+        if (newSide != null && newSide != oldSide) {
+            selectedPanelSide = newSide;
         }
+    }
+
+    /**
+     * Type-safe method to set the selected panel by side.
+     */
+    public void setSelectedPanel(PanelSide side) {
+        this.selectedPanelSide = side;
     }
 
     /**
@@ -379,8 +468,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var delta = getSelectedDelta();
         if (delta == null) return;
 
-        var fromFilePanel = filePanels[fromPanelIndex];
-        var toFilePanel = filePanels[toPanelIndex];
+        var fromFilePanel = getFilePanel(fromPanelIndex);
+        var toFilePanel = getFilePanel(toPanelIndex);
         if (fromFilePanel == null || toFilePanel == null) return;
 
         var fromDoc = fromFilePanel.getBufferDocument();
@@ -443,7 +532,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var delta = getSelectedDelta();
         if (delta == null) return;
 
-        var fromFilePanel = filePanels[fromPanelIndex];
+        var fromFilePanel = getFilePanel(fromPanelIndex);
         if (fromFilePanel == null) return;
 
         var fromDoc = fromFilePanel.getBufferDocument();
@@ -479,7 +568,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      */
     public void doSave()
     {
-        for (var fp : filePanels) {
+        for (var fp : filePanels.values()) {
             if (fp == null) continue;
             if (!fp.isDocumentChanged()) continue;
             var doc = fp.getBufferDocument();
@@ -539,12 +628,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         this.guiTheme = guiTheme;
 
         // Refresh RSyntax themes and highlights in each child FilePanel
-        if (filePanels != null) {
-            for (FilePanel fp : filePanels) {
-                if (fp == null) continue;
-                // Note: fp.applyTheme() already calls reDisplay()
-                fp.applyTheme(guiTheme);
-            }
+        for (FilePanel fp : filePanels.values()) {
+            if (fp == null) continue;
+            // Note: fp.applyTheme() already calls reDisplay()
+            fp.applyTheme(guiTheme);
         }
 
         // Let the Look-and-Feel repaint every child component (headers, scroll-bars, etc.)
@@ -609,16 +696,18 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (leftSearchBar != null) {
             KeyboardShortcutUtil.registerSearchEscapeShortcut(leftSearchBar.getSearchField(), () -> {
                 leftSearchBar.clearHighlights();
-                if (filePanels[LEFT] != null) {
-                    filePanels[LEFT].getEditor().requestFocusInWindow();
+                var leftPanel = getFilePanel(PanelSide.LEFT);
+                if (leftPanel != null) {
+                    leftPanel.getEditor().requestFocusInWindow();
                 }
             });
         }
         if (rightSearchBar != null) {
             KeyboardShortcutUtil.registerSearchEscapeShortcut(rightSearchBar.getSearchField(), () -> {
                 rightSearchBar.clearHighlights();
-                if (filePanels[RIGHT] != null) {
-                    filePanels[RIGHT].getEditor().requestFocusInWindow();
+                var rightPanel = getFilePanel(PanelSide.RIGHT);
+                if (rightPanel != null) {
+                    rightPanel.getEditor().requestFocusInWindow();
                 }
             });
         }
@@ -632,15 +721,17 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Real-time focus detection: check which editor currently has focus
         var focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
         // Check if the right editor has focus
-        if (filePanels[RIGHT] != null && focusOwner == filePanels[RIGHT].getEditor()) {
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (rightPanel != null && focusOwner == rightPanel.getEditor()) {
             if (rightSearchBar != null) {
                 rightSearchBar.focusSearchField();
                 return;
             }
         }
-        
+
         // Check if the left editor has focus
-        if (filePanels[LEFT] != null && focusOwner == filePanels[LEFT].getEditor()) {
+        var leftPanel = getFilePanel(PanelSide.LEFT);
+        if (leftPanel != null && focusOwner == leftPanel.getEditor()) {
             if (leftSearchBar != null) {
                 leftSearchBar.focusSearchField();
                 return;
