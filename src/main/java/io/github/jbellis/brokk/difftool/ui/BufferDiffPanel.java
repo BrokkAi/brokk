@@ -15,6 +15,8 @@ import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.*;
+import java.awt.KeyboardFocusManager;
+import java.awt.Component;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -22,6 +24,8 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
@@ -197,6 +201,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         mainPanel.updateUndoRedoButtons();
         // Apply initial theme for syntax highlighting (but not diff highlights yet)
         applyTheme(guiTheme);
+        
+        // Register keyboard shortcuts for search functionality
+        registerSearchKeyBindings();
     }
 
 
@@ -320,7 +327,15 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     void setSelectedPanel(FilePanel fp)
     {
         var oldIndex = filePanelSelectedIndex;
-        var newIndex = Arrays.asList(filePanels).indexOf(fp);
+        int newIndex = -1;
+        
+        // Directly check which panel is being selected
+        if (fp == filePanels[LEFT]) {
+            newIndex = LEFT;
+        } else if (fp == filePanels[RIGHT]) {
+            newIndex = RIGHT;
+        }
+        
         if (newIndex != oldIndex) {
             filePanelSelectedIndex = newIndex;
         }
@@ -587,6 +602,65 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (patch != null && !patch.getDeltas().isEmpty()) {
             setSelectedDelta(patch.getDeltas().getLast());
             showSelectedDelta();
+        }
+    }
+
+    /**
+     * Registers keyboard shortcuts for search functionality.
+     * Cmd+F (or Ctrl+F) focuses the search field in the active panel.
+     * Esc clears search highlights and returns focus to the editor.
+     */
+    private void registerSearchKeyBindings() {
+        // Cmd+F / Ctrl+F focuses the search field using utility method
+        KeyboardShortcutUtil.registerSearchFocusShortcut(this, this::focusActiveSearchField);
+
+        // Register Esc key for both search bars to clear highlights
+        // Note: We only register Esc, not Cmd+F, to avoid conflicts with our custom handler
+        if (leftSearchBar != null) {
+            KeyboardShortcutUtil.registerSearchEscapeShortcut(leftSearchBar.getSearchField(), () -> {
+                leftSearchBar.clearHighlights();
+                if (filePanels[LEFT] != null) {
+                    filePanels[LEFT].getEditor().requestFocusInWindow();
+                }
+            });
+        }
+        if (rightSearchBar != null) {
+            KeyboardShortcutUtil.registerSearchEscapeShortcut(rightSearchBar.getSearchField(), () -> {
+                rightSearchBar.clearHighlights();
+                if (filePanels[RIGHT] != null) {
+                    filePanels[RIGHT].getEditor().requestFocusInWindow();
+                }
+            });
+        }
+    }
+
+    /**
+     * Focuses the search field corresponding to the currently active file panel.
+     * Uses real-time focus detection to determine which search bar to focus.
+     */
+    private void focusActiveSearchField() {
+        // Real-time focus detection: check which editor currently has focus
+        Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+        
+        // Check if the right editor has focus
+        if (filePanels[RIGHT] != null && focusOwner == filePanels[RIGHT].getEditor()) {
+            if (rightSearchBar != null) {
+                rightSearchBar.focusSearchField();
+                return;
+            }
+        }
+        
+        // Check if the left editor has focus  
+        if (filePanels[LEFT] != null && focusOwner == filePanels[LEFT].getEditor()) {
+            if (leftSearchBar != null) {
+                leftSearchBar.focusSearchField();
+                return;
+            }
+        }
+        
+        // Default to left search bar if we can't determine focus or no editor has focus
+        if (leftSearchBar != null) {
+            leftSearchBar.focusSearchField();
         }
     }
 }
