@@ -1,11 +1,15 @@
 package io.github.jbellis.brokk.gui.search;
 
-import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.util.List;
+import java.util.ArrayList;
+import java.util.function.Consumer;
+import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 /**
@@ -24,9 +28,9 @@ public class GenericSearchBar extends JPanel {
     // Performance optimization: debouncing
     private Timer searchTimer;
     private static final int SEARCH_DELAY_MS = 300; // 300ms delay for debouncing
-    
+
     // Case sensitive listeners
-    private final java.util.List<java.util.function.Consumer<Boolean>> caseSensitiveListeners = new java.util.ArrayList<>();
+    private final List<Consumer<Boolean>> caseSensitiveListeners = new ArrayList<>();
 
     public GenericSearchBar(SearchableComponent targetComponent) {
         super(new FlowLayout(FlowLayout.LEFT, 8, 0));
@@ -92,7 +96,7 @@ public class GenericSearchBar extends JPanel {
                 searchTimer.restart();
 
                 // Provide immediate feedback for empty search
-                String query = searchField.getText();
+                var query = searchField.getText();
                 if (query == null || query.trim().isEmpty()) {
                     updateMatchCount(0, 0);
                 }
@@ -152,7 +156,7 @@ public class GenericSearchBar extends JPanel {
      * Focuses the search field and optionally populates it with selected text.
      */
     public void focusSearchField() {
-        String selected = targetComponent.getSelectedText();
+        var selected = targetComponent.getSelectedText();
         if (selected != null && !selected.isEmpty()) {
             searchField.setText(selected);
         }
@@ -160,7 +164,7 @@ public class GenericSearchBar extends JPanel {
         searchField.requestFocusInWindow();
 
         // If there's text in the search field, re-highlight matches
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query != null && !query.trim().isEmpty()) {
             int originalCaretPosition = targetComponent.getCaretPosition();
             updateSearchHighlights();
@@ -180,7 +184,7 @@ public class GenericSearchBar extends JPanel {
      *
      */
     private void updateSearchHighlights() {
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             clearHighlights();
             updateMatchCount(0, 0);
@@ -218,12 +222,12 @@ public class GenericSearchBar extends JPanel {
      * @param forward true = next match; false = previous match
      */
     private void findMatch(boolean forward) {
-        String query = searchField.getText();
+        var query = searchField.getText();
         if (query == null || query.trim().isEmpty()) {
             return;
         }
 
-        boolean found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
+        var found = targetComponent.findNext(query, caseSensitiveButton.isSelected(), forward);
         if (found) {
             targetComponent.centerCaretInView();
             // The callback will handle updating the match count
@@ -274,14 +278,14 @@ public class GenericSearchBar extends JPanel {
     /**
      * Adds a listener that will be notified when the case-sensitive button is toggled.
      */
-    public void addCaseSensitiveListener(java.util.function.Consumer<Boolean> listener) {
+    public void addCaseSensitiveListener(Consumer<Boolean> listener) {
         caseSensitiveListeners.add(listener);
     }
 
     /**
      * Removes a case-sensitive listener.
      */
-    public void removeCaseSensitiveListener(java.util.function.Consumer<Boolean> listener) {
+    public void removeCaseSensitiveListener(Consumer<Boolean> listener) {
         caseSensitiveListeners.remove(listener);
     }
 

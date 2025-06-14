@@ -442,13 +442,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Voice input button setup, passing the Future for file-specific symbols
-        VoiceInputButton micButton = new VoiceInputButton(
-                editArea,
-                contextManager,
-                () -> { /* no action on record start */ },
-                symbolsFuture, error -> { /* no special error handling */ }
-                // Pass the Future<Set<String>>
-        );
+        VoiceInputButton micButton = new VoiceInputButton(editArea,
+                                                                  contextManager,
+                                                                  () -> { /* no action on record start */ },
+                                                                  symbolsFuture, error -> { /* no special error handling */ });
 
         // infoLabel at row=0
         gbc.gridx = 1;
