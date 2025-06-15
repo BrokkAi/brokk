@@ -189,8 +189,9 @@ public class WorkspacePanel extends JPanel {
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
             
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
-            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+            if (!panel.workspaceCurrentlyEditable) {
                 dropAction.setEnabled(false);
+                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
             
@@ -222,8 +223,9 @@ public class WorkspacePanel extends JPanel {
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
             
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
-            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+            if (!panel.workspaceCurrentlyEditable) {
                 dropAction.setEnabled(false);
+                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
             
@@ -553,6 +555,9 @@ public class WorkspacePanel extends JPanel {
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
 
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
+    private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
+
     /**
      * Primary constructor allowing menu-mode selection
      */
@@ -864,6 +869,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(dropAllMenuItem);
 
         JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
+        copyAllMenuItem.setActionCommand(COPY_ALL_ACTION_CMD);
         copyAllMenuItem.addActionListener(e -> {
             performContextActionAsync(ContextAction.COPY, List.of());
         });
@@ -1857,6 +1863,27 @@ public class WorkspacePanel extends JPanel {
             if (contextTable != null) {
                 contextTable.repaint();
             }
+            refreshMenuState();
         });
+    }
+
+    private void refreshMenuState() {
+        if (tablePopupMenu == null) {
+            return;
+        }
+        var editable = workspaceCurrentlyEditable;
+        for (var component : tablePopupMenu.getComponents()) {
+            if (component instanceof JMenuItem mi) {
+                // "Copy All" is always enabled.
+                // Other JMenuItems (including JMenu "Add") are enabled based on workspace editability.
+                boolean copyAll = COPY_ALL_ACTION_CMD.equals(mi.getActionCommand());
+                mi.setEnabled(editable || copyAll);
+                if (copyAll || editable) {
+                    mi.setToolTipText(null);
+                } else {
+                    mi.setToolTipText(READ_ONLY_TIP);
+                }
+            }
+        }
     }
 }
