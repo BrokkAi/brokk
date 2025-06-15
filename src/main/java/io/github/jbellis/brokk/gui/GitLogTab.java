@@ -998,38 +998,26 @@ public class GitLogTab extends JPanel {
 
     /**
      * Returns the file path from a node in the "Changes" tree.
-     * If the node is a child of the root, it's treated as a directory node,
-     * else it is considered a file node with parent = directory node.
+     * Builds the path by joining all components from root to the selected node, excluding the synthetic root.
      */
     private String getFilePathFromTreePath(TreePath path)
     {
         if (path == null) {
             return "";
         }
-        // The node for the path component
-        DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-        // If it's the root (changesRootNode) or no parent, there's no valid file path
-        if (node == changesRootNode || node.getParent() == null) {
-            return "";
+        var components = new ArrayList<String>();
+        for (var o : path.getPath()) {
+            var n = (DefaultMutableTreeNode) o;
+            if (n == changesRootNode) {
+                continue; // Skip synthetic root label
+            }
+            components.add(n.getUserObject().toString());
         }
-
-        // If the parent is the root node, then 'node' is a top-level directory
-        if (node.getParent() == changesRootNode) {
-            // Node itself is probably a directory name; not a file
-            return node.getUserObject().toString();
-        }
-
-        // Otherwise, node is a file; parent is a directory node
-        DefaultMutableTreeNode parentNode = (DefaultMutableTreeNode) node.getParent();
-        String dirPath = parentNode.getUserObject().toString();
-        String fileName = node.getUserObject().toString();
-
-        return dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
+        return String.join("/", components);
     }
 
     /**
-     * Returns true if the last component of this path is a file node (i.e.,
-     * its parent is not the root).
+     * Returns true if the last component of this path is a file node (i.e., it is a leaf node).
      */
     private boolean isFileNode(TreePath path)
     {
@@ -1037,7 +1025,7 @@ public class GitLogTab extends JPanel {
             return false;
         }
         var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-        return (node.getParent() != null && node.getParent() != changesRootNode);
+        return node.isLeaf();
     }
 
     /**
@@ -1806,13 +1794,7 @@ public class GitLogTab extends JPanel {
      * Check if any file nodes (as opposed to directory nodes) are selected.
      */
     private boolean hasFileNodesSelected(TreePath[] paths) {
-        for (TreePath path : paths) {
-            DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            if (node != changesRootNode && node.getParent() != null && node.getParent() != changesRootNode) {
-                return true;
-            }
-        }
-        return false;
+        return paths != null && Arrays.stream(paths).anyMatch(this::isFileNode);
     }
 
     /**
