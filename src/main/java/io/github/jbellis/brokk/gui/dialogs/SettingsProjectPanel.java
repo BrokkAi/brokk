@@ -522,8 +522,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         buildPanel.add(bannerPanel, gbc);
         gbc.gridwidth = 1; // Reset gridwidth
-        // Check if banner should be shown
-        showBuildBanner();
 
         buildCleanCommandField = new JTextField();
         allTestsCommandField = new JTextField();
