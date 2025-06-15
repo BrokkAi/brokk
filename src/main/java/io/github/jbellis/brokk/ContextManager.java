@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -1598,6 +1599,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
+
+            SwingUtilities.invokeLater(() -> {
+                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
+                dlg.getProjectPanel().showBuildBanner();
+            });
+
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
         });

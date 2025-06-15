@@ -173,7 +173,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         setSize(previousSize);
     }
 
-    public static void showSettingsDialog(Chrome chrome, String targetTabName) {
+    public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
         if (targetTabName != null) {
@@ -233,6 +233,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         }
         dialog.setVisible(true);
+        return dialog;
     }
 
     public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {
@@ -299,5 +300,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.setVisible(true);
 
         return dialogResult[0];
+    }
+
+    public SettingsProjectPanel getProjectPanel() {
+        return projectSettingsPanel;
     }
 }
