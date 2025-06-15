@@ -42,6 +42,23 @@ public final class IncrementalBlockRenderer {
     // The root panel that will contain all our content blocks
     private final JPanel root;
     private final boolean isDarkTheme;
+
+    // -----------------------------------------------------------------
+    //  Render-finished listener
+    // -----------------------------------------------------------------
+    /** Callback fired on EDT after each successful rendering pass. */
+    public interface RenderListener { void onRenderFinished(); }
+
+    private volatile RenderListener renderListener = null;
+
+    /**
+     * Register (or clear) a listener that will be invoked exactly once
+     * for every completed rendering pass.  Passing {@code null} removes
+     * any previously registered listener.
+     */
+    public void setRenderListener(RenderListener listener) {
+        this.renderListener = listener;
+    }
     
     // Flexmark parser components
     private final Parser parser;
@@ -267,6 +284,15 @@ public final class IncrementalBlockRenderer {
         Reconciler.reconcile(root, components, registry, isDarkTheme);
         // After components are (re)built update marker index
         rebuildMarkerIndex();
+
+        // Notify listener that rendering has finished
+        if (renderListener != null) {
+            try {
+                renderListener.onRenderFinished();
+            } catch (Exception e) {
+                logger.warn("RenderListener threw exception", e);
+            }
+        }
     }
 
     public String createHtml(CharSequence md) {
@@ -576,6 +602,15 @@ public final class IncrementalBlockRenderer {
             }
             comp.revalidate();
             comp.repaint();
+
+            // Signal that this render pass (including marker-style changes) is finished
+            if (renderListener != null) {
+                try {
+                    renderListener.onRenderFinished();
+                } catch (Exception e) {
+                    logger.warn("RenderListener threw exception during updateMarkerStyle", e);
+                }
+            }
         } else {
         }
     }

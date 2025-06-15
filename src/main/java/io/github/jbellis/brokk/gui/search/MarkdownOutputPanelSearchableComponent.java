@@ -18,10 +18,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -171,6 +171,8 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         this.currentSearchTerm = finalSearchTerm;
         this.currentCaseSensitive = caseSensitive;
 
+        // No render listener needed for initial scroll - we'll handle it in handleSearchComplete
+
         // Provide immediate feedback that search is starting
         notifySearchStart(finalSearchTerm);
         this.previousMatch = null;
@@ -204,6 +206,8 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                     handleSearchComplete(); // All Markdown highlighting done, now consolidate
                 }
             };
+
+            // No render listener needed for initial scroll
 
             try {
                 panel.setHtmlCustomizerWithCallback(searchCustomizer, processMarkdownSearchResults);
@@ -287,6 +291,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         
         collectMatchesInVisualOrder(); // Populates and sorts allMatches
         
+        
         // Print detailed block and hit information
         printSearchResults();
 
@@ -295,8 +300,12 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
 
         if (!allMatches.isEmpty()) {
             updateCurrentMatchHighlighting();
-            // Ensure scroll happens after highlighting is complete
-            SwingUtilities.invokeLater(() -> scrollToCurrentMatch());
+            // Scroll to first match after a short delay to ensure rendering is complete
+            SwingUtilities.invokeLater(() -> {
+                Match firstMatch = allMatches.get(0);
+                System.out.println("INITIAL SCROLL: First match is " + firstMatch.type() + " at [P:" + firstMatch.panelIndex() + ",R:" + firstMatch.rendererIndex() + ",C:" + firstMatch.componentVisualOrderInRenderer() + ",S:" + firstMatch.subComponentIndex() + "] bounds=" + firstMatch.actualUiComponent().getBounds());
+                scrollToCurrentMatch();
+            });
         }
 
         var callback = getSearchCompleteCallback();
@@ -412,6 +421,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
             logger.warn("Cannot scroll to match, actualUiComponent is not a JComponent: {}", match.actualUiComponent());
         }
     }
+    
 
     private void scrollToComponent(JComponent compToScroll) {
         if (compToScroll == null) {
@@ -471,7 +481,8 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
             JViewport viewport = scrollPane.getViewport();
             Rectangle viewRect = viewport.getViewRect();
 
-            int desiredY = Math.max(0, bounds.y - (int) (viewRect.height * SCROLL_POSITION_RATIO));
+            // Scroll to put the component at the top of the viewport
+            int desiredY = Math.max(0, bounds.y);
             Component view = viewport.getView();
             int maxY = Math.max(0, view.getHeight() - viewRect.height);
             desiredY = Math.min(desiredY, maxY);
@@ -568,12 +579,10 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                         for (JEditorPane nestedEditor : nestedEditors) {
                             for (int markerId : renderer.getIndexedMarkerIds()) {
                                 Component foundComponent = renderer.findByMarkerId(markerId).orElse(null);
-                                System.out.println("DEBUG MARKDOWN: Checking markerId=" + markerId + ", foundComponent=" + (foundComponent != null ? foundComponent.getClass().getSimpleName() : "null") + ", matches=" + (foundComponent == nestedEditor));
                                 if (foundComponent == nestedEditor) {
                                     // For nested markdown, calculate both the component position and sub-position
                                     int correctComponentOrder = findCorrectComponentOrder(nestedEditor, componentsInRenderer);
                                     int visualSubPosition = calculateVisualPosition(nestedEditor, rendererRoot);
-                                    System.out.println("DEBUG MARKDOWN: Adding match for markerId=" + markerId + " at position C:" + correctComponentOrder + ",S:" + visualSubPosition);
                                     tempMatches.add(new Match(Match.Type.MARKDOWN, nestedEditor, panelIdx, rendererIdx, correctComponentOrder, visualSubPosition, markerId, null, -1, -1));
                                 }
                             }
@@ -614,22 +623,8 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 }
             }
         }
-        // Debug: Print matches before sorting
-        System.out.println("DEBUG BEFORE SORT: " + tempMatches.size() + " total matches");
-        long markdownCount = tempMatches.stream().filter(m -> m.type() == Match.Type.MARKDOWN).count();
-        long codeCount = tempMatches.stream().filter(m -> m.type() == Match.Type.CODE).count();
-        System.out.println("DEBUG BEFORE SORT: " + markdownCount + " markdown, " + codeCount + " code matches");
-        
         Collections.sort(tempMatches); // Sort using Match.compareTo
         allMatches.addAll(tempMatches);
-        
-        // Debug: Print first 20 matches in sorted order to see the full pattern
-        System.out.println("DEBUG AFTER SORT: First 20 matches in sorted order:");
-        for (int i = 0; i < Math.min(20, tempMatches.size()); i++) {
-            Match m = tempMatches.get(i);
-            String matchInfo = (m.type() == Match.Type.MARKDOWN) ? "markerId=" + m.markerId() : "offset=" + m.startOffset() + "-" + m.endOffset();
-            System.out.println("  " + (i+1) + ": " + m.type() + " at [P:" + m.panelIndex() + ",R:" + m.rendererIndex() + ",C:" + m.componentVisualOrderInRenderer() + ",S:" + m.subComponentIndex() + "] " + matchInfo);
-        }
     }
 
 
@@ -693,11 +688,9 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 }
             }
             
-            System.out.println("DEBUG VISUAL: EditorPane at Y=" + editorY + ", precedingTextAreas=" + precedingTextAreas);
             return precedingTextAreas;
         } catch (Exception e) {
             // If coordinate conversion fails, fallback to position 0
-            System.out.println("DEBUG VISUAL: Exception in calculateVisualPosition: " + e.getMessage() + ", using fallback position 0");
             return 0;
         }
     }
