@@ -1261,6 +1261,14 @@ public class GitWorktreeTab extends JPanel {
                     try {
                         parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
                         chrome.systemOutput("Worktree " + worktreePath.getFileName() + " removed.");
+
+                        // After successfully removing the worktree, close any associated Brokk window.
+                        SwingUtilities.invokeLater(() -> {
+                            var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
+                            assert windowToClose != null;
+                            var closeEvent = new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING);
+                            windowToClose.getFrame().dispatchEvent(closeEvent);
+                        });
                     } catch (GitAPIException e) {
                         String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName() + " during merge cleanup: " + e.getMessage();
                         logger.error(wtDeleteError, e);
