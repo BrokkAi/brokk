@@ -46,7 +46,6 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     private int currentMatchIndex = -1;
     private Match previousMatch = null;
     private final List<RTextAreaSearchableComponent> codeSearchComponents = new ArrayList<>();
-    private boolean isInitialSearch = true;
 
     private record Match(
         Type type,
@@ -94,13 +93,14 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
             int subComponentCmp = Integer.compare(this.subComponentIndex, other.subComponentIndex);
             if (subComponentCmp != 0) return subComponentCmp;
 
-            // Finally, within the same component, order by position
+            // Finally, within the same exact position, order by content position
             if (this.type == Type.MARKDOWN && other.type == Type.MARKDOWN) {
                 return Integer.compare(this.markerId, other.markerId);
             } else if (this.type == Type.CODE && other.type == Type.CODE) {
                 return Integer.compare(this.startOffset, other.startOffset);
             } else {
-                return this.type.compareTo(other.type); // MD before Code if types differ
+                // When types differ at same position, use type ordering as final tiebreaker
+                return this.type.compareTo(other.type);
             }
         }
     }
@@ -170,7 +170,6 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         final String finalSearchTerm = searchText.trim();
         this.currentSearchTerm = finalSearchTerm;
         this.currentCaseSensitive = caseSensitive;
-        this.isInitialSearch = true; // Mark this as a new search
 
         // Provide immediate feedback that search is starting
         notifySearchStart(finalSearchTerm);
@@ -261,9 +260,9 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
         var direction = forward ? 1 : -1;
         currentMatchIndex = Math.floorMod(currentMatchIndex + direction, allMatches.size());
 
-        isInitialSearch = false; // Clear the initial search flag when navigating
         updateCurrentMatchHighlighting();
-        scrollToCurrentMatch();
+        // Ensure scroll happens after highlighting is complete
+        SwingUtilities.invokeLater(() -> scrollToCurrentMatch());
 
         var callback = getSearchCompleteCallback();
         if (callback != null) {
@@ -296,7 +295,8 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
 
         if (!allMatches.isEmpty()) {
             updateCurrentMatchHighlighting();
-            scrollToCurrentMatch();
+            // Ensure scroll happens after highlighting is complete
+            SwingUtilities.invokeLater(() -> scrollToCurrentMatch());
         }
 
         var callback = getSearchCompleteCallback();
@@ -362,11 +362,6 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
             updateMarkdownMarkerStyle(currentMatch.markerId(), true);
         } else if (currentMatch.type() == Match.Type.CODE && currentMatch.codeSearchable() != null) {
             if (currentMatch.actualUiComponent() instanceof RSyntaxTextArea ta) {
-                // Skip complex highlighting on initial search to prevent focus stealing
-                if (isInitialSearch) {
-                    return;
-                }
-                
                 // For code matches, we need to highlight the current match differently
                 // First, re-apply all highlights with SEARCH painter
                 var highlighter = ta.getHighlighter();
@@ -572,8 +567,14 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                         List<JEditorPane> nestedEditors = ComponentUtils.findComponentsOfType(container, JEditorPane.class);
                         for (JEditorPane nestedEditor : nestedEditors) {
                             for (int markerId : renderer.getIndexedMarkerIds()) {
-                                if (renderer.findByMarkerId(markerId).orElse(null) == nestedEditor) {
-                                    tempMatches.add(new Match(markerId, nestedEditor, panelIdx, rendererIdx, compVisOrder));
+                                Component foundComponent = renderer.findByMarkerId(markerId).orElse(null);
+                                System.out.println("DEBUG MARKDOWN: Checking markerId=" + markerId + ", foundComponent=" + (foundComponent != null ? foundComponent.getClass().getSimpleName() : "null") + ", matches=" + (foundComponent == nestedEditor));
+                                if (foundComponent == nestedEditor) {
+                                    // For nested markdown, calculate both the component position and sub-position
+                                    int correctComponentOrder = findCorrectComponentOrder(nestedEditor, componentsInRenderer);
+                                    int visualSubPosition = calculateVisualPosition(nestedEditor, rendererRoot);
+                                    System.out.println("DEBUG MARKDOWN: Adding match for markerId=" + markerId + " at position C:" + correctComponentOrder + ",S:" + visualSubPosition);
+                                    tempMatches.add(new Match(Match.Type.MARKDOWN, nestedEditor, panelIdx, rendererIdx, correctComponentOrder, visualSubPosition, markerId, null, -1, -1));
                                 }
                             }
                         }
@@ -586,27 +587,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 // Group text areas by their parent component position
                 Map<Integer, List<RSyntaxTextArea>> textAreasByPosition = new HashMap<>();
                 for (RSyntaxTextArea textArea : textAreas) {
-                    // Find the visual order of this text area's parent component
-                    Component parent = textArea.getParent();
-                    while (parent != null && parent.getParent() != rendererRoot) {
-                        parent = parent.getParent();
-                    }
-                    
-                    int compVisOrder = -1;
-                    if (parent != null) {
-                        for (int i = 0; i < componentsInRenderer.length; i++) {
-                            if (componentsInRenderer[i] == parent) {
-                                compVisOrder = i;
-                                break;
-                            }
-                        }
-                    }
-                    
-                    if (compVisOrder == -1) {
-                        // If we can't find the parent in the direct children, use a default order
-                        compVisOrder = componentsInRenderer.length;
-                    }
-                    
+                    int compVisOrder = findComponentVisualOrder(textArea, componentsInRenderer);
                     textAreasByPosition.computeIfAbsent(compVisOrder, k -> new ArrayList<>()).add(textArea);
                 }
                 
@@ -633,13 +614,92 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 }
             }
         }
+        // Debug: Print matches before sorting
+        System.out.println("DEBUG BEFORE SORT: " + tempMatches.size() + " total matches");
+        long markdownCount = tempMatches.stream().filter(m -> m.type() == Match.Type.MARKDOWN).count();
+        long codeCount = tempMatches.stream().filter(m -> m.type() == Match.Type.CODE).count();
+        System.out.println("DEBUG BEFORE SORT: " + markdownCount + " markdown, " + codeCount + " code matches");
+        
         Collections.sort(tempMatches); // Sort using Match.compareTo
         allMatches.addAll(tempMatches);
+        
+        // Debug: Print first 20 matches in sorted order to see the full pattern
+        System.out.println("DEBUG AFTER SORT: First 20 matches in sorted order:");
+        for (int i = 0; i < Math.min(20, tempMatches.size()); i++) {
+            Match m = tempMatches.get(i);
+            String matchInfo = (m.type() == Match.Type.MARKDOWN) ? "markerId=" + m.markerId() : "offset=" + m.startOffset() + "-" + m.endOffset();
+            System.out.println("  " + (i+1) + ": " + m.type() + " at [P:" + m.panelIndex() + ",R:" + m.rendererIndex() + ",C:" + m.componentVisualOrderInRenderer() + ",S:" + m.subComponentIndex() + "] " + matchInfo);
+        }
     }
 
 
     private boolean canNavigate() {
         return !allMatches.isEmpty() && currentMatchIndex >= 0;
+    }
+    
+    private int findComponentVisualOrder(RSyntaxTextArea textArea, Component[] componentsInRenderer) {
+        // Try to find which direct child component contains this text area
+        for (int i = 0; i < componentsInRenderer.length; i++) {
+            Component directChild = componentsInRenderer[i];
+            if (isComponentContainedIn(textArea, directChild)) {
+                return i;
+            }
+        }
+        // If not found in any direct child, place at the end
+        return componentsInRenderer.length;
+    }
+    
+    private boolean isComponentContainedIn(Component target, Component container) {
+        if (target == container) {
+            return true;
+        }
+        if (container instanceof Container cont) {
+            for (Component child : cont.getComponents()) {
+                if (isComponentContainedIn(target, child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    private int findCorrectComponentOrder(JEditorPane editorPane, Component[] componentsInRenderer) {
+        // Find which top-level component contains this editor pane
+        for (int i = 0; i < componentsInRenderer.length; i++) {
+            Component topLevelComponent = componentsInRenderer[i];
+            if (isComponentContainedIn(editorPane, topLevelComponent)) {
+                return i;
+            }
+        }
+        // If not found, return a position at the end
+        return componentsInRenderer.length;
+    }
+    
+    private int calculateVisualPosition(JEditorPane editorPane, JComponent rendererRoot) {
+        try {
+            // Get all RSyntaxTextArea components in the renderer to compare positions
+            List<RSyntaxTextArea> allTextAreas = ComponentUtils.findComponentsOfType(rendererRoot, RSyntaxTextArea.class);
+            
+            // Get the Y position of the editor pane
+            Rectangle editorBounds = SwingUtilities.convertRectangle(editorPane.getParent(), editorPane.getBounds(), rendererRoot);
+            int editorY = editorBounds.y;
+            
+            // Count how many text areas have Y positions before this editor pane
+            int precedingTextAreas = 0;
+            for (RSyntaxTextArea textArea : allTextAreas) {
+                Rectangle textAreaBounds = SwingUtilities.convertRectangle(textArea.getParent(), textArea.getBounds(), rendererRoot);
+                if (textAreaBounds.y < editorY) {
+                    precedingTextAreas++;
+                }
+            }
+            
+            System.out.println("DEBUG VISUAL: EditorPane at Y=" + editorY + ", precedingTextAreas=" + precedingTextAreas);
+            return precedingTextAreas;
+        } catch (Exception e) {
+            // If coordinate conversion fails, fallback to position 0
+            System.out.println("DEBUG VISUAL: Exception in calculateVisualPosition: " + e.getMessage() + ", using fallback position 0");
+            return 0;
+        }
     }
 
     @Override
