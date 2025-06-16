@@ -956,13 +956,10 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private boolean hasFileNodesSelected(TreePath[] paths) {
-        if (paths == null) return false;
-        for (var path : paths) {
-            if (TreeNodeInfo.fromPath(path, changesRootNode).isFile()) {
-                return true;
-            }
-        }
-        return false;
+        return paths != null &&
+               Arrays.stream(paths)
+                     .map(p -> TreeNodeInfo.fromPath(p, changesRootNode))
+                     .anyMatch(TreeNodeInfo::isFile);
     }
 
     private List<String> getSelectedFilePathsFromTree() {
@@ -983,34 +980,22 @@ public class GitCommitBrowserPanel extends JPanel {
                 return new TreeNodeInfo(null, rootNode, false, null);
             }
             var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            boolean isFileResult = false;
-            String calculatedFilePath = null;
 
-            if (node == rootNode || node.getParent() == null) {
-                // Node is root, or has no parent (should not happen for valid tree paths other than root)
-                // isFileResult remains false, calculatedFilePath remains null
-            } else {
-                // Node is not the root and has a parent.
-                boolean parentIsRoot = (node.getParent() == rootNode);
-                isFileResult = !parentIsRoot; // A node is a file IFF its parent is NOT the root.
+            // A node is a file if (and only if) it is a leaf and not the synthetic root
+            boolean isFileResult = node != rootNode && node.isLeaf();
 
-                if (isFileResult) {
-                    // This node is a file (its parent is not the root).
-                    // The parent node is a directory node.
-                    var fileName = node.getUserObject().toString();
-                    var parentNode = (DefaultMutableTreeNode) node.getParent();
-                    var dirPath = parentNode.getUserObject().toString();
-                    calculatedFilePath = dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
-                } else {
-                    // This node is NOT a file by the new definition because its parent IS the root.
-                    // It's a top-level directory or a root-level file (now treated as non-file).
-                    // The path is just its own name.
-                    calculatedFilePath = node.getUserObject().toString();
-                }
+            // Build the full path by concatenating every component except the synthetic root label
+            var components = new ArrayList<String>();
+            for (var o : path.getPath()) {
+                var n = (DefaultMutableTreeNode) o;
+                if (n == rootNode) continue;  // skip synthetic root
+                components.add(n.getUserObject().toString());
             }
+            String calculatedFilePath = String.join("/", components);
+
             return new TreeNodeInfo(node, rootNode, isFileResult, calculatedFilePath);
         }
-    }
+    }   // <-- close TreeNodeInfo record
 
     public void selectCommitById(String commitId) {
         SwingUtil.runOnEdt(() -> {
