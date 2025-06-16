@@ -4,7 +4,12 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import javax.swing.*;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,26 +42,30 @@ public class MarkdownSearchableComponentBasicTest {
     }
 
     @Test
-    void testCallbackNotification() {
-        var callbackCalled = new boolean[]{false};
-        var totalMatches = new int[]{0};
-        var currentMatch = new int[]{0};
+    void testCallbackNotification() throws Exception {
+        searchComponent = new MarkdownSearchableComponent(List.of(panel1));
+
+        CountDownLatch searchComplete = new CountDownLatch(1);
+        AtomicBoolean callbackCalled = new AtomicBoolean(false);
+        AtomicInteger totalMatches = new AtomicInteger(-1);
+        AtomicInteger currentMatch = new AtomicInteger(-1);
 
         SearchableComponent.SearchCompleteCallback callback = (total, current) -> {
-            callbackCalled[0] = true;
-            totalMatches[0] = total;
-            currentMatch[0] = current;
+            callbackCalled.set(true);
+            totalMatches.set(total);
+            currentMatch.set(current);
+            searchComplete.countDown();
         };
 
-        searchComponent = new MarkdownSearchableComponent(List.of(panel1));
         searchComponent.setSearchCompleteCallback(callback);
 
-        // Trigger a search
-        searchComponent.highlightAll("test", false);
+        // Trigger a search asynchronously
+        SwingUtilities.invokeLater(() -> searchComponent.highlightAll("test", false));
 
-        // Callback should be called (though with 0 matches due to empty panels)
-        assertTrue(callbackCalled[0]);
-        assertEquals(0, totalMatches[0]);
-        assertEquals(0, currentMatch[0]);
+        // Wait for callback
+        assertTrue(searchComplete.await(3, TimeUnit.SECONDS), "Callback should be called within timeout");
+        assertTrue(callbackCalled.get(), "Callback should be called");
+        assertEquals(0, totalMatches.get(), "Should have 0 matches for empty panels");
+        assertEquals(0, currentMatch.get(), "Should have current match index 0 for no matches");
     }
 }

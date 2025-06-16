@@ -6,65 +6,117 @@ import java.awt.Component;
  * Represents a search match within a MarkdownOutputPanel structure.
  * Contains positioning information for proper visual ordering of matches.
  */
-public record SearchMatch(
-    Type type,
-    Component actualUiComponent, // The JEditorPane or RSyntaxTextArea
-    int panelIndex,
-    int rendererIndex,
-    int componentVisualOrderInRenderer, // Index of actualUiComponent in renderer.getRoot().getComponents()
-    int subComponentIndex, // For distinguishing multiple components at same position
-    // For MARKDOWN:
-    int markerId,
-    // For CODE:
-    RTextAreaSearchableComponent codeSearchable,
-    int startOffset,
-    int endOffset
-) implements Comparable<SearchMatch> {
-    
-    public enum Type { MARKDOWN, CODE }
+public sealed interface SearchMatch extends Comparable<SearchMatch>
+    permits MarkdownSearchMatch, CodeSearchMatch {
 
-    // Markdown Match constructor
-    public SearchMatch(int markerId, Component actualUiComponent, int panelIndex, int rendererIndex, 
-          int componentVisualOrderInRenderer, int subComponentIndex) {
-        this(Type.MARKDOWN, actualUiComponent, panelIndex, rendererIndex, componentVisualOrderInRenderer, 
-             subComponentIndex, markerId, null, -1, -1);
-    }
+    /**
+     * Gets the actual UI component containing the match.
+     */
+    Component actualUiComponent();
 
-    // Code Match constructor
-    public SearchMatch(RTextAreaSearchableComponent codeSearchable, int startOffset, int endOffset, 
-          Component actualUiComponent, int panelIndex, int rendererIndex, 
-          int componentVisualOrderInRenderer, int subComponentIndex) {
-        this(Type.CODE, actualUiComponent, panelIndex, rendererIndex, componentVisualOrderInRenderer, 
-             subComponentIndex, -1, codeSearchable, startOffset, endOffset);
-    }
+    /**
+     * Gets the panel index for visual ordering.
+     */
+    int panelIndex();
 
+    /**
+     * Gets the renderer index within the panel.
+     */
+    int rendererIndex();
+
+    /**
+     * Gets the component's visual order within the renderer.
+     */
+    int componentVisualOrderInRenderer();
+
+    /**
+     * Default comparison implementation for visual ordering.
+     */
     @Override
-    public int compareTo(SearchMatch other) {
+    default int compareTo(SearchMatch other) {
         // First compare by panel
-        int panelCmp = Integer.compare(this.panelIndex, other.panelIndex);
+        int panelCmp = Integer.compare(this.panelIndex(), other.panelIndex());
         if (panelCmp != 0) return panelCmp;
 
         // Then by renderer
-        int rendererCmp = Integer.compare(this.rendererIndex, other.rendererIndex);
+        int rendererCmp = Integer.compare(this.rendererIndex(), other.rendererIndex());
         if (rendererCmp != 0) return rendererCmp;
 
         // Then by component position in renderer
-        int componentOrderCmp = Integer.compare(this.componentVisualOrderInRenderer, other.componentVisualOrderInRenderer);
+        int componentOrderCmp = Integer.compare(this.componentVisualOrderInRenderer(), other.componentVisualOrderInRenderer());
         if (componentOrderCmp != 0) return componentOrderCmp;
-        
-        // Then by sub-component index (for multiple components at same position)
-        int subComponentCmp = Integer.compare(this.subComponentIndex, other.subComponentIndex);
-        if (subComponentCmp != 0) return subComponentCmp;
+
+        // Handle sub-component ordering for code matches
+        if (this instanceof CodeSearchMatch thisCode && other instanceof CodeSearchMatch otherCode) {
+            int subComponentCmp = Integer.compare(thisCode.subComponentIndex(), otherCode.subComponentIndex());
+            if (subComponentCmp != 0) return subComponentCmp;
+        }
 
         // Finally, within the same exact position, order by content position
-        if (this.type == Type.MARKDOWN && other.type == Type.MARKDOWN) {
-            return Integer.compare(this.markerId, other.markerId);
-        } else if (this.type == Type.CODE && other.type == Type.CODE) {
-            return Integer.compare(this.startOffset, other.startOffset);
+        if (this instanceof MarkdownSearchMatch thisMarkdown && other instanceof MarkdownSearchMatch otherMarkdown) {
+            return Integer.compare(thisMarkdown.markerId(), otherMarkdown.markerId());
+        } else if (this instanceof CodeSearchMatch thisCode && other instanceof CodeSearchMatch otherCode) {
+            return Integer.compare(thisCode.startOffset(), otherCode.startOffset());
         } else {
-            // When types differ at same position and Y, we need additional context
-            // For now, maintain stable ordering without type preference
+            // When types differ at same position, maintain stable ordering without type preference
             return 0; // Consider them equal, maintain original order
         }
+    }
+}
+
+/**
+ * Represents a search match in markdown content.
+ */
+record MarkdownSearchMatch(
+    int markerId,
+    Component actualUiComponent,
+    int panelIndex,
+    int rendererIndex,
+    int componentVisualOrderInRenderer,
+    int subComponentIndex
+) implements SearchMatch {
+
+    /**
+     * Creates a markdown search match.
+     */
+    public MarkdownSearchMatch(int markerId, Component actualUiComponent, int panelIndex, int rendererIndex,
+                             int componentVisualOrderInRenderer, int subComponentIndex) {
+        this.markerId = markerId;
+        this.actualUiComponent = actualUiComponent;
+        this.panelIndex = panelIndex;
+        this.rendererIndex = rendererIndex;
+        this.componentVisualOrderInRenderer = componentVisualOrderInRenderer;
+        this.subComponentIndex = subComponentIndex;
+    }
+}
+
+/**
+ * Represents a search match in code content.
+ */
+record CodeSearchMatch(
+    RTextAreaSearchableComponent codeSearchable,
+    int startOffset,
+    int endOffset,
+    Component actualUiComponent,
+    int panelIndex,
+    int rendererIndex,
+    int componentVisualOrderInRenderer,
+    int subComponentIndex
+) implements SearchMatch {
+
+    /**
+     * Creates a code search match.
+     */
+    public CodeSearchMatch(RTextAreaSearchableComponent codeSearchable, int startOffset, int endOffset,
+                         Component actualUiComponent, int panelIndex, int rendererIndex,
+                         int componentVisualOrderInRenderer, int subComponentIndex) {
+        this.codeSearchable = codeSearchable;
+        this.startOffset = startOffset;
+        this.endOffset = endOffset;
+        this.actualUiComponent = actualUiComponent;
+        this.panelIndex = panelIndex;
+        this.rendererIndex = rendererIndex;
+        this.componentVisualOrderInRenderer = componentVisualOrderInRenderer;
+        this.subComponentIndex = subComponentIndex;
     }
 }

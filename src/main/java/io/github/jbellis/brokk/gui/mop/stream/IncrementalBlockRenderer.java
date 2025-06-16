@@ -43,9 +43,6 @@ public final class IncrementalBlockRenderer {
     private final JPanel root;
     private final boolean isDarkTheme;
 
-    // -----------------------------------------------------------------
-    //  Render-finished listener
-    // -----------------------------------------------------------------
     /** Callback fired on EDT after each successful rendering pass. */
     public interface RenderListener { void onRenderFinished(); }
 
