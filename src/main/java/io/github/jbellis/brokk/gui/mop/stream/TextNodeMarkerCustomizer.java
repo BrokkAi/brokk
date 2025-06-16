@@ -113,11 +113,12 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
         }
 
         // ------------------------------------------------------------------
-        // 2.  Add fresh highlights in a single traversal.
+        // 2.  Add fresh highlights in a single traversal with proper ordering
         // ------------------------------------------------------------------
         NodeTraversor.traverse(new Visitor(), root);
     }
 
+    
     private class Visitor implements NodeVisitor {
         @Override
         public void head(Node node, int depth) {
@@ -139,47 +140,15 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
             // Quick check if there's anything to highlight
             if (!pattern.matcher(text).find()) return; // nothing to highlight
             
-            // Create a new matcher for the actual highlighting process
+            // Find all matches in this text node
             Matcher m = pattern.matcher(text);
-            
-            List<Node> pieces = new ArrayList<>();
-            int last = 0;
+            List<MatchRange> ranges = new ArrayList<>();
             while (m.find()) {
-                int start = m.start(), end = m.end();
-                if (start > last) {
-                    pieces.add(new TextNode(text.substring(last, start)));
-                }
-                String match = text.substring(start, end);
-                
-                // Generate the marker ID for this match
-                int markerId = ID_GEN.getAndIncrement();
-                
-                // Use the provided wrappers
-                var snippetHtml  = wrapperStart + match + wrapperEnd;
-                var fragment = Jsoup.parseBodyFragment(snippetHtml).body().childNodes();
-                for (Node fragNode : fragment) {
-                    if (fragNode instanceof Element fragEl) {
-                        fragEl.attr(BROKK_MARKER_ATTR, "1");
-                        fragEl.attr(BROKK_ID_ATTR, Integer.toString(markerId));
-                    }
-                }
-                pieces.addAll(fragment);
-                last = end;
+                ranges.add(new MatchRange(m.start(), m.end()));
             }
-
-            if (last < text.length()) {
-                pieces.add(new TextNode(text.substring(last)));
-            }
-
-            Node ref = tn;
-            // insert each generated fragment AFTER the current node to avoid
-            // disturbing NodeTraversor's iteration order
-            for (Node n : pieces) {
-                ref.after(n);
-                ref = n;
-            }
-            // finally remove the original text node
-            tn.remove();
+            
+            // Apply all highlights to this text node at once
+            applyHighlightsToTextNode(tn, text, ranges);
         }
 
         /**
@@ -195,4 +164,60 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
             return false;
         }
     }
+    
+    private static class MatchRange {
+        final int start;
+        final int end;
+        
+        MatchRange(int start, int end) {
+            this.start = start;
+            this.end = end;
+        }
+    }
+    
+    /**
+     * Apply multiple highlights to a single text node.
+     * Ranges are already sorted by start position from the matcher.
+     */
+    private void applyHighlightsToTextNode(TextNode textNode, String text, List<MatchRange> ranges) {
+        List<Node> pieces = new ArrayList<>();
+        int lastEnd = 0;
+        
+        for (MatchRange range : ranges) {
+            // Add text before this match
+            if (range.start > lastEnd) {
+                pieces.add(new TextNode(text.substring(lastEnd, range.start)));
+            }
+            
+            // Add the highlighted match
+            String matchText = text.substring(range.start, range.end);
+            int markerId = ID_GEN.getAndIncrement();
+            
+            var snippetHtml = wrapperStart + matchText + wrapperEnd;
+            var fragment = Jsoup.parseBodyFragment(snippetHtml).body().childNodes();
+            for (Node fragNode : fragment) {
+                if (fragNode instanceof Element fragEl) {
+                    fragEl.attr(BROKK_MARKER_ATTR, "1");
+                    fragEl.attr(BROKK_ID_ATTR, Integer.toString(markerId));
+                }
+            }
+            pieces.addAll(fragment);
+            
+            lastEnd = range.end;
+        }
+        
+        // Add remaining text after the last match
+        if (lastEnd < text.length()) {
+            pieces.add(new TextNode(text.substring(lastEnd)));
+        }
+        
+        // Replace the original text node with all the pieces
+        Node ref = textNode;
+        for (Node n : pieces) {
+            ref.after(n);
+            ref = n;
+        }
+        textNode.remove();
+    }
+
 }
