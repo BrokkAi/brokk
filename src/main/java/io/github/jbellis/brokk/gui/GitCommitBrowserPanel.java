@@ -897,7 +897,16 @@ public class GitCommitBrowserPanel extends JPanel {
 
             boolean isStashView = "stashes".equals(activeBranchOrContextName); // boolean preferred by style guide
             boolean isSearchView = activeBranchOrContextName != null && activeBranchOrContextName.startsWith("Search:"); // boolean preferred by style guide
-            boolean isRemoteBranchView = activeBranchOrContextName != null && activeBranchOrContextName.contains("/"); // boolean preferred by style guide
+            boolean isRemoteBranchView;
+            try {
+                // A branch is remote only if it actually appears in the repo’s remote-branch list
+                isRemoteBranchView = activeBranchOrContextName != null
+                                     && getRepo().listRemoteBranches().contains(activeBranchOrContextName);
+            } catch (org.eclipse.jgit.api.errors.GitAPIException ex) {
+                logger.warn("Could not determine if '{}' is a remote branch. Assuming local. Error: {}",
+                            activeBranchOrContextName, ex.getMessage());
+                isRemoteBranchView = false;
+            }
 
             if (this.options.showPushPullButtons()) {
                 var pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
