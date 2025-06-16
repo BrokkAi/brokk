@@ -13,6 +13,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.function.BiFunction;
@@ -32,21 +33,25 @@ class DeepScanDialog {
     private static final String READ_ONLY = "Read-only";
 
     /**
-     * Triggers the Deep Scan agents (Context and Validation) in the background,
-     * waits for their results, and then shows a modal dialog for user selection.
+     * Triggers the Deep Scan agents (Context and Validation) in the background.
+     * The returned CompletableFuture completes when the analysis is finished,
+     * right before the results dialog is shown.
      * Handles errors and interruptions gracefully.
      *
      * @param chrome The main application window reference.
      * @param goal   The user's instruction/goal for the scan.
      */
-    public static void triggerDeepScan(Chrome chrome, String goal) {
+    public static CompletableFuture<Void> triggerDeepScan(Chrome chrome, String goal) {
+        var analysisDoneFuture = new CompletableFuture<Void>();
         var contextManager = chrome.getContextManager();
+
         if (goal.isBlank() || contextManager == null || contextManager.getProject() == null) {
-            chrome.toolError("Please enter instructions before running Deep Scan.");
-            return;
+            SwingUtilities.invokeLater(() -> chrome.toolError("Please enter instructions before running Deep Scan."));
+            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Goal is blank or context/project is unavailable."));
+            return analysisDoneFuture;
         }
 
-        chrome.systemOutput("Starting Deep Scan");
+        SwingUtilities.invokeLater(() -> chrome.systemOutput("Starting Deep Scan"));
 
         // ContextAgent
         Future<ContextAgent.RecommendationResult> contextFuture = contextManager.submitBackgroundTask("Deep Scan: ContextAgent", () -> {
@@ -90,10 +95,12 @@ class DeepScanDialog {
                 } catch (ExecutionException ee) {
                     if (ee.getCause() instanceof InterruptedException ie) {
                         throw ie;
-                    } else {
-                        chrome.toolError("Error during Deep Scan execution: " + ee.getCause().getMessage());
-                        return;
                     }
+                    // For other execution exceptions, log, notify user, and complete future exceptionally.
+                    logger.error("Error during Deep Scan agent execution", ee.getCause());
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error during Deep Scan execution: " + ee.getCause().getMessage()));
+                    analysisDoneFuture.completeExceptionally(ee.getCause());
+                    return; // Exit the task
                 }
 
                 var contextFragments = contextResult.fragments();
@@ -156,17 +163,29 @@ class DeepScanDialog {
                                 .orElseThrow();
                         fragmentFileMap.put(fragment, pf);
                     }
-                    
-                    SwingUtil.runOnEdt(() -> showDialog(chrome, projectCodeFragments, testCodeFragments, reasoning, fragmentFileMap));
-                }
+
+                    // Analysis is complete. Complete the future and then show the dialog.
+                    SwingUtil.runOnEdt(() -> {
+                        analysisDoneFuture.complete(null); // Complete future before showing dialog
+                        showDialog(chrome, projectCodeFragments, testCodeFragments, reasoning, fragmentFileMap);
+                    });
+                } // This correctly closes the 'else' for 'if (allSuggestedFragments.isEmpty())'
             } catch (InterruptedException ie) {
-                // Handle interruption of the user task thread (e.g., while waiting on future.get())
+                // This handles interruptions if they occur outside the future.get() calls
+                // or if rethrown and not caught by an inner block.
+                logger.debug("Deep Scan user task interrupted: {}", ie.getMessage());
+                SwingUtilities.invokeLater(() -> chrome.systemOutput("Deep Scan cancelled."));
+                // Cancel any potentially still running background tasks if they haven't been waited on yet
                 contextFuture.cancel(true);
                 validationFuture.cancel(true);
-                logger.debug("Deep Scan user task explicitly interrupted: {}", ie.getMessage());
-                chrome.systemOutput("Deep Scan cancelled");
+                analysisDoneFuture.completeExceptionally(ie);
+            } catch (Throwable t) { // Catch any other unexpected errors
+                logger.error("Unexpected error during Deep Scan user task processing", t);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Unexpected error during Deep Scan: " + t.getMessage()));
+                analysisDoneFuture.completeExceptionally(t);
             }
         });
+        return analysisDoneFuture;
     }
 
     /**
