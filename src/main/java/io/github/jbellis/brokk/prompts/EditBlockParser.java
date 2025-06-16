@@ -134,6 +134,8 @@ public class EditBlockParser {
         NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
         use vanilla ascii single and double quotes.
         
+        %s
+        
         # General
         Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
        
@@ -145,7 +147,7 @@ public class EditBlockParser {
         <goal>
         %s
         </goal>
-        """.stripIndent().formatted(diffFormatInstructions(), reminder, input);
+        """.stripIndent().formatted(diffFormatInstructions(), CodePrompts.ELIDED_BLOCKS_GUIDE, reminder, input);
     }
 
     public String diffFormatInstructions() {
