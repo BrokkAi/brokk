@@ -48,6 +48,7 @@ public class CreatePullRequestDialog extends JDialog {
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
     private String mergeBaseCommit = null;
+    private boolean sourceBranchNeedsPush = false;
 
     private PrDescriptionWorker currentDescriptionWorker;
     private ContextManager.SummarizeWorker currentTitleWorker;
@@ -267,8 +268,16 @@ public class CreatePullRequestDialog extends JDialog {
         var source = (String) sourceBranchComboBox.getSelectedItem();
         if (target != null && source != null) {
             String baseText = target + " ← " + source;
-            // currentCommits is initialized to emptyList, so it's never null.
-            this.branchFlowLabel.setText(baseText + " (" + currentCommits.size() + " commits)");
+            String suffix = " (" + currentCommits.size() + " commits)";
+            if (sourceBranchNeedsPush) {
+                suffix += " ⚠ needs push";
+                branchFlowLabel.setForeground(Color.ORANGE);
+                branchFlowLabel.setToolTipText("Local branch is ahead of its remote – push first");
+            } else {
+                branchFlowLabel.setForeground(UIManager.getColor("Label.foreground"));
+                branchFlowLabel.setToolTipText(null);
+            }
+            this.branchFlowLabel.setText(baseText + suffix);
         } else {
             this.branchFlowLabel.setText(""); // Clear if branches not selected
         }
@@ -338,6 +347,7 @@ public class CreatePullRequestDialog extends JDialog {
                 logger.debug("Calculated merge base between {} and {}: {}", sourceBranch, targetBranch, this.mergeBaseCommit);
 
                 var branchDiffData = getBranchDiff(gitRepo, sourceBranch, targetBranch);
+                this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
 
                 // Auto-generate title and description
                 // This diff is for the LLM, not for display directly
@@ -378,7 +388,10 @@ public class CreatePullRequestDialog extends JDialog {
         var prInfoFilled = title != null && !title.trim().isEmpty()
                            && description != null && !description.trim().isEmpty();
 
-        return !currentCommits.isEmpty() && branchesDifferentAndSelected && prInfoFilled;
+        return !currentCommits.isEmpty()
+               && branchesDifferentAndSelected
+               && prInfoFilled
+               && !sourceBranchNeedsPush;
     }
     
     private void setupInputListeners() {

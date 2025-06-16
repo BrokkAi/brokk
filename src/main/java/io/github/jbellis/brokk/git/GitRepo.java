@@ -1829,6 +1829,18 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * True when the local branch has no upstream or is ahead of its upstream.
+     * Returns false if the provided branch name is not a local branch.
+     */
+    public boolean branchNeedsPush(String branch) throws GitAPIException {
+        if (!listLocalBranches().contains(branch)) {
+            return false; // Not a local branch, so it cannot need pushing
+        }
+        return !hasUpstreamBranch(branch)                // never pushed → no upstream
+               || !getUnpushedCommitIds(branch).isEmpty(); // ahead of remote
+    }
+
+    /**
      * Lists files changed between two branches, specifically the changes introduced on the source branch
      * since it diverged from the target branch.
      */
