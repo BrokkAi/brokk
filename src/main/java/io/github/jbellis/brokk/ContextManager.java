@@ -179,7 +179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 // pass
             }
         };

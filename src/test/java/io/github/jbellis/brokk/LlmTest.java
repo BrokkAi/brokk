@@ -33,7 +33,7 @@ public class LlmTest {
         public void toolError(String msg, String title) {
             System.out.println(title + ": " + msg);
         }
-        @Override public void llmOutput(String token, ChatMessageType type) {}
+        @Override public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {}
         @Override public void systemOutput(String message) {}
     }
 
