@@ -40,7 +40,7 @@ public class MenuBar {
             // Use a directory chooser
             var chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("Select a Git project directory");
+            chooser.setDialogTitle("Select a project directory");
             int result = chooser.showOpenDialog(chrome.frame);
             if (result == JFileChooser.APPROVE_OPTION) {
                 var dir = chooser.getSelectedFile().toPath();
