@@ -22,8 +22,10 @@ import org.jsoup.nodes.Node;
 
 import javax.swing.*;
 import java.awt.Component;
+import java.awt.Container;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -526,7 +528,7 @@ public final class IncrementalBlockRenderer {
                 }
             }
         }
-        if (c instanceof java.awt.Container container) {
+        if (c instanceof Container container) {
             for (var child : container.getComponents()) {
                 walkAndIndex(child);
             }
@@ -552,7 +554,7 @@ public final class IncrementalBlockRenderer {
     /**
      * Returns the Swing component that displays the given marker id, if any.
      */
-    public java.util.Optional<JComponent> findByMarkerId(int id) {
+    public Optional<JComponent> findByMarkerId(int id) {
         return Optional.ofNullable(markerIndex.get(id));
     }
 
