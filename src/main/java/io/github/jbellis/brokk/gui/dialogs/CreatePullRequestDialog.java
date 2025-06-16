@@ -24,6 +24,10 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.gui.components.LoadingButton;
+import java.awt.Desktop;
+
 
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -44,7 +48,7 @@ public class CreatePullRequestDialog extends JDialog {
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
-    private JButton createPrButton; // Field for the Create PR button
+    private LoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
     private String mergeBaseCommit = null;
@@ -415,14 +419,11 @@ public class CreatePullRequestDialog extends JDialog {
 
     private JPanel createButtonPanel() {
         var buttonPanel = new JPanel(new FlowLayout());
-        
-        this.createPrButton = new JButton("Create PR"); // Assign to field
-        this.createPrButton.addActionListener(e -> {
-            // TODO: Implement PR creation logic
-            dispose();
-        });
+
+        this.createPrButton = new LoadingButton("Create PR", null, chrome, null); // Assign to field
+        this.createPrButton.addActionListener(e -> createPullRequest());
         buttonPanel.add(this.createPrButton);
-        
+
         var cancelButton = new JButton("Cancel");
         cancelButton.addActionListener(e -> dispose());
         buttonPanel.add(cancelButton);
@@ -682,9 +683,58 @@ public class CreatePullRequestDialog extends JDialog {
         }
     }
 
+    private void createPullRequest() {
+        if (!isCreatePrReady()) {
+            // This should ideally not happen if button state is managed correctly,
+            // but as a safeguard:
+            chrome.toolError("Cannot create Pull Request. Please check details and ensure branch is pushed.", "PR Creation Error");
+            return;
+        }
+
+        createPrButton.setLoading(true, "Creating PR…");
+
+        contextManager.submitUserTask("Create Pull Request", () -> {
+            try {
+                // Gather details on the EDT before going to background if they come from Swing components
+                final String title = titleField.getText().trim();
+                final String body = descriptionArea.getText().trim();
+                final String headBranchFull = (String) sourceBranchComboBox.getSelectedItem();
+                final String baseBranchFull = (String) targetBranchComboBox.getSelectedItem();
+
+                // GitHub API expects branch names without 'origin/' prefix for head/base
+                final String headBranch = headBranchFull.startsWith("origin/") ? headBranchFull.substring("origin/".length()) : headBranchFull;
+                final String baseBranch = baseBranchFull.startsWith("origin/") ? baseBranchFull.substring("origin/".length()) : baseBranchFull;
+
+                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
+                var ghRepo = auth.getGhRepository(); // This ensures connection
+                var pr = ghRepo.createPullRequest(title, headBranch, baseBranch, body);
+
+                // Success: Open in browser and dispose dialog
+                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                    Desktop.getDesktop().browse(pr.getHtmlUrl().toURI());
+                } else {
+                    logger.warn("Desktop browse action not supported, cannot open PR URL automatically: {}", pr.getHtmlUrl());
+                    SwingUtilities.invokeLater(() -> chrome.systemNotify("PR created: " + pr.getHtmlUrl(), "Pull Request Created", JOptionPane.INFORMATION_MESSAGE));
+                }
+                SwingUtilities.invokeLater(this::dispose);
+
+            } catch (Exception ex) {
+                logger.error("Pull Request creation failed", ex);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
+                    // Reset button only if dialog is still displayable (it wasn't disposed on success)
+                    if (isDisplayable()) {
+                        createPrButton.setLoading(false, null);
+                    }
+                });
+            }
+            return null; // Void task
+        });
+    }
+
     private void debounceGenerate(String diffTxt) {
         if (pendingDebounceTask != null) {
-            pendingDebounceTask.cancel(false); 
+            pendingDebounceTask.cancel(false);
         }
         pendingDebounceTask = debounceExec.schedule(
                 () -> spawnDescriptionWorker(diffTxt), // Will run on executor thread
