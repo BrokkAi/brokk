@@ -1299,9 +1299,6 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         private Map<CodeUnit, String> fetchSkeletons() {
             IAnalyzer analyzer = getAnalyzer();
-            if (!analyzer.isCpg()) { // If analyzer is not CPG, return empty
-                return Map.of();
-            }
             Map<CodeUnit, String> skeletonsMap = new HashMap<>();
             switch (summaryType) {
                 case CLASS_SKELETON -> {
@@ -1331,12 +1328,6 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         public String text() {
             Map<CodeUnit, String> skeletons = fetchSkeletons();
             if (skeletons.isEmpty()) {
-                // Avoid showing "No summaries found for: " if analyzer is not ready yet,
-                // as it might fetch correctly on a subsequent refresh.
-                IAnalyzer analyzer = getAnalyzer();
-                if (!analyzer.isCpg()) {
-                    return "Code intelligence is not ready. Summaries will be fetched later.";
-                }
                 return "No summaries found for: " + String.join(", ", targetIdentifiers);
             }
 
