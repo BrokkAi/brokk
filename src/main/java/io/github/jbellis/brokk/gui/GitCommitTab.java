@@ -285,12 +285,7 @@ public class GitCommitTab extends JPanel {
         });
         buttonPanel.add(commitButton);
 
-        JButton createPrButton = new JButton("Create PR");
-        createPrButton.setToolTipText("Create a pull request");
-        createPrButton.addActionListener(e -> {
-            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
-        });
-        buttonPanel.add(createPrButton);
+        // "Create PR" button has been moved to GitCommitBrowserPanel.
 
         // Commit message area => enable/disable commit/stash buttons
         commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {

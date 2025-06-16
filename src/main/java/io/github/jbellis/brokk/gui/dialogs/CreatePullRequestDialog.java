@@ -114,7 +114,7 @@ public class CreatePullRequestDialog extends JDialog {
         add(topPanel, BorderLayout.NORTH);
 
         // --- middle: commit browser and file list ---------------------------------------------
-        var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false);
+        var commitBrowserOptions = new GitCommitBrowserPanel.Options(false, false, false);
         commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, () -> { /* no-op */ }, commitBrowserOptions);
         // The duplicate initializations that were here have been removed.
         // commitBrowserPanel and fileStatusTable are now initialized once above.

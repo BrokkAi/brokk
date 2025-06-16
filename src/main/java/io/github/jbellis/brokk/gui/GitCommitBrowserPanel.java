@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -38,8 +39,9 @@ public class GitCommitBrowserPanel extends JPanel {
     private final CommitContextReloader reloader;
     private final Options options;
 
-    public static record Options(boolean showSearch, boolean showPushPullButtons) {
-        public static final Options DEFAULT = new Options(true, true);
+    public record Options(boolean showSearch, boolean showPushPullButtons, boolean showCreatePrButton) {
+        public static final Options DEFAULT = new Options(true, true, true);
+        public static final Options HIDE_ALL_BUTTONS = new Options(true, false, false); // Example for PR dialog
     }
 
     @FunctionalInterface
@@ -73,6 +75,7 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private JButton pullButton;
     private JButton pushButton;
+    private JButton createPrButton;
 
     private String currentBranchOrContextName; // Used by push/pull actions
 
@@ -154,10 +157,28 @@ public class GitCommitBrowserPanel extends JPanel {
         pushButton.setToolTipText("Push commits to remote repository");
         pushButton.setEnabled(false);
 
-        if (this.options.showPushPullButtons()) {
+        createPrButton = new JButton("Create PR");
+        createPrButton.setToolTipText("Create a pull request for the current branch");
+        createPrButton.setEnabled(false);
+        createPrButton.addActionListener(e -> {
+            String branch = currentBranchOrContextName;
+            if (branch.startsWith("Search:") || "stashes".equals(branch)) { // Also disable for remote branches
+                chrome.toolError("Select a branch before creating a PR.");
+                return;
+            }
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+        });
+
+
+        if (this.options.showPushPullButtons() || this.options.showCreatePrButton()) {
             JPanel commitsPanelButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-            commitsPanelButtons.add(pullButton);
-            commitsPanelButtons.add(pushButton);
+            if (this.options.showCreatePrButton()) {
+                commitsPanelButtons.add(createPrButton);
+            }
+            if (this.options.showPushPullButtons()) {
+                commitsPanelButtons.add(pullButton);
+                commitsPanelButtons.add(pushButton);
+            }
             commitsPanel.add(commitsPanelButtons, BorderLayout.SOUTH);
         }
 
@@ -867,6 +888,9 @@ public class GitCommitBrowserPanel extends JPanel {
                 pullButton.setEnabled(false);
                 pushButton.setEnabled(false);
             }
+            if (this.options.showCreatePrButton()) {
+                createPrButton.setEnabled(false);
+            }
             clearSearchField();
         });
     }
@@ -922,6 +946,15 @@ public class GitCommitBrowserPanel extends JPanel {
                         ? e -> pushBranchInternal(activeBranchOrContextName)
                         : null;
                 configureButton(pushButton, pushEnabled, pushTooltip, pushListener);
+            }
+
+            if (this.options.showCreatePrButton()) {
+                boolean createPrEnabled = !isStashView && !isSearchView && activeBranchOrContextName != null;
+                String createPrTooltip = createPrEnabled
+                                         ? "Create a pull request for branch " + activeBranchOrContextName
+                                         : "Cannot create PR for stashes or search results";
+                // ActionListener is already set up during button creation.
+                configureButton(createPrButton, createPrEnabled, createPrTooltip, null); // Pass null for listener as it's already attached
             }
 
             if (commitRows.isEmpty()) {
@@ -1054,13 +1087,16 @@ public class GitCommitBrowserPanel extends JPanel {
     private void configureButton(JButton button, boolean enabled, String tooltip, java.awt.event.ActionListener listener) {
         button.setEnabled(enabled);
         // Visibility is now controlled at a higher level (when adding to panel)
-        // and should not be changed here if options.showPushPullButtons is true.
+        // and should not be changed here if options.showPushPullButtons or options.showCreatePrButton is true.
         button.setToolTipText(tooltip);
-        for (var l : button.getActionListeners()) {
-            button.removeActionListener(l);
-        }
-        if (enabled && listener != null) {
-            button.addActionListener(listener);
+        // Only modify listeners if a new one is provided (e.g., for dynamic behavior, not used by createPrButton here)
+        if (listener != null) {
+            for (var l : button.getActionListeners()) {
+                button.removeActionListener(l);
+            }
+            if (enabled) { // Only add listener if enabled AND listener is provided
+                button.addActionListener(listener);
+            }
         }
     }
 
