@@ -371,10 +371,15 @@ public class CreatePullRequestDialog extends JDialog {
                 var branchDiffData = getBranchDiff(gitRepo, sourceBranch, targetBranch);
                 this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
 
-                // Auto-generate title and description
-                // This diff is for the LLM, not for display directly
-                var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
-                debounceGenerate(diffText);
+                if (branchDiffData.commits().isEmpty()) {
+                    // Nothing to describe; stop any ongoing generation and clear fields.
+                    cancelGenerationWorkersAndClearFields();
+                } else {
+                    // Auto-generate title and description
+                    // This diff is for the LLM, not for display directly
+                    var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
+                    debounceGenerate(diffText);
+                }
 
 
                 SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiffData.commits(),
@@ -766,6 +771,27 @@ public class CreatePullRequestDialog extends JDialog {
                 });
             }
             return null; // Void task
+        });
+    }
+
+    // Cancels any pending title/description generation tasks and resets the UI.
+    private void cancelGenerationWorkersAndClearFields() {
+        if (pendingDebounceTask != null) {
+            pendingDebounceTask.cancel(false);
+            pendingDebounceTask = null;
+        }
+        if (currentDescriptionWorker != null) {
+            currentDescriptionWorker.cancel(true);
+            currentDescriptionWorker = null;
+        }
+        if (currentTitleWorker != null) {
+            currentTitleWorker.cancel(true);
+            currentTitleWorker = null;
+        }
+        SwingUtilities.invokeLater(() -> {
+            titleField.setText("");
+            descriptionArea.setText("");
+            updateCreatePrButtonState();
         });
     }
 
