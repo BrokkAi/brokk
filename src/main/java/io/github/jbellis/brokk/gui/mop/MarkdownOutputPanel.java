@@ -203,20 +203,20 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
      * @param text The text content to append
      * @param type The type of message being appended
      */
-    public void append(String text, ChatMessageType type) {
+    public void append(String text, ChatMessageType type, boolean isNewMessage) {
         assert text != null && type != null;
         if (text.isEmpty()) {
             return;
         }
 
-        // Check if we're appending to an existing message of the same type
-        if (!bubbles.isEmpty() && bubbles.getLast().message().type() == type) {
-            // Append to existing message
-            updateLastMessage(text);
-        } else {
+        // isNewMessage parameter takes precedence over type matching
+        if (isNewMessage || bubbles.isEmpty() || bubbles.getLast().message().type() != type) {
             // Create a new message
             ChatMessage newMessage = Messages.create(text, type);
             addNewMessageBubble(newMessage);
+        } else {
+            // Append to existing message
+            updateLastMessage(text);
         }
 
         textChangeListeners.forEach(Runnable::run);

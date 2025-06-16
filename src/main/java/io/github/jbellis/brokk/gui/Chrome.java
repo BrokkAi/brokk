@@ -552,11 +552,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void actionComplete() {
         SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
-
+    
     @Override
-    public void llmOutput(String token, ChatMessageType type) {
-        // TODO: use messageSubType later on
-        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type));
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
     }
 
     @Override
