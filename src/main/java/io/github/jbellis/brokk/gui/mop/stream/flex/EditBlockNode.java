@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop.stream.flex;
 import com.vladsch.flexmark.util.ast.Block;
 import com.vladsch.flexmark.util.sequence.BasedSequence;
 import io.github.jbellis.brokk.git.GitStatus;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents an EDIT BLOCK in the Flexmark AST.
@@ -16,7 +17,7 @@ public class EditBlockNode extends Block {
     private BasedSequence replaceKeyword;
     private BasedSequence replaceText;
     private BasedSequence closingMarker;
-    private String filename;
+    private @Nullable String filename;
     private GitStatus status = GitStatus.UNKNOWN;
     
     /**
@@ -29,7 +30,7 @@ public class EditBlockNode extends Block {
     /**
      * Set the filename for this block.
      */
-    public void setFilename(String filename) {
+    public void setFilename(@Nullable String filename) {
         this.filename = filename;
     }
     

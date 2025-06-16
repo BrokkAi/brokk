@@ -4,9 +4,10 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.KeyboardFocusManager; // Keep specific AWT imports if used elsewhere for UI
+import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashSet;
@@ -27,9 +28,9 @@ public class AnalyzerWrapper implements AutoCloseable {
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
-    private final AnalyzerListener listener; // can be null if no one is listening
+    @Nullable private final AnalyzerListener listener; // can be null if no one is listening
     private final Path root;
-    private final Path gitRepoRoot;
+    @Nullable private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
 
@@ -42,7 +43,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
 
-    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
+    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -70,8 +71,10 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         logger.debug("Signaling repo + tracked files change to catch any events that we missed during initial analyzer build");
-        listener.onRepoChange();
-        listener.onTrackedFileChange();
+        if (listener != null) {
+            listener.onRepoChange();
+            listener.onTrackedFileChange();
+        }
 
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
@@ -125,11 +128,9 @@ public class AnalyzerWrapper implements AutoCloseable {
                 // Process the batch
                 handleBatch(batch);
             }
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             logger.error("Error setting up watch service", e);
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("FileWatchService thread interrupted; shutting down");
         }
@@ -539,7 +540,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     /**
      * @return null if analyzer is not ready yet
      */
-    public IAnalyzer getNonBlocking() {
+    @Nullable public IAnalyzer getNonBlocking() {
         if (currentAnalyzer != null) {
             return currentAnalyzer;
         }
@@ -590,13 +591,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             WatchEvent<Path> pathEvent = (WatchEvent<Path>) event;
             Path relativePath = pathEvent.context();
             Path parentDir = (Path) key.watchable();
-            Path absolutePath;
-            try {
-                absolutePath = parentDir.resolve(relativePath);
-            } catch (NullPointerException e) {
-                logger.warn(e);
-                continue;
-            }
+            Path absolutePath = parentDir.resolve(relativePath);
 
             if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
                 logger.debug("Overflow event: {}", absolutePath);

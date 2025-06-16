@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -178,7 +179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 // pass
             }
         };
@@ -748,17 +749,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextAsync() {
         return submitUserTask("Undo", () -> {
-            UndoResult result = contextHistory.undo(1, io);
-            if (result.wasUndone()) {
-                // Update liveContext by unfreezing the new top of history
-                liveContext = Context.unfreeze(topContext());
-                notifyContextListeners(topContext());
-                project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-                io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
+            if (undoContext()) {
+                io.systemOutput("Undid most recent step");
             } else {
-                io.systemOutput("no undo state available");
+                io.systemOutput("Nothing to undo");
             }
         });
+    }
+
+    public boolean undoContext() {
+        UndoResult result = contextHistory.undo(1, io);
+        if (result.wasUndone()) {
+            liveContext = Context.unfreeze(topContext());
+            notifyContextListeners(topContext());
+            project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -802,7 +810,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory())); // freeze() in pushContext will handle freezing
+                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory()));
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace canceled.");
@@ -817,7 +825,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context and history", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory())); // freeze() in pushContext
+                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory()));
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace and history canceled.");
@@ -1162,7 +1170,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param parser    The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
         // Pass an empty set for trackedFiles as it's not needed for redaction.
         var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
         // Check if there are actual S/R block objects, not just text parts
@@ -1591,6 +1599,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
+
+            SwingUtilities.invokeLater(() -> {
+                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
+                dlg.getProjectPanel().showBuildBanner();
+            });
+
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
         });
@@ -1851,7 +1865,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // notifications
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
     }
 
@@ -1970,7 +1984,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 liveContext = Context.unfreeze(topContext());
             }
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
         return CompletableFuture.runAsync(() -> {
             try {
@@ -2057,7 +2071,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             updateActiveSession(copiedSessionInfo.id());
 
             notifyContextListeners(topContext());
-            io.updateContextHistoryTable(liveContext);
+            io.updateContextHistoryTable(topContext());
         });
         return CompletableFuture.runAsync(() -> {
             try {

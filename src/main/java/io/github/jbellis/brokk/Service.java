@@ -2,19 +2,6 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.agent.tool.ToolSpecification;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.StreamingResponseHandler;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
-import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
-import okhttp3.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
@@ -26,11 +13,12 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -167,9 +155,6 @@ public final class Service {
          * Converts a String to a ReasoningLevel, falling back to the provided default.
          */
         public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
-            if (value == null || value.isBlank()) {
-                return defaultLevel;
-            }
             try {
                 return ReasoningLevel.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
@@ -197,9 +182,6 @@ public final class Service {
      * @throws IllegalArgumentException if the key is invalid
      */
     public static KeyParts parseKey(String key) {
-        if (key == null || key.isBlank()) {
-            throw new IllegalArgumentException("Key cannot be empty");
-        }
         var parts = Splitter.on(Pattern.compile("\\+")).splitToList(key);
         if (parts.size() != 3 || !"brk".equals(parts.get(0))) {
             throw new IllegalArgumentException("Key must have format 'brk+<userId>+<token>'");
@@ -222,7 +204,7 @@ public final class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GROK_3_MINI = "grok-3-mini-beta";
+    public static final String GROK_3_MINI = "grok-3-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -325,7 +307,6 @@ public final class Service {
      * @throws IllegalArgumentException if the key is invalid.
      */
     public static float getUserBalance(String key) throws IOException {
-        // Validate key format before making the call
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
         String url = "https://app.brokk.ai/api/payments/balance-lookup/" + key;
@@ -364,10 +345,6 @@ public final class Service {
      * @return True if data sharing is allowed or cannot be determined, false otherwise.
      */
     public static boolean getDataShareAllowed(String key) {
-        if (key == null || key.isBlank()) {
-            // No key, no specific organizational policy can be fetched, assume allowed.
-            return true;
-        }
         try {
             parseKey(key); // Validate key format first
         } catch (IllegalArgumentException e) {
@@ -663,6 +640,7 @@ public final class Service {
      *
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
+    @Nullable
     public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
         String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
@@ -672,13 +650,6 @@ public final class Service {
             return null;
         }
 
-        // OpenAI says, "Your rate limit is calculated as the maximum of max_tokens
-        // and the estimated number of tokens based on the character count of your request.
-        // https://platform.openai.com/docs/guides/rate-limits
-        // We don't have a good way to predict output size, but almost all of them are lower than 32k,
-        // and CodeAgent can pick up an request that stopped early from the last edit block
-        var maxTokens = min(32768, getMaxOutputTokens(location));
-
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
         String baseUrl = MainProject.getProxyUrl();
@@ -686,7 +657,7 @@ public final class Service {
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(maxTokens)
+                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
 
@@ -723,6 +694,7 @@ public final class Service {
         return builder.build();
     }
 
+    @Nullable
     public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel) {
         return getModel(modelName, reasoningLevel, null);
     }

@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -121,7 +122,7 @@ public class AutoCompleteUtil {
     /**
      * Helper to get the description text, handling ShorthandCompletion.
      */
-    private static String getCompletionDescription(Completion c) {
+    private static @Nullable String getCompletionDescription(Completion c) {
         if (c instanceof ShorthandCompletion sc) {
             // ShorthandCompletion often uses replacement text as the primary description
             return sc.getReplacementText();

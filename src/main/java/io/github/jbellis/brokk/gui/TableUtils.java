@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -335,7 +336,7 @@ public final class TableUtils {
          * Converts various input types to a list of FileReferenceData objects.
          */
         @SuppressWarnings("unchecked")
-        public static List<FileReferenceList.FileReferenceData> convertToFileReferences(Object value) {
+        public static List<FileReferenceList.FileReferenceData> convertToFileReferences(@Nullable Object value) {
             if (value == null) {
                 return new ArrayList<>();
             }
@@ -418,7 +419,7 @@ public final class TableUtils {
 
             @Override
             public void setFileReferences(List<FileReferenceData> fileReferences) {
-                if (fileReferences == null || fileReferences.isEmpty()) {
+                if (fileReferences.isEmpty()) {
                     this.visibleFiles = List.of();
                     this.hiddenFiles = List.of();
                     this.hasOverflow = false;
@@ -508,9 +509,7 @@ public final class TableUtils {
          */
         public void setFileReferences(List<FileReferenceData> fileReferences) {
             this.fileReferences.clear();
-            if (fileReferences != null) {
-                this.fileReferences.addAll(fileReferences);
-            }
+            this.fileReferences.addAll(fileReferences);
 
             // Rebuild the UI
             removeAll();
@@ -635,9 +634,9 @@ public final class TableUtils {
         public static class FileReferenceData {
             private final String fileName;
             private final String fullPath;
-            private final ProjectFile projectFile; // Optional, if available
+            @Nullable private final ProjectFile projectFile; // Optional, if available
 
-            public FileReferenceData(String fileName, String fullPath, ProjectFile projectFile) {
+            public FileReferenceData(String fileName, String fullPath, @Nullable ProjectFile projectFile) {
                 this.fileName = fileName;
                 this.fullPath = fullPath;
                 this.projectFile = projectFile;
@@ -652,6 +651,7 @@ public final class TableUtils {
                 return fullPath;
             }
 
+            @Nullable
             public ProjectFile getRepoFile() {
                 return projectFile;
             }
@@ -685,6 +685,7 @@ public final class TableUtils {
      * @param visibleReferences The list of visible file references
      * @return The FileReferenceData under the point, or null if none
      */
+    @Nullable
     public static TableUtils.FileReferenceList.FileReferenceData findClickedReference(Point pointInTableCoords,
                                                   int row,
                                                   int column,

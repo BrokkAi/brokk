@@ -8,7 +8,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
-import java.util.Objects;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.util.Objects;
 
 /**
@@ -182,13 +182,11 @@ public class SearchBarPanel extends JPanel {
     public void findNext() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToNextResult();
-        updateNavigationResults();
     }
     
     public void findPrevious() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToPreviousResult();
-        updateNavigationResults();
     }
     
     public void clearSearch() {
@@ -279,29 +277,12 @@ public class SearchBarPanel extends JPanel {
         return ae -> findNext();
     }
     
-    private void updateNavigationResults() {
-        // For callbacks that support getCurrentResults, update the display
-        if (searchCallback instanceof MarkdownPanelSearchCallback markdownCallback) {
-            SearchResults results = markdownCallback.getCurrentResults();
-            updateSearchResults(results);
-        }
-    }
-    
     /**
      * Registers Ctrl/Cmd+F shortcut to focus the search field.
      */
     public void registerSearchFocusShortcut(JComponent targetComponent) {
         assert SwingUtilities.isEventDispatchThread();
-        KeyStroke focusSearchKey = KeyStroke.getKeyStroke(KeyEvent.VK_F, 
-            java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        
-        targetComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(focusSearchKey, "focusSearch");
-        targetComponent.getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                focusSearchField();
-            }
-        });
+        KeyboardShortcutUtil.registerSearchFocusShortcut(targetComponent, this::focusSearchField);
     }
     
 }

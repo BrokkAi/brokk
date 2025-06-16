@@ -4,6 +4,7 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.text.BadLocationException;
 import java.awt.event.AdjustmentEvent;
@@ -19,8 +20,8 @@ public class ScrollSynchronizer
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
 
-    private AdjustmentListener horizontalAdjustmentListener;
-    private AdjustmentListener verticalAdjustmentListener;
+    private @Nullable AdjustmentListener horizontalAdjustmentListener;
+    private @Nullable AdjustmentListener verticalAdjustmentListener;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
@@ -170,8 +171,7 @@ public class ScrollSynchronizer
 
         int offset = editor.viewToModel(p);
         var bd = fp.getBufferDocument();
-        if (bd == null) return 0;
-        return bd.getLineForOffset(offset);
+        return bd == null ? 0 : bd.getLineForOffset(offset);
     }
 
     public void scrollToLine(FilePanel fp, int line)

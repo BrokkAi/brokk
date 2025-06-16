@@ -31,11 +31,9 @@ public class SymbolSelectionPanel extends JPanel {
 
     public SymbolSelectionPanel(IAnalyzer analyzer, Set<CodeUnitType> typeFilter) {
         super(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
         this.typeFilter = typeFilter;
-        assert analyzer != null;
-        assert typeFilter != null;
+
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // Build text input with autocomplete at the top
         symbolInput = new JTextField(30);
@@ -131,9 +129,7 @@ public class SymbolSelectionPanel extends JPanel {
             }
 
             // Get completions using the brokk Completions utility
-            var completions = analyzer == null
-                            ? List.<CodeUnit>of()
-                            : Completions.completeSymbols(text, analyzer);
+            var completions = Completions.completeSymbols(text, analyzer);
 
             // Convert to RSTA completions, filtering by the requested types
             var L = completions.stream()

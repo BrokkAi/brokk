@@ -25,7 +25,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -63,7 +62,10 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
 
         // Track original contents of files before any changes
-        var originalContents = new HashMap<ProjectFile, String>();
+        var originalContentsOfChangedFiles = new HashMap<ProjectFile, String>();
+
+        // Keep original workspace editable messages at the start of the task
+        var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
 
         // Start verification command inference concurrently
         var verificationCommandFuture = BuildAgent.determineVerificationCommandAsync(contextManager);
@@ -95,7 +97,9 @@ public class CodeAgent {
                                                                            model,
                                                                            parser,
                                                                            taskMessages,
-                                                                           nextRequest);
+                                                                           nextRequest,
+                                                                           originalContentsOfChangedFiles.keySet(),
+                                                                           originalWorkspaceEditableMessages);
                 streamingResult = coder.sendRequest(allMessages, true);
             } catch (InterruptedException e) {
                 logger.debug("CodeAgent interrupted during sendRequest");
@@ -179,6 +183,19 @@ public class CodeAgent {
             }
 
             // If we reach here, it means the LLM segment was considered complete and correct for now.
+            // Now that we're done with incomplete response processing, redact SEARCH/REPLACE blocks 
+            // from all AI messages to reduce bloat in subsequent requests
+            for (int i = taskMessages.size() - 1; i >= 0; i--) {
+                if (taskMessages.get(i) instanceof AiMessage aiMessage) {
+                    var redactedMessage = ContextManager.redactAiMessage(aiMessage, parser);
+                    if (redactedMessage.isPresent()) {
+                        taskMessages.set(i, redactedMessage.get());
+                    } else {
+                        taskMessages.remove(i);
+                    }
+                }
+            }
+
             // Proceed to apply accumulated `blocks`.
             logger.debug("{} total unapplied blocks", blocks.size());
 
@@ -223,7 +240,7 @@ public class CodeAgent {
                 int succeeded = blocks.size() - editResult.failedBlocks().size();
                 io.llmOutput("\n" + succeeded + " SEARCH/REPLACE blocks applied.", ChatMessageType.CUSTOM);
             }
-            editResult.originalContents().forEach(originalContents::putIfAbsent);
+            editResult.originalContents().forEach(originalContentsOfChangedFiles::putIfAbsent);
             int succeededCount = (blocks.size() - editResult.failedBlocks().size());
             blocksAppliedWithoutBuild += succeededCount;
             blocks.clear(); // Clear them out: either successful or moved to editResult.failed
@@ -251,7 +268,7 @@ public class CodeAgent {
                 if (!parseRetryPrompt.isEmpty()) {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {
                         logger.debug("Apply failure limit reached ({}), attempting full file replacement fallback.", applyFailures);
-                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContents, userInput, taskMessages);
+                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContentsOfChangedFiles, userInput, taskMessages);
                         if (stopDetails != null) {
                             // Full replacement also failed or was interrupted
                             io.systemOutput("Code Agent stopping after failing to apply edits to " + stopDetails.explanation());
@@ -305,7 +322,7 @@ public class CodeAgent {
         var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
         return new TaskResult("Code: " + finalActionDescription,
                               new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
-                              originalContents,
+                              originalContentsOfChangedFiles,
                               stopDetails);
     }
 
@@ -369,9 +386,6 @@ public class CodeAgent {
                                                                String originalUserInput,
                                                                List<ChatMessage> taskMessages)
     {
-        // Convert List<ChatMessage> to ArrayList<ChatMessage> if needed by CodePrompts
-        ArrayList<ChatMessage> taskMessagesArrayList = new ArrayList<>(taskMessages);
-
         var failuresByFile = failedBlocks.stream()
                 .map(fb -> fb.block().filename())
                 .filter(Objects::nonNull)
@@ -409,8 +423,6 @@ public class CodeAgent {
             return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement.");
         }
 
-        var succeededCount = new AtomicInteger(0);
-
         // Process files in parallel using streams
         var futures = filesToProcess.stream().parallel().map(file -> CompletableFuture.supplyAsync(() -> {
              try {
@@ -418,38 +430,11 @@ public class CodeAgent {
 
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessagesArrayList);
+                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
                  var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
-                var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
+                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
-                // Send request
-                StreamingResult result = coder.sendRequest(messages, false);
-
-                 // Process response
-                 if (result.error() != null) {
-                     return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
-                 }
-                 var response = result.chatResponse();
-                 if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
-                     return Optional.of("Empty LLM response for %s".formatted(file));
-                 }
-
-                 // Extract and apply
-                 var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
-                 if (newContent == null || newContent.isBlank()) {
-                     // Allow empty if response wasn't just ``` ```
-                     if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
-                         // Treat explicitly empty fenced block as success
-                         newContent = "";
-                     } else {
-                         return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
-                     }
-                 }
-
-                 file.write(newContent);
-                 logger.debug("Successfully applied full file replacement for {}", file);
-                 succeededCount.incrementAndGet();
-                 return Optional.<String>empty(); // Success
+                 return executeReplace(file, coder, messages);
              } catch (InterruptedException e) {
                  throw new CancellationException();
              } catch (IOException e) {
@@ -489,18 +474,58 @@ public class CodeAgent {
                 .flatMap(Optional::stream)
                 .toList();
 
-        if (succeededCount.get() == failuresByFile.size()) {
-            assert actualFailureMessages.isEmpty() : actualFailureMessages;
+        if (actualFailureMessages.isEmpty()) {
             return null;
-        } else {
-            // Report combined errors
-            var combinedError = String.join("\n", actualFailureMessages);
-            if (succeededCount.get() < failuresByFile.size()) {
-                combinedError = "%d/%d files succeeded.\n".formatted(succeededCount.get(), failuresByFile.size()) + combinedError;
-            }
-            logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
-            return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(failuresByFile.size() - succeededCount.get()));
         }
+
+        // Report combined errors
+        var combinedError = String.join("\n", actualFailureMessages);
+        if (actualFailureMessages.size() < failuresByFile.size()) {
+            int succeeded = failuresByFile.size() - actualFailureMessages.size();
+            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, failuresByFile.size()) + combinedError;
+        }
+        logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
+        return new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(actualFailureMessages.size()));
+    }
+
+    /**
+     * @return an error message, or empty if successful
+     */
+    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages)
+    throws InterruptedException, IOException
+    {
+        // Send request
+        StreamingResult result = coder.sendRequest(messages, false);
+
+        // Process response
+        if (result.error() != null) {
+            return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
+        }
+        var response = result.chatResponse();
+        if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
+            return Optional.of("Empty LLM response for %s".formatted(file));
+        }
+
+        // for Upgrade Agent
+        if (response.aiMessage().text().contains("BRK_NO_CHANGES_REQUIRED")) {
+            return Optional.empty();
+        }
+
+        // Extract and apply
+        var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
+        if (newContent == null || newContent.isBlank()) {
+            // Allow empty if response wasn't just ``` ```
+            if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
+                // Treat explicitly empty fenced block as success
+                newContent = "";
+            } else {
+                return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
+            }
+        }
+
+        file.write(newContent);
+        logger.debug("Successfully applied full file replacement for {}", file);
+        return Optional.empty();
     }
 
     /**
@@ -514,20 +539,18 @@ public class CodeAgent {
 
         return rawMessages.stream()
                 .flatMap(message -> {
-                    switch (message.type()) {
-                        case USER, CUSTOM:
-                            return Stream.of(message);
-                        case AI:
+                    return switch (message.type()) {
+                        case USER, CUSTOM -> Stream.of(message);
+                        case AI -> {
                             var aiMessage = (AiMessage) message;
                             // Pass through AI messages with their original text.
                             // Raw S/R blocks are preserved.
                             // If the text is blank, effectively filter out the message.
-                            return aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                            yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                        }
                         // Ignore SYSTEM/TOOL messages for TaskEntry log purposes
-                        case SYSTEM, TOOL_EXECUTION_RESULT:
-                        default:
-                            return Stream.empty();
-                    }
+                        default -> Stream.empty();
+                    };
                 })
                 .toList();
     }

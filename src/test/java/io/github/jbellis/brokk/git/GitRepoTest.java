@@ -1,27 +1,17 @@
 package io.github.jbellis.brokk.git;
 
+import io.github.jbellis.brokk.gui.GitWorktreeTab;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
-
-// For MergeMode testing, we need to access the static fields.
-// This import assumes GitWorktreeTab and its inner MergeMode class are structured to allow this.
-// If GitWorktreeTab or MergeMode is not public or MergeMode is not a static nested class,
-// or its fields are not public static, this test part would need adjustment or a mock.
-// Based on the provided summary, it seems they are static fields.
-import io.github.jbellis.brokk.gui.GitWorktreeTab;
-
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -605,5 +595,34 @@ public class GitRepoTest {
         String result = repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitWorktreeTab.MergeMode.MERGE_COMMIT);
         assertNotNull(result);
         assertTrue(result.contains("Target branch 'nonexistent-target' could not be resolved"));
+    }
+
+    @Test
+    void testCreateBranchFromCommit() throws Exception {
+        String initialCommitId = repo.getCurrentCommitId();
+        String newBranchNameInput = "feature/from-commit-test";
+        // The sanitizeBranchName method ensures the name is valid and unique.
+        String finalBranchName = repo.sanitizeBranchName(newBranchNameInput);
+
+        repo.createBranchFromCommit(finalBranchName, initialCommitId);
+
+        List<String> localBranches = repo.listLocalBranches();
+        assertTrue(localBranches.contains(finalBranchName), "Newly created branch '" + finalBranchName + "' should exist.");
+
+        // Verify the start point of the new branch
+        org.eclipse.jgit.lib.Ref branchRef = repo.getGit().getRepository().findRef(finalBranchName);
+        assertNotNull(branchRef, "Branch ref should not be null for '" + finalBranchName + "'.");
+        assertEquals(initialCommitId, branchRef.getObjectId().getName(), "Branch '" + finalBranchName + "' should be created from commit " + initialCommitId + ".");
+
+        // Test creating another branch with the same initial input, sanitizeBranchName should make it unique
+        String duplicateInputName = newBranchNameInput; // "feature/from-commit-test"
+        String finalBranchName2 = repo.sanitizeBranchName(duplicateInputName); // Should be "feature/from-commit-test-2"
+        assertNotEquals(finalBranchName, finalBranchName2, "Sanitized name for duplicate input should be different.");
+
+        repo.createBranchFromCommit(finalBranchName2, initialCommitId);
+        assertTrue(repo.listLocalBranches().contains(finalBranchName2), "Second branch '" + finalBranchName2 + "' with same input (but sanitized uniquely) should exist.");
+        org.eclipse.jgit.lib.Ref branchRef2 = repo.getGit().getRepository().findRef(finalBranchName2);
+        assertNotNull(branchRef2);
+        assertEquals(initialCommitId, branchRef2.getObjectId().getName());
     }
 }

@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop;
 import javax.swing.*;
 import java.awt.*;
 import java.util.Objects;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A simple panel displaying a spinner icon and a message.
@@ -18,7 +19,7 @@ public class SpinnerIndicatorPanel extends JPanel {
      * @param isDarkTheme     Whether the dark theme is active.
      * @param backgroundColor The background color to apply (usually matching the parent's text area).
      */
-    public SpinnerIndicatorPanel(String message, boolean isDarkTheme, Color backgroundColor) {
+    public SpinnerIndicatorPanel(String message, boolean isDarkTheme, @Nullable Color backgroundColor) {
         setLayout(new FlowLayout(FlowLayout.LEFT, 20, 10));
         setAlignmentX(LEFT_ALIGNMENT);
         var spinnerIcon = new ImageIcon(Objects.requireNonNull(getClass().getResource(
@@ -40,7 +41,7 @@ public class SpinnerIndicatorPanel extends JPanel {
     }
 
     private String getDefaultMessageIfEmpty(String message) {
-        return (message != null && !message.isBlank()) ? message : "Please wait...";
+        return !message.isBlank() ? message : "Please wait...";
     }
 
     /**
@@ -53,7 +54,7 @@ public class SpinnerIndicatorPanel extends JPanel {
     /**
      * Updates the background color of the panel.
      */
-    public void updateBackgroundColor(Color backgroundColor) {
+    public void updateBackgroundColor(@Nullable Color backgroundColor) {
         if (backgroundColor != null) {
             setBackground(backgroundColor);
         }

@@ -4,6 +4,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.*;
 import org.jsoup.select.NodeTraversor;
 import org.jsoup.select.NodeVisitor;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -87,7 +88,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
      *
      * @param text input to test (may be {@code null})
      */
-    public boolean mightMatch(String text) {
+    public boolean mightMatch(@Nullable String text) {
         if (text == null || text.isEmpty()) {
             return false;
         }
@@ -96,10 +97,6 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
 
     @Override
     public void customize(Element root) {
-        if (root == null) {
-            return;
-        }
-
         // ------------------------------------------------------------------
         // 1.  Remove any highlight wrappers left from a previous search.
         //     We unwrap each element that bears BROKK_MARKER_ATTR by hoisting

@@ -11,7 +11,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
@@ -20,8 +19,8 @@ import java.util.Base64;
 public class ImageUtil {
     private static final Logger logger = LogManager.getLogger(ImageUtil.class);
 
-    public static BufferedImage toBuffered(Image img) {
-        if (img == null) return null; // Handle null input
+    public static @Nullable BufferedImage toBuffered(@Nullable Image img) {
+        if (img == null) return null;
         if (img instanceof BufferedImage bi) {
             return bi;
         }
@@ -40,9 +39,6 @@ public class ImageUtil {
      * @throws IOException If image conversion fails
      */
     public static dev.langchain4j.data.image.Image toL4JImage(Image awtImage) throws IOException {
-        if (awtImage == null) {
-            throw new IllegalArgumentException("Image cannot be null");
-        }
         
         // Convert to BufferedImage if needed
         BufferedImage bufferedImage = toBuffered(awtImage);

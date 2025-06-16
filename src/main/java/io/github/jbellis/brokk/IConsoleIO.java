@@ -43,7 +43,11 @@ public interface IConsoleIO {
         CommandOutput
     }
 
-    void llmOutput(String token, ChatMessageType type);
+    void llmOutput(String token, ChatMessageType type, boolean isNewMessage);
+
+    default void llmOutput(String token, ChatMessageType type) {
+        llmOutput(token, type, false);
+    }
 
     default void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         var firstMessage = newOutput.messages().getFirst();
@@ -103,7 +107,7 @@ public interface IConsoleIO {
     }
 
     default InstructionsPanel getInstructionsPanel() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     default void updateContextHistoryTable() {

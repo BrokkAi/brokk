@@ -4,6 +4,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
@@ -17,7 +18,7 @@ import java.util.stream.Collectors;
  * @param log      The uncompressed list of chat messages for this task. Null if compressed.
  * @param summary  The compressed representation of the chat messages (summary). Null if uncompressed.
  */
-public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String summary) {
+public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {

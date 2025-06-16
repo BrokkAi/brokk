@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +48,7 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -64,18 +66,18 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
 
     // Nullable
-    private final ProjectFile file;
+    @Nullable private final ProjectFile file;
     private final String contentBeforeSave;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
-    private Future<Set<CodeUnit>> fileDeclarations;
+    @Nullable private Future<Set<CodeUnit>> fileDeclarations;
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     public PreviewTextPanel(ContextManager contextManager,
-                            ProjectFile file,
+                            @Nullable ProjectFile file,
                             String content,
-                            String syntaxStyle,
+                            @Nullable String syntaxStyle,
                             GuiTheme guiTheme,
-                            ContextFragment fragment)
+                            @Nullable ContextFragment fragment)
     {
         super(new BorderLayout());
         assert contextManager != null;
@@ -440,13 +442,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Voice input button setup, passing the Future for file-specific symbols
-        VoiceInputButton micButton = new VoiceInputButton(
-                editArea,
-                contextManager,
-                () -> { /* no action on record start */ },
-                symbolsFuture, error -> { /* no special error handling */ }
-                // Pass the Future<Set<String>>
-        );
+        VoiceInputButton micButton = new VoiceInputButton(editArea,
+                                                                  contextManager,
+                                                                  () -> { /* no action on record start */ },
+                                                                  symbolsFuture, error -> { /* no special error handling */ });
 
         // infoLabel at row=0
         gbc.gridx = 1;
@@ -610,7 +609,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 appendSystemMessage(token);
             }
 
@@ -773,18 +772,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * Registers ESC key to close the preview panel
      */
     private void registerEscapeKey() {
-        var escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-
-        // Add ESC handler to panel to close window
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
-        getActionMap().put("closePreview", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                if (confirmClose()) {
-                    var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                    if (window != null) {
-                        window.dispose();
-                    }
+        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, () -> {
+            if (confirmClose()) {
+                var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                if (window != null) {
+                    window.dispose();
                 }
             }
         });
@@ -843,15 +835,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action.
      */
     private void registerSaveKey() {
-        KeyStroke saveKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_S, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(saveKeyStroke, "saveFile");
-        getActionMap().put("saveFile", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Only perform save if the file exists and the save button is enabled (changes exist)
-                if (file != null && saveButton != null && saveButton.isEnabled()) {
-                    performSave(saveButton);
-                }
+        KeyboardShortcutUtil.registerSaveShortcut(this, () -> {
+            // Only perform save if the file exists and the save button is enabled (changes exist)
+            if (file != null && saveButton != null && saveButton.isEnabled()) {
+                performSave(saveButton);
             }
         });
     }

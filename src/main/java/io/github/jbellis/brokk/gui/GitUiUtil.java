@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import com.google.common.base.Splitter;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Static utilities for showing diffs, capturing diffs, or editing files
@@ -86,7 +87,7 @@ public final class GitUiUtil
             ContextManager contextManager,
             List<ProjectFile> files
     ) {
-        if (files != null && !files.isEmpty()) {
+        if (!files.isEmpty()) {
             contextManager.editFiles(files);
         }
     }
@@ -376,9 +377,9 @@ public final class GitUiUtil
      * This attempts to extract the last two path segments
      * as "owner" and "repo". Returns null if it cannot.
      */
-    public static OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
-        if (remoteUrl == null || remoteUrl.isBlank()) {
-            logger.warn("Remote URL is blank or null for parsing owner/repo.");
+    public static @Nullable OwnerRepo parseOwnerRepoFromUrl(String remoteUrl) {
+        if (remoteUrl.isBlank()) {
+            logger.warn("Remote URL is blank for parsing owner/repo.");
             return null;
         }
 

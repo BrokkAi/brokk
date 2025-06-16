@@ -1,11 +1,12 @@
 package io.github.jbellis.brokk.gui;
 
-import com.google.common.base.Splitter; // Added import
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
@@ -18,8 +19,8 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.HashSet; // Added import for HashSet
-import java.util.List; // Added import for List
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -38,14 +39,14 @@ public class VoiceInputButton extends JButton {
     private final ContextManager contextManager;
     private final Consumer<String> onError;
     private final Runnable onRecordingStart;
-    private final Future<Set<String>> customSymbolsFuture;
+    private final @Nullable Future<Set<String>> customSymbolsFuture;
 
     // For STT (mic) usage
     private volatile TargetDataLine micLine = null;
-    private final ByteArrayOutputStream micBuffer = new ByteArrayOutputStream(); // Made final
+    private final ByteArrayOutputStream micBuffer = new ByteArrayOutputStream();
     private volatile Thread micCaptureThread = null;
-    private ImageIcon micOnIcon;
-    private ImageIcon micOffIcon;
+    private @Nullable ImageIcon micOnIcon;
+    private @Nullable ImageIcon micOffIcon;
 
     /**
      * Creates a new voice input button.
@@ -59,7 +60,7 @@ public class VoiceInputButton extends JButton {
     public VoiceInputButton(JTextArea targetTextArea,
                             ContextManager contextManager,
                             Runnable onRecordingStart,
-                            Future<Set<String>> customSymbolsFuture,
+                            @Nullable Future<Set<String>> customSymbolsFuture,
                             Consumer<String> onError)
     {
         assert targetTextArea != null;
@@ -73,7 +74,7 @@ public class VoiceInputButton extends JButton {
         this.customSymbolsFuture = customSymbolsFuture;
 
         // Determine standard button height to make this button square
-        var referenceButton = new JButton(" "); // Use a single space or "Hg" for height calculation
+        var referenceButton = new JButton(" ");
         int normalButtonHeight = referenceButton.getPreferredSize().height;
 
         // Determine appropriate icon size, leaving some padding similar to default button margins
@@ -103,17 +104,17 @@ public class VoiceInputButton extends JButton {
         }
 
         // Set default appearance
-        if (micOffIcon != null) {
-            setIcon(micOffIcon);
+        if (micOffIcon == null) {
+            setText("Mic");
         } else {
-            setText("Mic"); // Fallback text if icons fail to load
+            setIcon(micOffIcon);
         }
 
         Dimension buttonSize = new Dimension(normalButtonHeight, normalButtonHeight);
         setPreferredSize(buttonSize);
         setMinimumSize(buttonSize);
         setMaximumSize(buttonSize);
-        setMargin(new Insets(0, 0, 0, 0)); // Remove default margins to center icon better if it's the only content
+        setMargin(new Insets(0, 0, 0, 0));
 
         // Track recording state
         putClientProperty("isRecording", false);
@@ -314,9 +315,9 @@ public class VoiceInputButton extends JButton {
                         logger.trace("Could not delete temp STT file: {}", tempFile);
                     }
                 }
-            } catch (IOException ex) { // Catch specific IO errors from file writing/reading
+            } catch (IOException ex) {
                 onError.accept("Error processing audio file: " + ex.getMessage());
-            } catch (Exception ex) { // Catch broader exceptions during transcription API call etc.
+            } catch (Exception ex) {
                 onError.accept("Error during transcription: " + ex.getMessage());
             } finally {
                 SwingUtilities.invokeLater(() -> targetTextArea.setEnabled(true));

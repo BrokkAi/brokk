@@ -9,6 +9,7 @@ import static javax.swing.SwingUtilities.invokeLater;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
@@ -64,23 +65,23 @@ public class BrokkDiffPanel extends JPanel {
         final BufferSource leftSource;
         final BufferSource rightSource;
         BufferDiffPanel diffPanel;
-        
+
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
         }
-        
+
         String getDisplayName() {
             // Returns formatted name for UI display
             String leftName = getSourceName(leftSource);
             String rightName = getSourceName(rightSource);
-            
+
             if (leftName.equals(rightName)) {
                 return leftName;
             }
             return leftName + " vs " + rightName;
         }
-        
+
         private String getSourceName(BufferSource source) {
             if (source instanceof BufferSource.FileSource fs) {
                 return fs.file().getName();
@@ -145,15 +146,13 @@ public class BrokkDiffPanel extends JPanel {
 
         public Builder rightSource(BufferSource source) {
             this.rightSource = source;
-            // Automatically add the comparison when both sources are set
-            if (leftSource != null && rightSource != null) {
-                addComparison(leftSource, rightSource);
-                leftSource = null; // Clear to prevent duplicate additions
-                rightSource = null;
-            }
+            // Automatically add the comparison
+            addComparison(leftSource, rightSource);
+            leftSource = null; // Clear to prevent duplicate additions
+            rightSource = null;
             return this;
         }
-        
+
         public Builder addComparison(BufferSource leftSource, BufferSource rightSource) {
             assert leftSource != null && rightSource != null : "Both left and right sources must be provided for comparison.";
             this.fileComparisons.add(new FileComparisonInfo(leftSource, rightSource));
@@ -203,21 +202,21 @@ public class BrokkDiffPanel extends JPanel {
     private BufferDiffPanel getBufferDiffPanel() {
         return bufferDiffPanel;
     }
-    
+
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         if (canNavigateToNextFile()) {
             switchToFile(currentFileIndex + 1);
         }
     }
-    
+
     public void previousFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         if (canNavigateToPreviousFile()) {
             switchToFile(currentFileIndex - 1);
         }
     }
-    
+
     public void switchToFile(int index) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         if (index < 0 || index >= fileComparisons.size()) {
@@ -227,11 +226,11 @@ public class BrokkDiffPanel extends JPanel {
         currentFileIndex = index;
         loadFileOnDemand(currentFileIndex);
     }
-    
+
     private void updateNavigationButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         updateUndoRedoButtons();
-        
+
         if (btnPreviousFile != null) {
             btnPreviousFile.setEnabled(canNavigateToPreviousFile());
         }
@@ -239,7 +238,7 @@ public class BrokkDiffPanel extends JPanel {
             btnNextFile.setEnabled(canNavigateToNextFile());
         }
     }
-    
+
 
     private JToolBar createToolbar() {
         // Create toolbar
@@ -251,7 +250,7 @@ public class BrokkDiffPanel extends JPanel {
         btnUndo = new JButton("Undo");
         btnRedo = new JButton("Redo");
         captureDiffButton = new JButton("Capture Diff");
-        
+
         // Multi-file navigation buttons
         btnPreviousFile = new JButton("Previous File");
         btnNextFile = new JButton("Next File");
@@ -262,15 +261,15 @@ public class BrokkDiffPanel extends JPanel {
         btnPrevious.addActionListener(e -> navigateToPreviousChange());
         btnUndo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doUndo));
         btnRedo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doRedo));
-        
+
         // File navigation handlers
         btnPreviousFile.addActionListener(e -> previousFile());
         btnNextFile.addActionListener(e -> nextFile());
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
             assert bufferPanel != null;
-            var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.LEFT);
-            var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.RIGHT);
+            var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
+            var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
             assert leftPanel != null;
             assert rightPanel != null;
             var leftContent = leftPanel.getEditor().getText();
@@ -315,7 +314,7 @@ public class BrokkDiffPanel extends JPanel {
         toolBar.add(btnPrevious);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnNext);
-        
+
         // Add file navigation buttons if multiple files
         if (fileComparisons.size() > 1) {
             toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
@@ -327,7 +326,7 @@ public class BrokkDiffPanel extends JPanel {
             toolBar.add(Box.createHorizontalStrut(15));
             toolBar.add(fileIndicatorLabel);
         }
-        
+
         toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
         toolBar.addSeparator(); // Adds space between groups
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
@@ -346,10 +345,10 @@ public class BrokkDiffPanel extends JPanel {
     public void updateUndoRedoButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         var currentPanel = getCurrentContentPanel();
-        
+
         btnUndo.setEnabled(currentPanel != null && currentPanel.isUndoEnabled());
         btnRedo.setEnabled(currentPanel != null && currentPanel.isRedoEnabled());
-        
+
         if (currentPanel != null) {
             var isFirstChangeOverall = currentFileIndex == 0 && currentPanel.isAtFirstLogicalChange();
             var isLastChangeOverall = currentFileIndex == fileComparisons.size() - 1 && currentPanel.isAtLastLogicalChange();
@@ -363,18 +362,18 @@ public class BrokkDiffPanel extends JPanel {
 
     public void launchComparison() {
         logger.info("Starting lazy multi-file comparison for {} files", fileComparisons.size());
-        
+
         // Show the first file immediately
         currentFileIndex = 0;
         loadFileOnDemand(currentFileIndex);
     }
-    
+
     private void loadFileOnDemand(int fileIndex) {
         if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
             logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
             return;
         }
-        
+
         var compInfo = fileComparisons.get(fileIndex);
         logger.debug("Loading file on demand: {} (index {})", compInfo.getDisplayName(), fileIndex);
 
@@ -385,9 +384,9 @@ public class BrokkDiffPanel extends JPanel {
             displayCachedFile(fileIndex, cachedPanel);
             return;
         }
-        
+
         showLoadingForFile(fileIndex);
-        
+
         var fileComparison = new FileComparison.FileComparisonBuilder(this, theme, contextManager)
                 .withSources(compInfo.leftSource, compInfo.rightSource)
                 .build();
@@ -395,26 +394,26 @@ public class BrokkDiffPanel extends JPanel {
         fileComparison.addPropertyChangeListener(evt -> handleFileComparisonResult(evt, fileIndex));
         fileComparison.execute();
     }
-    
+
     private void showLoadingForFile(int fileIndex) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        
+
         var compInfo = fileComparisons.get(fileIndex);
         logger.trace("Showing loading indicator for file: {}", compInfo.getDisplayName());
-        
+
         // Clear existing tabs and show loading label
         tabbedPane.removeAll();
         add(loadingLabel, BorderLayout.CENTER);
-        
+
         updateFileIndicatorLabel("Loading: " + compInfo.getDisplayName());
-        
+
         revalidate();
         repaint();
     }
 
     private void displayCachedFile(int fileIndex, BufferDiffPanel cachedPanel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        
+
         var compInfo = fileComparisons.get(fileIndex);
         logger.trace("Displaying cached file: {}", compInfo.getDisplayName());
 
@@ -428,16 +427,16 @@ public class BrokkDiffPanel extends JPanel {
 
         // Update file indicator
         updateFileIndicatorLabel(compInfo.getDisplayName());
-        
+
         refreshUI();
     }
-    
+
     private void showErrorForFile(int fileIndex, String errorMessage) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        
+
         var compInfo = fileComparisons.get(fileIndex);
         logger.error("Error loading file: {} - {}", compInfo.getDisplayName(), errorMessage);
-        
+
         // Show error dialog
         JOptionPane.showMessageDialog(
             this,
@@ -445,7 +444,7 @@ public class BrokkDiffPanel extends JPanel {
             "File Load Error",
             JOptionPane.ERROR_MESSAGE
         );
-        
+
         // Remove loading indicator
         remove(loadingLabel);
         revalidate();
@@ -453,6 +452,7 @@ public class BrokkDiffPanel extends JPanel {
     }
 
 
+    @Nullable
     public AbstractContentPanel getCurrentContentPanel() {
         Component selectedComponent = getTabbedPane().getSelectedComponent();
         if (selectedComponent instanceof AbstractContentPanel abstractContentPanel) {
@@ -489,11 +489,11 @@ public class BrokkDiffPanel extends JPanel {
 
         frame.setVisible(true);
     }
-    
+
     private void navigateToNextChange() {
         var panel = getCurrentContentPanel();
         if (panel == null) return;
-        
+
         if (panel.isAtLastLogicalChange() && canNavigateToNextFile()) {
             nextFile();
         } else {
@@ -501,11 +501,11 @@ public class BrokkDiffPanel extends JPanel {
         }
         refreshAfterNavigation();
     }
-    
+
     private void navigateToPreviousChange() {
         var panel = getCurrentContentPanel();
         if (panel == null) return;
-        
+
         if (panel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
             previousFile();
             var newPanel = getCurrentContentPanel();
@@ -556,14 +556,15 @@ public class BrokkDiffPanel extends JPanel {
             }
         }
     }
-    
+
+    @Nullable
     private String detectFilename(BufferSource leftSource, BufferSource rightSource) {
         if (leftSource instanceof BufferSource.StringSource s && s.filename() != null) {
             return s.filename();
         } else if (leftSource instanceof BufferSource.FileSource f) {
             return f.file().getName();
         }
-        
+
         if (rightSource instanceof BufferSource.StringSource s && s.filename() != null) {
             return s.filename();
         } else if (rightSource instanceof BufferSource.FileSource f) {
@@ -571,13 +572,13 @@ public class BrokkDiffPanel extends JPanel {
         }
         return null;
     }
-    
+
     private void updateFileIndicatorLabel(String text) {
         if (fileIndicatorLabel != null) {
             fileIndicatorLabel.setText(text);
         }
     }
-    
+
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
         var panel = getCurrentContentPanel();
         if (panel != null) {

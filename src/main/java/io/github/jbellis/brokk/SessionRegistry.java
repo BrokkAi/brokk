@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Static registry to track which session is active in each worktree within the current JVM.
@@ -55,7 +56,7 @@ public final class SessionRegistry {
      * @param worktree The worktree root path
      * @param sessionId The new session UUID, or null to clear
      */
-    public static void update(Path worktree, UUID sessionId) {
+    public static void update(Path worktree, @Nullable UUID sessionId) {
         if (sessionId == null) {
             activeSessions.remove(worktree);
         } else {

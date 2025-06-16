@@ -14,6 +14,7 @@ import java.util.Map;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import org.jetbrains.annotations.Nullable;
 
 public class JMHighlighter implements Highlighter, ThemeAware {
 
@@ -26,7 +27,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
 
     // Stores highlights mapped by their layers
     private final Map<Integer, List<Highlight>> highlights = new HashMap<>();
-    private JTextComponent component; // The associated text component
+    private @Nullable JTextComponent component; // The associated text component
 
     /**
      * Installs the highlighter into a JTextComponent.

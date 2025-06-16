@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
@@ -6,19 +5,21 @@ import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentChangeListenerIF;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.JMDocumentEvent;
-import io.github.jbellis.brokk.difftool.search.SearchBarDialog;
 import io.github.jbellis.brokk.difftool.search.SearchHit;
 import io.github.jbellis.brokk.difftool.search.SearchHits;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchCommand;
+import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -45,6 +46,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private JScrollPane scrollPane;
     private RSyntaxTextArea editor;
     private JMHighlighter jmHighlighter;
+    @Nullable
     private BufferDocumentIF bufferDocument;
 
     /* ------------- mirroring PlainDocument <-> RSyntaxDocument ------------- */
@@ -53,13 +55,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private DocumentListener editorToPlainListener;
     private Timer timer;
     private SearchHits searchHits;
-    private final SearchBarDialog bar;
     private volatile boolean initialSetupComplete = false;
 
-    public FilePanel(@NotNull BufferDiffPanel diffPanel, String name, SearchBarDialog bar) {
+    public FilePanel(@NotNull BufferDiffPanel diffPanel, String name) {
         this.diffPanel = diffPanel;
         this.name = name;
-        this.bar = bar;
         init();
     }
 
@@ -78,7 +78,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         editor.setHighlighter(compositeHighlighter);  // layered: syntax first, diff/search second
 
         editor.addFocusListener(getFocusListener());
-        bar.setFilePanel(this);
         // Undo listener will be added in setBufferDocument when editor is active
 
         // Wrap editor inside a scroll pane with optimized scrolling
@@ -103,9 +102,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 theme.apply(editor)
         );
 
-//        diffPanel.getCaseSensitiveCheckBox().addActionListener(e -> {
-//            doSearch()
-//        });
     }
 
     public JComponent getVisualComponent() {
@@ -120,12 +116,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return editor;
     }
 
+    /**
+     * Creates a SearchableComponent adapter for this FilePanel's editor.
+     * This enables the editor to work with GenericSearchBar.
+     */
+    public SearchableComponent createSearchableComponent() {
+        return RTextAreaSearchableComponent.wrap(getEditor());
+    }
+
+    @Nullable
     public BufferDocumentIF getBufferDocument() {
         return bufferDocument;
     }
 
-
-    public void setBufferDocument(BufferDocumentIF bd) {
+    public void setBufferDocument(@Nullable BufferDocumentIF bd) {
         assert SwingUtilities.isEventDispatchThread();
         Document previousDocument;
         Document newDocument;
@@ -375,7 +379,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Refresh the diff of whole document.
             timer.restart();
         } else {
-//             Try to update the revision instead of doing a full diff.
+            // Try to update the revision instead of doing a full diff.
             if (!diffPanel.revisionChanged(de)) {
                 timer.restart();
             }
@@ -420,7 +424,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // --------------------------- Heuristic 1 -----------------------------
         if (bufferDocument != null) {
             var fileName = bufferDocument.getName();
-            if (fileName != null && !fileName.isBlank()) {
+            if (!fileName.isBlank()) {
                 // Remove trailing '~'
                 var candidate = fileName.endsWith("~")
                                 ? fileName.substring(0, fileName.length() - 1)
@@ -448,8 +452,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // --------------------------- Heuristic 2 -----------------------------
         if (SyntaxConstants.SYNTAX_STYLE_NONE.equals(style)) {
             var otherPanel = BufferDocumentIF.ORIGINAL.equals(name)
-                             ? diffPanel.getFilePanel(BufferDiffPanel.RIGHT)
-                             : diffPanel.getFilePanel(BufferDiffPanel.LEFT);
+                             ? diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT)
+                             : diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
 
             if (otherPanel != null) {
                 var otherStyle = otherPanel.getEditor().getSyntaxEditingStyle();
@@ -462,7 +466,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
 
         editor.setSyntaxEditingStyle(style);
-        
+
         // After setting syntax style, scroll to show the first diff if available
         SwingUtilities.invokeLater(this::scrollToFirstDiff);
     }
@@ -474,10 +478,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         var patch = diffPanel.getPatch();
         if (patch != null && !patch.getDeltas().isEmpty()) {
             var firstDelta = patch.getDeltas().get(0);
-            int lineToShow = BufferDocumentIF.ORIGINAL.equals(name) 
+            int lineToShow = BufferDocumentIF.ORIGINAL.equals(name)
                 ? firstDelta.getSource().getPosition()
                 : firstDelta.getTarget().getPosition();
-            
+
             if (bufferDocument != null) {
                 int offset = bufferDocument.getOffsetForLine(lineToShow);
                 if (offset >= 0) {
@@ -609,7 +613,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     SearchCommand getSearchCommand() {
-        return bar.getCommand();
+        // Default to case insensitive - GenericSearchBar handles case sensitivity through its own toggle
+        return new SearchCommand("", false);
     }
 
     public SearchHits doSearch() {

@@ -47,14 +47,14 @@ public class WorkspaceTools {
             List<String> relativePaths
     )
     {
-        if (relativePaths == null || relativePaths.isEmpty()) {
+        if (relativePaths.isEmpty()) {
             return "File paths list cannot be empty.";
         }
 
         List<ProjectFile> projectFiles = new ArrayList<>();
         List<String> errors = new ArrayList<>();
         for (String path : relativePaths) {
-            if (path == null || path.isBlank()) {
+            if (path.isBlank()) {
                 errors.add("Null or blank path provided.");
                 continue;
             }
@@ -84,7 +84,7 @@ public class WorkspaceTools {
             List<String> classNames
     )
     {
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return "Class names list cannot be empty.";
         }
 
@@ -93,8 +93,8 @@ public class WorkspaceTools {
         var analyzer = getAnalyzer();
 
         for (String className : classNames) {
-            if (className == null || className.isBlank()) {
-                classesNotFound.add("<blank or null>"); // Indicate a bad entry in the input list
+            if (className.isBlank()) {
+                classesNotFound.add("<blank>"); // Indicate a bad entry in the input list
                 continue;
             }
             var fileOpt = analyzer.getFileFor(className); // Returns Optional now
@@ -130,7 +130,7 @@ public class WorkspaceTools {
             String urlString
     )
     {
-        if (urlString == null || urlString.isBlank()) {
+        if (urlString.isBlank()) {
             return "URL cannot be empty.";
         }
 
@@ -175,10 +175,10 @@ public class WorkspaceTools {
             String description
     )
     {
-        if (content == null || content.isBlank()) {
+        if (content.isBlank()) {
             return "Content cannot be empty.";
         }
-        if (description == null || description.isBlank()) {
+        if (description.isBlank()) {
             return "Description cannot be empty.";
         }
 
@@ -195,11 +195,11 @@ public class WorkspaceTools {
             List<String> fragmentIds
     )
     {
-        if (fragmentIds == null || fragmentIds.isEmpty()) {
+        if (fragmentIds.isEmpty()) {
             return "Fragment IDs list cannot be empty.";
         }
 
-        var currentContext = contextManager.topContext();
+        var currentContext = contextManager.liveContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
         var idsToDropSet = new HashSet<>(fragmentIds);
 
@@ -224,7 +224,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add usages: Code Intelligence is not available.";
-        if (symbol == null || symbol.isBlank()) {
+        if (symbol.isBlank()) {
             return "Cannot add usages: symbol cannot be empty";
         }
 
@@ -248,7 +248,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add summary: Code Intelligence is not available.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return "Cannot add summary: class names list is empty";
         }
 
@@ -279,7 +279,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add summaries: Code Intelligence is not available.";
-        if (filePaths == null || filePaths.isEmpty()) {
+        if (filePaths.isEmpty()) {
             return "Cannot add summaries: file paths list is empty";
         }
 
@@ -343,7 +343,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot get files: Code Intelligence is not available.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return "Class names list cannot be empty.";
         }
 
@@ -352,7 +352,7 @@ public class WorkspaceTools {
         var analyzer = getAnalyzer();
 
         classNames.stream().distinct().forEach(className -> {
-            if (className == null || className.isBlank()) {
+            if (className.isBlank()) {
                 notFoundClasses.add("<blank or null>");
                 return;
             }
@@ -388,7 +388,7 @@ public class WorkspaceTools {
 //            List<String> classNames
 //    ) {
 //        assert getAnalyzer().isCpg() : "Cannot add class sources: Code Intelligence is not available.";
-//        if (classNames == null || classNames.isEmpty()) {
+//        if (classNames.isEmpty()) {
 //            return "Cannot add class sources: class names list is empty";
 //        }
 //        // Removed reasoning check
@@ -425,7 +425,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName == null || methodName.isBlank()) {
+        if (methodName.isBlank()) {
             return "Cannot add call graph: method name is empty";
         }
         if (depth <= 0) {
@@ -450,7 +450,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add call graph: CPG analyzer is not available.";
-        if (methodName == null || methodName.isBlank()) {
+        if (methodName.isBlank()) {
             return "Cannot add call graph: method name is empty";
         }
         if (depth <= 0) {

@@ -39,6 +39,7 @@ import java.util.stream.Collectors;
 public class Brokk {
     private static final Logger logger = LogManager.getLogger(Brokk.class);
 
+    @Nullable
     private static JWindow splashScreen = null;
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
@@ -48,10 +49,10 @@ public class Brokk {
     public static final String ICON_RESOURCE = "/brokk-icon.png";
 
     // Helper record for argument parsing result
-    private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, String projectPathArg) {}
+    private record ParsedArgs(boolean noProjectFlag, boolean noKeyFlag, @Nullable String projectPathArg) {}
 
     // Helper record for key validation result
-    private record KeyValidationResult(boolean isValid, Path dialogProjectPath) {}
+    private record KeyValidationResult(boolean isValid, @Nullable Path dialogProjectPath) {}
 
     static {
         // Register Bouncy Castle provider for JGit SSH operations if not already present.
@@ -146,7 +147,7 @@ public class Brokk {
         return new ParsedArgs(noProjectFlag, noKeyFlag, projectPathArg);
     }
 
-    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, Path initialDialogPath) {
+    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, @Nullable Path initialDialogPath) {
         boolean keyIsValid = false;
         Path currentDialogPath = initialDialogPath;
 
@@ -186,7 +187,7 @@ public class Brokk {
         return new KeyValidationResult(true, currentDialogPath);
     }
 
-    private static List<Path> determineInitialProjectsToOpen(ParsedArgs parsedArgs, Path dialogProjectPathFromKey) {
+    private static List<Path> determineInitialProjectsToOpen(ParsedArgs parsedArgs, @Nullable Path dialogProjectPathFromKey) {
         List<Path> projectsToAttemptOpen = new ArrayList<>();
         if (parsedArgs.projectPathArg != null) {
             Path pathFromArg = Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize();
@@ -356,7 +357,6 @@ public class Brokk {
     }
 
     private static boolean isValidDirectory(Path path) {
-        if (path == null) return false;
         try {
             return Files.isDirectory(path.toRealPath());
         } catch (IOException e) {
@@ -429,7 +429,8 @@ public class Brokk {
      * @param projectPath The project path to search for
      * @return The Chrome window for the project, or null if not found
      */
-    public static Chrome findOpenProjectWindow(Path projectPath) {
+    @Nullable
+    public static Chrome findOpenProjectWindow(@Nullable Path projectPath) {
         if (projectPath == null) {
             return null;
         }
@@ -739,7 +740,7 @@ public class Brokk {
                 int response = SwingUtil.runOnEdt(() -> JOptionPane.showConfirmDialog(
                         null,
                         """
-                        This project is not under Git version control. Would you like to initialize a new Git repository here?\
+                        This project is not under Git version control. Would you like to initialize a new Git repository here?
 
                         Without Git, the project will be read-only, and some features may be limited.""",
                         "Initialize Git Repository?",
