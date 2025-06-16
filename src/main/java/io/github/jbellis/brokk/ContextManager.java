@@ -1170,7 +1170,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param parser    The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
         // Pass an empty set for trackedFiles as it's not needed for redaction.
         var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
         // Check if there are actual S/R block objects, not just text parts

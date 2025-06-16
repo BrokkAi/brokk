@@ -82,17 +82,19 @@ public class JiraIssueService implements IssueService {
         }
 
         String statusClause = "";
-        if (filterOptions.status().isBlank()) {
+        String statusFilter = filterOptions.status();
+        if (statusFilter != null && !statusFilter.isBlank()) {
             // Escape double quotes in status value for JQL compatibility, though typically status names don't have them.
-            String escapedStatus = filterOptions.status().replace("\"", "\\\"");
+            String escapedStatus = statusFilter.replace("\"", "\\\"");
             statusClause = String.format(" AND status = \"%s\"", escapedStatus);
         }
 
         String resolutionClause = "";
-        if (!filterOptions.resolution().isBlank()) {
-            if ("Resolved".equalsIgnoreCase(filterOptions.resolution())) {
+        String resolutionFilter = filterOptions.resolution();
+        if (resolutionFilter != null && !resolutionFilter.isBlank()) {
+            if ("Resolved".equalsIgnoreCase(resolutionFilter)) {
                 resolutionClause = " AND resolution IS NOT EMPTY";
-            } else if ("Unresolved".equalsIgnoreCase(filterOptions.resolution())) {
+            } else if ("Unresolved".equalsIgnoreCase(resolutionFilter)) {
                 resolutionClause = " AND resolution IS EMPTY";
             }
             // If filterOptions.resolution() is something else, it's ignored for now.
@@ -100,9 +102,9 @@ public class JiraIssueService implements IssueService {
 
         StringBuilder jqlBuilder = new StringBuilder(String.format("project = %s%s%s", projectKey, statusClause, resolutionClause));
 
-        if (!filterOptions.query().isBlank()) {
-            String queryText = filterOptions.query();
-            String escapedQuery = queryText.replace("\\", "\\\\").replace("\"", "\\\"");
+        String queryFilter = filterOptions.query();
+        if (queryFilter != null && !queryFilter.isBlank()) {
+            String escapedQuery = queryFilter.replace("\\", "\\\\").replace("\"", "\\\"");
             jqlBuilder.append(String.format(" AND text ~ \"%s\"", escapedQuery));
         }
 

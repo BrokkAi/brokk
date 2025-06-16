@@ -402,7 +402,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             boolean isEditable = false;
             Context latestContext = contextManager.getContextHistory().topContext();
             if (latestContext != null) {
-                isEditable = ctx.equals(latestContext);
+                isEditable = ctx == latestContext;
             }
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
