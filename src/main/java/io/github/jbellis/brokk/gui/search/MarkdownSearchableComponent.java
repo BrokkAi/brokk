@@ -30,8 +30,8 @@ import java.util.regex.Pattern;
  * This bridges the SearchableComponent interface with MarkdownPanelSearchCallback functionality,
  * supporting search in both Markdown text and code blocks (RSyntaxTextArea).
  */
-public class MarkdownOutputPanelSearchableComponent implements SearchableComponent {
-    private static final Logger logger = LogManager.getLogger(MarkdownOutputPanelSearchableComponent.class);
+public class MarkdownSearchableComponent implements SearchableComponent {
+    private static final Logger logger = LogManager.getLogger(MarkdownSearchableComponent.class);
     
     // Debug flag - set to true to enable detailed search debugging
     // When enabled, outputs debug logs (at DEBUG level) showing marker collection, navigation steps, and HTML contexts
@@ -52,15 +52,15 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
     private final List<RTextAreaSearchableComponent> codeSearchComponents = new ArrayList<>();
 
 
-    public MarkdownOutputPanelSearchableComponent(List<MarkdownOutputPanel> panels) {
+    public MarkdownSearchableComponent(List<MarkdownOutputPanel> panels) {
         this.panels = panels;
     }
 
     /**
      * Creates an adapter for a single MarkdownOutputPanel.
      */
-    public static MarkdownOutputPanelSearchableComponent wrap(MarkdownOutputPanel panel) {
-        return new MarkdownOutputPanelSearchableComponent(List.of(panel));
+    public static MarkdownSearchableComponent wrap(MarkdownOutputPanel panel) {
+        return new MarkdownSearchableComponent(List.of(panel));
     }
 
     @Override
@@ -943,7 +943,7 @@ public class MarkdownOutputPanelSearchableComponent implements SearchableCompone
                 htmlText = label.getText();
             }
             
-            if (htmlText.isEmpty()) {
+            if (htmlText == null || htmlText.isEmpty()) {
                 return markerIds;
             }
             
