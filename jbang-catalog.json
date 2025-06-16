@@ -10,7 +10,7 @@
     },
 
     "brokk-0.10.0": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.10.0/brokk-assembly-0.10.0.jar",
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.10rc1/brokk-assembly-0.10.0.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector"
