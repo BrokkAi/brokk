@@ -45,9 +45,12 @@ class DeepScanDialog {
         var analysisDoneFuture = new CompletableFuture<Void>();
         var contextManager = chrome.getContextManager();
 
-        if (goal.isBlank() || contextManager == null || contextManager.getProject() == null) {
-            SwingUtilities.invokeLater(() -> chrome.toolError("Please enter instructions before running Deep Scan."));
-            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Goal is blank or context/project is unavailable."));
+        if (goal.isBlank()) {
+            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Please enter instructions before running Deep Scan."));
+            return analysisDoneFuture;
+        }
+        if (contextManager == null || contextManager.getProject() == null) {
+            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Context/project is unavailable."));
             return analysisDoneFuture;
         }
 
