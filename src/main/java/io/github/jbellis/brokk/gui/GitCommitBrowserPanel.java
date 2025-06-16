@@ -69,6 +69,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private JMenuItem popStashCommitItem;
     private JMenuItem applyStashCommitItem;
     private JMenuItem dropStashCommitItem;
+    private JMenuItem createBranchFromCommitItem;
 
     private JButton pullButton;
     private JButton pushButton;
@@ -339,12 +340,14 @@ public class GitCommitBrowserPanel extends JPanel {
         popStashCommitItem = new JMenuItem("Apply and Remove");
         applyStashCommitItem = new JMenuItem("Apply Stash");
         dropStashCommitItem = new JMenuItem("Drop Stash");
+        createBranchFromCommitItem = new JMenuItem("Create Branch From Commit");
 
         commitsContextMenu.add(addToContextItem);
         commitsContextMenu.add(viewChangesItem);
         commitsContextMenu.add(compareAllToLocalItem);
         commitsContextMenu.add(softResetItem);
         commitsContextMenu.add(revertCommitItem);
+        commitsContextMenu.add(createBranchFromCommitItem);
         commitsContextMenu.add(popStashCommitItem);
         commitsContextMenu.add(applyStashCommitItem);
         commitsContextMenu.add(dropStashCommitItem);
@@ -391,7 +394,10 @@ public class GitCommitBrowserPanel extends JPanel {
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
-        revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash);
+        revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
+
+        createBranchFromCommitItem.setVisible(!isStash);
+        createBranchFromCommitItem.setEnabled(selectedRows.length == 1 && !isStash);
 
         boolean allSelectedAreStashes = Arrays.stream(selectedRows) // boolean preferred by style guide
                 .mapToObj(r -> (ICommitInfo) commitsTableModel.getValueAt(r, COL_COMMIT_OBJ))
@@ -409,6 +415,7 @@ public class GitCommitBrowserPanel extends JPanel {
             softResetItem.setVisible(false);
             revertCommitItem.setVisible(false);
             compareAllToLocalItem.setVisible(false);
+            createBranchFromCommitItem.setVisible(false);
         }
         // Hide stash items if not all are stashes (or none are)
         if (!allSelectedAreStashes) {
@@ -427,6 +434,7 @@ public class GitCommitBrowserPanel extends JPanel {
         popStashCommitItem.setVisible(visible);
         applyStashCommitItem.setVisible(visible);
         dropStashCommitItem.setVisible(visible);
+        createBranchFromCommitItem.setVisible(visible);
     }
 
     private void setupCommitContextMenuActions() {
@@ -474,6 +482,21 @@ public class GitCommitBrowserPanel extends JPanel {
         if (commitsTable.getSelectedRowCount() == 1) {
             var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
             GitUiUtil.compareCommitToLocal(contextManager, chrome, ci);
+        }
+    });
+
+    createBranchFromCommitItem.addActionListener(e -> {
+        int[] selectedRows = commitsTable.getSelectedRows();
+        if (selectedRows.length == 1) {
+            ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
+            // Show dialog to create branch
+            io.github.jbellis.brokk.gui.dialogs.CreateBranchDialog.showDialog(
+                    (Frame) SwingUtilities.getWindowAncestor(this),
+                    contextManager,
+                    chrome,
+                    commitInfo.id(),
+                    getShortId(commitInfo.id())
+            );
         }
     });
     }
@@ -844,10 +867,14 @@ public class GitCommitBrowserPanel extends JPanel {
                 pullButton.setEnabled(false);
                 pushButton.setEnabled(false);
             }
-            if (this.options.showSearch() && commitSearchTextField != null) {
-                commitSearchTextField.setText("");
-            }
+            clearSearchField();
         });
+    }
+
+    public void clearSearchField() {
+        if (this.options.showSearch() && commitSearchTextField != null) {
+            SwingUtil.runOnEdt(() -> commitSearchTextField.setText(""));
+        }
     }
 
     public void setCommits(List<? extends ICommitInfo> commits, Set<String> unpushedCommitIds,
@@ -956,22 +983,32 @@ public class GitCommitBrowserPanel extends JPanel {
                 return new TreeNodeInfo(null, rootNode, false, null);
             }
             var node = (DefaultMutableTreeNode) path.getLastPathComponent();
-            boolean isFileNode = false;
+            boolean isFileResult = false;
             String calculatedFilePath = null;
 
-            if (node != rootNode && node.getParent() != null) {
-                // It's a file if its parent is not the root (i.e., parent is a directory node)
-                // OR if its parent IS the root, but it's a leaf (file in root dir).
-                boolean parentIsRoot = node.getParent() == rootNode;
-                if (!parentIsRoot || (parentIsRoot && node.isLeaf())) {
-                    isFileNode = true;
+            if (node == rootNode || node.getParent() == null) {
+                // Node is root, or has no parent (should not happen for valid tree paths other than root)
+                // isFileResult remains false, calculatedFilePath remains null
+            } else {
+                // Node is not the root and has a parent.
+                boolean parentIsRoot = (node.getParent() == rootNode);
+                isFileResult = !parentIsRoot; // A node is a file IFF its parent is NOT the root.
+
+                if (isFileResult) {
+                    // This node is a file (its parent is not the root).
+                    // The parent node is a directory node.
                     var fileName = node.getUserObject().toString();
                     var parentNode = (DefaultMutableTreeNode) node.getParent();
-                    var dirPath = (parentNode == rootNode) ? "" : parentNode.getUserObject().toString();
+                    var dirPath = parentNode.getUserObject().toString();
                     calculatedFilePath = dirPath.isEmpty() ? fileName : dirPath + "/" + fileName;
+                } else {
+                    // This node is NOT a file by the new definition because its parent IS the root.
+                    // It's a top-level directory or a root-level file (now treated as non-file).
+                    // The path is just its own name.
+                    calculatedFilePath = node.getUserObject().toString();
                 }
             }
-            return new TreeNodeInfo(node, rootNode, isFileNode, calculatedFilePath);
+            return new TreeNodeInfo(node, rootNode, isFileResult, calculatedFilePath);
         }
     }
 
