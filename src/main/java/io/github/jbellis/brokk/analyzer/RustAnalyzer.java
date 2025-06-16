@@ -222,7 +222,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                                        String baseIndent) {
         // signatureText is derived by TreeSitterAnalyzer using textSlice up to the body or end of node.
         // For Rust, this text (e.g. "struct Foo", "impl Point for Bar") is what we want, prefixed by visibility.
-        return baseIndent + exportPrefix + signatureText + "{";
+        return baseIndent + exportPrefix + signatureText + " {";
     }
 
     @Override

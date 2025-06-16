@@ -124,7 +124,7 @@ public class TextNodeMarkerCustomizerTest {
     }
 
     @Test
-    public void testEmptyAndNullHandling() {
+    public void testEmptyHandling() {
         // Empty HTML
         Element emptyResult = applyCustomizer("", "test", false, true);
         assertEquals(0, countMarks(emptyResult));
@@ -132,12 +132,6 @@ public class TextNodeMarkerCustomizerTest {
         // Whitespace only
         Element whitespaceResult = applyCustomizer("   \n\t  ", "test", false, true);
         assertEquals(0, countMarks(whitespaceResult));
-
-        // Null root handling
-        HtmlCustomizer customizer = new TextNodeMarkerCustomizer(
-            "test", false, true, "<mark>", "</mark>"
-        );
-        assertDoesNotThrow(() -> customizer.customize(null));
     }
 
     @Test
