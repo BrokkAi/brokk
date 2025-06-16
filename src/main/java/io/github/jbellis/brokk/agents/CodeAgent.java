@@ -183,6 +183,19 @@ public class CodeAgent {
             }
 
             // If we reach here, it means the LLM segment was considered complete and correct for now.
+            // Now that we're done with incomplete response processing, redact SEARCH/REPLACE blocks 
+            // from all AI messages to reduce bloat in subsequent requests
+            for (int i = taskMessages.size() - 1; i >= 0; i--) {
+                if (taskMessages.get(i) instanceof AiMessage aiMessage) {
+                    var redactedMessage = ContextManager.redactAiMessage(aiMessage, parser);
+                    if (redactedMessage.isPresent()) {
+                        taskMessages.set(i, redactedMessage.get());
+                    } else {
+                        taskMessages.remove(i);
+                    }
+                }
+            }
+
             // Proceed to apply accumulated `blocks`.
             logger.debug("{} total unapplied blocks", blocks.size());
 
@@ -667,10 +680,12 @@ public class CodeAgent {
                
                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix the error.
                
+               %s
+               
                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
                do your best to explain the problem but DO NOT provide any edits.
                Otherwise, provide the edits as usual.
-               """.stripIndent().formatted(latestBuildError);
+               """.stripIndent().formatted(latestBuildError, CodePrompts.ELIDED_BLOCKS_GUIDE);
     }
 
     /**
