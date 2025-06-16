@@ -54,6 +54,12 @@ public class CreatePullRequestDialog extends JDialog {
     private String mergeBaseCommit = null;
     private boolean sourceBranchNeedsPush = false;
 
+    /**
+     * Optional branch name that should be pre-selected as the source branch
+     * when the dialog opens.  May be {@code null}.
+     */
+    private final String preselectedSourceBranch;
+
     private PrDescriptionWorker currentDescriptionWorker;
     private ContextManager.SummarizeWorker currentTitleWorker;
 
@@ -71,10 +77,22 @@ public class CreatePullRequestDialog extends JDialog {
     private static final long DEBOUNCE_MS = 400;
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
+        this(owner, chrome, contextManager, null); // delegate
+    }
+
+    /**
+     * Full constructor allowing the caller to specify which branch should be
+     * selected as the source branch when the dialog opens.
+     */
+    public CreatePullRequestDialog(Frame owner,
+                                   Chrome chrome,
+                                   ContextManager contextManager,
+                                   String preselectedSourceBranch) {
         super(owner, "Create a Pull Request", true);
         this.chrome = chrome;
         this.contextManager = contextManager;
-        
+        this.preselectedSourceBranch = preselectedSourceBranch;
+
         initializeDialog();
         buildLayout();
     }
@@ -457,6 +475,13 @@ public class CreatePullRequestDialog extends JDialog {
             populateBranchDropdowns(targetBranches, sourceBranches);
             setDefaultBranchSelections(gitRepo, targetBranches, sourceBranches, localBranches);
 
+            // If caller asked for a specific source branch, honour it *after*
+            // defaults have been applied (so this wins).
+            if (preselectedSourceBranch != null &&
+                sourceBranches.contains(preselectedSourceBranch)) {
+                sourceBranchComboBox.setSelectedItem(preselectedSourceBranch);
+            }
+
             // Listeners must be set up AFTER default items are selected to avoid premature firing.
             setupBranchListeners();
 
@@ -522,6 +547,18 @@ public class CreatePullRequestDialog extends JDialog {
 
     public static void show(Frame owner, Chrome chrome, ContextManager contextManager) {
         CreatePullRequestDialog dialog = new CreatePullRequestDialog(owner, chrome, contextManager);
+        dialog.setVisible(true);
+    }
+
+    /**
+     * Convenience helper to open the dialog with a pre-selected source branch.
+     */
+    public static void show(Frame owner,
+                            Chrome chrome,
+                            ContextManager contextManager,
+                            String sourceBranch) {
+        CreatePullRequestDialog dialog =
+                new CreatePullRequestDialog(owner, chrome, contextManager, sourceBranch);
         dialog.setVisible(true);
     }
 

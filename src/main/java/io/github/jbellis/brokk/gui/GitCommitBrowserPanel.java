@@ -166,7 +166,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 chrome.toolError("Select a branch before creating a PR.");
                 return;
             }
-            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
+            CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager, branch);
         });
 
 
