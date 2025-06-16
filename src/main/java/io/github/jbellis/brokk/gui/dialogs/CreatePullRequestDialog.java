@@ -93,6 +93,9 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void buildLayout() {
+        if (getContentPane() instanceof JPanel cp) {
+            cp.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10)); // Add padding
+        }
         setLayout(new BorderLayout());
 
         // --- top panel: branch selectors -------------------------------------------------------
@@ -112,18 +115,14 @@ public class CreatePullRequestDialog extends JDialog {
         // commitBrowserPanel and fileStatusTable are now initialized once above.
         fileStatusTable = new FileStatusTable();
 
-        var commitsPanel = createTitledPanel("Commits in Pull Request", commitBrowserPanel);
-        var filesPanel = createTitledPanel("Files Changed", fileStatusTable);
-
-        var middleSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, commitsPanel, filesPanel);
-        middleSplit.setResizeWeight(0.5);
+        var middleTabbedPane = new JTabbedPane();
+        middleTabbedPane.addTab("Commits", null, commitBrowserPanel, "Commits included in this pull request");
+        middleTabbedPane.addTab("Changes", null, fileStatusTable, "Files changed in this pull request");
 
         // --- bottom: buttons ------------------------------------------------------------------
         var buttonPanel = createButtonPanel();
-        add(middleSplit, BorderLayout.CENTER);
+        add(middleTabbedPane, BorderLayout.CENTER);
         add(buttonPanel, BorderLayout.SOUTH);
-
-        SwingUtilities.invokeLater(() -> middleSplit.setDividerLocation(0.5));
 
         // flow-label updater
         this.flowUpdater = createFlowUpdater();
@@ -510,15 +509,6 @@ public class CreatePullRequestDialog extends JDialog {
     public static void show(Frame owner, Chrome chrome, ContextManager contextManager) {
         CreatePullRequestDialog dialog = new CreatePullRequestDialog(owner, chrome, contextManager);
         dialog.setVisible(true);
-    }
-
-    private JPanel createTitledPanel(String title, JComponent contentComponent) {
-        var panel = new JPanel(new BorderLayout(0, 5)); // Add small vertical gap
-        var label = new JLabel(title, SwingConstants.LEFT);
-        label.setBorder(BorderFactory.createEmptyBorder(5, 5, 0, 5)); // Add padding
-        panel.add(label, BorderLayout.NORTH);
-        panel.add(contentComponent, BorderLayout.CENTER);
-        return panel;
     }
 
     private List<ProjectFile> getAllFilesFromFileStatusTable() {
