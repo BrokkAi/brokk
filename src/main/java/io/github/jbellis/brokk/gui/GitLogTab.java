@@ -51,25 +51,6 @@ public class GitLogTab extends JPanel {
     // createBranchFromCommitItem is managed by GitCommitBrowserPanel if needed, or was removed by prior refactoring.
 
     private GitCommitBrowserPanel gitCommitBrowserPanel;
-    // Removed fields for UI elements now in GitCommitBrowserPanel:
-    // private JTextField commitSearchTextField;
-    // private DefaultTableModel commitsTableModel;
-    // private JTable commitsTable;
-    // private JMenuItem addToContextItem;
-    // private JMenuItem softResetItem;
-    // private JMenuItem revertCommitItem;
-    // private JMenuItem viewChangesItem;
-    // private JMenuItem compareAllToLocalItem;
-    // private JMenuItem popStashCommitItem;
-    // private JMenuItem applyStashCommitItem;
-    // private JMenuItem dropStashCommitItem;
-    // private JButton pullButton;
-    // private JButton pushButton;
-    // private DefaultMutableTreeNode changesRootNode;
-    // private DefaultTreeModel changesTreeModel;
-    // private JTree changesTree;
-    // private JLabel revisionTextLabel;
-    // private JTextArea revisionIdTextArea;
 
     /**
      * Constructor. Builds and arranges the UI components for the Log tab.

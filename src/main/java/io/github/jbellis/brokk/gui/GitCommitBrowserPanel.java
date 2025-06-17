@@ -546,9 +546,12 @@ public class GitCommitBrowserPanel extends JPanel {
         var viewHistoryItem = new JMenuItem("View History");
         var editFileItem = new JMenuItem("Edit File(s)");
         var comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
+        JMenuItem rollbackFilesItem = new JMenuItem("Rollback Files to This Commit");
 
         changesContextMenu.add(addFileToContextItem);
         changesContextMenu.add(editFileItem);
+        changesContextMenu.addSeparator();
+        changesContextMenu.add(rollbackFilesItem);
         changesContextMenu.addSeparator();
         changesContextMenu.add(viewHistoryItem);
         changesContextMenu.addSeparator();
@@ -557,13 +560,18 @@ public class GitCommitBrowserPanel extends JPanel {
         changesContextMenu.add(compareFileWithLocalItem);
         changesContextMenu.add(comparePrevWithLocalItem);
 
-        setupChangesTreeContextMenuListener(changesContextMenu);
+        setupChangesTreeContextMenuListener(addFileToContextItem, compareFileWithLocalItem,
+                                            viewFileAtRevisionItem, viewDiffItem, viewHistoryItem,
+                                            editFileItem, comparePrevWithLocalItem, rollbackFilesItem, changesContextMenu);
         setupChangesTreeContextMenuActions(addFileToContextItem, compareFileWithLocalItem, 
                                          viewFileAtRevisionItem, viewDiffItem, viewHistoryItem, 
-                                         editFileItem, comparePrevWithLocalItem);
+                                         editFileItem, comparePrevWithLocalItem, rollbackFilesItem);
     }
 
-    private void setupChangesTreeContextMenuListener(JPopupMenu changesContextMenu) {
+    private void setupChangesTreeContextMenuListener(JMenuItem addFileToContextItem, JMenuItem compareFileWithLocalItem,
+                                                     JMenuItem viewFileAtRevisionItem, JMenuItem viewDiffItem,
+                                                     JMenuItem viewHistoryItem, JMenuItem editFileItem,
+                                                     JMenuItem comparePrevWithLocalItem, JMenuItem rollbackFilesItem, JPopupMenu changesContextMenu) {
         changesTree.addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) { handleChangesPopup(e); }
             @Override public void mouseReleased(MouseEvent e) { handleChangesPopup(e); }
@@ -573,19 +581,18 @@ public class GitCommitBrowserPanel extends JPanel {
                     if (row >= 0 && !changesTree.isRowSelected(row)) changesTree.setSelectionRow(row);
                     
                     var paths = changesTree.getSelectionPaths();
-                    boolean hasFileSel = (paths != null && paths.length > 0 && hasFileNodesSelected(paths)); // boolean preferred by style guide
+                    boolean hasFileSelection = (paths != null && paths.length > 0 && hasFileNodesSelected(paths)); // boolean preferred by style guide
                     boolean isSingleCommit = (commitsTable.getSelectedRowCount() == 1); // boolean preferred by style guide
-                    boolean singleFileSel = (paths != null && paths.length == 1 && hasFileSel); // boolean preferred by style guide
+                    boolean singleFileSelected = (paths != null && paths.length == 1 && hasFileSelection); // boolean preferred by style guide
 
-                    for (var comp : changesContextMenu.getComponents()) {
-                        if (comp instanceof JMenuItem mi) {
-                            switch (mi.getText()) {
-                                case "View History", "Capture Diff", "Edit File(s)" -> mi.setEnabled(hasFileSel);
-                                case "View File at Revision", "View Diff", "Compare with Local", "Compare Previous with Local" -> 
-                                    mi.setEnabled(singleFileSel && isSingleCommit);
-                            }
-                        }
-                    }
+                    viewHistoryItem.setEnabled(singleFileSelected);
+                    addFileToContextItem.setEnabled(hasFileSelection);
+                    editFileItem.setEnabled(hasFileSelection);
+                    rollbackFilesItem.setEnabled(hasFileSelection && isSingleCommit);
+                    viewFileAtRevisionItem.setEnabled(singleFileSelected && isSingleCommit);
+                    viewDiffItem.setEnabled(singleFileSelected && isSingleCommit);
+                    compareFileWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
+                    comparePrevWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
                     changesContextMenu.show(changesTree, e.getX(), e.getY());
                 }
             }
@@ -595,7 +602,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private void setupChangesTreeContextMenuActions(JMenuItem addFileToContextItem, JMenuItem compareFileWithLocalItem,
                                                    JMenuItem viewFileAtRevisionItem, JMenuItem viewDiffItem,
                                                    JMenuItem viewHistoryItem, JMenuItem editFileItem,
-                                                   JMenuItem comparePrevWithLocalItem) {
+                                                   JMenuItem comparePrevWithLocalItem, JMenuItem rollbackFilesItem) {
         addFileToContextItem.addActionListener(e -> {
             var files = getSelectedFilePathsFromTree();
             if (!files.isEmpty() && commitsTable.getSelectedRowCount() >= 1) {
@@ -614,6 +621,25 @@ public class GitCommitBrowserPanel extends JPanel {
         
         viewHistoryItem.addActionListener(e -> getSelectedFilePathsFromTree().forEach(fp -> chrome.getGitPanel().addFileHistoryTab(contextManager.toFile(fp))));
         editFileItem.addActionListener(e -> getSelectedFilePathsFromTree().forEach(fp -> GitUiUtil.editFile(contextManager, fp)));
+        rollbackFilesItem.addActionListener(e -> {
+            TreePath[] paths = changesTree.getSelectionPaths();
+            int[] selRows = commitsTable.getSelectedRows();
+            if (paths != null && paths.length > 0 && selRows.length == 1) {
+                List<String> selectedFilePaths = getSelectedFilePathsFromTree();
+                if (!selectedFilePaths.isEmpty()) {
+                    // Get CommitInfo from hidden column 5
+                    ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ);
+                    String commitId = commitInfo.id();
+
+                    // Convert file paths to ProjectFile objects
+                    List<ProjectFile> projectFiles = selectedFilePaths.stream()
+                            .map(fp -> new ProjectFile(contextManager.getRoot(), fp))
+                            .toList();
+
+                    GitUiUtil.rollbackFilesToCommit(contextManager, chrome, commitId, projectFiles);
+                }
+            }
+        });
     }
     
     private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
