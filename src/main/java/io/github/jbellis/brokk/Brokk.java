@@ -820,4 +820,8 @@ public class Brokk {
             }, SwingUtilities::invokeLater);
         }
     }
+
+    public static ConcurrentHashMap<Path, Chrome> getOpenProjectWindows() {
+        return openProjectWindows;
+    }
 }
