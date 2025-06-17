@@ -57,7 +57,7 @@ scalacOptions ++= Seq(
   "-feature",
 )
 
-val jlamaVersion = "1.0.0-beta3" // Assuming this matches langchain4j-jlama
+val jlamaVersion = "1.0.0-beta3"
 // Additional repositories
 resolvers ++= Seq(
   "Gradle Libs" at "https://repo.gradle.org/gradle/libs-releases",
