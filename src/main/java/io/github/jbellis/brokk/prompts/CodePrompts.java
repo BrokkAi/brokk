@@ -48,13 +48,6 @@ public abstract class CodePrompts {
             before immediately jumping into taking further action.
             """.stripIndent();
 
-    public static final String ELIDED_BLOCKS_GUIDE = """
-            SEARCH/REPLACE blocks for the code changes that you propose are elided in subsequent messages in which
-            the history of the conversation is provided to you. The blocks are replaced with: [elided SEARCH/REPLACE block],
-            so you should always ignore this sequence of tokens in messages, and you should ALWAYS propose changes in proper
-            SEARCH/REPLACE blocks as shown in the examples.
-            """.stripIndent();
-
     // Now takes a Models instance
     public static String reminderForModel(Service service, StreamingChatLanguageModel model) {
         return service.isLazy(model)
@@ -81,7 +74,6 @@ public abstract class CodePrompts {
         messages.addAll(cm.getWorkspaceReadOnlyMessages());
         messages.addAll(originalWorkspaceEditableMessages);
         messages.addAll(parser.exampleMessages());
-        messages.add(elidedBlocksMessage());
         messages.addAll(cm.getHistoryMessages());
         messages.addAll(taskMessages);
         messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
@@ -134,16 +126,6 @@ public abstract class CodePrompts {
           %s
           </style_guide>
           """.stripIndent().formatted(systemIntro(reminder), workspaceSummary, styleGuide).trim();
-
-        return new SystemMessage(text);
-    }
-
-    private SystemMessage elidedBlocksMessage() {
-        var text = """
-          <elided_blocks_guide>
-          %s
-          </elided_blocks_guide>
-          """.stripIndent().formatted(ELIDED_BLOCKS_GUIDE).trim();
 
         return new SystemMessage(text);
     }
