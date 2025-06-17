@@ -25,6 +25,7 @@ javacOptions := {
     "-Xplugin:ErrorProne -Xep:FutureReturnValueIgnored:OFF -Xep:MissingSummary:OFF -Xep:EmptyBlockTag:OFF -Xep:NonCanonicalType:OFF",
     "-Werror",
     "-Xlint:deprecation",
+    "-Xlint:unchecked",
 
     // JVM arguments for the forked javac process to run Error Prone on JDK 16+
     // The -J prefix is needed because Compile / javaHome is set, which forks javac.
@@ -82,7 +83,7 @@ libraryDependencies ++= Seq(
   "io.joern" %% "pysrc2cpg" % "4.0.369",
   "io.joern" %% "joern-cli" % "4.0.369",
   "io.joern" %% "semanticcpg" % "4.0.369",
-  
+
   // Utilities
   "com.formdev" % "flatlaf" % "3.6",
   "com.fifesoft" % "rsyntaxtextarea" % "3.5.4",
@@ -131,7 +132,7 @@ assembly / assemblyMergeStrategy := {
   case PathList("META-INF", xs @ _*) =>
     xs.last match {
       case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") => MergeStrategy.discard
-      case "MANIFEST.MF" => MergeStrategy.discard 
+      case "MANIFEST.MF" => MergeStrategy.discard
       case _ => MergeStrategy.first
     }
   case _ => MergeStrategy.first
