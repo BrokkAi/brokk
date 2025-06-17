@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.mop;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -63,11 +64,13 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     private boolean isDarkTheme = false;
     private boolean blockClearAndReset = false;
     private final ExecutorService compactExec;
+    private final boolean escapeHtml;
 
     // Global HtmlCustomizer applied to every renderer
     private HtmlCustomizer htmlCustomizer = HtmlCustomizer.DEFAULT;
 
-    public MarkdownOutputPanel() {
+    public MarkdownOutputPanel(boolean escapeHtml) {
+        this.escapeHtml = escapeHtml;
         setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
         setOpaque(true);
         this.compactExec = Executors.newSingleThreadExecutor(r -> {
@@ -77,6 +80,9 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         });
     }
 
+    public MarkdownOutputPanel() {
+        this(true); // Default to escaping HTML
+    }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
@@ -197,20 +203,20 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
      * @param text The text content to append
      * @param type The type of message being appended
      */
-    public void append(String text, ChatMessageType type) {
+    public void append(String text, ChatMessageType type, boolean isNewMessage) {
         assert text != null && type != null;
         if (text.isEmpty()) {
             return;
         }
 
-        // Check if we're appending to an existing message of the same type
-        if (!bubbles.isEmpty() && bubbles.getLast().message().type() == type) {
-            // Append to existing message
-            updateLastMessage(text);
-        } else {
+        // isNewMessage parameter takes precedence over type matching
+        if (isNewMessage || bubbles.isEmpty() || bubbles.getLast().message().type() != type) {
             // Create a new message
             ChatMessage newMessage = Messages.create(text, type);
             addNewMessageBubble(newMessage);
+        } else {
+            // Append to existing message
+            updateLastMessage(text);
         }
 
         textChangeListeners.forEach(Runnable::run);
@@ -256,36 +262,39 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         }
 
         // Determine styling based on message type
-        String title = null;
-        String iconText = null;
-        Color highlightColor = null;
-        
-        switch (message.type()) {
-            case AI:
-                title = "Brokk";
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+        Icon iconEmoji;
+        Color highlightColor;
+        String title = switch (message.type()) {
+            case AI -> {
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_ai");
-                break;
-            case USER:
-                title = "You";
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                yield "Brokk";
+            }
+            case USER -> {
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_user");
-                break;
-            case CUSTOM:
-            case SYSTEM:
-                title = "System";
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                if (message instanceof UserMessage userMessage && userMessage.name() != null
+                    && !userMessage.name().isEmpty() && !userMessage.name().contains("MODE")) {
+                    yield userMessage.name();
+                } else {
+                    yield "You";
+                }
+            }
+            case CUSTOM, SYSTEM -> {
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
-                break;
-            default:
-                title = message.type().toString();
-                iconText = "\uD83D\uDCBB"; // Unicode for computer emoji
+                yield "System";
+            }
+            default -> { // Should ideally not be reached if all ChatMessageType cases are handled.
+                iconEmoji = SwingUtil.uiIcon("FileView.computerIcon");
                 highlightColor = ThemeColors.getColor(isDarkTheme, "message_border_custom");
-        }
+                yield message.type().toString();
+            }
+        };
         
         // Create a new renderer for this message - disable edit blocks for user messages
         boolean enableEditBlocks = message.type() != ChatMessageType.USER;
-        var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks);
+        var renderer = new IncrementalBlockRenderer(isDarkTheme, enableEditBlocks, escapeHtml);
         renderer.setHtmlCustomizer(htmlCustomizer);
 
         // Create a new worker for this message
@@ -294,7 +303,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         // Create the UI component (MessageBubble)
         var bubbleUI = new MessageBubble(
             title,
-            iconText,
+            iconEmoji,
             renderer.getRoot(),
             isDarkTheme,
             highlightColor
@@ -553,7 +562,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         final List<IncrementalBlockRenderer> renderersToCompact = renderers().toList();
 
         if (renderersToCompact.isEmpty()) {
-            logger.debug("[COMPACTION][{}] No renderers to compact.", roundId);
+            logger.trace("[COMPACTION][{}] No renderers to compact.", roundId);
             completionFuture.complete(null);
             return;
         }
@@ -586,7 +595,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
                 }
                 revalidate();
                 repaint();
-                logger.debug("[COMPACTION][{}] Compacted all messages and applied to UI.", roundId);
+                logger.trace("[COMPACTION][{}] Compacted all messages and applied to UI.", roundId);
                 completionFuture.complete(null);
             });
         }, this.compactExec).exceptionally(ex -> {
@@ -746,6 +755,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
     public boolean getScrollableTracksViewportHeight() {
         return false;
     }
+
 
 
     /**

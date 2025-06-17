@@ -4,7 +4,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -111,7 +112,7 @@ public class ContextSerializationTest {
     void testWriteReadHistoryWithSingleContext_NoFragments() throws IOException {
         var history = new ContextHistory();
         var initialContext = new Context(mockContextManager, "Initial welcome.");
-        history.setInitialContext(initialContext.freezeForTesting()); // Freeze context
+        history.setInitialContext(initialContext.freeze()); // Freeze context
 
         Path zipFile = tempDir.resolve("single_context_no_fragments.zip");
         HistoryIo.writeZip(history, zipFile);
@@ -138,11 +139,11 @@ public class ContextSerializationTest {
         var context1 = new Context(mockContextManager, "Context 1 started")
                 .addEditableFiles(List.of(new ContextFragment.ProjectPathFragment(projectFile1, mockContextManager)))
                 .addVirtualFragment(new ContextFragment.StringFragment(mockContextManager, "Virtual content 1", "VC1", SyntaxConstants.SYNTAX_STYLE_JAVA));
-        originalHistory.setInitialContext(context1.freezeForTesting()); // Freeze context
+        originalHistory.setInitialContext(context1.freeze()); // Freeze context
 
         // Context 2: Image fragment, task history
         var image1 = createTestImage(Color.RED, 10, 10);
-        var pasteImageFragment1 = new ContextFragment.PasteImageFragment(mockContextManager, image1, CompletableFuture.completedFuture("Pasted Red Image"));
+        var pasteImageFragment1 = new ContextFragment.AnonymousImageFragment(mockContextManager, image1, CompletableFuture.completedFuture("Pasted Red Image"));
         
         var context2 = new Context(mockContextManager, "Context 2 started")
                 .addVirtualFragment(pasteImageFragment1);
@@ -151,7 +152,7 @@ public class ContextSerializationTest {
         var taskFragment = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Test Task");
         context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null), taskFragment, CompletableFuture.completedFuture("Action for task"));
         
-        originalHistory.addFrozenContextAndClearRedo(context2.freezeForTesting());
+        originalHistory.addFrozenContextAndClearRedo(context2.freeze());
         
         Path zipFile = tempDir.resolve("complex_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -173,7 +174,7 @@ public class ContextSerializationTest {
 
         // Verify image content from the image fragment in loadedCtx2
         var loadedImageFragmentOpt = loadedCtx2.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Pasted Red Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Pasted Red Image".equals(f.description()))
             .findFirst();
         assertTrue(loadedImageFragmentOpt.isPresent(), "Pasted Red Image fragment not found in loaded context 2");
         var loadedImageFragment = loadedImageFragmentOpt.get();
@@ -181,7 +182,7 @@ public class ContextSerializationTest {
         byte[] imageBytesContent;
         if (loadedImageFragment instanceof FrozenFragment ff) {
             imageBytesContent = ff.imageBytesContent();
-        } else if (loadedImageFragment instanceof ContextFragment.PasteImageFragment pif) {
+        } else if (loadedImageFragment instanceof ContextFragment.AnonymousImageFragment pif) {
             imageBytesContent = imageToBytes(pif.image());
         } else {
             throw new AssertionError("Unexpected fragment type for pasted image: " + loadedImageFragment.getClass());
@@ -198,24 +199,24 @@ public class ContextSerializationTest {
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
         // Compare editable files
-        var expectedEditable = expected.editableFiles().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
-        var actualEditable = actual.editableFiles().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
+        var expectedEditable = expected.editableFiles().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
+        var actualEditable = actual.editableFiles().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
         assertEquals(expectedEditable.size(), actualEditable.size(), "Editable files count mismatch");
         for (int i = 0; i < expectedEditable.size(); i++) {
             assertContextFragmentsEqual(expectedEditable.get(i), actualEditable.get(i));
         }
 
         // Compare readonly files
-        var expectedReadonly = expected.readonlyFiles().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
-        var actualReadonly = actual.readonlyFiles().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
+        var expectedReadonly = expected.readonlyFiles().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
+        var actualReadonly = actual.readonlyFiles().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
         assertEquals(expectedReadonly.size(), actualReadonly.size(), "Readonly files count mismatch");
         for (int i = 0; i < expectedReadonly.size(); i++) {
             assertContextFragmentsEqual(expectedReadonly.get(i), actualReadonly.get(i));
         }
         
         // Compare virtual fragments
-        var expectedVirtuals = expected.virtualFragments().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
-        var actualVirtuals = actual.virtualFragments().sorted(java.util.Comparator.comparingInt(ContextFragment::id)).toList();
+        var expectedVirtuals = expected.virtualFragments().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
+        var actualVirtuals = actual.virtualFragments().sorted(java.util.Comparator.comparing(ContextFragment::id)).toList();
         assertEquals(expectedVirtuals.size(), actualVirtuals.size(), "Virtual fragments count mismatch");
         for (int i = 0; i < expectedVirtuals.size(); i++) {
             assertContextFragmentsEqual(expectedVirtuals.get(i), actualVirtuals.get(i));
@@ -291,12 +292,12 @@ public class ContextSerializationTest {
         // Create two PasteImageFragments with identical content and description
         // This should result in the same FrozenFragment instance due to interning
         var sharedDescription = "Shared Blue Image";
-        var liveImageFrag1 = new ContextFragment.PasteImageFragment(
+        var liveImageFrag1 = new ContextFragment.AnonymousImageFragment(
             mockContextManager, 
             sharedImage, 
             CompletableFuture.completedFuture(sharedDescription)
         );
-        var liveImageFrag2 = new ContextFragment.PasteImageFragment(
+        var liveImageFrag2 = new ContextFragment.AnonymousImageFragment(
             mockContextManager, 
             sharedImage, 
             CompletableFuture.completedFuture(sharedDescription)
@@ -308,12 +309,12 @@ public class ContextSerializationTest {
         // Context 1 with first image fragment
         var ctx1 = new Context(mockContextManager, "Context 1 with shared image")
             .addVirtualFragment(liveImageFrag1);
-        originalHistory.setInitialContext(ctx1.freezeForTesting()); // Freeze context
+        originalHistory.setInitialContext(ctx1.freeze()); // Freeze context
         
         // Context 2 with second image fragment (same content, should intern to same FrozenFragment)
         var ctx2 = new Context(mockContextManager, "Context 2 with shared image")
             .addVirtualFragment(liveImageFrag2);
-        originalHistory.addFrozenContextAndClearRedo(ctx2.freezeForTesting());
+        originalHistory.addFrozenContextAndClearRedo(ctx2.freeze());
         
         // Write to ZIP - this should NOT throw ZipException: duplicate entry
         Path zipFile = tempDir.resolve("shared_image_history.zip");
@@ -333,19 +334,19 @@ public class ContextSerializationTest {
         
         // Find the image fragments in each context
         var fragment1 = loadedCtx1.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Shared Blue Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
             .findFirst()
             .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 1"));
             
         var fragment2 = loadedCtx2.virtualFragments()
-            .filter(f -> !f.isText() && "Paste of Shared Blue Image".equals(f.description()))
+            .filter(f -> !f.isText() && "Shared Blue Image".equals(f.description()))
             .findFirst()
             .orElseThrow(() -> new AssertionError("Image fragment not found in loaded context 2"));
         
         byte[] imageBytes1, imageBytes2;
         if (fragment1 instanceof FrozenFragment ff1) {
             imageBytes1 = ff1.imageBytesContent();
-        } else if (fragment1 instanceof ContextFragment.PasteImageFragment pif1) {
+        } else if (fragment1 instanceof ContextFragment.AnonymousImageFragment pif1) {
             imageBytes1 = imageToBytes(pif1.image());
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx1: " + fragment1.getClass());
@@ -353,7 +354,7 @@ public class ContextSerializationTest {
 
         if (fragment2 instanceof FrozenFragment ff2) {
             imageBytes2 = ff2.imageBytesContent();
-        } else if (fragment2 instanceof ContextFragment.PasteImageFragment pif2) {
+        } else if (fragment2 instanceof ContextFragment.AnonymousImageFragment pif2) {
             imageBytes2 = imageToBytes(pif2.image());
         } else {
             throw new AssertionError("Unexpected fragment type for image in ctx2: " + fragment2.getClass());
@@ -376,41 +377,69 @@ public class ContextSerializationTest {
         assertEquals(8, reconstructedImage2.getHeight());
         
         // Verify descriptions
-        assertEquals("Paste of " + sharedDescription, fragment1.description());
-        assertEquals("Paste of " + sharedDescription, fragment2.description());
+        assertEquals(sharedDescription, fragment1.description());
+        assertEquals(sharedDescription, fragment2.description());
     }
 
     @Test
     void testFragmentIdContinuityAfterLoad() throws IOException {
         var history = new ContextHistory();
         var projectFile = new ProjectFile(tempDir, "dummy.txt");
+        Files.createDirectories(projectFile.absPath().getParent()); // Ensure parent directory exists
         Files.writeString(projectFile.absPath(), "content");
-        var ctxFragment = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager); // ID 1
-        var strFragment = new ContextFragment.StringFragment(mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE); // ID 2
+
+        // ID of ctxFragment will be "1" (String)
+        var ctxFragment = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager); 
+        // ID of strFragment will be a hash string
+        var strFragment = new ContextFragment.StringFragment(mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE); 
         
         var context = new Context(mockContextManager, "Initial")
             .addEditableFiles(List.of(ctxFragment))
             .addVirtualFragment(strFragment);
-        history.setInitialContext(context.freezeForTesting()); // Freeze context
+        history.setInitialContext(context.freeze()); // Freeze context
 
         Path zipFile = tempDir.resolve("id_continuity_history.zip");
         HistoryIo.writeZip(history, zipFile);
-        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager); // Deserialization updates ContextFragment.nextId
 
-        int maxIdFromLoadedFragments = loadedHistory.getHistory().stream()
-            .flatMap(Context::allFragments)
-            .mapToInt(ContextFragment::id)
-            .max().orElse(0);
+        // Save the next available numeric ID *before* loading, then load.
+        // Loading process (fragment constructors) will update ContextFragment.nextId.
+        // For this test, we want to see what the next available numeric ID *was* before any new fragment creations post-load.
+        // ContextFragment.getCurrentMaxId() gives the *next* ID to be used.
+        // After loading, ContextFragment.getCurrentMaxId() should be correctly set based on the max numeric ID found.
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager); 
 
-        // CurrentNextId should be maxId + 1
-        int currentNextId = ContextFragment.getCurrentMaxId();
-        assertTrue(currentNextId > maxIdFromLoadedFragments, 
-                   "ContextFragment.nextId should be greater than the max ID found in loaded fragments.");
+        int maxNumericIdInLoadedHistory = 0;
+        for (Context loadedCtx : loadedHistory.getHistory()) {
+            for (ContextFragment frag : loadedCtx.allFragments().toList()) {
+                try {
+                    // Only consider numeric IDs from dynamic fragments
+                    int numericId = Integer.parseInt(frag.id());
+                    if (numericId > maxNumericIdInLoadedHistory) {
+                        maxNumericIdInLoadedHistory = numericId;
+                    }
+                } catch (NumberFormatException e) {
+                    // Non-numeric ID (hash), ignore for max numeric ID calculation
+                }
+            }
+        }
         
-        // Create a new fragment; it should get `currentNextId`
-        var newFragment = new ContextFragment.StringFragment(mockContextManager, "new", "new desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-        assertEquals(currentNextId, newFragment.id(), "New fragment should get the expected next ID.");
-        assertEquals(currentNextId + 1, ContextFragment.getCurrentMaxId(), "ContextFragment.nextId should increment after new fragment creation.");
+        // The nextId counter should be at least maxNumericIdInLoadedHistory + 1.
+        // If no numeric IDs were found (e.g. all fragments were content-hashed or history was empty),
+        // then getCurrentMaxId() would be whatever it was set to initially (e.g. 1, or higher if other tests ran before without reset)
+        // or what it became after loading any initial numeric IDs from other fragments.
+        int nextAvailableNumericId = ContextFragment.getCurrentMaxId();
+        if (maxNumericIdInLoadedHistory > 0) {
+             assertTrue(nextAvailableNumericId > maxNumericIdInLoadedHistory,
+                   "ContextFragment.nextId (numeric counter) should be greater than the max numeric ID found in loaded fragments.");
+        } else {
+            // If no numeric IDs, nextAvailableNumericId should be at least 1 (or whatever it was reset to)
+            assertTrue(nextAvailableNumericId >= 1, "ContextFragment.nextId should be at least 1.");
+        }
+        
+        // Create a new *dynamic* fragment; it should get a string representation of `nextAvailableNumericId`
+        var newDynamicFragment = new ContextFragment.ProjectPathFragment(new ProjectFile(tempDir, "new_dynamic.txt"), mockContextManager);
+        assertEquals(String.valueOf(nextAvailableNumericId), newDynamicFragment.id(), "New dynamic fragment should get the expected next numeric ID as a string.");
+        assertEquals(nextAvailableNumericId + 1, ContextFragment.getCurrentMaxId(), "ContextFragment.nextId (numeric counter) should increment after new dynamic fragment creation.");
     }
 
     @Test
@@ -425,7 +454,7 @@ public class ContextSerializationTest {
         
         var context1 = new Context(mockContextManager, "Initial context")
                 .addEditableFiles(List.of(fragment));
-        history.setInitialContext(context1.freezeForTesting()); // Freeze context
+        history.setInitialContext(context1.freeze()); // Freeze context
         
         // Create context with a slow-resolving action (simulates async operation)
         var slowFuture = CompletableFuture.supplyAsync(() -> {
@@ -437,9 +466,8 @@ public class ContextSerializationTest {
             }
         });
         
-        var context2 = new Context(mockContextManager, "Second context")
-                .withAction(slowFuture);
-        history.addFrozenContextAndClearRedo(context2.freezeForTesting());
+        var context2 = new Context(mockContextManager, "Second context").withAction(slowFuture);
+        history.addFrozenContextAndClearRedo(context2.freeze());
         
         // Create context with a very slow action that should timeout
         var timeoutFuture = CompletableFuture.supplyAsync(() -> {
@@ -451,9 +479,8 @@ public class ContextSerializationTest {
             }
         });
         
-        var context3 = new Context(mockContextManager, "Third context")
-                .withAction(timeoutFuture);
-        history.addFrozenContextAndClearRedo(context3.freezeForTesting());
+        var context3 = new Context(mockContextManager, "Third context").withAction(timeoutFuture);
+        history.addFrozenContextAndClearRedo(context3.freeze());
         
         // Wait for the slow future to complete before serialization
         Thread.sleep(1500);
@@ -490,8 +517,8 @@ public class ContextSerializationTest {
 
     @Test
     void testSaveAndLoadSessionHistory() throws Exception {
-        Project project = new Project(tempDir);
-        Project.SessionInfo sessionInfo = project.newSession("History Test Session");
+        MainProject project = new MainProject(tempDir);
+        MainProject.SessionInfo sessionInfo = project.newSession("History Test Session");
         UUID sessionId = sessionInfo.id();
         
         ContextHistory originalHistory = new ContextHistory();
@@ -503,14 +530,14 @@ public class ContextSerializationTest {
         
         // Populate originalHistory
         Context context1 = new Context(mockContextManager, "Welcome to session history test.");
-        originalHistory.setInitialContext(context1.freezeForTesting());
+        originalHistory.setInitialContext(context1.freeze());
         
         ContextFragment.StringFragment sf = new ContextFragment.StringFragment(mockContextManager, "Test string fragment content", "TestSF", SyntaxConstants.SYNTAX_STYLE_NONE);
         ContextFragment.ProjectPathFragment pf = new ContextFragment.ProjectPathFragment(dummyFile, mockContextManager);
         Context context2 = new Context(mockContextManager, "Second context with fragments")
                 .addVirtualFragment(sf)
                 .addEditableFiles(List.of(pf));
-        originalHistory.addFrozenContextAndClearRedo(context2.freezeForTesting());
+        originalHistory.addFrozenContextAndClearRedo(context2.freeze());
         
         // Get initial modified time
         long initialModifiedTime = project.listSessions().stream()
@@ -523,8 +550,8 @@ public class ContextSerializationTest {
         project.saveHistory(originalHistory, sessionId);
         
         // Verify modified timestamp update
-        List<Project.SessionInfo> updatedSessions = project.listSessions();
-        Project.SessionInfo updatedSessionInfo = updatedSessions.stream()
+        List<MainProject.SessionInfo> updatedSessions = project.listSessions();
+        MainProject.SessionInfo updatedSessionInfo = updatedSessions.stream()
                 .filter(s -> s.id().equals(sessionId))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Session not found after save"));
@@ -545,64 +572,33 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testProjectPathFragmentWithDifferentIdsInternToDifferentFrozenFragments() throws Exception {
-        // Create a shared file
-        var sharedFile = new ProjectFile(tempDir, "shared.txt");
-        Files.writeString(sharedFile.absPath(), "shared content");
-
-        // Create two ProjectPathFragments with the same file but different IDs
-        var fragment1 = new ContextFragment.ProjectPathFragment(sharedFile, mockContextManager);
-        var fragment2 = new ContextFragment.ProjectPathFragment(sharedFile, mockContextManager);
-        
-        // Verify they have different IDs
-        assertNotEquals(fragment1.id(), fragment2.id(), "Fragments should have different IDs");
-        
-        // Freeze both fragments
-        var frozen1 = FrozenFragment.freeze(fragment1, mockContextManager);
-        var frozen2 = FrozenFragment.freeze(fragment2, mockContextManager);
-        
-        // Verify they result in different FrozenFragment instances despite same content
-        assertNotSame(frozen1, frozen2, "ProjectPathFragments with different IDs should intern to different FrozenFragment instances");
-        
-        // Verify they have the same content hash but different IDs
-        if (frozen1 instanceof FrozenFragment ff1 && frozen2 instanceof FrozenFragment ff2) {
-            assertEquals(ff1.getContentHash(), ff2.getContentHash(), "Content hashes should be the same");
-            assertNotEquals(ff1.id(), ff2.id(), "Frozen fragment IDs should be different");
-        }
-        
-        // Verify both have the same description and text content
-        assertEquals(frozen1.description(), frozen2.description());
-        assertEquals(frozen1.text(), frozen2.text());
-    }
-
-    @Test
     void testFragmentInterningDuringDeserialization() throws IOException {
         var history = new ContextHistory();
         var projectFile = new ProjectFile(tempDir, "shared.txt");
         Files.writeString(projectFile.absPath(), "shared content");
 
-        // Live fragments shared by both contexts
-        var sharedLiveFragment  = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
-        int sharedFragmentId    = sharedLiveFragment.id();
+        // Live ProjectPathFragment (dynamic)
+        var liveProjectPathFragment = new ContextFragment.ProjectPathFragment(projectFile, mockContextManager);
 
-        var liveStringFragment  = new ContextFragment.StringFragment(
+        // Live StringFragment (non-dynamic, content-hashed)
+        var liveStringFragment = new ContextFragment.StringFragment(
                 mockContextManager,
                 "unique string fragment content for interning test",
-                "desc",
+                "StringFragDesc",
                 SyntaxConstants.SYNTAX_STYLE_NONE);
-        int liveStringFragmentId = liveStringFragment.id();
+        String stringFragmentContentHashId = liveStringFragment.id();
 
         // Context 1
         var context1 = new Context(mockContextManager, "Context 1")
-                .addEditableFiles(List.of(sharedLiveFragment))
+                .addEditableFiles(List.of(liveProjectPathFragment))
                 .addVirtualFragment(liveStringFragment);
-        history.setInitialContext(context1.freezeForTesting());
+        history.setInitialContext(context1.freeze());
 
-        // Context 2
+        // Context 2 also uses the same live instances
         var context2 = new Context(mockContextManager, "Context 2")
-                .addEditableFiles(List.of(sharedLiveFragment))
+                .addEditableFiles(List.of(liveProjectPathFragment))
                 .addVirtualFragment(liveStringFragment);
-        history.addFrozenContextAndClearRedo(context2.freezeForTesting());
+        history.addFrozenContextAndClearRedo(context2.freeze());
 
         Path zipFile = tempDir.resolve("interning_test_history.zip");
         HistoryIo.writeZip(history, zipFile);
@@ -612,45 +608,60 @@ public class ContextSerializationTest {
         Context loadedCtx1 = loadedHistory.getHistory().get(0);
         Context loadedCtx2 = loadedHistory.getHistory().get(1);
 
-        /* ---------- shared ProjectPathFragment ---------- */
-        var pathFrag1 = loadedCtx1.editableFiles()
-                .filter(f -> f.id() == sharedFragmentId)
+        // Verify ProjectPathFragment (which becomes FrozenFragment)
+        // After freezeOnly(), liveProjectPathFragment is turned into a FrozenFragment.
+        // Both contexts will reference the *same instance* of this FrozenFragment due to interning by content hash.
+        var frozenPathFrag1 = loadedCtx1.editableFiles()
+                .filter(f -> f instanceof FrozenFragment && ((FrozenFragment) f).originalClassName().equals(ContextFragment.ProjectPathFragment.class.getName()))
+                .map(f -> (FrozenFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Shared path fragment not found in context 1"));
-        var pathFrag2 = loadedCtx2.editableFiles()
-                .filter(f -> f.id() == sharedFragmentId)
+                .orElseThrow(() -> new AssertionError("Frozen ProjectPathFragment not found in loadedCtx1"));
+        
+        var frozenPathFrag2 = loadedCtx2.editableFiles()
+                .filter(f -> f instanceof FrozenFragment && ((FrozenFragment) f).originalClassName().equals(ContextFragment.ProjectPathFragment.class.getName()))
+                .map(f -> (FrozenFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Shared path fragment not found in context 2"));
-        assertSame(pathFrag1, pathFrag2,
-                   "Path fragments with the same original ID should be the same instance after deserialization.");
+                .orElseThrow(() -> new AssertionError("Frozen ProjectPathFragment not found in loadedCtx2"));
+        
+        assertSame(frozenPathFrag1, frozenPathFrag2,
+                   "Frozen versions of the same dynamic ProjectPathFragment should be the same instance after deserialization and interning.");
+        // Verify meta for ProjectPathFragment
+        assertEquals(projectFile.getRoot().toString(), frozenPathFrag1.meta().get("repoRoot"));
+        assertEquals(projectFile.getRelPath().toString(), frozenPathFrag1.meta().get("relPath"));
 
-        /* ---------- shared String fragment (may or may not still be FrozenFragment) ---------- */
-        var stringFrag1 = loadedCtx1.virtualFragments()
-                .filter(f -> f.id() == liveStringFragmentId)
+
+        // Verify StringFragment (which remains StringFragment, non-dynamic, content-hashed ID)
+        var loadedStringFrag1 = loadedCtx1.virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment && java.util.Objects.equals(f.id(), stringFragmentContentHashId))
+                .map(f -> (ContextFragment.StringFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Shared string fragment not found in context 1"));
-        var stringFrag2 = loadedCtx2.virtualFragments()
-                .filter(f -> f.id() == liveStringFragmentId)
+                .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx1"));
+
+        var loadedStringFrag2 = loadedCtx2.virtualFragments()
+                .filter(f -> f instanceof ContextFragment.StringFragment && java.util.Objects.equals(f.id(), stringFragmentContentHashId))
+                .map(f -> (ContextFragment.StringFragment) f)
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Shared string fragment not found in context 2"));
-        assertSame(stringFrag1, stringFrag2,
-                   "String fragments with the same original ID should be the same instance after deserialization.");
+                .orElseThrow(() -> new AssertionError("Shared StringFragment not found in loadedCtx2"));
+        
+        assertSame(loadedStringFrag1, loadedStringFrag2,
+                   "StringFragments with the same content-hash ID should be the same instance after deserialization.");
+        assertEquals("unique string fragment content for interning test", loadedStringFrag1.text());
 
         /* ---------- shared TaskFragment via TaskEntry ---------- */
         var taskMessages        = List.of(UserMessage.from("User"), AiMessage.from("AI"));
-        var sharedTaskFragment  = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Shared Task Log");
-        int sharedTaskFragmentId = sharedTaskFragment.id();
+        var sharedTaskFragment  = new ContextFragment.TaskFragment(mockContextManager, taskMessages, "Shared Task Log"); // Content-hashed ID
+        String sharedTaskFragmentId = sharedTaskFragment.id();
 
         var origHistoryWithTask = new ContextHistory();
         var taskEntry           = new TaskEntry(1, sharedTaskFragment, null);
 
         var ctxWithTask1 = new Context(mockContextManager, "CtxTask1")
                 .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action1"));
-        origHistoryWithTask.setInitialContext(ctxWithTask1.freezeForTesting());
+        origHistoryWithTask.setInitialContext(ctxWithTask1.freeze());
 
         var ctxWithTask2 = new Context(mockContextManager, "CtxTask2")
                 .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"));
-        origHistoryWithTask.addFrozenContextAndClearRedo(ctxWithTask2.freezeForTesting());
+        origHistoryWithTask.addFrozenContextAndClearRedo(ctxWithTask2.freeze());
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
         HistoryIo.writeZip(origHistoryWithTask, taskZipFile);
@@ -664,8 +675,8 @@ public class ContextSerializationTest {
 
         assertNotNull(taskLog1);
         assertNotNull(taskLog2);
-        assertEquals(sharedTaskFragmentId, taskLog1.id());
-        assertEquals(sharedTaskFragmentId, taskLog2.id());
+        assertEquals(sharedTaskFragmentId, taskLog1.id(), "TaskLog1 ID mismatch");
+        assertEquals(sharedTaskFragmentId, taskLog2.id(), "TaskLog2 ID mismatch");
         assertSame(taskLog1, taskLog2,
                    "Shared TaskFragment logs should be the same instance after deserialization.");
     }
@@ -673,10 +684,10 @@ public class ContextSerializationTest {
     @Test
     void testNewSessionCreationAndListing() throws IOException {
         // Create a Project instance using the tempDir
-        Project project = new Project(tempDir);
+        MainProject project = new MainProject(tempDir);
         
         // Create first session
-        Project.SessionInfo session1Info = project.newSession("Test Session 1");
+        MainProject.SessionInfo session1Info = project.newSession("Test Session 1");
         
         // Assert session1Info is valid
         assertNotNull(session1Info);
@@ -687,63 +698,53 @@ public class ContextSerializationTest {
         Path historyZip1 = tempDir.resolve(".brokk").resolve("sessions").resolve(session1Info.id() + ".zip");
         assertTrue(Files.exists(historyZip1));
         
-        // Verify sessions.jsonl exists
-        Path sessionsIndex = tempDir.resolve(".brokk").resolve("sessions").resolve("sessions.jsonl");
-        assertTrue(Files.exists(sessionsIndex));
-        
-        // Read sessions.jsonl and verify its content
-        List<String> lines = Files.readAllLines(sessionsIndex);
-        assertEquals(1, lines.size(), "sessions.jsonl should contain exactly one line");
-        
-        // Deserialize the line into a SessionInfo object
-        com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        Project.SessionInfo deserializedSession = objectMapper.readValue(lines.get(0), Project.SessionInfo.class);
-        
-        // Assert that the deserialized SessionInfo matches session1Info
-        assertEquals(session1Info.id(), deserializedSession.id());
-        assertEquals(session1Info.name(), deserializedSession.name());
-        assertTrue(deserializedSession.created() <= deserializedSession.modified(), "created should be <= modified");
-        assertEquals(session1Info.created(), deserializedSession.created());
-        assertEquals(session1Info.modified(), deserializedSession.modified());
-        
+        // List sessions and verify session1Info
+        List<MainProject.SessionInfo> sessionsAfter1 = project.listSessions();
+        assertEquals(1, sessionsAfter1.size(), "Should be 1 session after creating the first.");
+        MainProject.SessionInfo listedSession1 = sessionsAfter1.get(0);
+        assertEquals(session1Info.id(), listedSession1.id());
+        assertEquals(session1Info.name(), listedSession1.name());
+        assertEquals(session1Info.created(), listedSession1.created());
+        assertEquals(session1Info.modified(), listedSession1.modified());
+        assertTrue(listedSession1.created() <= listedSession1.modified(), "created should be <= modified for session1");
+
         // Create second session
-        Project.SessionInfo session2Info = project.newSession("Test Session 2");
-        
-        // List all sessions
-        List<Project.SessionInfo> sessions = project.listSessions();
-        
-        // Assert we have 2 sessions
-        assertEquals(2, sessions.size());
-        
-        // Verify that the list contains SessionInfo objects matching session1Info and session2Info
-        var sessionIds = sessions.stream().map(Project.SessionInfo::id).collect(java.util.stream.Collectors.toSet());
-        assertTrue(sessionIds.contains(session1Info.id()), "Sessions list should contain session1Info");
-        assertTrue(sessionIds.contains(session2Info.id()), "Sessions list should contain session2Info");
-        
-        var sessionNames = sessions.stream().map(Project.SessionInfo::name).collect(java.util.stream.Collectors.toSet());
-        assertTrue(sessionNames.contains("Test Session 1"), "Sessions list should contain 'Test Session 1'");
-        assertTrue(sessionNames.contains("Test Session 2"), "Sessions list should contain 'Test Session 2'");
-        
-        // Verify both history zip files exist
+        MainProject.SessionInfo session2Info = project.newSession("Test Session 2");
+        assertNotNull(session2Info);
         Path historyZip2 = tempDir.resolve(".brokk").resolve("sessions").resolve(session2Info.id().toString() + ".zip");
         assertTrue(Files.exists(historyZip2));
         
-        // Verify sessions.jsonl now contains 2 lines
-        List<String> updatedLines = Files.readAllLines(sessionsIndex);
-        assertEquals(2, updatedLines.size(), "sessions.jsonl should contain exactly two lines after creating second session");
+        // List all sessions
+        List<MainProject.SessionInfo> sessionsAfter2 = project.listSessions();
+        
+        // Assert we have 2 sessions
+        assertEquals(2, sessionsAfter2.size(), "Should be 2 sessions after creating the second.");
+        
+        // Verify that the list contains SessionInfo objects matching session1Info and session2Info
+        var sessionMap = sessionsAfter2.stream()
+            .collect(Collectors.toMap(IProject.SessionInfo::id, s -> s));
+            
+        assertTrue(sessionMap.containsKey(session1Info.id()), "Sessions list should contain session1Info by ID");
+        MainProject.SessionInfo foundSession1 = sessionMap.get(session1Info.id());
+        assertEquals("Test Session 1", foundSession1.name());
+
+        assertTrue(sessionMap.containsKey(session2Info.id()), "Sessions list should contain session2Info by ID");
+        MainProject.SessionInfo foundSession2 = sessionMap.get(session2Info.id());
+        assertEquals("Test Session 2", foundSession2.name());
+        assertTrue(foundSession2.created() <= foundSession2.modified(), "created should be <= modified for session2");
         
         project.close();
     }
 
     @Test
     void testRenameSession() throws IOException {
-        Project project = new Project(tempDir);
-        Project.SessionInfo initialSession = project.newSession("Original Name");
+        MainProject project = new MainProject(tempDir);
+        MainProject.SessionInfo initialSession = project.newSession("Original Name");
         
         project.renameSession(initialSession.id(), "New Name");
         
-        List<Project.SessionInfo> sessions = project.listSessions();
-        Project.SessionInfo renamedSession = sessions.stream()
+        List<MainProject.SessionInfo> sessions = project.listSessions();
+        MainProject.SessionInfo renamedSession = sessions.stream()
                 .filter(s -> s.id().equals(initialSession.id()))
                 .findFirst()
                 .orElseThrow();
@@ -759,9 +760,9 @@ public class ContextSerializationTest {
 
     @Test
     void testDeleteSession() throws IOException {
-        Project project = new Project(tempDir);
-        Project.SessionInfo session1 = project.newSession("Session 1");
-        Project.SessionInfo session2 = project.newSession("Session 2");
+        MainProject project = new MainProject(tempDir);
+        MainProject.SessionInfo session1 = project.newSession("Session 1");
+        MainProject.SessionInfo session2 = project.newSession("Session 2");
         
         UUID idToDelete = session1.id();
         Path historyFileToDelete = tempDir.resolve(".brokk").resolve("sessions").resolve(idToDelete.toString() + ".zip");
@@ -769,7 +770,7 @@ public class ContextSerializationTest {
         
         project.deleteSession(idToDelete);
         
-        List<Project.SessionInfo> sessions = project.listSessions();
+        List<MainProject.SessionInfo> sessions = project.listSessions();
         assertEquals(1, sessions.size());
         assertEquals(session2.id(), sessions.get(0).id());
         assertFalse(Files.exists(historyFileToDelete));
@@ -782,23 +783,23 @@ public class ContextSerializationTest {
 
     @Test
     void testCopySession() throws Exception {
-        Project project = new Project(tempDir);
-        Project.SessionInfo originalSessionInfo = project.newSession("Original Session");
+        MainProject project = new MainProject(tempDir);
+        MainProject.SessionInfo originalSessionInfo = project.newSession("Original Session");
         UUID originalId = originalSessionInfo.id();
         
         // Create some history content
         ContextHistory originalHistory = new ContextHistory();
         Context context = new Context(mockContextManager, "Test content");
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
         project.saveHistory(originalHistory, originalId);
         
-        Project.SessionInfo copiedSessionInfo = project.copySession(originalId, "Copied Session");
+        MainProject.SessionInfo copiedSessionInfo = project.copySession(originalId, "Copied Session");
         
         assertNotNull(copiedSessionInfo);
         assertEquals("Copied Session", copiedSessionInfo.name());
         assertNotEquals(originalId, copiedSessionInfo.id());
         
-        List<Project.SessionInfo> sessions = project.listSessions();
+        List<MainProject.SessionInfo> sessions = project.listSessions();
         assertEquals(2, sessions.size());
         assertTrue(sessions.stream().anyMatch(s -> s.id().equals(originalId)));
         assertTrue(sessions.stream().anyMatch(s -> s.id().equals(copiedSessionInfo.id())));
@@ -840,7 +841,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test GitFileFragment")
                 .addReadonlyFiles(List.of(fragment));
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_gitfile_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -867,7 +868,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test ExternalPathFragment")
                 .addReadonlyFiles(List.of(fragment));
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_externalpath_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -897,7 +898,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test ImageFileFragment")
                 .addReadonlyFiles(List.of(fragment));
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_imagefile_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -940,7 +941,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test SearchFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_search_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -965,7 +966,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test SkeletonFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_skeleton_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -997,7 +998,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test UsageFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_usage_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -1027,7 +1028,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test CallGraphFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_callgraph_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -1064,7 +1065,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test HistoryFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_history_frag_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -1086,7 +1087,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test PasteTextFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_pastetext_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -1115,7 +1116,7 @@ public class ContextSerializationTest {
 
         var context = new Context(mockContextManager, "Test StacktraceFragment")
                 .addVirtualFragment(fragment);
-        originalHistory.setInitialContext(context.freezeForTesting());
+        originalHistory.setInitialContext(context.freeze());
 
         Path zipFile = tempDir.resolve("test_stacktrace_history.zip");
         HistoryIo.writeZip(originalHistory, zipFile);
@@ -1131,5 +1132,58 @@ public class ContextSerializationTest {
         assertTrue(loadedFragment.text().contains("ErrorSource.java:10"));
         assertEquals(1, loadedFragment.sources().size());
         assertEquals(codeUnit.fqName(), loadedFragment.sources().iterator().next().fqName());
+    }
+
+    @Test
+    void testVirtualFragmentDeduplicationAfterSerialization() throws Exception {
+        ContextHistory originalHistory = new ContextHistory();
+
+        // Create an initial context
+        var context = new Context(mockContextManager, "Test Deduplication");
+
+        // Add virtual fragments, some with duplicate text content
+        // The IDs will be 3, 4, 5, 6, 7 based on current setup
+        var vf1 = new ContextFragment.StringFragment(mockContextManager, "uniqueText1", "Description for uniqueText1 (first)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf2 = new ContextFragment.StringFragment(mockContextManager, "duplicateText", "Description for duplicateText (first)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf3 = new ContextFragment.StringFragment(mockContextManager, "uniqueText2", "Description for uniqueText2", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf4_duplicate_of_vf2 = new ContextFragment.StringFragment(mockContextManager, "duplicateText", "Description for duplicateText (second, different desc)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var vf5_duplicate_of_vf1 = new ContextFragment.StringFragment(mockContextManager, "uniqueText1", "Description for uniqueText1 (second, different desc)", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        context = context.addVirtualFragment(vf1);
+        context = context.addVirtualFragment(vf2);
+        context = context.addVirtualFragment(vf3);
+        context = context.addVirtualFragment(vf4_duplicate_of_vf2);
+        context = context.addVirtualFragment(vf5_duplicate_of_vf1);
+
+        originalHistory.setInitialContext(context.freeze());
+
+        // Serialize and deserialize
+        Path zipFile = tempDir.resolve("deduplication_test_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        assertNotNull(loadedHistory);
+        assertEquals(1, loadedHistory.getHistory().size());
+        Context deserializedContext = loadedHistory.getHistory().get(0);
+
+        // Verify deduplication behavior of virtualFragments()
+        List<ContextFragment.VirtualFragment> deduplicatedFragments = deserializedContext.virtualFragments().collect(Collectors.toList());
+
+        // Expected: 3 unique fragments based on text content.
+        // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
+        assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
+
+        Set<String> actualTexts = deduplicatedFragments.stream()
+                .map(ContextFragment.VirtualFragment::text)
+                .collect(Collectors.toSet());
+        assertEquals(Set.of("uniqueText1", "duplicateText", "uniqueText2"), actualTexts, "Texts of deduplicated fragments do not match expected unique texts.");
+
+        // Verify that the specific fragments kept are the first ones encountered
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "uniqueText1".equals(f.text()) && "Description for uniqueText1 (first)".equals(f.description())),
+                   "Expected first instance of 'uniqueText1' to be present.");
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "duplicateText".equals(f.text()) && "Description for duplicateText (first)".equals(f.description())),
+                   "Expected first instance of 'duplicateText' to be present.");
+        assertTrue(deduplicatedFragments.stream().anyMatch(f -> "uniqueText2".equals(f.text()) && "Description for uniqueText2".equals(f.description())),
+                   "Expected 'uniqueText2' to be present.");
     }
 }

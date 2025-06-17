@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.agents;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter; // Added import
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -209,7 +210,7 @@ public class SearchAgent {
                     %s
                     </fragment>
                     """.stripIndent().formatted(f.description(),
-                                                (f.sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(", "))), // No analyzer
+                                                f.sources().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")), // No analyzer, parentheses removed
                                                 text);
         }).collect(Collectors.joining("\n\n"));
         if (!contextWithClasses.isBlank()) {
@@ -356,8 +357,8 @@ public class SearchAgent {
     }
 
     private void llmOutput(String output) {
-        var ordinalText = ordinal > 0 ? "[Search #%d] ".formatted(ordinal) : "";
-        io.llmOutput("\n%s%s".formatted(ordinalText, output), ChatMessageType.AI);
+        var ordinalText = ordinal > 0 ? "`Search #%d` ".formatted(ordinal) : "";
+        io.llmOutput("\n\n%s%s".formatted(ordinalText, output), ChatMessageType.AI);
     }
 
     private boolean isInteractive() {
@@ -679,13 +680,11 @@ public class SearchAgent {
         var result = llm.sendRequest(messages, tools, ToolChoice.REQUIRED, false);
 
         if (result.error() != null) {
-            // Coder logs the error, return empty list to signal failure
-            io.toolError("LLM error determining next action: " + result.error().getMessage());
             return List.of();
         }
         var response = result.chatResponse();
         if (response == null || response.aiMessage() == null) {
-            io.toolError("LLM returned empty response when determining next action.");
+            logger.warn("LLM returned empty response when determining next action");
             return List.of(); // Should not happen if Coder handled error correctly
         }
 
@@ -830,11 +829,7 @@ public class SearchAgent {
      */
     private List<ToolExecutionRequest> parseResponseToRequests(AiMessage response) {
         if (!response.hasToolExecutionRequests()) {
-            logger.debug("No tool execution requests found in LLM response.");
-            // This might happen if the LLM just returns text despite ToolChoice.REQUIRED
-            // Coder.sendMessage has logic to retry in this case, so this path might indicate
-            // a deeper issue or the LLM ignoring instructions. Return empty for now.
-            io.toolError("LLM response did not contain expected tool calls.");
+            logger.warn("No tool execution requests found in LLM response.");
             return List.of();
         }
 
@@ -988,7 +983,7 @@ public class SearchAgent {
                 } else if (value instanceof String str && str.contains("\n")) {
                     // Use YAML block scalar for multi-line strings
                     yamlBuilder.append(key).append(": |\n");
-                    for (String line : str.split("\n")) {
+                    for (String line : com.google.common.base.Splitter.on('\n').splitToList(str)) { // Use Splitter fully qualified
                         yamlBuilder.append("  ").append(line).append("\n");
                     }
                 } else {
@@ -1109,36 +1104,22 @@ public class SearchAgent {
         }
 
         // Tool-specific state updates
-        switch (execResult.toolName()) {
-            case "searchSymbols":
-                // Logic specific to AFTER searchSymbols runs successfully
-                this.allowTextSearch = true; // Enable text search capability
-                // Check if the result indicates symbols were actually found
+        String toolName = execResult.toolName();
+        // Use expression switch
+        switch (toolName) {
+            case "searchSymbols" -> {
+                this.allowTextSearch = true;
                 if (!execResult.resultText().startsWith("No definitions found")) {
                     this.symbolsFound = true;
-                    // Track names ONLY if symbols were found
                     trackClassNamesFromResult(execResult.resultText());
                 }
-                break;
-
-            // Track class names from results of various tools
-            case "getUsages":
-            case "getRelatedClasses":
-            case "getClassSkeletons":
-            case "getClassSources":
-            case "getMethodSources":
+            }
+            case "getUsages", "getRelatedClasses", "getClassSkeletons", "getClassSources", "getMethodSources" ->
                 trackClassNamesFromResult(execResult.resultText());
-                break;
-
-            // Add cases for other tools needing specific post-execution logic
-
-            default:
+            default -> {
                 // No specific post-execution logic for this tool
-                break;
+            }
         }
-
-        // Common logic after any successful tool execution?
-        // e.g., update token counts, log generic success
     }
 
     /**

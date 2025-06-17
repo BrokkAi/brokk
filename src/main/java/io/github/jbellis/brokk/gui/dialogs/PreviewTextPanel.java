@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -31,8 +32,7 @@ import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
+import java.awt.event.*;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +46,9 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
+import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -56,63 +59,42 @@ import io.github.jbellis.brokk.gui.ThemeAware;
 public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
-    private final JTextField searchField;
-    private final JButton nextButton;
-    private final JButton previousButton;
+    private final GenericSearchBar searchBar;
     private JButton editButton;
     private JButton captureButton;
     private JButton saveButton;
     private final ContextManager contextManager;
 
-    // Theme manager reference
-    private GuiTheme themeManager;
-
-    // State for history tracking on close
-    private String contentBeforeFirstSave = null;
-
     // Nullable
-    private final ProjectFile file;
-    private final String initialContent; // Store initial content for comparison on close
-    private final ContextFragment fragment;
+    @Nullable private final ProjectFile file;
+    private final String contentBeforeSave;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
-    private Future<Set<CodeUnit>> fileDeclarations;
+    @Nullable private Future<Set<CodeUnit>> fileDeclarations;
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     public PreviewTextPanel(ContextManager contextManager,
-                            ProjectFile file,
+                            @Nullable ProjectFile file,
                             String content,
-                            String syntaxStyle,
+                            @Nullable String syntaxStyle,
                             GuiTheme guiTheme,
-                            ContextFragment fragment)
+                            @Nullable ContextFragment fragment)
     {
         super(new BorderLayout());
         assert contextManager != null;
         assert guiTheme != null;
 
         this.contextManager = contextManager;
-        this.themeManager = guiTheme;
         this.file = file;
-        this.initialContent = content; // Store initial content
-        this.fragment = fragment;
-
-        // === Top search/action bar ===
-        JPanel topPanel = new JPanel(new BorderLayout(8, 4)); // Use BorderLayout
-        JPanel searchControlsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0)); // Panel for search items
-
-        searchField = new JTextField(20);
-        nextButton = new JButton("↓");
-        previousButton = new JButton("↑");
-
-        searchControlsPanel.add(new JLabel("Search:"));
-        searchControlsPanel.add(searchField);
-        searchControlsPanel.add(previousButton);
-        searchControlsPanel.add(nextButton);
-
-        topPanel.add(searchControlsPanel, BorderLayout.CENTER); // Search controls on the left/center
+        this.contentBeforeSave = content; // Store initial content
 
         // === Text area with syntax highlighting ===
-        // Initialize textArea *before* action buttons that might reference it
+        // Initialize textArea *before* search bar that references it
         textArea = new PreviewTextArea(content, syntaxStyle, file != null);
+
+        // === Top search/action bar ===
+        var topPanel = new JPanel(new BorderLayout(8, 4));
+        searchBar = new GenericSearchBar(RTextAreaSearchableComponent.wrap(textArea));
+        topPanel.add(searchBar, BorderLayout.CENTER);
 
         // Button panel for actions on the right
         JPanel actionButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0)); // Use FlowLayout, add some spacing
@@ -200,79 +182,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         add(topPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
 
+        // Register global shortcuts for the search bar
+        searchBar.registerGlobalShortcuts(this);
+
         // Request focus for the text area after the panel is initialized and visible
-        SwingUtilities.invokeLater(() -> textArea.requestFocusInWindow());
-
-        // === Hook up the search as you type ===
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                updateSearchHighlights(true);
-            }
-        });
-
-        // === Enter key in search field triggers next match ===
-        searchField.addActionListener(e -> findNext(true));
-
-        // === Arrow keys for navigation ===
-        InputMap inputMap = searchField.getInputMap(JComponent.WHEN_FOCUSED);
-        ActionMap actionMap = searchField.getActionMap();
-
-        // Down arrow for next match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_DOWN, 0), "findNext");
-        actionMap.put("findNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext(true);
-            }
-        });
-
-        // Up arrow for previous match
-        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_UP, 0), "findPrevious");
-        actionMap.put("findPrevious", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                findNext(false);
-            }
-        });
-
-        // === Next / Previous buttons ===
-        nextButton.addActionListener(e -> findNext(true));
-
-        previousButton.addActionListener(e -> findNext(false));
-
-        // === Cmd/Ctrl+F focuses the search field ===
-        KeyStroke ctrlF = KeyStroke.getKeyStroke(KeyEvent.VK_F, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(ctrlF, "focusSearch");
-        getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                String selected = textArea.getSelectedText();
-                if (selected != null && !selected.isEmpty()) {
-                    searchField.setText(selected);
-                }
-                searchField.selectAll();
-                searchField.requestFocusInWindow();
-                // If there's text in the search field, re-highlight matches
-                // without changing the caret position
-                String query = searchField.getText();
-                if (query != null && !query.trim().isEmpty()) {
-                    int originalCaretPosition = textArea.getCaretPosition();
-                    updateSearchHighlights(false);
-                    textArea.setCaretPosition(originalCaretPosition);
-                }
-            }
-        });
+        SwingUtilities.invokeLater(textArea::requestFocusInWindow);
 
         // Scroll to the beginning of the document
         textArea.setCaretPosition(0);
@@ -281,6 +195,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         registerEscapeKey();
         // Register Ctrl/Cmd+S to save
         registerSaveKey();
+        // Setup custom window close handler
+        setupWindowCloseHandler();
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
@@ -301,13 +217,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         guiTheme.applyCurrentThemeToComponent(textArea);
     }
 
-    /**
-     * Constructs a new PreviewPanel with the given content and syntax style.
-     *
-     * @param content     The text content to display
-     * @param syntaxStyle For example, SyntaxConstants.SYNTAX_STYLE_JAVA
-     * @param guiTheme    The theme manager to use for styling the text area
-     */
     /**
      * Custom RSyntaxTextArea implementation for preview panels with custom popup menu
      */
@@ -471,10 +380,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Create quick edit dialog
         Window ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog quickEditDialog;
-        if (ancestor instanceof Frame) {
-            quickEditDialog = new JDialog((Frame) ancestor, "Quick Edit", true);
-        } else if (ancestor instanceof Dialog) {
-            quickEditDialog = new JDialog((Dialog) ancestor, "Quick Edit", true);
+        if (ancestor instanceof Frame frame) {
+            quickEditDialog = new JDialog(frame, "Quick Edit", true);
+        } else if (ancestor instanceof Dialog dialog) {
+            quickEditDialog = new JDialog(dialog, "Quick Edit", true);
         } else {
             quickEditDialog = new JDialog((Frame) null, "Quick Edit", true);
         }
@@ -533,13 +442,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Voice input button setup, passing the Future for file-specific symbols
-        VoiceInputButton micButton = new VoiceInputButton(
-                editArea,
-                contextManager,
-                () -> { /* no action on record start */ },
-                symbolsFuture, error -> { /* no special error handling */ }
-                // Pass the Future<Set<String>>
-        );
+        VoiceInputButton micButton = new VoiceInputButton(editArea,
+                                                                  contextManager,
+                                                                  () -> { /* no action on record start */ },
+                                                                  symbolsFuture, error -> { /* no special error handling */ });
 
         // infoLabel at row=0
         gbc.gridx = 1;
@@ -640,10 +546,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private void openQuickResultsDialog(String selectedText, String instructions) {
         Window ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog resultsDialog;
-        if (ancestor instanceof Frame) {
-            resultsDialog = new JDialog((Frame) ancestor, "Quick Edit", false);
-        } else if (ancestor instanceof Dialog) {
-            resultsDialog = new JDialog((Dialog) ancestor, "Quick Edit", false);
+        if (ancestor instanceof Frame frame) {
+            resultsDialog = new JDialog(frame, "Quick Edit", false);
+        } else if (ancestor instanceof Dialog dialog) {
+            resultsDialog = new JDialog(dialog, "Quick Edit", false);
         } else {
             resultsDialog = new JDialog((Frame) null, "Quick Edit", false);
         }
@@ -692,7 +598,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void toolErrorRaw(String msg) {
+            public void toolError(String msg, String title) {
                 hasError.set(true);
                 appendSystemMessage(msg);
             }
@@ -703,7 +609,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 appendSystemMessage(token);
             }
 
@@ -863,43 +769,40 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     }
 
     /**
-     * Registers ESC key to first clear search highlights if search field has focus,
-     * otherwise close the preview panel
+     * Registers ESC key to close the preview panel
      */
     private void registerEscapeKey() {
-        // Register ESC handling for the search field
-        KeyStroke escapeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
-
-        // Add ESC handler to search field to clear highlights and defocus it
-        searchField.getInputMap(JComponent.WHEN_FOCUSED).put(escapeKeyStroke, "defocusSearch");
-        searchField.getActionMap().put("defocusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Clear all highlights but keep search text
-                SearchContext context = new SearchContext();
-                context.setMarkAll(false);
-                SearchEngine.markAll(textArea, context);
-                // Clear the current selection/highlight as well
-                textArea.setCaretPosition(textArea.getCaretPosition());
-                textArea.requestFocusInWindow();
-            }
-        });
-
-        // Add ESC handler to panel to close window when search is not focused
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(escapeKeyStroke, "closePreview");
-        getActionMap().put("closePreview", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Only try to close if search field doesn't have focus
-                if (!searchField.hasFocus()) {
-                    if (confirmClose()) {
-                        Window window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                        if (window != null) {
-                            window.dispose();
-                        }
-                    }
+        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, () -> {
+            if (confirmClose()) {
+                var window = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                if (window != null) {
+                    window.dispose();
                 }
             }
+        });
+    }
+
+    /**
+     * Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called.
+     */
+    private void setupWindowCloseHandler() {
+        SwingUtilities.invokeLater(() -> {
+            Window ancestor = SwingUtilities.getWindowAncestor(this);
+            // Set default close operation to DO_NOTHING_ON_CLOSE so we can handle it
+            if (ancestor instanceof JFrame frame) {
+                frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+            } else if (ancestor instanceof JDialog dialog) {
+                dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+            }
+
+            ancestor.addWindowListener(new WindowAdapter() {
+                @Override
+                public void windowClosing(WindowEvent e) {
+                    if (confirmClose()) {
+                        ancestor.dispose();
+                    }
+                }
+            });
         });
     }
 
@@ -921,165 +824,58 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 JOptionPane.YES_NO_CANCEL_OPTION,
                 JOptionPane.WARNING_MESSAGE);
 
-        switch (choice) {
-            case JOptionPane.YES_OPTION:
-                performSave(saveButton); // Save the changes
-                return true; // Allow closing
-            case JOptionPane.NO_OPTION:
-                return true; // Allow closing, discard changes
-            case JOptionPane.CANCEL_OPTION:
-            case JOptionPane.CLOSED_OPTION:
-            default:
-                return false; // Prevent closing
-        }
+        return switch (choice) {
+            case JOptionPane.YES_OPTION -> performSave(saveButton);
+            case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
+            default -> false; // Prevent closing
+        };
     }
 
     /**
      * Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action.
      */
     private void registerSaveKey() {
-        KeyStroke saveKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_S, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(saveKeyStroke, "saveFile");
-        getActionMap().put("saveFile", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                // Only perform save if the file exists and the save button is enabled (changes exist)
-                if (file != null && saveButton != null && saveButton.isEnabled()) {
-                    performSave(saveButton);
-                }
+        KeyboardShortcutUtil.registerSaveShortcut(this, () -> {
+            // Only perform save if the file exists and the save button is enabled (changes exist)
+            if (file != null && saveButton != null && saveButton.isEnabled()) {
+                performSave(saveButton);
             }
         });
     }
 
-    /**
-     * Called whenever the user types in the search field, to highlight all matches (case-insensitive).
-     *
-     * @param jumpToFirst If true, jump to the first occurrence; if false, maintain current position
-     */
-    private void updateSearchHighlights(boolean jumpToFirst) {
-        String query = searchField.getText();
-        if (query == null || query.trim().isEmpty()) {
-            // Clear all highlights if query is empty
-            SearchContext clearContext = new SearchContext();
-            clearContext.setMarkAll(false);
-            SearchEngine.markAll(textArea, clearContext);
-            return;
-        }
-
-        SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
-        context.setMarkAll(true);
-        context.setWholeWord(false);
-        context.setRegularExpression(false);
-        context.setSearchForward(true);
-        context.setSearchWrap(true);
-
-        // Mark all occurrences
-        SearchEngine.markAll(textArea, context);
-
-        if (jumpToFirst) {
-            // Jump to the first occurrence as the user types
-            int originalCaretPosition = textArea.getCaretPosition();
-            textArea.setCaretPosition(0); // Start search from beginning
-            SearchResult result = SearchEngine.find(textArea, context);
-            if (!result.wasFound() && originalCaretPosition > 0) {
-                // If not found from beginning, restore caret position
-                textArea.setCaretPosition(originalCaretPosition);
-            } else if (result.wasFound()) {
-                // Center the match in the viewport
-                centerCurrentMatchInView();
-            }
-        }
-    }
-
-    /**
-     * Centers the current match in the viewport
-     */
-    private void centerCurrentMatchInView() {
-        try {
-            Rectangle matchRect = textArea.modelToView(textArea.getCaretPosition());
-            JViewport viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
-            if (viewport != null && matchRect != null) {
-                // Calculate the target Y position (1/3 from the top)
-                int viewportHeight = viewport.getHeight();
-                int targetY = Math.max(0, (int) (matchRect.y - viewportHeight * 0.33));
-
-                // Create a new point for scrolling
-                Rectangle viewRect = viewport.getViewRect();
-                viewRect.y = targetY;
-                textArea.scrollRectToVisible(viewRect);
-            }
-        } catch (Exception ex) {
-            // Silently ignore any view transformation errors
-        }
-    }
 
     /**
      * Performs the file save operation, updating history and disabling the save button.
      *
      * @param buttonToDisable The save button instance to disable after a successful save.
+     * @return true if the save was successful, false otherwise.
      */
-    private void performSave(JButton buttonToDisable) {
-        if (file == null) {
-            logger.warn("Attempted to save but no ProjectFile is associated with this panel.");
-            return;
-        }
+    private boolean performSave(JButton buttonToDisable) {
+        assert file != null : "Attempted to save but no ProjectFile is associated with this panel.";
         String newContent = textArea.getText();
-        try {
-            // Capture the state before the *first* save for the history entry
-            if (contentBeforeFirstSave == null) {
-                contentBeforeFirstSave = file.exists() ? file.read() : "";
-            }
 
-            // Write the new content to the file
-            file.write(newContent);
-            buttonToDisable.setEnabled(false); // Disable after successful save
-            quickEditMessages.clear(); // Clear any quick edit messages after save
-            logger.debug("File saved: " + file);
-        } catch (IOException ex) {
-            logger.error("Error saving file {}", file, ex);
-            // Re-enable button on error? Maybe not, state might be inconsistent.
-            // Show error message
-            JOptionPane.showMessageDialog(this,
-                                          "Error saving file: " + ex.getMessage(),
-                                          "Save Error",
-                                          JOptionPane.ERROR_MESSAGE);
-        }
-    }
+        boolean contentChangedFromInitial = !newContent.equals(contentBeforeSave);
 
-    /**
-     * Should be called by the containing window just before disposal.
-     * Creates a single history entry if a save occurred and the content changed
-     * from the state before the first save.
-     */
-    public void finalizeHistoryEntry() {
-        // Only create history if a save actually happened and we have a file context
-        if (file == null || contentBeforeFirstSave == null) {
-            return;
-        }
-
-        String finalContent = textArea.getText();
-
-        // Only add history if the final content is different from the state before the first save
-        if (!finalContent.equals(contentBeforeFirstSave)) {
+        if (contentChangedFromInitial) {
             try {
-                // Generate a unified diff from the state *before the first save* to the final state
-                List<String> originalLines = contentBeforeFirstSave.lines().collect(Collectors.toList());
-                List<String> newLines = finalContent.lines().collect(Collectors.toList());
+                // Generate a unified diff from the initial state to the current state
+                List<String> originalLines = contentBeforeSave.lines().collect(Collectors.toList());
+                List<String> newLines = newContent.lines().collect(Collectors.toList());
                 Patch<String> patch = DiffUtils.diff(originalLines, newLines);
                 List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(file.toString(),
                                                                                 file.toString(),
                                                                                 originalLines,
                                                                                 patch,
-
                                                                                 3);
                 // Create the SessionResult representing the net change
                 String actionDescription = "Edited " + file;
-                quickEditMessages.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
+                // Include quick edit messages accumulated since last save + the current diff
+                List<ChatMessage> messagesForHistory = new ArrayList<>(quickEditMessages);
+                messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                 var saveResult = new TaskResult(contextManager,
                                                 actionDescription,
-                                                quickEditMessages,
-                                                Map.of(file, contentBeforeFirstSave),
+                                                messagesForHistory,
+                                                Map.of(file, contentBeforeSave),
                                                 TaskResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);
@@ -1087,31 +883,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 logger.error("Failed to generate diff or add history entry for {}", file, e);
             }
         }
-    }
 
-    /**
-     * Finds the next or previous match relative to the current caret position.
-     *
-     * @param forward true = next match; false = previous match
-     */
-    private void findNext(boolean forward) {
-        String query = searchField.getText();
-        if (query == null || query.trim().isEmpty()) {
-            return;
-        }
-
-        // Our context for next/previous. We'll ignore case, no regex, wrap around.
-        SearchContext context = new SearchContext(query);
-        context.setMatchCase(false);
-        context.setMarkAll(true);
-        context.setWholeWord(false);
-        context.setRegularExpression(false);
-        context.setSearchForward(forward);
-        context.setSearchWrap(true);
-
-        SearchResult result = SearchEngine.find(textArea, context);
-        if (result.wasFound()) {
-            centerCurrentMatchInView();
+        try {
+            // Write the new content to the file, regardless of whether it matched initial content,
+            // because saveButton being enabled implies it's different from last saved state.
+            file.write(newContent);
+            buttonToDisable.setEnabled(false); // Disable after successful save
+            quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+            logger.debug("File saved: " + file);
+            return true; // Save successful
+        } catch (IOException ex) {
+            // If save fails, button remains enabled and messages are not cleared.
+            logger.error("Error saving file {}", file, ex);
+            JOptionPane.showMessageDialog(this,
+                                          "Error saving file: " + ex.getMessage(),
+                                          "Save Error",
+                                          JOptionPane.ERROR_MESSAGE);
+            return false; // Save failed
         }
     }
+
 }

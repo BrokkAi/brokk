@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
@@ -19,11 +20,10 @@ import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
+import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
 import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -31,6 +31,7 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -189,8 +190,9 @@ public class WorkspacePanel extends JPanel {
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
             
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
-            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+            if (!panel.workspaceCurrentlyEditable) {
                 dropAction.setEnabled(false);
+                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
             
@@ -222,8 +224,9 @@ public class WorkspacePanel extends JPanel {
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
             
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
-            if (!panel.contextManager.selectedContext().equals(panel.contextManager.topContext())) {
+            if (!panel.workspaceCurrentlyEditable) {
                 dropAction.setEnabled(false);
+                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
             
@@ -317,7 +320,7 @@ public class WorkspacePanel extends JPanel {
                         var fragment = new ContextFragment.ProjectPathFragment(fileRef.getRepoFile(), panel.contextManager);
                         panel.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
-                        panel.chrome.toolErrorRaw("Cannot " + label.toLowerCase() + ": " + fileRef.getFullPath() + " - no ProjectFile available");
+                        panel.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": " + fileRef.getFullPath() + " - no ProjectFile available");
                     }
                     
                     // Apply edit restrictions
@@ -389,6 +392,105 @@ public class WorkspacePanel extends JPanel {
     }
 
     /**
+     * Immutable record containing description text and associated file references
+     */
+    public static record DescriptionWithReferences(
+        String description,
+        List<TableUtils.FileReferenceList.FileReferenceData> fileReferences,
+        ContextFragment fragment
+    ) {
+        public DescriptionWithReferences {
+            // Defensive copy for immutability
+            fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
+        }
+        
+        @Override
+        public String toString() {
+            return description; // For backward compatibility with existing code that expects String
+        }
+    }
+
+    /**
+     * Custom table cell renderer for the Description column that displays
+     * description text on top and file reference badges below.
+     */
+    private static class DescriptionWithBadgesRenderer implements javax.swing.table.TableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                                                      boolean isSelected, boolean hasFocus,
+                                                      int row, int column) {
+            // Create main panel with vertical layout
+            JPanel panel = new JPanel();
+            panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+            panel.setOpaque(true);
+            
+            // Set colors based on selection
+            if (isSelected) {
+                panel.setBackground(table.getSelectionBackground());
+                panel.setForeground(table.getSelectionForeground());
+            } else {
+                panel.setBackground(table.getBackground());
+                panel.setForeground(table.getForeground());
+            }
+            
+            // Extract data from the DescriptionWithReferences record
+            DescriptionWithReferences data = (DescriptionWithReferences) value;
+            if (data == null) {
+                return panel; // Return empty panel if no data
+            }
+            
+            String description = data.description();
+            List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
+            
+            // Create description label
+            JLabel descLabel = new JLabel(description);
+            descLabel.setOpaque(false);
+            descLabel.setForeground(panel.getForeground());
+            descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
+            
+            // Add description to panel
+            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            panel.add(descLabel);
+            
+            // Add file badges if there are any
+            if (!fileReferences.isEmpty()) {
+                // Add small vertical gap
+                panel.add(Box.createVerticalStrut(3));
+                
+                // Calculate available width for badges (table column width minus padding)
+                int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
+                
+                // Create adaptive file reference list
+                var badgeList = new TableUtils.FileReferenceList.AdaptiveFileReferenceList(
+                        fileReferences, availableWidth, 4);
+                badgeList.setOpaque(false);
+                badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
+                
+                // Set badge colors based on selection
+                badgeList.setSelected(isSelected);
+                
+                panel.add(badgeList);
+            }
+            
+            // Calculate preferred height
+            int preferredHeight = calculatePreferredHeight(panel);
+            
+            // Set row height if different from current
+            if (table.getRowHeight(row) != preferredHeight) {
+                SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
+            }
+            
+            return panel;
+        }
+        
+        private int calculatePreferredHeight(JPanel panel) {
+            // Force layout to get accurate measurements
+            panel.doLayout();
+            return panel.getPreferredSize().height + 4; // Add small padding
+        }
+    }
+
+    /**
      * Helper for building popup menus consistently
      */
     public static class PopupBuilder {
@@ -429,8 +531,14 @@ public class WorkspacePanel extends JPanel {
     }
 
     // Columns
-    private final int FILES_REFERENCED_COLUMN = 2;
-    private final int FRAGMENT_COLUMN = 3;
+    public static final int LOC_COLUMN = 0;
+    public static final int DESCRIPTION_COLUMN = 1;
+    private final int FRAGMENT_COLUMN = 2;
+    
+    // Column dimensions
+    private static final int LOC_COLUMN_WIDTH = 55;
+    private static final int LOC_COLUMN_RIGHT_PADDING = 6;
+    private static final int DESCRIPTION_COLUMN_WIDTH = 480;
 
     // Parent references
     private final Chrome chrome;
@@ -447,6 +555,9 @@ public class WorkspacePanel extends JPanel {
     // Buttons
     // Table popup menu (when no row is selected)
     private JPopupMenu tablePopupMenu;
+
+    private static final String READ_ONLY_TIP = "Select latest activity to enable";
+    private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
 
     /**
      * Primary constructor allowing menu-mode selection
@@ -465,14 +576,14 @@ public class WorkspacePanel extends JPanel {
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "Workspace",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)
         ));
 
         buildContextPanel();
 
-        ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
+        safeGetLabel(0).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
     }
 
@@ -485,7 +596,7 @@ public class WorkspacePanel extends JPanel {
      * Build the context panel (unified table + action buttons).
      */
     private void buildContextPanel() {
-        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Files Referenced", "Fragment"}, 0) {
+        DefaultTableModel tableModel = new DefaultTableModel(new Object[]{"LOC", "Description", "Fragment"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -494,10 +605,9 @@ public class WorkspacePanel extends JPanel {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return switch (columnIndex) {
-                    case 0 -> Integer.class;
-                    case 1 -> String.class;
-                    case 2 -> List.class; // Our references column
-                    case 3 -> ContextFragment.class;
+                    case LOC_COLUMN -> Integer.class;
+                    case DESCRIPTION_COLUMN -> DescriptionWithReferences.class;
+                    case FRAGMENT_COLUMN -> ContextFragment.class;
                     default -> Object.class;
                 };
             }
@@ -514,37 +624,44 @@ public class WorkspacePanel extends JPanel {
             }
         };
 
-        // Add custom cell renderer for the "Description" column
-        contextTable.getColumnModel().getColumn(1).setCellRenderer(new javax.swing.table.DefaultTableCellRenderer() {
+        // Add custom cell renderer for the "Description" column that includes badges
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
+        
+        // Set right alignment for LOC column numbers with font metrics-based baseline alignment
+        var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-                var c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                if (value != null && value.toString().startsWith("✏️")) {
-                    setFont(getFont().deriveFont(Font.ITALIC));
-                } else {
-                    setFont(getFont().deriveFont(Font.PLAIN));
-                }
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                                                          boolean isSelected, boolean hasFocus,
+                                                          int row, int column) {
+                Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                
+                // Calculate baseline-aligned padding using font metrics - match TableUtils calculation
+                var tableFont = table.getFont();
+                var fontMetrics = table.getFontMetrics(tableFont);
+                
+                // Use a small offset to align with description text baseline (similar to TableUtils approach)
+                int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
+                
+                setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
-        });
+        };
+        locRenderer.setHorizontalAlignment(SwingConstants.RIGHT);
+        locRenderer.setVerticalAlignment(SwingConstants.TOP);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setCellRenderer(locRenderer);
 
-        // Files Referenced column: use our FileReferencesTableCellRenderer
-        var fileRenderer = new TableUtils.FileReferencesTableCellRenderer();
-        contextTable.getColumnModel().getColumn(FILES_REFERENCED_COLUMN).setCellRenderer(fileRenderer);
-
-        // Dynamically set row height based on renderer's preferred size
-        contextTable.setRowHeight(TableUtils.measuredBadgeRowHeight(contextTable));
+        // Remove file references column setup - badges will be in description column
 
         // Hide the FRAGMENT_COLUMN from view
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMinWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setMaxWidth(0);
         contextTable.getColumnModel().getColumn(FRAGMENT_COLUMN).setWidth(0);
 
-        // Column widths
-        contextTable.getColumnModel().getColumn(0).setPreferredWidth(50);
-        contextTable.getColumnModel().getColumn(0).setMaxWidth(100);
-        contextTable.getColumnModel().getColumn(1).setPreferredWidth(230);
-        contextTable.getColumnModel().getColumn(2).setPreferredWidth(250);
+        // LOC column: precise width so right-aligned numbers align with description text start
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setPreferredWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMaxWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(LOC_COLUMN).setMinWidth(LOC_COLUMN_WIDTH);
+        contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setPreferredWidth(DESCRIPTION_COLUMN_WIDTH);
 
         // Add mouse listener to handle file reference badge clicks
         contextTable.addMouseListener(new MouseAdapter() {
@@ -560,23 +677,31 @@ public class WorkspacePanel extends JPanel {
 
             private void maybeHandleFileRefClick(MouseEvent e) {
                 // If it's a popup trigger, let the table's main popup handler deal with it.
-                // The main handler will build the menu based on the row selection state,
-                // which is the desired "unified" behavior.
-                if (e.isPopupTrigger()) {
-                    return;
-                }
-
-                // For non-popup triggers (e.g., left clicks), proceed with badge-specific actions
-                // like opening the overflow popup.
-                int col = contextTable.columnAtPoint(e.getPoint());
-                if (col == FILES_REFERENCED_COLUMN) {
-                    ContextMenuUtils.handleFileReferenceClick(
-                            e,
-                            contextTable,
-                            chrome,
-                            () -> {}, // Workspace doesn't need to refresh suggestions
-                            FILES_REFERENCED_COLUMN
-                    );
+                if (!e.isPopupTrigger()) {
+                    // Handle badge clicks in the new description column layout
+                    int col = contextTable.columnAtPoint(e.getPoint());
+                    if (col == DESCRIPTION_COLUMN) { // Description column
+                        int row = contextTable.rowAtPoint(e.getPoint());
+                        if (row >= 0) {
+                            // Check if the cell contains file references
+                            var descriptionData = (DescriptionWithReferences) contextTable.getModel().getValueAt(row, DESCRIPTION_COLUMN);
+                            if (descriptionData != null && !descriptionData.fileReferences().isEmpty()) {
+                                // Check if the click actually hit a badge (not just anywhere in the cell)
+                                var clickedRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, descriptionData.fileReferences());
+                                
+                                if (clickedRef != null) {
+                                    // Use ContextMenuUtils directly now that we have the proper data structure
+                                    ContextMenuUtils.handleFileReferenceClick(
+                                            e,
+                                            contextTable,
+                                            chrome,
+                                            () -> {}, // Workspace doesn't need to refresh suggestions
+                                            DESCRIPTION_COLUMN
+                                    );
+                                }
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -587,23 +712,8 @@ public class WorkspacePanel extends JPanel {
             public void mouseMoved(MouseEvent e) {
                 int row = contextTable.rowAtPoint(e.getPoint());
                 int col = contextTable.columnAtPoint(e.getPoint());
-                if (row >= 0 && col == FILES_REFERENCED_COLUMN) {
-                    var value = contextTable.getValueAt(row, col);
-                    if (value != null) {
-                        // Show file references in a multiline tooltip
-                        @SuppressWarnings("unchecked") List<TableUtils.FileReferenceList.FileReferenceData> refs = (List<TableUtils.FileReferenceList.FileReferenceData>) value;
-                        if (!refs.isEmpty()) {
-                            var sb = new StringBuilder("<html>");
-                            for (TableUtils.FileReferenceList.FileReferenceData r : refs) {
-                                sb.append(r.getFullPath()).append("<br>");
-                            }
-                            sb.append("</html>");
-                            contextTable.setToolTipText(sb.toString());
-                            return;
-                        }
-                    }
-                } else if (row >= 0 && col == 1) {
-                    // Show full description
+                if (row >= 0 && col == DESCRIPTION_COLUMN) {
+                    // Show full description - badge tooltips will be handled by new renderer
                     var value = contextTable.getValueAt(row, col);
                     if (value != null) {
                         contextTable.setToolTipText(value.toString());
@@ -760,6 +870,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(dropAllMenuItem);
 
         JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
+        copyAllMenuItem.setActionCommand(COPY_ALL_ACTION_CMD);
         copyAllMenuItem.addActionListener(e -> {
             performContextActionAsync(ContextAction.COPY, List.of());
         });
@@ -896,13 +1007,10 @@ public class WorkspacePanel extends JPanel {
      */
     public List<ContextFragment> getSelectedFragments() {
         return SwingUtil.runOnEdt(() -> {
-            var fragments = new ArrayList<ContextFragment>();
-            int[] selectedRows = contextTable.getSelectedRows();
             var tableModel = (DefaultTableModel) contextTable.getModel();
-            for (int row : selectedRows) {
-                fragments.add((ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN));
-            }
-            return fragments;
+            return Arrays.stream(contextTable.getSelectedRows())
+                    .mapToObj(row -> (ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN))
+                    .collect(Collectors.toList());
         }, List.of());
     }
 
@@ -916,7 +1024,17 @@ public class WorkspacePanel extends JPanel {
         tableModel.setRowCount(0);
 
         if (ctx == null || ctx.isEmpty()) {
-            ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
+            // Reset summary label
+            safeGetLabel(0).setText(EMPTY_CONTEXT);
+
+            // Clear and hide the cost label
+            var cost = safeGetLabel(1);
+            cost.setText(" ");
+            cost.setVisible(false);
+
+            // Remove any warning messages
+            warningPanel.removeAll();
+
             revalidate();
             repaint();
             return;
@@ -944,7 +1062,7 @@ public class WorkspacePanel extends JPanel {
                 desc = "✏️ " + desc;
             }
 
-            // Build file references
+            // Build file references for the record
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = new ArrayList<>();
             if (frag.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
                 fileReferences = frag.files()
@@ -955,12 +1073,14 @@ public class WorkspacePanel extends JPanel {
                         .collect(Collectors.toList());
             }
 
-            tableModel.addRow(new Object[]{locText, desc, fileReferences, frag});
+            // Create rich description object
+            var descriptionWithRefs = new DescriptionWithReferences(desc, fileReferences, frag);
+            tableModel.addRow(new Object[]{locText, descriptionWithRefs, frag});
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
-        var innerLabel = (JLabel) locSummaryPanel.getComponent(0);
-        var costLabel = (JLabel) locSummaryPanel.getComponent(1);
+        var innerLabel = safeGetLabel(0);
+        var costLabel = safeGetLabel(1);
 
         // Check for context size warnings against configured models
         var models = contextManager.getService();
@@ -1083,9 +1203,10 @@ public class WorkspacePanel extends JPanel {
      * Checks if analyzer is ready for operations, shows error message if not.
      */
     private boolean isAnalyzerReady() {
-        var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-        if (analyzer == null) {
-            chrome.systemOutput("Code Intelligence is still being built. Please wait until completion.");
+        if (!contextManager.getAnalyzerWrapper().isReady()) {
+            chrome.systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                              AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                              JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
         return true;
@@ -1119,7 +1240,9 @@ public class WorkspacePanel extends JPanel {
                 .collect(Collectors.toSet());
         
         return !allFiles.isEmpty() && allFiles.stream()
-                .allMatch(f -> f instanceof ProjectFile pf && project.getRepo().getTrackedFiles().contains(pf));
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .allMatch(pf -> pf.exists() && project.getRepo().getTrackedFiles().contains(pf));
     }
 
     /**
@@ -1129,18 +1252,32 @@ public class WorkspacePanel extends JPanel {
         int row = contextTable.rowAtPoint(e.getPoint());
         int col = contextTable.columnAtPoint(e.getPoint());
 
-        // Handle file badge clicks
-        if (col == FILES_REFERENCED_COLUMN && row >= 0) {
-            @SuppressWarnings("unchecked")
-            List<TableUtils.FileReferenceList.FileReferenceData> fileRefsInCell =
-                    (List<TableUtils.FileReferenceList.FileReferenceData>) contextTable.getValueAt(row, FILES_REFERENCED_COLUMN);
-
-            if (fileRefsInCell != null && !fileRefsInCell.isEmpty()) {
-                TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
-                        TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileRefsInCell);
-
-                if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
-                    return new FileBadge(clickedFileRef);
+        // Handle file badge clicks in new description column layout
+        if (col == DESCRIPTION_COLUMN && row >= 0) { // Description column
+            ContextFragment fragment = (ContextFragment) contextTable.getModel().getValueAt(row, FRAGMENT_COLUMN);
+            if (fragment != null && fragment.getType() != ContextFragment.FragmentType.PROJECT_PATH) {
+                var fileReferences = fragment.files()
+                        .stream()
+                        .map(file -> new TableUtils.FileReferenceList.FileReferenceData(file.getFileName(), file.toString(), file))
+                        .distinct()
+                        .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
+                        .collect(Collectors.toList());
+                
+                if (!fileReferences.isEmpty()) {
+                    // We need to determine if the click was specifically on a badge
+                    Rectangle cellRect = contextTable.getCellRect(row, col, false);
+                    int yInCell = e.getPoint().y - cellRect.y;
+                    
+                    // Estimate if click is in lower half of cell (where badges are)
+                    if (yInCell > cellRect.height / 2) {
+                        // Try to find which specific badge was clicked
+                        TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
+                                TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
+                        
+                        if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
+                            return new FileBadge(clickedFileRef);
+                        }
+                    }
                 }
             }
         }
@@ -1149,7 +1286,7 @@ public class WorkspacePanel extends JPanel {
         if (selectedFragments.isEmpty()) {
             return new NoSelection();
         } else if (selectedFragments.size() == 1) {
-            return new SingleFragment(selectedFragments.get(0));
+            return new SingleFragment(selectedFragments.getFirst());
         } else {
             return new MultiFragment(selectedFragments);
         }
@@ -1167,7 +1304,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1196,7 +1333,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1226,7 +1363,7 @@ public class WorkspacePanel extends JPanel {
             try {
                 var analyzer = contextManager.getAnalyzerUninterrupted();
                 if (analyzer.isEmpty()) {
-                    chrome.toolErrorRaw("Code Intelligence is empty; nothing to add");
+                    chrome.toolError("Code Intelligence is empty; nothing to add");
                     return;
                 }
 
@@ -1334,11 +1471,10 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Edit files from selected fragments
-            var files = new HashSet<ProjectFile>();
-            selectedFragments.stream()
-                             .flatMap(fragment -> fragment.files().stream()) // Corrected: No analyzer
-                             .filter(Objects::nonNull)
-                             .forEach(files::add);
+            var files = selectedFragments.stream()
+                                        .flatMap(fragment -> fragment.files().stream())
+                                        .filter(Objects::nonNull)
+                                        .collect(Collectors.toSet());
             contextManager.editFiles(files); 
         }
     }
@@ -1361,10 +1497,9 @@ public class WorkspacePanel extends JPanel {
             contextManager.addReadOnlyFiles(selection.files());
         } else {
             // Add files from selected fragments
-            var files = new HashSet<BrokkFile>();
-            for (var fragment : selectedFragments) {
-                files.addAll(fragment.files()); // No analyzer
-            }
+            var files = selectedFragments.stream()
+                               .flatMap(frag -> frag.files().stream())
+                               .collect(Collectors.toSet());
             contextManager.addReadOnlyFiles(files);
         }
     }
@@ -1413,7 +1548,7 @@ public class WorkspacePanel extends JPanel {
         var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         var contents = clipboard.getContents(null);
         if (contents == null) {
-            chrome.toolErrorRaw("Clipboard is empty or unavailable");
+            chrome.toolError("Clipboard is empty or unavailable");
             return;
         }
 
@@ -1456,7 +1591,7 @@ public class WorkspacePanel extends JPanel {
                     }
                 } catch (Exception e) {
                     if (e.getMessage() != null && e.getMessage().contains("INCR")) {
-                        chrome.toolErrorRaw("Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
+                        chrome.toolError("Unable to paste image data from Windows to Brokk running under WSL. This is a limitation of WSL. You can write the image to a file and read it that way instead.");
                         return;
                     }
                     logger.error("Failed to process image flavor: {}", flavor.getMimeType(), e);
@@ -1469,11 +1604,11 @@ public class WorkspacePanel extends JPanel {
             try {
                 clipboardText = (String) contents.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor);
                 if (clipboardText.isBlank()) {
-                    chrome.toolErrorRaw("Clipboard text is empty");
+                    chrome.toolError("Clipboard text is empty");
                     return;
                 }
             } catch (Exception e) {
-                chrome.toolErrorRaw("Failed to read clipboard text: " + e.getMessage());
+                chrome.toolError("Failed to read clipboard text: " + e.getMessage());
                 return;
             }
 
@@ -1494,20 +1629,20 @@ public class WorkspacePanel extends JPanel {
 
                 if (uri != null) { // Only proceed if URI parsing was successful
                     // Try to handle as image URL first
-                    if (isImageUri(uri)) {
+                    if (ImageUtil.isImageUri(uri, httpClient)) {
                         try {
                             chrome.systemOutput("Fetching image from " + clipboardText);
-                            java.awt.Image image = javax.imageio.ImageIO.read(uri.toURL());
+                            java.awt.Image image = ImageUtil.downloadImage(uri, httpClient);
                             if (image != null) {
                                 contextManager.addPastedImageFragment(image);
                                 chrome.systemOutput("Pasted image from URL added to context");
                                 chrome.actionComplete();
                                 return; // Image handled, done with paste action
                             } else {
-                                logger.warn("URL {} identified as image, but ImageIO.read returned null. Falling back to text.", clipboardText);
+                                logger.warn("URL {} identified as image by ImageUtil, but downloadImage returned null. Falling back to text.", clipboardText);
                                 chrome.systemOutput("Could not load image from URL. Trying to fetch as text.");
                             }
-                        } catch (IOException e) {
+                        } catch (Exception e) { // Catching general exception as downloadImage might throw various things indirectly
                             logger.warn("Failed to fetch or decode image from URL {}: {}. Falling back to text.", clipboardText, e.getMessage());
                             chrome.systemOutput("Failed to load image from URL: " + e.getMessage() + ". Trying to fetch as text.");
                             // Fall through to fetching as text
@@ -1522,7 +1657,7 @@ public class WorkspacePanel extends JPanel {
                         wasUrl = true;
                         chrome.actionComplete();
                     } catch (IOException e) {
-                        chrome.toolErrorRaw("Failed to fetch or process URL content as text: " + e.getMessage());
+                        chrome.toolError("Failed to fetch or process URL content as text: " + e.getMessage());
                         content = clipboardText; // Revert to original clipboard text if fetch fails
                     }
                 }
@@ -1549,14 +1684,14 @@ public class WorkspacePanel extends JPanel {
                 chrome.systemOutput(message);
             }
         } else {
-            chrome.toolErrorRaw("Unsupported clipboard content type");
+            chrome.toolError("Unsupported clipboard content type");
         }
     }
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
             if (contextManager.topContext().isEmpty()) { 
-                chrome.toolErrorRaw("No context to drop"); 
+                chrome.systemOutput("No context to drop");
                 return;
             }
             contextManager.dropAll(); 
@@ -1609,20 +1744,20 @@ public class WorkspacePanel extends JPanel {
             }
         } else {
             // Fragment case: Extract files and classes from selected fragments
-            for (var frag : selectedFragments) {
-                selectedFiles.addAll(frag.files());
-            }
+            selectedFragments.stream()
+                    .flatMap(frag -> frag.files().stream())
+                    .forEach(selectedFiles::add);
         }
 
         if (selectedFiles.isEmpty() && selectedClasses.isEmpty()) {
-            chrome.toolErrorRaw("No files or classes identified for summarization in the selection.");
+            chrome.toolError("No files or classes identified for summarization in the selection.");
             return;
         }
 
         // Call the updated addSummaries method, which outputs a message on success
         boolean success = contextManager.addSummaries(selectedFiles, selectedClasses);
         if (!success) {
-            chrome.toolErrorRaw("No summarizable content found in the selected files or symbols.");
+            chrome.toolError("No summarizable content found in the selected files or symbols.");
         }
     }
 
@@ -1631,13 +1766,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        if (files == null) return List.of();
-        return files.stream().map(f -> {
-            if (f instanceof ProjectFile pf) {
-                return pf;
-            }
-            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-        }).toList();
+        return files == null ? List.of() : files.stream()
+                .map(f -> {
+                    if (f instanceof ProjectFile pf) {
+                        return pf;
+                    }
+                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                })
+                .toList();
     }
 
     /**
@@ -1675,28 +1811,15 @@ public class WorkspacePanel extends JPanel {
         return text.matches("^https?://\\S+$");
     }
 
-    private boolean isImageUri(URI uri) {
-        Request request = new Request.Builder()
-                .url(uri.toString())
-                .head() // Send a HEAD request
-                .build();
-
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (response.isSuccessful()) {
-                String contentType = response.header("Content-Type");
-                if (contentType != null) {
-                    logger.debug("URL {} Content-Type: {}", uri, contentType);
-                    return contentType.toLowerCase().startsWith("image/");
-                } else {
-                    logger.warn("URL {} did not return a Content-Type header.", uri);
-                }
-            } else {
-                logger.warn("HEAD request to {} failed with code: {}", uri, response.code());
-            }
-        } catch (IOException e) {
-            logger.error("IOException during HEAD request to {}: {}", uri, e.getMessage());
-        }
-        return false;
+    /**
+     * Return the JLabel stored in {@code locSummaryPanel} at the given index or throw
+     */
+    private JLabel safeGetLabel(int index) {
+        return switch (locSummaryPanel.getComponent(index)) {
+            case JLabel lbl -> lbl;
+            default -> throw new IllegalStateException(
+                    "Expected JLabel at locSummaryPanel index " + index);
+        };
     }
 
     /**
@@ -1750,6 +1873,7 @@ public class WorkspacePanel extends JPanel {
         return costEstimates;
     }
 
+
     /**
      * Sets the editable state of the workspace panel.
      *
@@ -1761,6 +1885,27 @@ public class WorkspacePanel extends JPanel {
             if (contextTable != null) {
                 contextTable.repaint();
             }
+            refreshMenuState();
         });
+    }
+
+    private void refreshMenuState() {
+        if (tablePopupMenu == null) {
+            return;
+        }
+        var editable = workspaceCurrentlyEditable;
+        for (var component : tablePopupMenu.getComponents()) {
+            if (component instanceof JMenuItem mi) {
+                // "Copy All" is always enabled.
+                // Other JMenuItems (including JMenu "Add") are enabled based on workspace editability.
+                boolean copyAll = COPY_ALL_ACTION_CMD.equals(mi.getActionCommand());
+                mi.setEnabled(editable || copyAll);
+                if (copyAll || editable) {
+                    mi.setToolTipText(null);
+                } else {
+                    mi.setToolTipText(READ_ONLY_TIP);
+                }
+            }
+        }
     }
 }

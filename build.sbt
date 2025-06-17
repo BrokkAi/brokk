@@ -4,18 +4,50 @@ import sbtbuildinfo.BuildInfoPlugin
 import sbtbuildinfo.BuildInfoPlugin.autoImport.*
 
 scalaVersion := "3.6.4"
-version := "0.9.14"
+version := "0.10.0"
 organization := "io.github.jbellis"
 name := "brokk"
 
-val javaVersion = "21"
-javacOptions ++= Seq(
-  "-source", javaVersion,
-  "-target", javaVersion,
-  // Reflection-specific flags
-  "-parameters",           // Preserve method parameter names
-  "-g:source,lines,vars"   // Generate full debugging information
+// Add local Error Prone JAR and its dependencies to the compile classpath for javac -Xplugin:ErrorProne
+Compile / unmanagedJars ++= Seq(
+  baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
+  baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar" // Dependency for Error Prone dataflow checks
 )
+
+val javaVersion = "21"
+javacOptions := {
+  Seq(
+    "--release", javaVersion,
+    // Reflection-specific flags
+    "-parameters",           // Preserve method parameter names
+    "-g:source,lines,vars",  // Generate full debugging information
+    // Error Prone configuration
+    "-Xplugin:ErrorProne -Xep:FutureReturnValueIgnored:OFF -Xep:MissingSummary:OFF -Xep:EmptyBlockTag:OFF -Xep:NonCanonicalType:OFF",
+    "-Werror",
+    "-Xlint:deprecation",
+    "-Xlint:unchecked",
+
+    // JVM arguments for the forked javac process to run Error Prone on JDK 16+
+    // The -J prefix is needed because Compile / javaHome is set, which forks javac.
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.main=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.model=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.parser=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.processing=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.tree=ALL-UNNAMED",
+    "-J--add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED",
+    "-J--add-opens=jdk.compiler/com.sun.tools.javac.code=ALL-UNNAMED",
+    "-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
+    // Error Prone flags for compilation policy
+    "-XDcompilePolicy=simple",
+    "--should-stop=ifError=FLOW",
+  )
+}
+
+// Set javaHome to force forking javac, ensuring -J flags are passed
+Compile / javaHome := Some(file(System.getProperty("java.home")))
+
 scalacOptions ++= Seq(
   "-Xfatal-warnings",
   "-print-lines",
@@ -25,7 +57,7 @@ scalacOptions ++= Seq(
   "-feature",
 )
 
-val jlamaVersion = "1.0.0-beta3" // Assuming this matches langchain4j-jlama
+val jlamaVersion = "1.0.0-beta3"
 // Additional repositories
 resolvers ++= Seq(
   "Gradle Libs" at "https://repo.gradle.org/gradle/libs-releases",
@@ -45,21 +77,21 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.20.0",
 
   // Joern dependencies
-  "io.joern" %% "x2cpg" % "4.0.366",
-  "io.joern" %% "c2cpg" % "4.0.366",
-  "io.joern" %% "javasrc2cpg" % "4.0.366",
-  "io.joern" %% "pysrc2cpg" % "4.0.366",
-  "io.joern" %% "joern-cli" % "4.0.366",
-  "io.joern" %% "semanticcpg" % "4.0.366",
-  
+  "io.joern" %% "x2cpg" % "4.0.369",
+  "io.joern" %% "c2cpg" % "4.0.369",
+  "io.joern" %% "javasrc2cpg" % "4.0.369",
+  "io.joern" %% "pysrc2cpg" % "4.0.369",
+  "io.joern" %% "joern-cli" % "4.0.369",
+  "io.joern" %% "semanticcpg" % "4.0.369",
+
   // Utilities
   "com.formdev" % "flatlaf" % "3.6",
   "com.fifesoft" % "rsyntaxtextarea" % "3.5.4",
   "com.fifesoft" % "autocomplete" % "3.3.2",
   "io.github.java-diff-utils" % "java-diff-utils" % "4.15",
   "org.yaml" % "snakeyaml" % "2.3",
-  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.1.0.202411261347-r",
-  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.1.0.202411261347-r",
+  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.2.1.202505142326-r",
+  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.2.1.202505142326-r",
   "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.3",
   "com.vladsch.flexmark" % "flexmark" % "0.64.8",
   "com.vladsch.flexmark" % "flexmark-html2md-converter" % "0.64.8",
@@ -67,6 +99,9 @@ libraryDependencies ++= Seq(
   "org.jsoup" % "jsoup" % "1.19.1",
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
   "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
+
+  // Bouncy Castle for JGit SSH
+  "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
 
   // TreeSitter Java parser
   "io.github.bonede" % "tree-sitter" % "0.25.3",
@@ -97,7 +132,7 @@ assembly / assemblyMergeStrategy := {
   case PathList("META-INF", xs @ _*) =>
     xs.last match {
       case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") => MergeStrategy.discard
-      case "MANIFEST.MF" => MergeStrategy.discard 
+      case "MANIFEST.MF" => MergeStrategy.discard
       case _ => MergeStrategy.first
     }
   case _ => MergeStrategy.first
@@ -111,8 +146,9 @@ javaOptions ++= Seq(
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
   "-Dbrokk.prtab=true",
-  "-Dbrokk.issuetab=true"
+  "-Dbrokk.issuetab=true",
+  "-Dbrokk.upgradeagenttab=true"
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
-
+Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))

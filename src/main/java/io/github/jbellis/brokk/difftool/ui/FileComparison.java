@@ -19,11 +19,12 @@ import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 
 public class FileComparison extends SwingWorker<String, Object> {
     private final BrokkDiffPanel mainPanel;
-private final ContextManager contextManager;
+    private final ContextManager contextManager;
     private JMDiffNode diffNode;
     private BufferDiffPanel panel;
     private final BufferSource leftSource;
@@ -77,28 +78,15 @@ private final ContextManager contextManager;
     }
 
     @Override
-    public String doInBackground() {
-        if (leftSource == null || rightSource == null) {
-            return "Error: Both left and right sources must be provided.";
-        }
-
+    public @Nullable String doInBackground() {
         if (diffNode == null) {
             diffNode = createDiffNode(leftSource, rightSource);
         }
-
-        // If no errors, proceed to diffing
-        // diffNode can be null if createDiffNode returns null (though it shouldn't with current logic)
-        if (diffNode != null) {
-            // Call diff() directly - we're already in a background thread
-            diffNode.diff();
-        } else {
-            // This case should ideally not be reached if sources are non-null
-            return "Error: Could not create diff node from sources.";
-        }
+        diffNode.diff();
         return null;
     }
 
-    private String getDisplayTitleForSource(BufferSource source) {
+    private @Nullable String getDisplayTitleForSource(BufferSource source) {
         String originalTitle = source.title();
 
         if (source instanceof BufferSource.FileSource) {
@@ -166,15 +154,13 @@ private final ContextManager contextManager;
         return node;
     }
 
-    private static ImageIcon getScaledIcon() {
+    private static @Nullable ImageIcon getScaledIcon() {
         try {
             BufferedImage originalImage = ImageIO.read(Objects.requireNonNull(FileComparison.class.getResource("/images/compare.png")));
             Image scaledImage = originalImage.getScaledInstance(24, 24, Image.SCALE_SMOOTH);
             return new ImageIcon(scaledImage);
         } catch (IOException | NullPointerException e) {
             System.err.println("Image not found: " + "/images/compare.png" + ": " + e.getMessage());
-            // Optionally rethrow if icon is critical
-            // throw new RuntimeException("Failed to load required image icon", e);
             return null;
         }
     }
@@ -199,8 +185,6 @@ private final ContextManager contextManager;
             // Handle exceptions during the 'done' phase, e.g., from get()
             System.err.println("Error completing file comparison task: " + ex.getMessage());
             JOptionPane.showMessageDialog(mainPanel, "Error finalizing comparison: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
-            // Rethrow if necessary
-            // throw new RuntimeException("Failed to complete comparison UI update", ex);
         }
     }
 }

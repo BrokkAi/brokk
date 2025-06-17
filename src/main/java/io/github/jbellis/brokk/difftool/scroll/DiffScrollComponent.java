@@ -8,17 +8,17 @@ import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
-import java.awt.geom.CubicCurve2D;
 import java.awt.geom.GeneralPath;
-import java.awt.geom.Line2D;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * DiffScrollComponent is responsible for painting the \"curved lines\" or \"connectors\"
@@ -227,8 +227,8 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     break;
                 }
 
-                boolean selected = (delta == diffPanel.getSelectedDelta());
-                boolean hovered = (delta == currentlyHoveredDelta); // Check against the component's state
+                boolean selected = Objects.equals(delta, diffPanel.getSelectedDelta());
+                boolean hovered = Objects.equals(delta, currentlyHoveredDelta); // Check against the component's state
 
                 // --- Determine Color ---
                 Color color = switch (delta.getType()) {
@@ -320,7 +320,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                     // Draw connecting lines between midpoints (approx)
                     int midYLeft = yLeft + hLeft / 2;
                     int midYRight = yRight + hRight / 2;
-                    int midX = xLeftEdge + (xRightEdge - xLeftEdge) / 2; // Horizontal midpoint
 
                     // Create a simple polygon for clicking
                     simpleShape = new Polygon();
@@ -451,14 +450,14 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         // Ensure endOffset is not before startOffset
         endOffset = Math.max(startOffset, endOffset);
 
-        Rectangle startViewRect = editor.modelToView(startOffset);
-        Rectangle endViewRect = editor.modelToView(endOffset);
+        Rectangle startViewRect = SwingUtil.modelToView(editor, startOffset);
+        Rectangle endViewRect = SwingUtil.modelToView(editor, endOffset);
 
         // Handle cases where modelToView might fail or return null
         if (startViewRect == null) {
             // Try getting view rect for the line before if possible
             if (startLine > 0) {
-                startViewRect = editor.modelToView(bd.getOffsetForLine(startLine - 1));
+                startViewRect = SwingUtil.modelToView(editor, bd.getOffsetForLine(startLine - 1));
                 if (startViewRect != null) {
                     // Estimate position based on previous line
                     startViewRect.y += startViewRect.height;
@@ -538,15 +537,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         return shape;
     }
 
-     /** Draws a simple 'X' cross within the given rectangle */
-    private void drawCross(Graphics2D g2, Rectangle rect, Color color) {
-        g2.setColor(color);
-        // Top-left to bottom-right
-        g2.drawLine(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height);
-        // Top-right to bottom-left
-        g2.drawLine(rect.x + rect.width, rect.y, rect.x, rect.y + rect.height);
-    }
-
 
     /**
      * Provide mouse-based selection or hover.
@@ -570,20 +560,11 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                 }
 
                 // If the hovered delta changed, update the state and repaint
-                if (currentlyHoveredDelta != deltaUnderMouse) {
+                if (!Objects.equals(currentlyHoveredDelta, deltaUnderMouse)) {
                     currentlyHoveredDelta = deltaUnderMouse;
                     repaint();
                 }
             }
-
-             // No @Override here, MouseMotionAdapter provides empty implementation
-             public void mouseExited(MouseEvent e) {
-                 // Clear hover state when mouse leaves the component
-                 if (currentlyHoveredDelta != null) {
-                     currentlyHoveredDelta = null;
-                     repaint();
-                 }
-             }
         };
     }
 

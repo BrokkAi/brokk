@@ -8,6 +8,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import java.util.Objects;
 
 /**
@@ -181,13 +182,11 @@ public class SearchBarPanel extends JPanel {
     public void findNext() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToNextResult();
-        updateNavigationResults();
     }
     
     public void findPrevious() {
         assert SwingUtilities.isEventDispatchThread();
         searchCallback.goToPreviousResult();
-        updateNavigationResults();
     }
     
     public void clearSearch() {
@@ -239,7 +238,7 @@ public class SearchBarPanel extends JPanel {
         
         if (notFound && !searchText.isEmpty()) {
             // Set error state
-            if (searchField.getForeground() != Color.red) {
+            if (!Objects.equals(searchField.getForeground(), Color.red)) {
                 searchField.putClientProperty(CP_FOREGROUND, searchField.getForeground());
                 searchField.setForeground(Color.red);
             }
@@ -259,10 +258,7 @@ public class SearchBarPanel extends JPanel {
             if (results != null && results.hasMatches()) {
                 searchResult.setIcon(null);
                 searchResult.setText(String.format("%d of %d", results.getCurrentMatch(), results.getTotalMatches()));
-            } else if (!searchText.isEmpty()) {
-                searchResult.setIcon(null);
-                searchResult.setText("");
-            } else {
+            } else { // This combined else correctly handles cases where results has no matches or search text is empty
                 searchResult.setIcon(null);
                 searchResult.setText("");
             }
@@ -281,29 +277,12 @@ public class SearchBarPanel extends JPanel {
         return ae -> findNext();
     }
     
-    private void updateNavigationResults() {
-        // For callbacks that support getCurrentResults, update the display
-        if (searchCallback instanceof MarkdownPanelSearchCallback markdownCallback) {
-            SearchResults results = markdownCallback.getCurrentResults();
-            updateSearchResults(results);
-        }
-    }
-    
     /**
      * Registers Ctrl/Cmd+F shortcut to focus the search field.
      */
     public void registerSearchFocusShortcut(JComponent targetComponent) {
         assert SwingUtilities.isEventDispatchThread();
-        KeyStroke focusSearchKey = KeyStroke.getKeyStroke(KeyEvent.VK_F, 
-            java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        
-        targetComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(focusSearchKey, "focusSearch");
-        targetComponent.getActionMap().put("focusSearch", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                focusSearchField();
-            }
-        });
+        KeyboardShortcutUtil.registerSearchFocusShortcut(targetComponent, this::focusSearchField);
     }
     
 }

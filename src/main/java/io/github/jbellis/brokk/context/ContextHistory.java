@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.context;
 import io.github.jbellis.brokk.IConsoleIO;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.*;
@@ -15,7 +16,7 @@ import java.util.*;
  * locking.</p>
  *
  * <p><strong>Contract:</strong> every {@code Context} handed to this class
- * <em>must already be frozen</em> (see {@link Context#freeze()}).  This class
+ * <em>must already be frozen</em> (see {@link Context#freezeAndCleanup()}).  This class
  * never calls {@code freeze()} on its own.</p>
  */
 public class ContextHistory {
@@ -26,7 +27,7 @@ public class ContextHistory {
     private final Deque<Context> redo   = new ArrayDeque<>();
 
     /** UI-selection; never {@code null} once an initial context is set. */
-    private Context selected;
+    private @Nullable Context selected;
 
     /* ───────────────────────── public API ─────────────────────────── */
 
@@ -36,7 +37,7 @@ public class ContextHistory {
     }
 
     /** Latest context or {@code null} when uninitialised. */
-    public synchronized Context topContext() {
+    public synchronized @Nullable Context topContext() {
         return history.peekLast();
     }
 
@@ -50,19 +51,23 @@ public class ContextHistory {
         return selected;
     }
 
-    /** @return {@code true} iff {@code ctx} is present in history. */
-    public synchronized boolean setSelectedContext(Context ctx) {
+    /**
+     * Returns {@code true} iff {@code ctx} is present in history.
+     * @param ctx the context to check
+     * @return {@code true} iff {@code ctx} is present in history.
+     */
+    public synchronized boolean setSelectedContext(@Nullable Context ctx) {
         if (ctx != null && history.contains(ctx)) {
             selected = ctx;
             return true;
         }
-        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx.getId());
+        logger.warn("Attempted to select context {} not present in history", ctx == null ? "null" : ctx);
         return false;
     }
 
     /** Initialise with a single frozen context. */
     public synchronized void setInitialContext(Context frozenInitial) {
-        assert frozenInitial.isFrozen();
+        assert !frozenInitial.containsDynamicFragments();
         history.clear();
         redo.clear();
         history.add(frozenInitial);
@@ -71,17 +76,11 @@ public class ContextHistory {
 
     /** Push {@code frozen} and clear redo stack. */
     public synchronized void addFrozenContextAndClearRedo(Context frozen) {
-        assert frozen.isFrozen();
+        assert !frozen.containsDynamicFragments();
         history.addLast(frozen);
         truncateHistory();
         redo.clear();
         selected = frozen;
-    }
-
-    public synchronized void updateTopContext(Context ctx) {
-        assert ctx.isFrozen();
-        history.removeLast();
-        history.addLast(ctx);
     }
 
     /* ─────────────── undo / redo  ────────────── */
@@ -92,7 +91,9 @@ public class ContextHistory {
     }
 
     public synchronized UndoResult undo(int steps, IConsoleIO io) {
-        if (steps <= 0 || !hasUndoStates()) return UndoResult.none();
+        if (steps <= 0 || !hasUndoStates()) {
+            return UndoResult.none();
+        }
 
         var toUndo = Math.min(steps, history.size() - 1);
         for (int i = 0; i < toUndo; i++) {
@@ -111,7 +112,11 @@ public class ContextHistory {
         return distance == 0 ? UndoResult.none() : undo(distance, io);
     }
 
-    /** @return {@code true} if something was redone. */
+    /**
+     * Redoes the last undone operation.
+     * @param io the console IO for feedback
+     * @return {@code true} if something was redone.
+     */
     public synchronized boolean redo(IConsoleIO io) {
         if (redo.isEmpty()) return false;
         var popped = redo.removeLast();
@@ -141,7 +146,7 @@ public class ContextHistory {
      * Applies the state from a frozen context to the workspace by restoring files.
      */
     private void applyFrozenContextToWorkspace(Context frozenContext, IConsoleIO io) {
-        assert frozenContext.isFrozen();
+        assert !frozenContext.containsDynamicFragments();
         var restoredFiles = new ArrayList<String>();
         frozenContext.editableFiles.forEach(fragment -> {
             assert fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH : fragment.getType();
@@ -157,8 +162,7 @@ public class ContextHistory {
                     restoredFiles.add(pf.toString());
                 }
             } catch (IOException e) {
-                io.toolError("Failed to restore file " + pf + ": " + e.getMessage());
-                logger.error("Failed to restore file {} during context application", pf, e);
+                io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
             }
         });
         if (!restoredFiles.isEmpty()) {

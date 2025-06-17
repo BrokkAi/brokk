@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import org.jetbrains.annotations.Nullable;
+
 import javax.swing.*;
 import javax.swing.event.*;
 import java.awt.*;
@@ -8,117 +11,226 @@ import java.util.*;
 import java.util.List;
 import java.util.function.Supplier;
 
-public final class FilterBox extends JPanel {
+public final class FilterBox extends JPanel implements ThemeAware {
 
     private final String label;                     // e.g. "Author"
     private final Supplier<List<String>> choices;   // lazy source of values
-    private String selected;                        // null == “nothing”
+    private @Nullable String selected;             // null == “nothing”
 
     private final JLabel textLabel;
     private final JLabel iconLabel;
 
-    private static final Icon ARROW = UIManager.getIcon("Tree.expandedIcon");
-    private static final Icon CLEAR = UIManager.getIcon("InternalFrame.closeIcon");
+    private static final Icon ARROW_BASE = createConsistentSizedIcon(UIManager.getIcon("Tree.expandedIcon"));
+    private static final Icon CLEAR_BASE = createConsistentSizedIcon(UIManager.getIcon("InternalFrame.closeIcon"));
+    private static final Icon HOVER_ARROW = createHoverIcon(ARROW_BASE);
+    private static final Icon HOVER_CLEAR = createHoverIcon(CLEAR_BASE);
 
-    private static final Color UNSELECTED_FG_COLOR = new Color(0xFF8800); // IntelliJ-like orange
-    private static final Color SELECTED_FG_COLOR = Color.WHITE;
-    private static final Color ICON_HOVER_BG_COLOR = new Color(SELECTED_FG_COLOR.getRed(),
-                                                               SELECTED_FG_COLOR.getGreen(),
-                                                               SELECTED_FG_COLOR.getBlue(),
-                                                               64); // Semi-transparent white
+
+    /**
+     * Wraps an icon to ensure consistent 12x12 sizing for alignment
+     */
+    private static Icon createConsistentSizedIcon(Icon originalIcon) {
+        return new Icon() {
+            @Override
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                // Center the original icon within our consistent size
+                int offsetX = (getIconWidth() - originalIcon.getIconWidth()) / 2;
+                int offsetY = (getIconHeight() - originalIcon.getIconHeight()) / 2;
+
+                // Use the component's foreground color for the icon
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setColor(c.getForeground());
+                originalIcon.paintIcon(c, g2, x + offsetX, y + offsetY);
+                g2.dispose();
+            }
+
+            @Override
+            public int getIconWidth() { return 12; }
+
+            @Override
+            public int getIconHeight() { return 12; }
+        };
+    }
+
+    /**
+     * Creates a slightly larger version of an icon for hover effect
+     */
+    private static Icon createHoverIcon(Icon originalIcon) {
+        return new Icon() {
+            @Override
+            public void paintIcon(Component c, Graphics g, int x, int y) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2.setColor(c.getForeground());
+
+                // Scale factor to make icon slightly larger
+                double scaleFactor = 1.17; // 12px -> ~14px
+
+                // Calculate center position for the scaled icon
+                int iconWidth = getIconWidth();
+                int iconHeight = getIconHeight();
+
+                // Center the scaled icon
+                int centerX = x + iconWidth / 2;
+                int centerY = y + iconHeight / 2;
+
+                // Apply scaling and draw centered
+                g2.translate(centerX, centerY);
+                g2.scale(scaleFactor, scaleFactor);
+                g2.translate(-iconWidth/2, -iconHeight/2);
+
+                originalIcon.paintIcon(c, g2, 0, 0);
+                g2.dispose();
+            }
+
+            @Override
+            public int getIconWidth() { return 12; }
+
+            @Override
+            public int getIconHeight() { return 12; }
+        };
+    }
+
+    // Colors will be set dynamically based on theme
+    private Color unselectedFgColor;
+    private Color selectedFgColor;
     private final Chrome chrome;
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices) {
         this(chrome, label, choices, null);
     }
 
-    public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices, String initialSelection) {
+    public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices, @Nullable String initialSelection) {
         this.chrome = chrome;
         this.label = label;
         this.choices = choices;
 
         // Initialize components
         textLabel = new JLabel(label);
-        iconLabel = new JLabel(ARROW);
+        iconLabel = new JLabel(ARROW_BASE);
 
-        // Layout
+        // Layout - Use BorderLayout with proper spacing
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6)); // Provides overall padding
         setOpaque(false); // Make panel transparent
 
-        textLabel.setForeground(UNSELECTED_FG_COLOR);
+        // Colors will be set in applyTheme
         textLabel.setOpaque(false);
         iconLabel.setOpaque(false);
+
+        // Set a minimum width for the text label to ensure consistent icon positioning
+        textLabel.setPreferredSize(new Dimension(60, textLabel.getPreferredSize().height));
+        textLabel.setHorizontalAlignment(SwingConstants.LEFT);
+
+        // Set fixed size for icon label to ensure consistent positioning
+        iconLabel.setPreferredSize(new Dimension(16, iconLabel.getPreferredSize().height));
+        iconLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        // Add consistent spacing between text and icon
+        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
 
         add(textLabel, BorderLayout.CENTER);
         add(iconLabel, BorderLayout.EAST);
 
         // Event Listeners
-        iconLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                if (selected != null && isEnabled()) {
-                    iconLabel.setOpaque(true);
-                    iconLabel.setBackground(ICON_HOVER_BG_COLOR);
-                }
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                if (selected != null && isEnabled()) {
-                    iconLabel.setOpaque(false);
-                    iconLabel.setBackground(null);
-                }
-            }
-        });
-
-        addMouseListener(new MouseAdapter() {
+        MouseAdapter iconLabelMouseAdapter = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (!isEnabled()) return;
 
-                Point p = e.getPoint();
-                if (iconLabel.getBounds().contains(p)) {
-                    if (selected != null) { // CLEAR icon is showing
-                        clear();
-                    } else { // ARROW icon is showing
-                        showPopup();
-                    }
-                } else { // Click was on textLabel area or panel background
+                if (selected != null) { // CLEAR icon is showing
+                    clear();
+                } else { // ARROW icon is showing
                     showPopup();
                 }
             }
 
             @Override
             public void mouseEntered(MouseEvent e) {
-                if (selected == null && isEnabled()) {
-                    textLabel.setForeground(SELECTED_FG_COLOR);
+                if (isEnabled()) {
+                    iconLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                    if (selected != null) {
+                        // Make icon slightly bigger on hover
+                        iconLabel.setIcon(HOVER_CLEAR);
+                        iconLabel.repaint();
+                    }
                 }
             }
 
             @Override
             public void mouseExited(MouseEvent e) {
-                if (selected == null && isEnabled()) {
-                    textLabel.setForeground(UNSELECTED_FG_COLOR);
+                if (isEnabled()) {
+                    iconLabel.setCursor(Cursor.getDefaultCursor());
+                    if (selected != null) {
+                        // Restore normal icon size
+                        iconLabel.setIcon(CLEAR_BASE);
+                        iconLabel.repaint();
+                    }
                 }
             }
-        });
+        };
+        iconLabel.addMouseListener(iconLabelMouseAdapter);
+
+        var textLabelMouseAdapter = new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (!isEnabled()) return;
+
+                Point clickPointInPanel = e.getPoint();
+                if (iconLabel.getBounds().contains(clickPointInPanel)) {
+                    return; // Let iconLabelMouseAdapter handle icon clicks.
+                }
+
+                // If click was on text/panel area (not icon):
+                if (selected == null) {
+                    showPopup();
+                }
+            }
+
+            @Override
+            public void mouseEntered(MouseEvent e) {
+                if (isEnabled()) {
+                    if (selected == null) {
+                        textLabel.setForeground(selectedFgColor);
+                        // Make arrow icon slightly bigger on hover
+                        iconLabel.setIcon(HOVER_ARROW);
+                        iconLabel.repaint();
+                    } else {
+                        // Make text color change more noticeable when filter is selected
+                        textLabel.setForeground(unselectedFgColor);
+                    }
+                }
+            }
+
+            @Override
+            public void mouseExited(MouseEvent e) {
+                if (isEnabled()) {
+                    if (selected == null) {
+                        textLabel.setForeground(unselectedFgColor);
+                        // Restore normal arrow icon size
+                        iconLabel.setIcon(ARROW_BASE);
+                        iconLabel.repaint();
+                    } else {
+                        // Restore normal selected text color
+                        textLabel.setForeground(selectedFgColor);
+                    }
+                }
+            }
+        };
+        addMouseListener(textLabelMouseAdapter);
 
         // Initial selection and icon state
         if (initialSelection != null) {
             List<String> actualChoices = choices.get();
-            if (actualChoices != null && actualChoices.contains(initialSelection)) {
+            if (actualChoices.contains(initialSelection)) {
                 this.selected = initialSelection;
                 textLabel.setText(this.selected);
-                textLabel.setForeground(SELECTED_FG_COLOR);
-                iconLabel.setIcon(CLEAR);
-                iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
-            } else {
-                // initialSelection not valid, leave as unselected
-                iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+                iconLabel.setIcon(CLEAR_BASE);
             }
-        } else {
-            iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        }
+        // Apply initial theme
+        if (chrome.themeManager != null) {
+            applyTheme(chrome.themeManager);
         }
     }
 
@@ -144,9 +256,6 @@ public final class FilterBox extends JPanel {
 
             String q = search.getText().toLowerCase(Locale.ROOT);
             List<String> currentChoices = choices.get();
-            if (currentChoices == null) {
-                currentChoices = List.of();
-            }
 
             currentChoices.stream()
                     .filter(s -> s.toLowerCase(Locale.ROOT).contains(q))
@@ -212,13 +321,16 @@ public final class FilterBox extends JPanel {
                 }
             }
         });
-        
+
         // Add a popup menu listener to request focus on the search field when the popup becomes visible.
         pop.addPopupMenuListener(new PopupMenuListener() {
+            @Override
             public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(search::requestFocusInWindow);
             }
+            @Override
             public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
+            @Override
             public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
@@ -230,23 +342,21 @@ public final class FilterBox extends JPanel {
         String old = selected;
         selected = v;
         textLabel.setText(v);
-        textLabel.setForeground(SELECTED_FG_COLOR);
-        iconLabel.setIcon(CLEAR);
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_GLUE, 0, 0));
+        textLabel.setForeground(selectedFgColor);
+        iconLabel.setIcon(CLEAR_BASE);
+        // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
         iconLabel.setBackground(null);
         firePropertyChange("value", old, v);
-        // Swing components usually repaint correctly, explicit repaint might not be needed
-        // repaint(); 
     }
 
     private void clear() {
         String old = selected;
         selected = null;
         textLabel.setText(label);
-        iconLabel.setIcon(ARROW);
-        iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
+        iconLabel.setIcon(ARROW_BASE);
+        // Border remains consistent - already set in constructor
         // Reset hover state
         iconLabel.setOpaque(false);
         iconLabel.setBackground(null);
@@ -256,16 +366,35 @@ public final class FilterBox extends JPanel {
         boolean isMouseOver = mousePos != null && contains(mousePos);
 
         if (isMouseOver && isEnabled()) {
-            textLabel.setForeground(SELECTED_FG_COLOR); // Hover color
+            textLabel.setForeground(selectedFgColor); // Hover color
         } else {
-            textLabel.setForeground(UNSELECTED_FG_COLOR); // Default unselected color
+            textLabel.setForeground(unselectedFgColor); // Default unselected color
         }
         firePropertyChange("value", old, null);
-        // repaint();
     }
 
-    public String getSelected() {
+    public @Nullable String getSelected() {
         return selected;
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        boolean isDark = guiTheme.isDarkTheme();
+
+        unselectedFgColor = ThemeColors.getColor(isDark, "filter_unselected_foreground");
+        selectedFgColor = ThemeColors.getColor(isDark, "filter_selected_foreground");
+
+        // Apply current state colors
+        if (selected == null) {
+            // Check if mouse is over for hover state
+            Point mousePos = getMousePosition(true);
+            boolean isMouseOver = mousePos != null && contains(mousePos);
+            textLabel.setForeground(isMouseOver && isEnabled() ? selectedFgColor : unselectedFgColor);
+        } else {
+            textLabel.setForeground(selectedFgColor);
+        }
+
+        SwingUtilities.updateComponentTreeUI(this);
     }
 
     // SimpleListener is now a top-level package-private interface in its own file.

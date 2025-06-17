@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,6 +17,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Utility for extracting and applying before/after search-replace blocks in content.
@@ -34,13 +37,14 @@ public class EditBlock {
      */
     public static String extractCodeFromTripleBackticks(String text) {
         // Pattern: ``` followed by optional non-newline chars, then newline, then capture until ```
+        // The (.*) is greedy to ensure embedded ``` within the block are treated as content.
         var matcher = Pattern.compile(
-                "```[^\\n]*\\n(.*?)```", // Skip first line, capture starting from the second
+                "```[^\\n]*\\n(.*)```", // Skips language specifier line; (.*) captures content greedily.
                 Pattern.DOTALL
         ).matcher(text);
 
         if (matcher.find()) {
-            // group(1) captures the content between the newline and the closing ```
+            // group(1) captures the content between the initial newline (after ```[lang]) and the closing ```
             return matcher.group(1);
         }
         return "";
@@ -93,7 +97,7 @@ public class EditBlock {
 
     /**
      * Parse the LLM response for SEARCH/REPLACE blocks and apply them.
-     * 
+     *
      * Note: it is the responsibility of the caller (e.g. CodeAgent::preCreateNewFiles)
      * to create empty files for blocks corresponding to new files.
      */
@@ -123,19 +127,19 @@ public class EditBlock {
 
             // 2. Apply the edit using replaceInFile
             try {
-            // Save original content before attempting change
-            if (!changedFiles.containsKey(file)) {
-                changedFiles.put(file, file.exists() ? file.read() : "");
-            }
+                // Save original content before attempting change
+                if (!changedFiles.containsKey(file)) {
+                    changedFiles.put(file, file.exists() ? file.read() : "");
+                }
 
-            // Perform the replacement
-            replaceInFile(file, block.beforeText(), block.afterText(), contextManager);
+                // Perform the replacement
+                replaceInFile(file, block.beforeText(), block.afterText(), contextManager);
 
-            // add to succeeded list
-            // If it was a deletion, replaceInFile handled it and returned; file will not exist.
-            // If it was a modification or creation, the file will exist with new content.
-            succeeded.put(block, file);
-        } catch(NoMatchException | AmbiguousMatchException e) {
+                // add to succeeded list
+                // If it was a deletion, replaceInFile handled it and returned; file will not exist.
+                // If it was a modification or creation, the file will exist with new content.
+                succeeded.put(block, file);
+            } catch(NoMatchException | AmbiguousMatchException e) {
                 assert changedFiles.containsKey(file);
                 var originalContent = changedFiles.get(file);
                 String commentary;
@@ -168,7 +172,7 @@ public class EditBlock {
             } catch (GitAPIException e) {
                 var msg = "Non-fatal error: unable to update `%s` in Git".formatted(file);
                 logger.error("{}: {}", msg, e.getMessage());
-                io.toolErrorRaw(msg);
+                io.systemOutput(msg);
             }
         }
 
@@ -181,7 +185,7 @@ public class EditBlock {
      * If {@code filename} is non-null, then this block corresponds to a filename’s
      * search/replace
      */
-    public record SearchReplaceBlock(String filename, String beforeText, String afterText) {
+    public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {
         public SearchReplaceBlock {
             // filename can be null on bad parse
             assert beforeText != null;
@@ -198,7 +202,7 @@ public class EditBlock {
     /**
      * Represents a segment of the LLM output, categorized as either plain text or a parsed Edit Block.
      */
-    public record OutputBlock(String text, SearchReplaceBlock block) {
+    public record OutputBlock(@Nullable String text, @Nullable SearchReplaceBlock block) {
         /**
          * Ensures that exactly one of the fields is non-null.
          */
@@ -296,7 +300,11 @@ public class EditBlock {
         ContentLines replaceCL = prep(replace);
 
         // 2) perfect or whitespace approach
-        String attempt = perfectOrWhitespace(originalCL.lines, targetCl.lines, replaceCL.lines);
+        // Convert List<String> to String[] for perfectOrWhitespace and other methods
+        String[] originalLinesArray = originalCL.lines().toArray(String[]::new);
+        String[] targetLinesArray = targetCl.lines().toArray(String[]::new);
+        String[] replaceLinesArray = replaceCL.lines().toArray(String[]::new);
+        String attempt = perfectOrWhitespace(originalLinesArray, targetLinesArray, replaceLinesArray);
         if (attempt != null) {
             return attempt;
         }
@@ -312,18 +320,22 @@ public class EditBlock {
         }
 
         // 3a) If that failed, attempt dropping a spurious leading blank line from the "search" block:
-        if (targetCl.lines.length > 2 && targetCl.lines[0].trim().isEmpty()) {
-            String[] splicedTarget = Arrays.copyOfRange(targetCl.lines, 1, targetCl.lines.length);
-            String[] splicedReplace = Arrays.copyOfRange(replaceCL.lines, 1, replaceCL.lines.length);
+        if (targetCl.lines().size() > 2 && targetCl.lines().getFirst().trim().isEmpty()) {
+            List<String> splicedTargetList = targetCl.lines().subList(1, targetCl.lines().size());
+            List<String> splicedReplaceList = replaceCL.lines().subList(1, replaceCL.lines().size());
 
-            attempt = perfectOrWhitespace(originalCL.lines, splicedTarget, splicedReplace);
+            String[] splicedTargetArray = splicedTargetList.toArray(String[]::new);
+            String[] splicedReplaceArray = splicedReplaceList.toArray(String[]::new);
+
+            // Pass originalLinesArray which is String[]
+            attempt = perfectOrWhitespace(originalLinesArray, splicedTargetArray, splicedReplaceArray);
             if (attempt != null) {
                 return attempt;
             }
 
             attempt = tryDotdotdots(content,
-                                    String.join("", splicedTarget),
-                                    String.join("", splicedReplace));
+                                    String.join("", splicedTargetArray),
+                                    String.join("", splicedReplaceArray));
             if (attempt != null) {
                 return attempt;
             }
@@ -358,17 +370,17 @@ public class EditBlock {
         // splits on lines of "..."
         Pattern dotsRe = Pattern.compile("(?m)^\\s*\\.\\.\\.\\s*$");
 
-        String[] targetPieces = dotsRe.split(target);
-        String[] replacePieces = dotsRe.split(replace);
+        List<String> targetPieces = Splitter.on(dotsRe).splitToList(target);
+        List<String> replacePieces = Splitter.on(dotsRe).splitToList(replace);
 
-        if (targetPieces.length != replacePieces.length) {
+        if (targetPieces.size() != replacePieces.size()) {
             throw new IllegalArgumentException("Unpaired ... usage in search/replace");
         }
 
         String result = whole;
-        for (int i = 0; i < targetPieces.length; i++) {
-            String pp = targetPieces[i];
-            String rp = replacePieces[i];
+        for (int i = 0; i < targetPieces.size(); i++) {
+            String pp = targetPieces.get(i);
+            String rp = replacePieces.get(i);
 
             if (pp.isEmpty() && rp.isEmpty()) {
                 // no content
@@ -572,16 +584,12 @@ public class EditBlock {
         if (!content.isEmpty() && !content.endsWith("\n")) {
             content += "\n";
         }
-        String[] lines = content.split("\n", -1);
-        lines = Arrays.copyOf(lines, lines.length - 1); // chop off empty element at the end
-        // re-add newlines
-        for (int i = 0; i < lines.length; i++) {
-            lines[i] = lines[i] + "\n";
-        }
-        return new ContentLines(content, lines);
+        // Convert to list of lines, each ending with a newline
+        List<String> linesList = content.lines().map(line -> line + "\n").collect(Collectors.toList());
+        return new ContentLines(content, linesList);
     }
 
-    private record ContentLines(String original, String[] lines) {
+    private record ContentLines(String original, List<String> lines) { // Ensures this matches the list type
     }
 
     /**
@@ -594,7 +602,7 @@ public class EditBlock {
      * @throws SymbolNotFoundException  if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      */
-    static ProjectFile resolveProjectFile(IContextManager cm, String filename)
+    static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
     throws SymbolNotFoundException, SymbolAmbiguousException
     {
         var file = cm.toFile(filename);

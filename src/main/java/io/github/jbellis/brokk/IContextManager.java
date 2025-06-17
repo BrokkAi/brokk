@@ -52,11 +52,19 @@ public interface IContextManager {
         return "";
     }
 
-    default Context topContext() {
+    /**
+     * Returns the live, unfrozen context that we can edit.
+     * @return the live, unfrozen context that we can edit
+     */
+    default Context liveContext() {
         throw new UnsupportedOperationException();
     }
 
-    default Context liveContext() {
+    /**
+     * Returns the frozen counterpart of liveContext.
+     * @return the frozen counterpart of liveContext
+     */
+    default Context topContext() {
         throw new UnsupportedOperationException();
     }
 
@@ -158,6 +166,6 @@ public interface IContextManager {
      * Create a new LLM instance for the given model and description
      */
     default Llm getLlm(StreamingChatLanguageModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == Project.DataRetentionPolicy.IMPROVE_BROKK);
+        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 }

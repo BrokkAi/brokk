@@ -1,7 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Project;
-import io.github.jbellis.brokk.Project.DataRetentionPolicy;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -15,6 +16,8 @@ import java.awt.event.WindowEvent;
 
 public class SettingsDialog extends JDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
+
+    public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
 
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
@@ -107,13 +110,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         if (projectTabIndex != -1) {
             tabbedPane.setEnabledAt(projectTabIndex, projectIsOpen);
         }
-        // Also, the "Models" sub-tab in Global settings needs to be updated
+        // Also, the "Default Models" sub-tab in Global settings needs to be updated
         globalSettingsPanel.updateModelsPanelEnablement();
     }
 
 
     private boolean applySettings() {
-        Project.LlmProxySetting oldProxySetting = Project.getProxySetting();
+        MainProject.LlmProxySetting oldProxySetting = MainProject.getProxySetting();
 
         if (!globalSettingsPanel.applySettings()) {
             return false; // Global settings failed validation
@@ -125,8 +128,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         }
         
-        Project.LlmProxySetting newProxySetting = Project.getProxySetting();
-        if (oldProxySetting != newProxySetting && newProxySetting != Project.LlmProxySetting.STAGING) { // STAGING is non-interactive
+        MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
+        if (oldProxySetting != newProxySetting && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
             proxySettingsChanged = true;
         }
 
@@ -170,13 +173,13 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         setSize(previousSize);
     }
 
-    public static void showSettingsDialog(Chrome chrome, String targetTabName) {
+    public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
         if (targetTabName != null) {
             boolean tabSelected = false;
             // Top-level tabs: "Global", "Project"
-            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Quick Models", "GitHub"
+            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models", "GitHub"
             // Project sub-tabs: "General", "Build", "Data Retention"
 
             // Try to select top-level tab first
@@ -230,14 +233,15 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             }
         }
         dialog.setVisible(true);
+        return dialog;
     }
 
-    public static boolean showStandaloneDataRetentionDialog(Project project, Frame owner) {
+    public static boolean showStandaloneDataRetentionDialog(IProject project, Frame owner) {
         assert project.isDataShareAllowed() : "Standalone data retention dialog should not be shown if data sharing is disabled by organization";
 
         var dialog = new JDialog(owner, "Data Retention Policy Required", true);
         dialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
-        dialog.setSize(600, 300); // Adjusted size
+        dialog.setSize(600, 350); // Adjusted size
         dialog.setLocationRelativeTo(owner);
 
         // Create a temporary SettingsProjectPanel just for its DataRetentionPanel inner class logic
@@ -296,5 +300,9 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         dialog.setVisible(true);
 
         return dialogResult[0];
+    }
+
+    public SettingsProjectPanel getProjectPanel() {
+        return projectSettingsPanel;
     }
 }

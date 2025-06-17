@@ -1,13 +1,13 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.Project.CpgRefresh;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.KeyboardFocusManager; // Keep specific AWT imports if used elsewhere for UI
+import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashSet;
@@ -21,14 +21,18 @@ import java.util.stream.Collectors;
 public class AnalyzerWrapper implements AutoCloseable {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
+    public static final String ANALYZER_BUSY_MESSAGE = "Code Intelligence is still being built. Please wait until completion.";
+    public static final String ANALYZER_BUSY_TITLE = "Analyzer Busy";
+
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
-    private final AnalyzerListener listener; // can be null if no one is listening
+    @Nullable private final AnalyzerListener listener; // can be null if no one is listening
     private final Path root;
+    @Nullable private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
-    private final Project project;
+    private final IProject project;
 
     private volatile boolean running = true;
     private volatile boolean paused = false;
@@ -39,9 +43,10 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
 
-    public AnalyzerWrapper(Project project, ContextManager.TaskRunner runner, AnalyzerListener listener) {
+    public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
+        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.runner = runner;
         this.listener = listener;
 
@@ -66,15 +71,28 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         logger.debug("Signaling repo + tracked files change to catch any events that we missed during initial analyzer build");
-        listener.onRepoChange();
-        listener.onTrackedFileChange();
+        if (listener != null) {
+            listener.onRepoChange();
+            listener.onTrackedFileChange();
+        }
 
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-            // Recursively register all directories except .brokk
+            // Recursively register all directories under project root except .brokk
             registerAllDirectories(root, watchService);
 
-            // Watche for events, debounces them, and handles them
+            // If the actual .git directory's parent (gitRepoRoot) is different from the project root
+            // (common in worktrees), explicitly watch the .git directory within gitRepoRoot.
+            // The registerAllDirectories method's .brokk exclusion (relative to this.root)
+            // will not interfere with watching contents of .git.
+            if (this.gitRepoRoot != null && !this.gitRepoRoot.equals(this.root)) {
+                Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+                assert Files.isDirectory(actualGitMetaDir);
+                logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
+                registerAllDirectories(actualGitMetaDir, watchService);
+            }
+
+            // Watch for events, debounce them, and handle them
             while (running) {
                 // Wait if paused
                 while (paused) {
@@ -110,11 +128,9 @@ public class AnalyzerWrapper implements AutoCloseable {
                 // Process the batch
                 handleBatch(batch);
             }
-        }
-        catch (IOException e) {
+        } catch (IOException e) {
             logger.error("Error setting up watch service", e);
-        }
-        catch (InterruptedException e) {
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             logger.warn("FileWatchService thread interrupted; shutting down");
         }
@@ -127,15 +143,19 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.trace("Events batch: {}", batch);
 
         // 1) Possibly refresh Git
-        boolean needsGitRefresh = batch.stream().anyMatch(event -> {
-            Path gitDir = root.resolve(".git");
-            return event.path.startsWith(gitDir)
+        boolean needsGitRefresh = false;
+        if (this.gitRepoRoot != null) {
+            Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+            needsGitRefresh = batch.stream().anyMatch(event ->
+                event.path.startsWith(actualGitMetaDir)
                     && (event.type == EventType.CREATE
                     || event.type == EventType.DELETE
-                    || event.type == EventType.MODIFY);
-        });
+                    || event.type == EventType.MODIFY)
+            );
+        }
+
         if (needsGitRefresh) {
-            logger.debug("Changes in .git directory detected");
+            logger.debug("Changes in git metadata directory ({}) detected", this.gitRepoRoot.resolve(".git"));
             if (listener != null) {
                 listener.onRepoChange();
                 listener.onTrackedFileChange(); // not 100% sure this is necessary
@@ -167,7 +187,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
 
             if (relevantFileChanged) {
-                if (project.getAnalyzerRefresh() == CpgRefresh.AUTO) {
+                if (project.getAnalyzerRefresh() == IProject.CpgRefresh.AUTO) {
                     logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
                                  batch.stream()
                                          .filter(e -> trackedPaths.contains(e.path))
@@ -224,6 +244,8 @@ public class AnalyzerWrapper implements AutoCloseable {
         int totalDeclarations = 0;
         boolean allEmpty = true;
 
+        boolean needsRebuild = false;
+        
         if (projectLangs.size() == 1) {
             Language lang = projectLangs.iterator().next();
             assert lang != Language.NONE;
@@ -231,13 +253,22 @@ public class AnalyzerWrapper implements AutoCloseable {
             Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
             long startTime = System.currentTimeMillis();
 
-            if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+            if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
                 logger.debug("First startup for language {}: timing Analyzer creation", lang.name());
                 resultAnalyzer = lang.createAnalyzer(project);
             } else {
-                resultAnalyzer = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                if (resultAnalyzer == null) {
-                    logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
+                    // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
+                    resultAnalyzer = cachedResult.analyzer;
+                    if (isInitialLoad) {
+                        needsRebuild = cachedResult.needsRebuild;
+                    }
+                    logger.debug("Using {} cached analyzer for {}", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
+                } else {
+                    // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
+                    String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
+                    logger.debug("Creating fresh {} analyzer for {} ({})", lang.name(), project.getRoot(), reason);
                     resultAnalyzer = lang.createAnalyzer(project);
                 }
             }
@@ -257,12 +288,21 @@ public class AnalyzerWrapper implements AutoCloseable {
                 IAnalyzer delegate;
                 long langStartTime = System.currentTimeMillis();
 
-                if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+                if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
                      delegate = lang.createAnalyzer(project);
                 } else {
-                    delegate = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                    if (delegate == null) {
-                        logger.debug("Creating {} analyzer for {}", lang.name(), project.getRoot());
+                    var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                    if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
+                        // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
+                        delegate = cachedResult.analyzer;
+                        if (isInitialLoad) {
+                            needsRebuild = needsRebuild || cachedResult.needsRebuild;
+                        }
+                        logger.debug("Using {} cached {} analyzer", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
+                    } else {
+                        // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
+                        String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
+                        logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
                         delegate = lang.createAnalyzer(project);
                     }
                 }
@@ -284,10 +324,16 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // Notify listener after each build, once currentAnalyzer is set
         if (listener != null) {
-            listener.afterEachBuild();
+            listener.afterEachBuild(externalRebuildRequested);
         }
 
-        if (isInitialLoad && project.getAnalyzerRefresh() == CpgRefresh.UNSET) {
+        // Schedule background rebuild if using stale cached analyzer
+        if (needsRebuild) {
+            logger.debug("Scheduling background rebuild for stale analyzer");
+            rebuild();
+        }
+
+        if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
             handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, allEmpty, projectLangs);
             startWatcher();
         } else if (isInitialLoad) { // Not UNSET, but still initial load
@@ -307,11 +353,11 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.warn("AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
             // Set a default refresh policy if listener is unexpectedly null
             if (isEmpty || durationMs > 3 * 6000) {
-                project.setAnalyzerRefresh(CpgRefresh.MANUAL);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             } else if (durationMs > 5000) {
-                project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             } else {
-                project.setAnalyzerRefresh(CpgRefresh.AUTO);
+                project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             }
             return;
         }
@@ -320,7 +366,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.info("Empty {} analyzer", langNames);
             listener.afterFirstBuild("");
         } else if (durationMs > 3 * 6000) {
-            project.setAnalyzerRefresh(CpgRefresh.MANUAL);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
@@ -329,7 +375,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
-            project.setAnalyzerRefresh(CpgRefresh.ON_RESTART);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
@@ -338,7 +384,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
-            project.setAnalyzerRefresh(CpgRefresh.AUTO);
+            project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             var msg = """
             Code Intelligence for %s found %d declarations in %,d ms.
             If this is fewer than expected, it's probably because Brokk only looks for %s files.
@@ -356,20 +402,20 @@ public class AnalyzerWrapper implements AutoCloseable {
         return currentAnalyzer.isCpg();
     }
 
-    /** Load a cached analyzer for a single language if it is up to date; otherwise, or on any loading error, return null. */
-    private IAnalyzer loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
+    /** Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding. */
+    private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
         if (analyzerPath == null || !Files.exists(analyzerPath)) {
-            return null;
+            return new CachedAnalyzerResult(null, false);
         }
 
         // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == CpgRefresh.MANUAL) {
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
             logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
-                return lang.loadAnalyzer(project);
+                return new CachedAnalyzerResult(lang.loadAnalyzer(project), false);
             } catch (Throwable th) {
                 logger.info("Error loading {} analyzer from {}: {}", lang.name(), analyzerPath, th.getMessage());
-                return null;
+                return new CachedAnalyzerResult(null, false);
             }
         }
 
@@ -382,7 +428,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         if (trackedFiles.isEmpty() && lang.isCpg()) { // No files for this CPG language, cache might be irrelevant or stale
              logger.debug("No tracked files for language {}, considering cache {} stale.", lang.name(), analyzerPath);
-             return null;
+             return new CachedAnalyzerResult(null, false);
         }
 
         long cpgMTime;
@@ -390,9 +436,10 @@ public class AnalyzerWrapper implements AutoCloseable {
             cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
-            return null; // Cannot determine if cache is fresh
+            return new CachedAnalyzerResult(null, false); // Cannot determine if cache is fresh
         }
 
+        boolean isStale = false;
         for (ProjectFile rf : trackedFiles) {
             try {
                 if (!Files.exists(rf.absPath())) continue; // File might have been deleted
@@ -400,22 +447,29 @@ public class AnalyzerWrapper implements AutoCloseable {
                 if (fileMTime > cpgMTime) {
                     logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
                                  rf.absPath(), lang.name(), analyzerPath, fileMTime, cpgMTime);
-                    return null; // Cache is stale
+                    isStale = true;
+                    break; // Cache is stale, but we'll still try to load it
                 }
             } catch (IOException e) {
                 logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
                 // If we can't check a file, assume cache might be stale to be safe
-                return null;
+                isStale = true;
+                break;
             }
         }
 
-        // Saved analyzer is up to date for this language
+        // Try to load the analyzer regardless of staleness
         try {
-            logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
-            return lang.loadAnalyzer(project);
+            IAnalyzer analyzer = lang.loadAnalyzer(project);
+            if (isStale) {
+                logger.debug("Using stale cached analyzer for {} from {} - will rebuild in background", lang.name(), analyzerPath);
+            } else {
+                logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
+            }
+            return new CachedAnalyzerResult(analyzer, isStale);
         } catch (Throwable th) {
             logger.warn("Error loading cached {} analyzer from {}; falling back to full rebuild for this language: {}", lang.name(), analyzerPath, th.getMessage());
-            return null;
+            return new CachedAnalyzerResult(null, false);
         }
     }
 
@@ -486,7 +540,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     /**
      * @return null if analyzer is not ready yet
      */
-    public IAnalyzer getNonBlocking() {
+    @Nullable public IAnalyzer getNonBlocking() {
         if (currentAnalyzer != null) {
             return currentAnalyzer;
         }
@@ -505,6 +559,13 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
     }
 
+    /**
+     * @return true if the analyzer is ready for use, false if still building
+     */
+    public boolean isReady() {
+        return getNonBlocking() != null;
+    }
+
     public void requestRebuild() {
         externalRebuildRequested = true;
     }
@@ -519,7 +580,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     private void startWatcher() {
-        Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher");
+        Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
     
@@ -530,13 +591,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             WatchEvent<Path> pathEvent = (WatchEvent<Path>) event;
             Path relativePath = pathEvent.context();
             Path parentDir = (Path) key.watchable();
-            Path absolutePath;
-            try {
-                absolutePath = parentDir.resolve(relativePath);
-            } catch (NullPointerException e) {
-                logger.warn(e);
-                continue;
-            }
+            Path absolutePath = parentDir.resolve(relativePath);
 
             if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
                 logger.debug("Overflow event: {}", absolutePath);
@@ -576,20 +631,19 @@ public class AnalyzerWrapper implements AutoCloseable {
             logger.debug("Watch key no longer valid: {}", key.watchable());
         }
     }
-    
+
+    /**
+     * @param start can be either the root project directory, or a newly created directory we want to add to the watch
+     */
     private void registerAllDirectories(Path start, WatchService watchService) throws IOException
     {
         if (!Files.isDirectory(start)) return;
 
-        // Skip .brokk itself
-        if (start.getFileName() != null && start.getFileName().toString().equals(".brokk")) {
-            return;
-        }
-
+        var brokkPrivate = root.resolve(".brokk");
         for (int attempt = 1; attempt <= 3; attempt++) {
             try (var walker = Files.walk(start)) {
                 walker.filter(Files::isDirectory)
-                        .filter(dir -> !dir.toString().contains(".brokk"))
+                        .filter(dir -> !dir.startsWith(brokkPrivate))
                         .forEach(dir -> {
                             try {
                                 dir.register(watchService,
@@ -647,5 +701,8 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
     
     private record FileChangeEvent(EventType type, Path path) {
+    }
+    
+    private record CachedAnalyzerResult(IAnalyzer analyzer, boolean needsRebuild) {
     }
 }

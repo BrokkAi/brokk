@@ -57,7 +57,6 @@ public final class IncrementalBlockRenderer {
     // Content tracking
     private String lastHtmlFingerprint = "";
     private String currentMarkdown = "";  // The current markdown content (always markdown, never HTML)
-    private String compactedHtml = "";    // HTML content after compaction (empty if not compacted)
     private boolean compacted = false;    // Whether content has been compacted for better text selection
 
     // Per-instance HTML customizer; defaults to NO_OP to avoid null checks
@@ -82,18 +81,23 @@ public final class IncrementalBlockRenderer {
      * @param dark true for dark theme, false for light theme
      */
     public IncrementalBlockRenderer(boolean dark) {
-        this(dark, true);
+        this(dark, true, true);
     }
-    
+
+    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks) {
+        this(dark, enableEditBlocks, true);
+    }
+
     /**
-     * Creates a new incremental renderer with the given theme and edit block setting.
-     * 
+     * Creates a new incremental renderer with the given theme, edit block, and HTML escaping settings.
+     *
      * @param dark true for dark theme, false for light theme
      * @param enableEditBlocks true to enable edit block parsing and rendering, false to disable
+     * @param escapeHtml true to escape HTML within markdown, false to allow raw HTML
      */
-    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks) {
+    public IncrementalBlockRenderer(boolean dark, boolean enableEditBlocks, boolean escapeHtml) {
         this.isDarkTheme = dark;
-        
+
         // Create root panel with vertical BoxLayout
         root = new JPanel();
         root.setLayout(new BoxLayout(root, BoxLayout.Y_AXIS));
@@ -110,9 +114,9 @@ public final class IncrementalBlockRenderer {
             .set(BrokkMarkdownExtension.ENABLE_EDIT_BLOCK, enableEditBlocks)
             .set(IdProvider.ID_PROVIDER, idProvider)
             .set(HtmlRenderer.SOFT_BREAK, "<br />\n")
-            .set(HtmlRenderer.ESCAPE_HTML, true)
+            .set(HtmlRenderer.ESCAPE_HTML, escapeHtml)
             .set(TablesExtension.MIN_SEPARATOR_DASHES, 1);
-            
+
         parser = Parser.builder(options).build();
         renderer = HtmlRenderer.builder(options).build();
         
@@ -167,7 +171,7 @@ public final class IncrementalBlockRenderer {
             
             if (compacted) {
                 // Re-apply compaction after processing
-                components = mergeMarkdownBlocks(components, -1L);
+                components = mergeMarkdownBlocks(components);
                 // Clear and rebuild UI for compacted state
                 root.removeAll();
                 registry.clear();
@@ -376,7 +380,7 @@ public final class IncrementalBlockRenderer {
 
         var html = createHtml(currentMarkdown);
         var originalComponents = buildComponentData(html);
-        var merged = mergeMarkdownBlocks(originalComponents, roundId);
+        var merged = mergeMarkdownBlocks(originalComponents);
         return merged;
     }
 
@@ -409,16 +413,12 @@ public final class IncrementalBlockRenderer {
         
         // Case 3: Actual compaction and UI update.
         int currentComponentCountBeforeUpdate = root.getComponentCount();
-        logger.debug("[COMPACTION][{}] Apply snapshot: Compacting. UI components before update: {}, New data component count: {}",
+        logger.trace("[COMPACTION][{}] Apply snapshot: Compacting. UI components before update: {}, New data component count: {}",
                      roundId, currentComponentCountBeforeUpdate, mergedComponents.size());
         updateUI(mergedComponents); 
         compacted = true;
 
         // Store the compacted HTML for future reference
-        this.compactedHtml = mergedComponents.stream()
-                                         .filter(cd -> cd instanceof MarkdownComponentData)
-                                         .map(cd -> ((MarkdownComponentData) cd).html())
-                                         .collect(Collectors.joining("\n"));
         this.lastHtmlFingerprint = mergedComponents.stream().map(ComponentData::fp).collect(Collectors.joining("-"));
     }
 
@@ -428,7 +428,7 @@ public final class IncrementalBlockRenderer {
      * @param src The source list of ComponentData objects
      * @return A new list with consecutive MarkdownComponentData blocks merged
      */
-    private List<ComponentData> mergeMarkdownBlocks(List<ComponentData> src, long roundId) {
+    private List<ComponentData> mergeMarkdownBlocks(List<ComponentData> src) {
         var out = new ArrayList<ComponentData>();
         MarkdownComponentData acc = null;
         StringBuilder htmlBuf = null;
@@ -442,16 +442,16 @@ public final class IncrementalBlockRenderer {
                     htmlBuf.append('\n').append(md.html());
                 }
             } else {
-                flush(out, acc, htmlBuf, roundId);
+                flush(out, acc, htmlBuf);
                 out.add(cd);
                 acc = null;
                 htmlBuf = null;
             }
         }
-        flush(out, acc, htmlBuf, roundId);
+        flush(out, acc, htmlBuf);
         if (out.size() > 1 && src.stream().allMatch(c -> c instanceof MarkdownComponentData)) {
-             logger.warn("[COMPACTION][{}] mergeMarkdownBlocks: Multiple MarkdownComponentData blocks in source did not merge into one. Output size: {}. Source types: {}",
-                         roundId, out.size(), src.stream().map(c -> c.getClass().getSimpleName()).collect(Collectors.joining(", ")));
+             logger.warn("[COMPACTION] mergeMarkdownBlocks: Multiple MarkdownComponentData blocks in source did not merge into one. Output size: {}. Source types: {}",
+                         out.size(), src.stream().map(c -> c.getClass().getSimpleName()).collect(Collectors.joining(", ")));
         }
         return out;
     }
@@ -463,7 +463,7 @@ public final class IncrementalBlockRenderer {
      * @param acc The accumulated MarkdownComponentData
      * @param htmlBuf The StringBuilder containing the merged HTML content
      */
-    private void flush(List<ComponentData> out, MarkdownComponentData acc, StringBuilder htmlBuf, long roundId) {
+    private void flush(List<ComponentData> out, MarkdownComponentData acc, StringBuilder htmlBuf) {
         if (acc == null || htmlBuf == null) return;
         var merged = markdownFactory.fromText(acc.id(), htmlBuf.toString());
         out.add(merged);
@@ -490,12 +490,12 @@ public final class IncrementalBlockRenderer {
             var html = extractHtmlFromComponent(jc);
             if (html != null && !html.isEmpty()) {
                 var matcher = MARKER_ID_PATTERN.matcher(html);
-                boolean foundAny = false;
+                // boolean foundAny = false; // foundAny was unused
                 while (matcher.find()) {
                     try {
                         int id = Integer.parseInt(matcher.group(1));
                         markerIndex.put(id, jc);
-                        foundAny = true;
+                        // foundAny = true; // foundAny was unused
                         // Found marker in component
                     } catch (NumberFormatException ignore) {
                         // should never happen – regex enforces digits
@@ -530,7 +530,6 @@ public final class IncrementalBlockRenderer {
      * Returns the Swing component that displays the given marker id, if any.
      */
     public java.util.Optional<JComponent> findByMarkerId(int id) {
-        assert SwingUtilities.isEventDispatchThread() : "findByMarkerId must be called on EDT";
         return Optional.ofNullable(markerIndex.get(id));
     }
 
@@ -538,7 +537,6 @@ public final class IncrementalBlockRenderer {
      * Returns all marker ids currently known to this renderer.
      */
     public Set<Integer> getIndexedMarkerIds() {
-        assert SwingUtilities.isEventDispatchThread() : "getIndexedMarkerIds must be called on EDT";
         return Set.copyOf(markerIndex.keySet());
     }
     

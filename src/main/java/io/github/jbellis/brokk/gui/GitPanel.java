@@ -2,10 +2,13 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.util.Date;
 import java.util.HashMap;
@@ -35,6 +38,9 @@ public class GitPanel extends JPanel
 
     // The "Issues" tab - conditionally added
     private GitIssuesTab issuesTab;
+
+    // Worktrees tab
+    private GitWorktreeTab gitWorktreeTab;
 
     // Tracks open file-history tabs by file path
     private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
@@ -91,18 +97,52 @@ public class GitPanel extends JPanel
         // Get project for GitHub specific tabs
         var project = contextManager.getProject();
 
-        // 3) Pull Requests tab (conditionally added)
+        // 3) Worktrees tab (always added for Git repositories)
+        if (project != null && project.hasGit()) {
+            gitWorktreeTab = new GitWorktreeTab(chrome, contextManager, this);
+            tabbedPane.addTab("Worktrees", gitWorktreeTab);
+        }
+
+        // 4) Pull Requests tab (conditionally added)
         if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab")) {
             pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
             tabbedPane.addTab("Pull Requests", pullRequestsTab);
         }
 
-        // 4) Issues tab (conditionally added)
+        // 5) Issues tab (conditionally added)
         // Ensure this property ("brokk.issuetab") is set if you want this tab to appear.
         if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.issuetab")) {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
+
+        updateBorderTitle(); // Set initial title with branch name
+    }
+
+    private String getCurrentBranchName() {
+        try {
+            var project = contextManager.getProject();
+            IGitRepo repo = project.getRepo();
+            return ((GitRepo) repo).getCurrentBranch();
+        } catch (Exception e) {
+            logger.warn("Could not get current branch name", e);
+        }
+        return "";
+    }
+
+    private void updateBorderTitle() {
+        var branchName = getCurrentBranchName();
+        SwingUtilities.invokeLater(() -> {
+            var border = getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String newTitle = branchName != null && !branchName.isBlank()
+                                  ? "Git (" + branchName + ") ▼"
+                                  : "Git ▼";
+                titledBorder.setTitle(newTitle);
+                revalidate();
+                repaint();
+            }
+        });
     }
 
     /**
@@ -116,6 +156,12 @@ public class GitPanel extends JPanel
 
         // Refresh log UI (branches, commits, stashes)
         gitLogTab.update();
+
+        // Refresh worktrees if the tab exists
+        if (gitWorktreeTab != null) {
+            gitWorktreeTab.refresh();
+        }
+        updateBorderTitle(); // Refresh title on repo update
     }
 
     /**
@@ -273,12 +319,12 @@ public class GitPanel extends JPanel
             } else if (commitDate.getYear() == today.getYear()) {
                 return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd HH:mm"));
             } else {
-                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("YYYY MMM dd"));
+                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy MMM dd"));
             }
         } catch (Exception e) {
             // Log or handle potential timezone/conversion errors if necessary
             logger.warn("Error formatting commit date: {}", date, e);
-            return date.toString(); // Fallback
+            return date.toInstant().toString(); // Fallback
         }
     }
 }

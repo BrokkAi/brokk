@@ -40,15 +40,15 @@ public record MarkdownComponentData(int id, String html) implements ComponentDat
         if (component instanceof JEditorPane editor) {
             // Record current scroll position
             var viewport = SwingUtilities.getAncestorOfClass(JViewport.class, editor);
-            Point viewPosition = viewport instanceof JViewport ? ((JViewport)viewport).getViewPosition() : null;
+            Point viewPosition = viewport instanceof JViewport jViewport ? jViewport.getViewPosition() : null;
             
             // Update content - sanitize HTML entities for Swing's HTML renderer
             var sanitized = IncrementalBlockRenderer.sanitizeForSwing(html);
             editor.setText("<html><body>" + sanitized + "</body></html>");
             
             // Restore scroll position if possible
-            if (viewport instanceof JViewport && viewPosition != null) {
-                ((JViewport)viewport).setViewPosition(viewPosition);
+            if (viewport instanceof JViewport jViewport && viewPosition != null) {
+                jViewport.setViewPosition(viewPosition);
             }
         }
     }

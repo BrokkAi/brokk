@@ -4,8 +4,13 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.*;
 import org.jsoup.select.NodeTraversor;
 import org.jsoup.select.NodeVisitor;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,7 +30,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
      * Tags inside which we deliberately skip highlighting.
      */
     private static final Set<String> SKIP_TAGS =
-            Set.of("code", "pre", "a", "script", "style", "img");
+            Set.of("script", "style", "img");
 
     /**
      * Attribute used to mark wrapper elements created by this customizer.
@@ -83,7 +88,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
      *
      * @param text input to test (may be {@code null})
      */
-    public boolean mightMatch(String text) {
+    public boolean mightMatch(@Nullable String text) {
         if (text == null || text.isEmpty()) {
             return false;
         }
@@ -92,10 +97,6 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
 
     @Override
     public void customize(Element root) {
-        if (root == null) {
-            return;
-        }
-
         // ------------------------------------------------------------------
         // 1.  Remove any highlight wrappers left from a previous search.
         //     We unwrap each element that bears BROKK_MARKER_ATTR by hoisting
@@ -130,7 +131,7 @@ public final class TextNodeMarkerCustomizer implements HtmlCustomizer {
             if (tn.isBlank()) return;
             if (hasAncestorMarker(tn)) return;
             if (tn.parent() instanceof Element el &&
-                    SKIP_TAGS.contains(el.tagName().toLowerCase())) {
+                    SKIP_TAGS.contains(el.tagName().toLowerCase(Locale.ROOT))) {
                 return; // skip inside forbidden tags
             }
 

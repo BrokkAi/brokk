@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.git;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
-import java.util.Date;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -16,27 +16,27 @@ public final class CommitInfo implements ICommitInfo {
     private final String id;
     private final String message;
     private final String author;
-    private final Date date;
+    private final Instant date;
     private final Optional<Integer> stashIndex; // Optional stash index
 
     /**
      * Constructor for regular commits.
      */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Date date) {
+    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date) {
         this(repo, id, message, author, date, Optional.empty());
     }
 
     /**
      * Constructor for stash commits.
      */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Date date, int stashIndex) {
+    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date, int stashIndex) {
         this(repo, id, message, author, date, Optional.of(stashIndex));
     }
 
     /**
      * General purpose constructor.
      */
-    private CommitInfo(GitRepo repo, String id, String message, String author, Date date, Optional<Integer> stashIndex) {
+    private CommitInfo(GitRepo repo, String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
         this.repo = Objects.requireNonNull(repo);
         this.id = Objects.requireNonNull(id);
         this.message = Objects.requireNonNull(message);
@@ -74,7 +74,7 @@ public final class CommitInfo implements ICommitInfo {
     }
 
     @Override
-    public Date date() {
+    public Instant date() {
         return date;
     }
 
@@ -86,18 +86,17 @@ public final class CommitInfo implements ICommitInfo {
     @Override
     public boolean equals(Object obj) {
         if (obj == this) return true;
-        if (obj == null || obj.getClass() != this.getClass()) return false;
-        var that = (CommitInfo) obj;
+        if (!(obj instanceof CommitInfo that)) return false; // Pattern matching
         return Objects.equals(this.id, that.id) &&
                 Objects.equals(this.message, that.message) &&
                 Objects.equals(this.author, that.author) &&
-                Objects.equals(this.date, that.date) &&
-                Objects.equals(this.stashIndex, that.stashIndex); // Include stashIndex in equality
+                Objects.equals(this.date, that.date) && // Instant has well-defined equals
+                Objects.equals(this.stashIndex, that.stashIndex);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, message, author, date, stashIndex); // Include stashIndex in hash
+        return Objects.hash(id, message, author, date, stashIndex);
     }
 
     @Override

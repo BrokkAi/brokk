@@ -2,6 +2,7 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -12,24 +13,27 @@ import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import static java.lang.Math.min;
-
+import java.util.zip.GZIPOutputStream;
 
 /**
  * Manages dynamically loaded models via LiteLLM.
- *
  * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
  * knows how to reload the Service.
  */
@@ -135,23 +139,20 @@ public final class Service {
      * Enum defining the reasoning effort levels for models.
      */
     public enum ReasoningLevel {
-        DEFAULT, LOW, MEDIUM, HIGH;
+        DEFAULT, LOW, MEDIUM, HIGH, DISABLE;
 
         @Override
         public String toString() {
             // Capitalize first letter for display
-            return name().charAt(0) + name().substring(1).toLowerCase();
+            return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
         }
 
         /**
          * Converts a String to a ReasoningLevel, falling back to the provided default.
          */
         public static ReasoningLevel fromString(String value, ReasoningLevel defaultLevel) {
-            if (value == null || value.isBlank()) {
-                return defaultLevel;
-            }
             try {
-                return ReasoningLevel.valueOf(value.toUpperCase());
+                return ReasoningLevel.valueOf(value.toUpperCase(Locale.ROOT));
             } catch (IllegalArgumentException e) {
                 return defaultLevel; // Fallback to provided default if string is invalid
             }
@@ -177,23 +178,20 @@ public final class Service {
      * @throws IllegalArgumentException if the key is invalid
      */
     public static KeyParts parseKey(String key) {
-        if (key == null || key.isBlank()) {
-            throw new IllegalArgumentException("Key cannot be empty");
-        }
-        var parts = key.split("\\+");
-        if (parts.length != 3 || !"brk".equals(parts[0])) {
+        var parts = Splitter.on(Pattern.compile("\\+")).splitToList(key);
+        if (parts.size() != 3 || !"brk".equals(parts.get(0))) {
             throw new IllegalArgumentException("Key must have format 'brk+<userId>+<token>'");
         }
 
         java.util.UUID userId;
         try {
-            userId = java.util.UUID.fromString(parts[1]);
+            userId = java.util.UUID.fromString(parts.get(1));
         } catch (Exception e) {
             throw new IllegalArgumentException("User ID (part 2) must be a valid UUID", e);
         }
 
         // Tokens no longer have sk- prefix in the raw key, prepend it here
-        return new KeyParts(userId, "sk-" + parts[2]);
+        return new KeyParts(userId, "sk-" + parts.get(2));
     }
 
     private final Logger logger = LogManager.getLogger(Service.class);
@@ -202,7 +200,7 @@ public final class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GROK_3_MINI = "grok-3-mini-beta";
+    public static final String GROK_3_MINI = "grok-3-mini";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -229,12 +227,12 @@ public final class Service {
     public Service(IProject project) {
         // Get and handle data retention policy
         var policy = project.getDataRetentionPolicy();
-        if (policy == Project.DataRetentionPolicy.UNSET) {
+        if (policy == MainProject.DataRetentionPolicy.UNSET) {
             logger.warn("Data Retention Policy is UNSET for project {}. Defaulting to MINIMAL.", project.getRoot().getFileName());
-            policy = Project.DataRetentionPolicy.MINIMAL;
+            policy = MainProject.DataRetentionPolicy.MINIMAL;
         }
 
-        String proxyUrl = Project.getProxyUrl();
+        String proxyUrl = MainProject.getProxyUrl();
         logger.info("Initializing models using policy: {} and proxy: {}", policy, proxyUrl);
 
         var tempModelLocations = new ConcurrentHashMap<String, String>();
@@ -294,7 +292,7 @@ public final class Service {
     }
 
     public float getUserBalance() throws IOException {
-        return getUserBalance(Project.getBrokkKey());
+        return getUserBalance(MainProject.getBrokkKey());
     }
 
     /**
@@ -305,7 +303,6 @@ public final class Service {
      * @throws IllegalArgumentException if the key is invalid.
      */
     public static float getUserBalance(String key) throws IOException {
-        // Validate key format before making the call
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
         String url = "https://app.brokk.ai/api/payments/balance-lookup/" + key;
@@ -344,10 +341,6 @@ public final class Service {
      * @return True if data sharing is allowed or cannot be determined, false otherwise.
      */
     public static boolean getDataShareAllowed(String key) {
-        if (key == null || key.isBlank()) {
-            // No key, no specific organizational policy can be fetched, assume allowed.
-            return true;
-        }
         try {
             parseKey(key); // Validate key format first
         } catch (IllegalArgumentException e) {
@@ -402,20 +395,20 @@ public final class Service {
      * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    private void fetchAvailableModels(Project.DataRetentionPolicy policy,
+    private void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
                                       Map<String, String> locationsTarget,
                                       Map<String, Map<String, Object>> infoTarget) throws IOException
     {
         locationsTarget.clear(); // Clear at the beginning of an attempt
         infoTarget.clear();
 
-        String baseUrl = Project.getProxyUrl(); // Get full URL (including scheme) from project settings
-        boolean isBrokk = Project.getProxySetting() == Project.LlmProxySetting.BROKK;
+        String baseUrl = MainProject.getProxyUrl(); // Get full URL (including scheme) from project settings
+        boolean isBrokk = MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK;
         boolean isFreeTierOnly = false;
 
         var authHeader = "Bearer dummy-key";
         if (isBrokk) {
-            var kp = parseKey(Project.getBrokkKey());
+            var kp = parseKey(MainProject.getBrokkKey());
             authHeader = "Bearer " + kp.token();
         }
         Request request = new Request.Builder()
@@ -516,7 +509,7 @@ public final class Service {
 
                     // Apply data retention policy filter
                     boolean isPrivate = (Boolean) modelInfo.getOrDefault("is_private", false);
-                    if (policy == Project.DataRetentionPolicy.MINIMAL && !isPrivate) {
+                    if (policy == MainProject.DataRetentionPolicy.MINIMAL && !isPrivate) {
                         logger.debug("Skipping non-private model {} due to MINIMAL data retention policy", modelName);
                         continue;
                     }
@@ -591,12 +584,24 @@ public final class Service {
     }
 
     /**
-     * Checks if the model supports reasoning effort by checking if "reasoning_effort"
-     * is listed in its "supported_openai_params" metadata.
-     *
-     * @param modelName The display name of the model (e.g., "gemini-2.5-pro").
-     * @return True if "reasoning_effort" is in "supported_openai_params", false otherwise.
+     * Returns true if the given model exposes the toggle to completely disable reasoning
+     * (independent of the usual LOW/MEDIUM/HIGH levels).
      */
+    public boolean supportsReasoningDisable(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
+            return false;
+        }
+        var info = modelInfoMap.get(location);
+        if (info == null) {
+            logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
+            return false;
+        }
+        var v = info.get("supports_reasoning_disable");
+        return v instanceof Boolean b && b;
+    }
+
     public boolean supportsReasoningEffort(String modelName) {
         var location = modelLocations.get(modelName);
         if (location == null) {
@@ -613,10 +618,12 @@ public final class Service {
             return false;
         }
 
-        //noinspection unchecked
-        var supportedParamsList = (List<String>) info.get("supported_openai_params");
-        return supportedParamsList.stream()
-                .anyMatch("reasoning_effort"::equals);
+        return switch (info.get("supported_openai_params")) {
+            case List<?> list -> list.stream()
+                                     .map(Object::toString)
+                                     .anyMatch("reasoning_effort"::equals);
+            case null, default -> false;
+        };
     }
 
     /**
@@ -624,35 +631,29 @@ public final class Service {
      *
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
+    @Nullable
     public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
         String location = modelLocations.get(modelName);
-        logger.debug("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
+        logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
         if (location == null) {
             logger.error("Location not found for model name: {}", modelName);
             return null;
         }
 
-        // OpenAI says, "Your rate limit is calculated as the maximum of max_tokens
-        // and the estimated number of tokens based on the character count of your request.
-        // https://platform.openai.com/docs/guides/rate-limits
-        // We don't have a good way to predict output size, but almost all of them are lower than 32k,
-        // and CodeAgent can pick up an request that stopped early from the last edit block
-        var maxTokens = min(32768, getMaxOutputTokens(location));
-
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
-        String baseUrl = Project.getProxyUrl();
+        String baseUrl = MainProject.getProxyUrl();
         var builder = OpenAiStreamingChatModel.builder()
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(maxTokens)
+                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
 
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
-                var kp = parseKey(Project.getBrokkKey());
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                var kp = parseKey(MainProject.getBrokkKey());
                 builder = builder
                         .apiKey(kp.token)
                         .customHeaders(Map.of("Authorization", "Bearer " + kp.token))
@@ -670,12 +671,12 @@ public final class Service {
         // Apply reasoning effort if not default and supported
         logger.trace("Applying reasoning effort {} to model {}", reasoningLevel, modelName);
         if (supportsReasoningEffort(modelName) && reasoningLevel != ReasoningLevel.DEFAULT) {
-                params = params.reasoningEffort(reasoningLevel.name().toLowerCase());
+                params = params.reasoningEffort(reasoningLevel.name().toLowerCase(Locale.ROOT));
         }
         builder.defaultRequestParameters(params.build());
 
         if (modelName.contains("sonnet")) {
-            // "Claude 3.7 Sonnet may be less likely to make make parallel tool calls in a response,
+            // "Claude 3.7 Sonnet may be less likely to make parallel tool calls in a response,
             // even when you have not set disable_parallel_tool_use. To work around this, we recommend
             // enabling token-efficient tool use, which helps encourage Claude to use parallel tools."
             builder = builder.customHeaders(Map.of("anthropic-beta", "token-efficient-tools-2025-02-19,output-128k-2025-02-19"));
@@ -684,6 +685,7 @@ public final class Service {
         return builder.build();
     }
 
+    @Nullable
     public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel) {
         return getModel(modelName, reasoningLevel, null);
     }
@@ -708,7 +710,7 @@ public final class Service {
             return false;
         }
         var b = info.get("supports_response_schema");
-        return b instanceof Boolean && (Boolean) b;
+        return b instanceof Boolean boolVal && boolVal;
     }
 
     public boolean isLazy(StreamingChatLanguageModel model) {
@@ -726,7 +728,7 @@ public final class Service {
              return true;
         }
         var b = info.get("supports_function_calling");
-        if (!(b instanceof Boolean) || !(Boolean) b) {
+        if (!(b instanceof Boolean bVal) || !bVal) {
             // if it doesn't support function calling then we need to emulate
             return true;
         }
@@ -758,9 +760,13 @@ public final class Service {
             return false;
         }
 
-        // every reasoning model, except Sonnet, defaults to enabling it
-        return !location.toLowerCase().contains("sonnet")
-                || om.defaultRequestParameters().reasoningEffort() != null;
+        var effort = om.defaultRequestParameters().reasoningEffort();
+        // Everyone except Anthropic turns thinking on by default
+        var locationLower = location.toLowerCase(Locale.ROOT);
+        var isDisable = (locationLower.contains("sonnet") || locationLower.contains("opus"))
+                        ? effort == null || "disable".equalsIgnoreCase(effort)
+                        : "disable".equalsIgnoreCase(effort);
+        return !isDisable;
     }
 
     public boolean isReasoning(ModelConfig config) {
@@ -771,10 +777,16 @@ public final class Service {
         }
         // If not Sonnet, all reasoning models default to enabling it. If Sonnet,
         // only consider it reasoning if the level is not DEFAULT.
-        var lowerName = modelName.toLowerCase();
+        // Disable means explicitly no reasoning
+        if (config.reasoning() == ReasoningLevel.DISABLE) {
+            return false;
+        }
+
+        var lowerName = modelName.toLowerCase(Locale.ROOT);
         if (!lowerName.contains("sonnet")) {
             return true;
         }
+        // For Sonnet, reasoning is ON only when level is not DEFAULT
         return config.reasoning() != ReasoningLevel.DEFAULT;
     }
 
@@ -793,7 +805,7 @@ public final class Service {
         }
 
         var supports = info.get("supports_vision");
-        return supports instanceof Boolean && (Boolean) supports;
+        return supports instanceof Boolean boolVal && boolVal;
     }
 
     public StreamingChatLanguageModel quickestModel() {
@@ -840,9 +852,71 @@ public final class Service {
     }
 
     /**
-     * Stubbed Streaming model for when LLM is unavailable.
-     * Can remain static as it has no dependency on Models instance state.
+     * Sends feedback supplied by the GUI dialog to Brokk’s backend.
+     * Files are attached with the multipart field name "attachment".
      */
+    public void sendFeedback(String category,
+                             String feedbackText,
+                             boolean includeDebugLog,
+                             File screenshotFile) throws IOException
+    {
+        Objects.requireNonNull(category, "category must not be null");
+        Objects.requireNonNull(feedbackText, "feedbackText must not be null");
+
+        // Get user ID from Brokk key
+        var kp = parseKey(MainProject.getBrokkKey());
+        
+        var bodyBuilder = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("category", category)
+                .addFormDataPart("feedback_text", feedbackText)
+                .addFormDataPart("user_id", kp.userId().toString());
+
+        if (includeDebugLog) {
+            var debugLogPath = Path.of(System.getProperty("user.home"), ".brokk", "debug.log");
+            var debugFile = debugLogPath.toFile();
+            if (debugFile.exists()) {
+                try {
+                    // Create a temporary gzipped version of the debug log
+                    var gzippedFile = Files.createTempFile("debug", ".log.gz").toFile();
+                    gzippedFile.deleteOnExit();
+                    
+                    try (var fis = new FileInputStream(debugFile);
+                         var fos = new FileOutputStream(gzippedFile);
+                         var gzos = new GZIPOutputStream(fos)) {
+                        fis.transferTo(gzos);
+                    }
+                    
+                    bodyBuilder.addFormDataPart("attachments",
+                                                "debug.log.gz",
+                                                RequestBody.create(gzippedFile, MediaType.parse("application/gzip")));
+                } catch (IOException e) {
+                    logger.warn("Failed to gzip debug log, skipping: {}", e.getMessage());
+                }
+            } else {
+                logger.debug("Debug log not found at {}", debugLogPath);
+            }
+        }
+
+        if (screenshotFile != null && screenshotFile.exists()) {
+            bodyBuilder.addFormDataPart("attachments",
+                                        screenshotFile.getName(),
+                                        RequestBody.create(screenshotFile, MediaType.parse("image/png")));
+        }
+
+        var requestBuilder = new Request.Builder()
+                .url("https://app.brokk.ai/api/events/feedback")
+                .post(bodyBuilder.build());
+
+        try (Response response = httpClient.newCall(requestBuilder.build()).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Failed to send feedback: " + response.code() + " - "
+                                      + (response.body() != null ? response.body().string() : "(no body)"));
+            }
+            logger.debug("Feedback sent successfully");
+        }
+    }
+
     public static class UnavailableStreamingModel implements StreamingChatLanguageModel {
         public UnavailableStreamingModel() {
         }
@@ -893,7 +967,7 @@ public final class Service {
          * @return MediaType for the HTTP request
          */
         private MediaType getMediaTypeFromFileName(String fileName) {
-            var extension = fileName.toLowerCase();
+            var extension = fileName.toLowerCase(Locale.ROOT);
             int dotIndex = extension.lastIndexOf('.');
             if (dotIndex > 0) {
                 extension = extension.substring(dotIndex + 1);
@@ -933,12 +1007,12 @@ public final class Service {
             RequestBody requestBody = builder.build();
 
             // Determine endpoint and authentication
-            String proxyUrl = Project.getProxyUrl();
+            String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
             var authHeader = "Bearer dummy-key"; // Default for non-Brokk
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
-                var kp = parseKey(Project.getBrokkKey());
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+                var kp = parseKey(MainProject.getBrokkKey());
                 authHeader = "Bearer " + kp.token;
             }
 

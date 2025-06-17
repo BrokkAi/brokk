@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import org.jetbrains.annotations.Nullable;
+
 public abstract class AbstractBufferDocument implements BufferDocumentIF, DocumentListener {
     private String name;
     private String shortName;
@@ -117,7 +119,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
             return -1;
         }
         Line[] la = getLines(); // Ensures lines are initialized
-        if (la == null || la.length == 0) { // Handle empty document
+        if (la.length == 0) { // Handle empty document
             return (lineNumber == 0) ? 0 : -1; // Offset 0 for line 0 in empty doc
         }
         if (lineNumber == 0) {
@@ -131,7 +133,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         return la[lineNumber - 1].getEndOffset(); // Use end offset of previous line
     }
 
-
     @Override
     public int getLineForOffset(int offset) {
         if (offset < 0) {
@@ -139,7 +140,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         }
         // Ensure lines are initialized and document exists
         initLines();
-        if (document == null || lineOffsetArray == null || lineOffsetArray.length == 0) {
+        if (lineOffsetArray.length == 0) {
             return 0; // Line 0 for empty/uninitialized document
         }
 
@@ -158,15 +159,12 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         } else {
             // Not an exact match. insertionPoint = (-searchIndex) - 1.
             // The offset falls within the line *before* the insertion point.
-            int insertionPoint = (-searchIndex) - 1;
+            int insertionPoint = -searchIndex - 1;
             // If insertionPoint is 0, it's before the first line's start (so line 0)
             // Otherwise, it belongs to the line `insertionPoint - 1`
             return Math.max(0, insertionPoint - 1);
         }
     }
-
-    // Renamed from read() to avoid confusion, called internally by subclasses
-    // public void read() { initializeAndRead(); } // Keep public facade if needed?
 
     private void initLines() {
         if (lineArray != null) {
@@ -192,7 +190,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         }
     }
 
-    // Renamed from reset()
     protected void resetLineCache() {
         lineArray = null;
         lineOffsetArray = null;
@@ -216,7 +213,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         initDigest(); // Update digest after successful write
     }
 
-    // Inner class GapContent remains the same
     class MyGapContent extends GapContent {
         public MyGapContent(int length) {
             super(length);
@@ -321,11 +317,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
             if ((end1 - start1) != (end2 - start2)) {
                 return false;
             }
-            // Ensure content is not null before comparing
-            if (this.getContent() == null || otherLine.getContent() == null) {
-                return (this.getContent() == null && otherLine.getContent() == null)
-                        && ((end1 - start1) == 0); // Both null => equal only if empty lines
-            }
             return this.getContent().equals(
                     otherLine.getContent(),
                     start1, end1, start2
@@ -334,10 +325,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
 
         @Override
         public int hashCode() {
-            // Ensure content is not null before hashing
-            if (this.getContent() == null) {
-                return 0; // Hash 0 for uninitialized
-            }
             return this.getContent().hashCode(getStartOffset(), getEndOffset());
         }
 
@@ -353,7 +340,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
                 int end = getEndOffset();
                 int docLen = AbstractBufferDocument.this.document.getLength();
 
-                // Basic sanity checks
                 if (start < 0 || end < 0 || start > docLen) {
                     return "<INVALID RANGE>";
                 }
@@ -402,12 +388,10 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
 
         @Override
         public int compareTo(Line line) {
-            // Basic string comparison
             return toString().compareTo(line.toString());
         }
     }
 
-    // DocumentListener methods
     @Override
     public void changedUpdate(DocumentEvent de) {
         documentChanged(de);
@@ -427,53 +411,31 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         originalLength = (document != null) ? document.getLength() : 0;
         digest = (content != null) ? content.getDigest() : 0;
         changed = false;
-        // Optionally notify listeners about the initial state if needed
-        // fireDocumentChanged(new JMDocumentEvent(this));
     }
 
     private void documentChanged(DocumentEvent de) {
         JMDocumentEvent jmde = new JMDocumentEvent(this, de);
 
-        // Reset line cache as content structure changed
         resetLineCache();
-        // We could try to calculate affected lines here, but deferring to getLines() is safer
-        // initLines(); // Re-init lines immediately for line number calculation
-
-        // Calculate affected lines *after* potentially re-initializing lines
         int offset = de.getOffset();
-        int length = de.getLength();
-        DocumentEvent.EventType type = de.getType();
-
-        // Estimate affected lines - this might be complex to get perfect
-        // For simplicity, we can just signal a change and let consumers re-query
-        // Or, get line numbers before/after based on offset/length
-        int startLine = getLineForOffset(offset); // Line where change starts
-        int linesAffected = 0; // Placeholder - hard to calculate precisely here
-
+        int startLine = getLineForOffset(offset);
         jmde.setStartLine(startLine);
-        jmde.setNumberOfLines(linesAffected); // Indicate change, maybe not exact count
 
-        // Determine if content actually changed based on digest
         boolean newChanged;
-        if (document == null || content == null) {
-            newChanged = true; // Treat as changed if document/content isn't ready
-        } else if (document.getLength() != originalLength) {
+        if (document.getLength() != originalLength) {
             newChanged = true;
         } else {
             int newDigest = content.getDigest();
             newChanged = (newDigest != digest);
         }
 
-        // Only update changed status and fire event if it's a real change
-        // or if it was already marked as changed
         if (newChanged || changed) {
-            changed = true; // Once changed, stays changed until saved/reverted
+            changed = true;
             fireDocumentChanged(jmde);
         }
     }
 
     private void fireDocumentChanged(JMDocumentEvent de) {
-        // Create copy of listeners to avoid ConcurrentModificationException
         List<BufferDocumentChangeListenerIF> listenersCopy = new ArrayList<>(listeners);
         for (BufferDocumentChangeListenerIF listener : listenersCopy) {
             listener.documentChanged(de);
@@ -482,13 +444,13 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
 
     @Override
     public boolean isReadonly() {
-        return true; // Default for abstract class, subclasses override
+        return true;
     }
 
     @Override
     public String getLineText(int lineNumber) {
-        Line[] la = getLines(); // Ensures lines are initialized
-        if (la == null || lineNumber < 0 || lineNumber >= la.length) {
+        Line[] la = getLines();
+        if (lineNumber < 0 || lineNumber >= la.length) {
             System.err.println("getLineText: Invalid line number " + lineNumber + " for document " + getName());
             return "<INVALID LINE>";
         }
@@ -497,7 +459,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
 
     @Override
     public int getNumberOfLines() {
-        return getLines().length; // Ensures lines are initialized
+        return getLines().length;
     }
 
     /**
@@ -506,14 +468,12 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
      */
     @Override
     public List<String> getLineList() {
-        initLines(); // Ensures lines are initialized
-        // Handle potentially null lineArray after failed init
+        initLines();
         if (lineArray == null) {
             return List.of();
         }
         List<String> result = new ArrayList<>(lineArray.length);
         for (Line line : lineArray) {
-            // Line.toString() handles internal errors
             result.add(line.toString());
         }
         return result;

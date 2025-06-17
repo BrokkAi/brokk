@@ -15,11 +15,11 @@ public interface IConsoleIO {
     default void actionComplete() {
     }
 
-    default void toolError(String msg) {
-        toolErrorRaw("Error: " + msg);
-    }
+    void toolError(String msg, String title);
 
-    void toolErrorRaw(String msg);
+    default void toolError(String msg) {
+        toolError(msg, "Error");
+    }
 
     default int showConfirmDialog(String message, String title, int optionType, int messageType) {
         throw new UnsupportedOperationException();
@@ -33,10 +33,6 @@ public interface IConsoleIO {
         // pass
     }
 
-    default void showMessageDialog(String message, String title, int messageType) {
-        throw new UnsupportedOperationException();
-    }
-
     enum MessageSubType {
         Run,
         Ask,
@@ -47,7 +43,11 @@ public interface IConsoleIO {
         CommandOutput
     }
 
-    void llmOutput(String token, ChatMessageType type);
+    void llmOutput(String token, ChatMessageType type, boolean isNewMessage);
+
+    default void llmOutput(String token, ChatMessageType type) {
+        llmOutput(token, type, false);
+    }
 
     default void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         var firstMessage = newOutput.messages().getFirst();
@@ -56,6 +56,10 @@ public interface IConsoleIO {
 
     default void systemOutput(String message) {
         llmOutput("\n" + message, ChatMessageType.USER);
+    }
+
+    default void systemNotify(String message, String title, int messageType) {
+        systemOutput(message); // Default implementation forwards to existing systemOutput
     }
     
     default void showOutputSpinner(String message) {}
@@ -103,7 +107,7 @@ public interface IConsoleIO {
     }
 
     default InstructionsPanel getInstructionsPanel() {
-        return null;
+        throw new UnsupportedOperationException();
     }
 
     default void updateContextHistoryTable() {

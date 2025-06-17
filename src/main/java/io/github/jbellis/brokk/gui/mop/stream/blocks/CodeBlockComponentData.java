@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.mop.stream.blocks;
 
+import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.MessageBubble;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.mop.util.ComponentUtils;
@@ -13,6 +14,7 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 import java.io.IOException;
+import java.util.Locale; // Added import
 import java.util.Optional;
 
 /**
@@ -131,15 +133,15 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
     private JPanel createMessageBubble(RSyntaxTextArea textArea, String fenceInfo, boolean isDarkTheme) {
         // Format the title based on fence info
         String title = fenceInfo.isEmpty() ? "Code" :
-                       fenceInfo.substring(0, 1).toUpperCase() + fenceInfo.substring(1);
+                       fenceInfo.substring(0, 1).toUpperCase(Locale.ROOT) + fenceInfo.substring(1);
 
         // Use code icon
-        String iconText = "\uD83D\uDCDD"; // Unicode for memo/pencil emoji
+        var icon = SwingUtil.uiIcon("FileChooser.listViewIcon");
 
         // Create the panel using BaseChatMessagePanel
         return new MessageBubble(
                 title,
-                iconText,
+                icon,
                 textArea,
                 isDarkTheme,
                 ThemeColors.getColor(isDarkTheme, "codeHighlight"),
@@ -157,7 +159,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
         }
 
         // Map common markdown language identifiers (lowercase) to RSyntaxTextArea style constants
-        return switch(lang.toLowerCase()) {
+        return switch(lang.toLowerCase(Locale.ROOT)) {
             // Existing + common aliases
             case "java" -> SyntaxConstants.SYNTAX_STYLE_JAVA;
             case "python", "py" -> SyntaxConstants.SYNTAX_STYLE_PYTHON;

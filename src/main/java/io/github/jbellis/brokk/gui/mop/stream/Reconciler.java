@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk.gui.mop.stream;
 
 import io.github.jbellis.brokk.gui.mop.stream.blocks.ComponentData;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.util.HashSet;
@@ -15,7 +13,7 @@ import java.util.Set;
  * Reuses existing components when possible to minimize UI flickering and maintain scroll/caret positions.
  */
 public final class Reconciler {
-    private static final Logger logger = LogManager.getLogger(Reconciler.class);
+    // logger field removed as it was unused
 
     /**
      * Tracks a rendered component and its current fingerprint.

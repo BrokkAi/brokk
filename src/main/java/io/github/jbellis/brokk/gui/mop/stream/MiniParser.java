@@ -10,6 +10,7 @@ import org.apache.logging.log4j.Logger;
 import org.jsoup.nodes.Element;
 import org.jsoup.nodes.Node;
 import org.jsoup.nodes.TextNode;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -146,7 +147,7 @@ public class MiniParser {
     }
     
     // Current anchor node for the in-progress markdown segment
-    private Node currentAnchor = null;
+    private @Nullable Node currentAnchor = null;
     
     /**
      * Remembers the first node that contributes to an empty StringBuilder.
@@ -204,7 +205,7 @@ public class MiniParser {
                 baseId = idProvider.getId(e);
             } else {
                 // Fallback if no Element parent found (unlikely)
-                baseId = Math.abs(anchor.hashCode());
+                baseId = anchor.hashCode() & Integer.MAX_VALUE;
             }
         }
         

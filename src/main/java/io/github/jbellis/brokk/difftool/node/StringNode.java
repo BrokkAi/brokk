@@ -1,14 +1,14 @@
 package io.github.jbellis.brokk.difftool.node;
 
-
 import io.github.jbellis.brokk.difftool.doc.StringDocument;
+import org.jetbrains.annotations.Nullable;
 
 public class StringNode implements Comparable<StringNode>, BufferNode {
     private final String name;
     private final String content;
     private final StringDocument document;
 
-    public StringNode(String name, String content) {
+    public StringNode(String name, @Nullable String content) {
         this.name = name;
         this.content = (content != null) ? content : "";
 
@@ -21,10 +21,12 @@ public class StringNode implements Comparable<StringNode>, BufferNode {
         return document;
     }
 
+    @Override
     public String getName() {
         return name;
     }
 
+    @Override
     public long getSize() {
         return content.length();
     }
@@ -36,7 +38,7 @@ public class StringNode implements Comparable<StringNode>, BufferNode {
 
     @Override
     public boolean equals(Object o) {
-        return (o instanceof StringNode) && name.equals(((StringNode) o).getName());
+        return (o instanceof StringNode stringNode) && name.equals(stringNode.getName());
     }
 
     @Override

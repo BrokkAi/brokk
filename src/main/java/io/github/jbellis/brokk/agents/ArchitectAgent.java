@@ -69,6 +69,7 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private final AtomicInteger searchAgentId = new AtomicInteger(1);
+    private boolean offerUndoToolNext = false;
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -88,29 +89,35 @@ public class ArchitectAgent {
      * A tool for finishing the plan with a final answer. Similar to 'answerSearch' in SearchAgent.
      */
     @Tool("Provide a final answer to the multi-step project. Use this when you're done or have everything you need.")
-    public void projectFinished(
+    public String projectFinished(
             @P("A final explanation or summary addressing all tasks. Format it in Markdown if desired.")
             String finalExplanation
     )
     {
-        logger.debug("Architect complete: %s".formatted(finalExplanation));
-        io.llmOutput(finalExplanation, ChatMessageType.AI);
+        var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI, true);
+
+        return finalExplanation;
     }
 
     /**
      * A tool to abort the plan if you cannot proceed or if it is irrelevant.
      */
     @Tool("Abort the entire project. Use this if the tasks are impossible or out of scope.")
-    public void abortProject(
+    public String abortProject(
             @P("Explain why the project must be aborted.")
             String reason
     )
     {
-        var msg = "Architect Agent project aborted: %s".formatted(reason);
-        io.systemOutput(msg);
+        var msg = "# Architect aborted\n\n%s".formatted(reason);
+        logger.debug(msg);
+        io.llmOutput(msg, ChatMessageType.AI, true);
+
+        return reason;
     }
 
-    private class FatalLlmException extends RuntimeException {
+    private static class FatalLlmException extends RuntimeException { // Made static
         public FatalLlmException(String message) {
             super(message);
         }
@@ -142,12 +149,11 @@ public class ArchitectAgent {
         }
 
         // TODO label this Architect
-        io.setLlmOutput(new ContextFragment.TaskFragment(contextManager, List.of(Messages.customSystem(instructions)), "Code (Architect)"));
+        io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
         var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        // always add to history
-        var entry = contextManager.addToHistory(result, true); // Keep changes on success
+        var entry = contextManager.addToHistory(result, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
             String summary = """
@@ -155,21 +161,12 @@ public class ArchitectAgent {
                     <summary>
                     %s
                     </summary>
-                    """.stripIndent().formatted(entry.summary(), stopDetails);
+                    """.stripIndent().formatted(entry.summary(), stopDetails); // stopDetails may be redundant for success
             logger.debug("Summary for successful callCodeAgent: {}", summary);
             return summary;
         }
 
-        // Revert changes for all non-SUCCESS outcomes by restoring original contents
-        result.originalContents().forEach((file, contents) -> {
-            try {
-                file.write(contents);
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-        });
-        logger.debug("Reverted changes from CodeAgent due to stop reason: {}", reason);
-
+        // For non-SUCCESS outcomes:
         // throw errors that should halt the architect
         if (reason == TaskResult.StopReason.INTERRUPTED) {
             throw new InterruptedException();
@@ -179,9 +176,11 @@ public class ArchitectAgent {
             throw new FatalLlmException(stopDetails.explanation());
         }
 
-        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.), return the summary with failure details
+        // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.),
+        // set flag to offer undo and return the summary with failure details.
+        this.offerUndoToolNext = true;
         String summary = """
-                CodeAgent was not successful; changes have been reverted.
+                CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
                 <summary>
                 %s
                 </summary>
@@ -190,8 +189,25 @@ public class ArchitectAgent {
                 %s
                 </stop-details>
                 """.stripIndent().formatted(entry.summary(), stopDetails);
-        logger.debug("Summary for failed callCodeAgent (changes reverted): {}", summary);
+        logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
         return summary;
+    }
+
+    @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
+    public String undoLastChanges() throws InterruptedException {
+        logger.debug("undoLastChanges invoked");
+        io.systemOutput("Undoing last CodeAgent changes...");
+        if (contextManager.undoContext()) {
+            String resultMsg = "Successfully reverted the last CodeAgent changes.";
+            logger.debug(resultMsg);
+            io.systemOutput(resultMsg);
+            return resultMsg;
+        } else {
+            String resultMsg = "Nothing to undo (concurrency bug?)";
+            logger.debug(resultMsg);
+            io.systemOutput(resultMsg);
+            return resultMsg;
+        }
     }
 
     /**
@@ -208,7 +224,7 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}", query);
 
         // Instantiate and run SearchAgent
-        io.setLlmOutput(new ContextFragment.TaskFragment(contextManager, List.of(Messages.customSystem(query)), "Search (Architect)"));
+        io.llmOutput("Search Agent engaged: " +query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query, contextManager, model, toolRegistry, searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
@@ -251,7 +267,7 @@ public class ArchitectAgent {
         var modelsService = contextManager.getService();
 
         while (true) {
-            io.llmOutput("\n# Planning", ChatMessageType.AI);
+            io.llmOutput("\n# Planning", ChatMessageType.AI, true);
 
             // Determine active models and their minimum input token limit
             var models = new ArrayList<StreamingChatLanguageModel>();
@@ -330,6 +346,13 @@ public class ArchitectAgent {
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
 
+            // Add undo tool if the last CodeAgent call failed and made changes
+            if (this.offerUndoToolNext) {
+                logger.debug("Offering undoLastChanges tool for this turn.");
+                toolSpecs.addAll(toolRegistry.getTools(this, List.of("undoLastChanges")));
+                this.offerUndoToolNext = false; // Reset the flag, offer is for this turn only
+            }
+
             // Ask the LLM for the next step
             Llm.StreamingResult result;
             result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
@@ -357,7 +380,7 @@ public class ArchitectAgent {
 
             var deduplicatedRequests = new LinkedHashSet<>(aiMessage.toolExecutionRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
-            io.llmOutput("\nTool calls: [%s]".formatted(deduplicatedRequests.stream().map(ToolExecutionRequest::name).collect(Collectors.joining(", "))), ChatMessageType.AI);
+            io.llmOutput("\nTool call(s): %s".formatted(deduplicatedRequests.stream().map(req -> "`" + req.name() + "`").collect(Collectors.joining(", "))), ChatMessageType.AI);
 
             // execute tool calls in the following order:
             // 1. projectFinished

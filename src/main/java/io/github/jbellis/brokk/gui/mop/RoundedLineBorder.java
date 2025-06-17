@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.mop;
 import javax.swing.border.AbstractBorder;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A border with rounded corners and a customizable thickness and color.
@@ -13,7 +14,7 @@ public class RoundedLineBorder extends AbstractBorder {
     private final int thickness;
     private final int radius;
     private final boolean fillInside;
-    private final Color fillColor;
+    private final @Nullable Color fillColor;
 
     /**
      * Creates a rounded line border with the specified color and thickness.
@@ -35,7 +36,7 @@ public class RoundedLineBorder extends AbstractBorder {
      * @param fillInside Whether to fill the inside of the border
      * @param fillColor Color to fill the inside (ignored if fillInside is false)
      */
-    public RoundedLineBorder(Color color, int thickness, int radius, boolean fillInside, Color fillColor) {
+    public RoundedLineBorder(Color color, int thickness, int radius, boolean fillInside, @Nullable Color fillColor) {
         this.color = color;
         this.thickness = thickness;
         this.radius = radius;

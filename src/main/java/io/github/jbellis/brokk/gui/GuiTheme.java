@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.MainProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -10,8 +11,10 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -53,7 +56,7 @@ public class GuiTheme {
 
         try {
             // Save preference first so we know the value is stored
-            Project.setTheme(themeName);
+            MainProject.setTheme(themeName);
 
             // Apply the theme to the Look and Feel
             if (isDark) {
@@ -62,23 +65,32 @@ public class GuiTheme {
                 com.formdev.flatlaf.FlatLightLaf.setup();
             }
 
+            // Register custom icons for this theme
+            registerCustomIcons(isDark);
+
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName);
 
-            // Update the UI
-            SwingUtilities.updateComponentTreeUI(frame);
-
-            // Update registered popup menus
-            for (JPopupMenu menu : popupMenus) {
-                SwingUtilities.updateComponentTreeUI(menu);
-            }
-
-            // Make sure scroll panes update properly
-            if (mainScrollPane != null) {
-                mainScrollPane.revalidate();
-            }
+            Brokk.getOpenProjectWindows()
+                    .values()
+                    .forEach(chrome -> chrome.getTheme().applyThemeToChromeComponents());
         } catch (Exception e) {
-            chrome.toolErrorRaw("Failed to switch theme: " + e.getMessage());
+            chrome.toolError("Failed to switch theme: " + e.getMessage());
+        }
+    }
+
+    private void applyThemeToChromeComponents() {
+        // Update the UI
+        SwingUtilities.updateComponentTreeUI(frame);
+
+        // Update registered popup menus
+        for (JPopupMenu menu : popupMenus) {
+            SwingUtilities.updateComponentTreeUI(menu);
+        }
+
+        // Make sure scroll panes update properly
+        if (mainScrollPane != null) {
+            mainScrollPane.revalidate();
         }
     }
 
@@ -173,7 +185,7 @@ public class GuiTheme {
      * @return true if dark theme is active
      */
     public boolean isDarkTheme() {
-        return THEME_DARK.equalsIgnoreCase(Project.getTheme());
+        return THEME_DARK.equalsIgnoreCase(MainProject.getTheme());
     }
 
     /**
@@ -197,5 +209,100 @@ public class GuiTheme {
         loadRSyntaxTheme(isDarkTheme()).ifPresent(theme ->
             SwingUtilities.invokeLater(() -> theme.apply(textArea))
         );
+    }
+
+    /**
+     * Registers custom icons for the application based on the current theme
+     * @param isDark true for dark theme icons, false for light theme icons
+     */
+    private void registerCustomIcons(boolean isDark) {
+        String iconBase = isDark ? "/icons/dark/" : "/icons/light/";
+        
+        try {
+            // Try to discover icons from the resource directory
+            var iconUrl = GuiTheme.class.getResource(iconBase);
+            if (iconUrl != null) {
+                var iconFiles = discoverIconFiles(iconUrl, iconBase);
+                for (String iconFile : iconFiles) {
+                    // Extract filename without extension for the key
+                    String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
+                    String keyName = filename.substring(0, filename.lastIndexOf('.'));
+                    String iconKey = "Brokk." + keyName;
+                    
+                    registerIcon(iconKey, iconFile);
+                }
+                logger.debug("Registered {} custom icons for {} theme", iconFiles.size(), isDark ? "dark" : "light");
+            } else {
+                logger.warn("Icon directory not found: {}", iconBase);
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to discover icons from {}: {}", iconBase, e.getMessage());
+        }
+    }
+
+    /**
+     * Discovers PNG and GIF icon files from a resource directory
+     * @param directoryUrl The URL of the directory resource
+     * @param iconBase The base path for constructing resource paths
+     * @return List of resource paths to icon files
+     */
+    private List<String> discoverIconFiles(URL directoryUrl, String iconBase) {
+        var iconFiles = new ArrayList<String>();
+        
+        try {
+            if ("file".equals(directoryUrl.getProtocol())) {
+                // Running from file system (development)
+                var dirPath = java.nio.file.Paths.get(directoryUrl.toURI());
+                try (var stream = java.nio.file.Files.list(dirPath)) {
+                    stream.filter(path -> {
+                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                        return name.endsWith(".png") || name.endsWith(".gif");
+                    }).forEach(path -> {
+                        String filename = path.getFileName().toString();
+                        iconFiles.add(iconBase + filename);
+                    });
+                }
+            } else if ("jar".equals(directoryUrl.getProtocol())) {
+                // Running from JAR file
+                var jarPath = directoryUrl.getPath();
+                var exclamationIndex = jarPath.indexOf('!');
+                if (exclamationIndex >= 0) {
+                    var jarFile = jarPath.substring(5, exclamationIndex); // Remove "file:"
+                    var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
+                    
+                    try (var jar = new java.util.jar.JarFile(jarFile)) {
+                        var entries = jar.entries();
+                        while (entries.hasMoreElements()) {
+                            var entry = entries.nextElement();
+                            var entryName = entry.getName();
+                            if (entryName.startsWith(entryPath) && !entry.isDirectory()) {
+                                var filename = entryName.substring(entryName.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
+                                if (filename.endsWith(".png") || filename.endsWith(".gif")) {
+                                    iconFiles.add("/" + entryName);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Error scanning icon directory {}: {}", directoryUrl, e.getMessage());
+        }
+        
+        return iconFiles;
+    }
+
+    /**
+     * Registers a single icon in the UIManager
+     * @param key The UIManager key for the icon
+     * @param resourcePath The resource path to the icon file
+     */
+    private static void registerIcon(String key, String resourcePath) {
+        URL url = GuiTheme.class.getResource(resourcePath);
+        if (url != null) {
+            UIManager.put(key, new ImageIcon(url));
+        } else {
+            logger.warn("Icon resource {} not found for key {}", resourcePath, key);
+        }
     }
 }

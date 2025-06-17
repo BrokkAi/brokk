@@ -6,14 +6,11 @@ import java.util.stream.Collectors;
 
 public class BuildToolConventions {
 
-    public static enum BuildSystem {
+    public enum BuildSystem {
         MAVEN, GRADLE, SBT, NPM, CARGO, BAZEL, CMAKE, PYTHON, UNKNOWN
     }
 
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
-        if (rootFilenames == null) {
-            return BuildSystem.UNKNOWN;
-        }
         Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
         if (names.contains("pom.xml")) {

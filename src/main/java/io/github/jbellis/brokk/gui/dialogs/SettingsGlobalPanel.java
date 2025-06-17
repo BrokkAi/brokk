@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -24,10 +24,12 @@ import java.awt.event.MouseMotionListener;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsGlobalPanel.class);
-    public static final String MODELS_TAB_TITLE = "Models"; // Used for targeting this tab
+    public static final String MODELS_TAB_TITLE = "Default Models"; // Used for targeting this tab
 
     private final Chrome chrome;
     private final SettingsDialog parentDialog; // To access project for data retention refresh
@@ -53,6 +55,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JTextField gitHubTokenField;
     private JTabbedPane globalSubTabbedPane;
     private JPanel defaultModelsPanel;
+    // Jira fields removed
 
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -75,19 +78,25 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
         // Default Models Tab
-        defaultModelsPanel = createModelsPanel(chrome.getProject()); // Store reference
+        defaultModelsPanel = createModelsPanel(); // Store reference
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, defaultModelsPanel, "Default model selection and configuration");
 
         // Quick Models Tab
         var quickModelsPanel = createQuickModelsPanel();
-        globalSubTabbedPane.addTab("Quick Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
+        globalSubTabbedPane.addTab("Alternative Models", null, quickModelsPanel, "Define model aliases (shortcuts)");
 
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
-        if (project != null && project.isGitHubRepo()) {
+        boolean shouldShowGitHubTab = project != null &&
+                                      project.isGitHubRepo() &&
+                                      (Boolean.getBoolean("brokk.prtab") || Boolean.getBoolean("brokk.issuetab"));
+
+        if (shouldShowGitHubTab) {
             var gitHubPanel = createGitHubPanel();
-            globalSubTabbedPane.addTab("GitHub", null, gitHubPanel, "GitHub integration settings");
+            globalSubTabbedPane.addTab(SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubPanel, "GitHub integration settings");
         }
+
+        // Jira Tab removed
 
         // Initial enablement of Models tab content
         updateModelsPanelEnablement();
@@ -115,8 +124,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private void setEnabledRecursive(Container container, boolean enabled) {
         for (Component c : container.getComponents()) {
             c.setEnabled(enabled);
-            if (c instanceof Container) {
-                setEnabledRecursive((Container) c, enabled);
+            if (c instanceof Container containerC) {
+                setEnabledRecursive(containerC, enabled);
             }
         }
     }
@@ -179,7 +188,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.NONE;
         servicePanel.add(new JLabel("LLM Proxy:"), gbc);
 
-        if (Project.getProxySetting() == Project.LlmProxySetting.STAGING) {
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.STAGING) {
             var proxyInfoLabel = new JLabel("Proxy has been set to STAGING in ~/.brokk/brokk.properties. Changing it back must be done in the same place.");
             proxyInfoLabel.setFont(proxyInfoLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridx = 1;
@@ -262,12 +271,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return gitHubPanel;
     }
 
+    // createJiraPanel() removed
+
     private void updateSignupLabelVisibility() {
         if (this.signupLabel == null) {
             logger.warn("signupLabel is null, cannot update visibility.");
             return;
         }
-        String currentPersistedKey = Project.getBrokkKey(); // Read from persistent store
+        String currentPersistedKey = MainProject.getBrokkKey(); // Read from persistent store
         boolean keyIsEffectivelyPresent = currentPersistedKey != null && !currentPersistedKey.trim().isEmpty();
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
     }
@@ -334,7 +345,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         TableColumn reasoningColumn = quickModelsTable.getColumnModel().getColumn(2);
         var reasoningComboBoxEditor = new JComboBox<>(reasoningLevels);
         reasoningColumn.setCellEditor(new ReasoningCellEditor(reasoningComboBoxEditor, models, quickModelsTable));
-        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(models, quickModelsTable));
+        reasoningColumn.setCellRenderer(new ReasoningCellRenderer(models));
         reasoningColumn.setPreferredWidth(100);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -374,9 +385,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         return panel;
     }
 
-    private JPanel createModelsPanel(Project project) {
+    private JPanel createModelsPanel() {
         var panel = new JPanel(new GridBagLayout()); // Always create, enable/disable content
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var project = chrome.getProject();
 
         if (project == null) {
             // Add a placeholder label if no project, actual model controls are added below
@@ -596,10 +608,32 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (modelComboBox == null || reasoningComboBox == null) return;
         String selectedModelName = (String) modelComboBox.getSelectedItem();
         boolean supportsReasoning = selectedModelName != null && service.supportsReasoningEffort(selectedModelName);
+
+        // Build the allowed list of levels
+        var levels = new java.util.ArrayList<Service.ReasoningLevel>();
+        levels.add(Service.ReasoningLevel.DEFAULT);
+        if (supportsReasoning) {
+            levels.add(Service.ReasoningLevel.LOW);
+            levels.add(Service.ReasoningLevel.MEDIUM);
+            levels.add(Service.ReasoningLevel.HIGH);
+            if (service.supportsReasoningDisable(selectedModelName)) {
+                levels.add(Service.ReasoningLevel.DISABLE);
+            }
+        }
+
+        // Remember previously selected level
+        var prevSelection = (Service.ReasoningLevel) reasoningComboBox.getSelectedItem();
+        reasoningComboBox.setModel(new DefaultComboBoxModel<>(levels.toArray(Service.ReasoningLevel[]::new)));
         reasoningComboBox.setEnabled(supportsReasoning);
         reasoningComboBox.setToolTipText(supportsReasoning ? "Select reasoning effort" : "Reasoning effort not supported by this model");
-        if (!supportsReasoning) {
+
+        if (supportsReasoning && levels.contains(prevSelection)) {
+            reasoningComboBox.setSelectedItem(prevSelection);
+        } else {
             reasoningComboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
+        }
+
+        if (!supportsReasoning) {
             reasoningComboBox.setRenderer(new DefaultListCellRenderer() {
                 @Override
                 public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
@@ -622,11 +656,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
     public void loadSettings() {
         // Service Tab
-        brokkKeyField.setText(Project.getBrokkKey());
+        brokkKeyField.setText(MainProject.getBrokkKey());
         refreshBalanceDisplay();
         updateSignupLabelVisibility();
         if (brokkProxyRadio != null && localhostProxyRadio != null) { // STAGING check in createServicePanel handles this
-            if (Project.getProxySetting() == Project.LlmProxySetting.BROKK) {
+            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
                 brokkProxyRadio.setSelected(true);
             } else {
                 localhostProxyRadio.setSelected(true);
@@ -634,7 +668,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         // Appearance Tab
-        if (Project.getTheme().equals("dark")) {
+        if (MainProject.getTheme().equals("dark")) {
             darkThemeRadio.setSelected(true);
         } else {
             lightThemeRadio.setSelected(true);
@@ -669,17 +703,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         updateModelsPanelEnablement(); // Re-check enablement based on project presence
 
         // Quick Models Tab
-        quickModelsTableModel.setFavorites(Project.loadFavoriteModels());
+        quickModelsTableModel.setFavorites(MainProject.loadFavoriteModels());
 
         // GitHub Tab
         if (gitHubTokenField != null) { // Only if panel was created
-            gitHubTokenField.setText(Project.getGitHubToken());
+            gitHubTokenField.setText(MainProject.getGitHubToken());
         }
+
+        // Jira Tab loading removed
     }
 
     public boolean applySettings() {
         // Service Tab
-        String currentBrokkKeyInSettings = Project.getBrokkKey();
+        String currentBrokkKeyInSettings = MainProject.getBrokkKey();
         String newBrokkKeyFromField = brokkKeyField.getText().trim();
         boolean keyStateChangedInUI = !newBrokkKeyFromField.equals(currentBrokkKeyInSettings);
 
@@ -687,7 +723,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (!newBrokkKeyFromField.isEmpty()) {
                 try {
                     Service.validateKey(newBrokkKeyFromField);
-                    Project.setBrokkKey(newBrokkKeyFromField);
+                    MainProject.setBrokkKey(newBrokkKeyFromField);
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh(); // Key change might affect org policy
@@ -696,13 +732,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                     return false;
                 } catch (IOException ex) { // Network error, but allow saving
                     JOptionPane.showMessageDialog(this, "Network error: " + ex.getMessage() + ". Key saved, but validation failed.", "Network Error", JOptionPane.WARNING_MESSAGE);
-                    Project.setBrokkKey(newBrokkKeyFromField);
+                    MainProject.setBrokkKey(newBrokkKeyFromField);
                     refreshBalanceDisplay();
                     updateSignupLabelVisibility();
                     parentDialog.triggerDataRetentionPolicyRefresh();
                 }
             } else { // newBrokkKeyFromField is empty
-                Project.setBrokkKey(newBrokkKeyFromField);
+                MainProject.setBrokkKey(newBrokkKeyFromField);
                 refreshBalanceDisplay();
                 updateSignupLabelVisibility();
                 parentDialog.triggerDataRetentionPolicyRefresh();
@@ -710,9 +746,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         }
 
         if (brokkProxyRadio != null && localhostProxyRadio != null) { // Not STAGING
-            Project.LlmProxySetting proxySetting = brokkProxyRadio.isSelected() ? Project.LlmProxySetting.BROKK : Project.LlmProxySetting.LOCALHOST;
-            if (proxySetting != Project.getProxySetting()) {
-                 Project.setLlmProxySetting(proxySetting);
+            MainProject.LlmProxySetting proxySetting = brokkProxyRadio.isSelected() ? MainProject.LlmProxySetting.BROKK : MainProject.LlmProxySetting.LOCALHOST;
+            if (proxySetting != MainProject.getProxySetting()) {
+                 MainProject.setLlmProxySetting(proxySetting);
                  logger.debug("Applied LLM Proxy Setting: {}", proxySetting);
                  // Consider notifying user about restart if changed. Dialog does this.
             }
@@ -721,7 +757,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         // Appearance Tab
         boolean newIsDark = darkThemeRadio.isSelected();
         String newTheme = newIsDark ? "dark" : "light";
-        if (!newTheme.equals(Project.getTheme())) {
+        if (!newTheme.equals(MainProject.getTheme())) {
             chrome.switchTheme(newIsDark);
             logger.debug("Applied Theme: {}", newTheme);
         }
@@ -729,36 +765,37 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         // Models Tab (Project specific)
         var project = chrome.getProject();
         if (project != null) {
-            applyModelConfig(project, architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
-            applyModelConfig(project, codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
-            applyModelConfig(project, askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
-            applyModelConfig(project, searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
+            applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
+            applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
+            applyModelConfig(askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
+            applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
         }
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
             quickModelsTable.getCellEditor().stopCellEditing();
         }
-        Project.saveFavoriteModels(quickModelsTableModel.getFavorites());
+        MainProject.saveFavoriteModels(quickModelsTableModel.getFavorites());
         // chrome.getQuickContextActions().reloadFavoriteModels(); // Commented out due to missing method in Chrome
 
         // GitHub Tab
         if (gitHubTokenField != null) {
             String newToken = gitHubTokenField.getText().trim();
-            if (!newToken.equals(Project.getGitHubToken())) {
-                Project.setGitHubToken(newToken);
+            if (!newToken.equals(MainProject.getGitHubToken())) {
+                MainProject.setGitHubToken(newToken);
                 GitHubAuth.invalidateInstance();
                 logger.debug("Applied GitHub Token");
             }
         }
+
+        // Jira Tab applying removed
         return true;
     }
 
-    private void applyModelConfig(Project project,
-                                  JComboBox<String> modelCombo,
+    private void applyModelConfig(JComboBox<String> modelCombo,
                                   JComboBox<Service.ReasoningLevel> reasoningCombo,
-                                  java.util.function.Supplier<Service.ModelConfig> currentConfigGetter,
-                                  java.util.function.Consumer<Service.ModelConfig> configSetter) {
+                                  Supplier<Service.ModelConfig> currentConfigGetter,
+                                  Consumer<Service.ModelConfig> configSetter) {
         if (modelCombo == null || reasoningCombo == null || !modelCombo.isEnabled()) return; // Not initialized or panel disabled
 
         String selectedModelName = (String) modelCombo.getSelectedItem();
@@ -830,13 +867,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         @Override public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
             if (rowIndex < 0 || rowIndex >= favorites.size()) return;
             Service.FavoriteModel oldFavorite = favorites.get(rowIndex);
-            Service.FavoriteModel newFavorite = oldFavorite;
+            Service.FavoriteModel newFavorite;
             try {
-                switch (columnIndex) {
-                    case 0: if (aValue instanceof String alias) newFavorite = new Service.FavoriteModel(alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning()); break;
-                    case 1: if (aValue instanceof String modelName) newFavorite = new Service.FavoriteModel(oldFavorite.alias(), modelName, oldFavorite.reasoning()); break;
-                    case 2: if (aValue instanceof Service.ReasoningLevel reasoning) newFavorite = new Service.FavoriteModel(oldFavorite.alias(), oldFavorite.modelName(), reasoning); break;
-                }
+                newFavorite = switch (columnIndex) {
+                    case 0 -> {
+                        if (aValue instanceof String alias) {
+                            yield new Service.FavoriteModel(alias.trim(), oldFavorite.modelName(), oldFavorite.reasoning());
+                        }
+                        yield oldFavorite;
+                    }
+                    case 1 -> {
+                        if (aValue instanceof String modelName) {
+                            yield new Service.FavoriteModel(oldFavorite.alias(), modelName, oldFavorite.reasoning());
+                        }
+                        yield oldFavorite;
+                    }
+                    case 2 -> {
+                        if (aValue instanceof Service.ReasoningLevel reasoning) {
+                            yield new Service.FavoriteModel(oldFavorite.alias(), oldFavorite.modelName(), reasoning);
+                        }
+                        yield oldFavorite;
+                    }
+                    default -> oldFavorite;
+                };
             } catch (Exception e) {
                 logger.error("Error setting value at ({}, {}) to {}", rowIndex, columnIndex, aValue, e);
                 return;
@@ -844,14 +897,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             if (!newFavorite.equals(oldFavorite)) {
                 favorites.set(rowIndex, newFavorite);
                 fireTableCellUpdated(rowIndex, columnIndex);
-                if (columnIndex == 1) fireTableCellUpdated(rowIndex, 2);
+                if (columnIndex == 1) fireTableCellUpdated(rowIndex, 2); // If model name changed, reasoning support might change
             }
         }
     }
 
     private static class ReasoningCellRenderer extends DefaultTableCellRenderer {
         private final Service models;
-        public ReasoningCellRenderer(Service service, JTable table) { this.models = service; }
+        public ReasoningCellRenderer(Service service) { this.models = service; }
         @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             String modelName = (String) table.getModel().getValueAt(row, 1);

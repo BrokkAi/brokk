@@ -5,14 +5,17 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
-import io.github.jbellis.brokk.gui.search.MarkdownPanelSearchCallback;
-import io.github.jbellis.brokk.gui.search.SearchBarPanel;
+import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
+import io.github.jbellis.brokk.gui.search.MarkdownOutputPanelSearchableComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -228,7 +231,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    public Project getProject() {
+    /**
+     * Sends a desktop notification if the main window is not active.
+     * @param notification Notification
+     */
+    public void notifyActionComplete(String notification) {
+        SwingUtilities.invokeLater(() -> {
+            // 'frame' is the JFrame member of Chrome
+            if (frame != null && frame.isShowing() && !frame.isActive()) {
+                Environment.instance.sendNotificationAsync(notification);
+            }
+        });
+    }
+
+    public AbstractProject getProject() {
         return contextManager.getProject();
     }
 
@@ -239,11 +255,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         assert gitPanel != null;
         contextManager.submitBackgroundTask("Updating .gitignore", () -> {
             try {
-                var gitRepo = (GitRepo) getProject().getRepo();
-                var projectRoot = getProject().getRoot();
+                var project = getProject();
+                var gitRepo = (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
+                var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
 
-                // Update .gitignore
-                var gitignorePath = gitRepo.getGitTopLevel().resolve(".gitignore");
+                // Update .gitignore (located at gitTopLevel)
+                var gitignorePath = gitTopLevel.resolve(".gitignore");
                 String content = "";
 
                 if (Files.exists(gitignorePath)) {
@@ -254,28 +271,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Add entries to .gitignore if they don't exist
+                // These paths are relative to the .gitignore file (i.e., relative to gitTopLevel)
                 if (!content.contains(".brokk/**") && !content.contains(".brokk/")) {
                     content += "\n### BROKK'S CONFIGURATION ###\n";
-                    content += ".brokk/**\n";
-                    content += "!.brokk/style.md\n";
-                    content += "!.brokk/project.properties\n";
+                    content += ".brokk/**\n";                   // Ignore .brokk dir in sub-projects (worktrees)
+                    content += "/.brokk/workspace.properties\n"; // Ignore workspace properties in main repo and worktrees
+                    content += "/.brokk/sessions/\n";           // Ignore sessions dir in main repo
+                    content += "/.brokk/dependencies/\n";       // Ignore dependencies dir in main repo
+                    content += "/.brokk/history.zip\n";         // Ignore legacy history zip
+                    content += "!.brokk/style.md\n";          // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
                     systemOutput("Updated .gitignore with .brokk entries");
 
-                    // Add .gitignore to git if it's not already in the index
+                    // Add .gitignore itself to git if it's not already in the index
+                    // The path for 'add' should be relative to the git repo's CWD, or absolute.
+                    // gitRepo.add() handles paths relative to its own root, or absolute paths.
+                    // Here, gitignorePath is absolute.
                     gitRepo.add(gitignorePath);
                 }
 
-                // Create .brokk directory if it doesn't exist
-                var brokkDir = projectRoot.resolve(".brokk");
-                Files.createDirectories(brokkDir);
+                // Create .brokk directory at gitTopLevel if it doesn't exist (for shared files)
+                var sharedBrokkDir = gitTopLevel.resolve(".brokk");
+                Files.createDirectories(sharedBrokkDir);
 
-                // Add specific files to git
-                var styleMdPath = brokkDir.resolve("style.md");
-                var projectPropsPath = brokkDir.resolve("project.properties");
+                // Add specific shared files to git
+                var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
-                // Create files if they don't exist (empty files)
+                // Create shared files if they don't exist (empty files)
                 if (!Files.exists(styleMdPath)) {
                     Files.writeString(styleMdPath, "# Style Guide\n");
                 }
@@ -283,19 +308,24 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     Files.writeString(projectPropsPath, "# Brokk project configuration\n");
                 }
 
-                // Add files to git
+                // Add shared files to git. ProjectFile needs the root relative to which the path is specified.
+                // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/style.md"));
-                filesToAdd.add(new ProjectFile(projectRoot, ".brokk/project.properties"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
+                // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
+                // The GitRepo instance is for the current project (which could be a worktree),
+                // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added .brokk project files to git");
+                systemOutput("Added shared .brokk project files (style.md, project.properties) to git");
 
                 // Update commit message
                 gitPanel.setCommitMessageText("Update for Brokk project files");
                 updateCommitPanel();
             } catch (Exception e) {
-                toolError("Error setting up git ignore: " + e.getMessage());
+                logger.error(e);
+                toolError("Error setting up .gitignore: " + e.getMessage(), "Error");
             }
         });
     }
@@ -310,7 +340,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
 
         // Apply current theme based on project settings
-        String currentTheme = Project.getTheme();
+        String currentTheme = MainProject.getTheme();
         logger.trace("Applying theme from project settings: {}", currentTheme);
         boolean isDark = GuiTheme.THEME_DARK.equalsIgnoreCase(currentTheme);
         switchTheme(isDark);
@@ -359,10 +389,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert ctx != null;
 
-        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext.getId(), ctx.getId());
-        // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away 
+        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
+        // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away
 
-        final boolean updateOutput = ((activeContext == null || activeContext.getId() != ctx.getId()) && !isSkipNextUpdateOutputPanelOnContextChange());
+        final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
         setSkipNextUpdateOutputPanelOnContextChange(false);
         activeContext = ctx;
 
@@ -372,11 +402,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             boolean isEditable = false;
             Context latestContext = contextManager.getContextHistory().topContext();
             if (latestContext != null) {
-                isEditable = ctx.equals(latestContext);
-            } else if (ctx.getId() == 1) { 
-                // If context history is somehow uninitialized but we are setting the initial welcome context (ID 1),
-                // consider it editable. This is a fallback.
-                isEditable = true; 
+                isEditable = ctx == latestContext;
             }
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
@@ -398,6 +424,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         themeManager.applyTheme(isDark);
     }
 
+    public GuiTheme getTheme() {
+        return themeManager;
+    }
+
     @Override
     public String getLlmOutputText() {
         return SwingUtil.runOnEdt(() -> historyOutputPanel.getLlmOutputText(), null);
@@ -405,13 +435,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public List<ChatMessage> getLlmRawMessages() {
-        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
-        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
-        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         if (SwingUtilities.isEventDispatchThread()) {
             return historyOutputPanel.getLlmRawMessages();
         }
 
+        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw InterruptedException
+        // because at this point we're basically done with the action and all that's left is reporting the result. So if we're
+        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         while (true) {
             try {
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
@@ -420,7 +450,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             } catch (InterruptedException e) {
                 // retry
             } catch (ExecutionException | InvocationTargetException e) {
-                toolErrorRaw("Error retrieving LLM messages");
+                logger.error(e);
+                systemOutput("Error retrieving LLM messages");
                 return List.of();
             }
         }
@@ -430,16 +461,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // System message label (left side)
         systemMessageLabel = new JLabel(SYSMSG_EMPTY);
         systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
-        
+
         // Background status label (right side)
         backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
         backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
 
         // Panel to hold both labels
-        JPanel statusPanel = new JPanel(new BorderLayout());
+        var statusPanel = new JPanel(new BorderLayout());
         statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
-        
+
         return statusPanel;
     }
 
@@ -450,6 +481,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return instructionsPanel.getInstructions();
     }
 
+    @Override
     public void disableActionButtons() {
         instructionsPanel.disableButtons();
         if (gitPanel != null) {
@@ -457,6 +489,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public void enableActionButtons() {
         instructionsPanel.enableButtons();
         if (gitPanel != null) {
@@ -464,12 +497,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public void updateCommitPanel() {
         if (gitPanel != null) {
             gitPanel.updateCommitPanel();
         }
     }
 
+    @Override
     public void updateGitRepo() {
         if (gitPanel != null) {
             gitPanel.updateRepo();
@@ -517,11 +552,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void actionComplete() {
         SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
-
+    
     @Override
-    public void llmOutput(String token, ChatMessageType type) {
-        // TODO: use messageSubType later on
-        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type));
+    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
+        SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
     }
 
     @Override
@@ -530,9 +564,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void toolErrorRaw(String msg) {
-        logger.warn(msg);
-        systemOutputInternal(msg);
+    public void toolError(String msg, String title) {
+        logger.warn("%s: %s".formatted(msg, title));
+        SwingUtilities.invokeLater(() -> {
+            systemNotify(msg, title, JOptionPane.ERROR_MESSAGE);
+        });
     }
 
     @Override
@@ -544,7 +580,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void systemOutputInternal(String message) {
         SwingUtilities.invokeLater(() -> {
             // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+            String timestamp = java.time.LocalTime.now(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
             String timestampedMessage = timestamp + ": " + message;
 
             // Add to messages list
@@ -552,7 +588,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // Keep only last 50 messages to prevent memory issues
             if (systemMessages.size() > 50) {
-                systemMessages.remove(0);
+                systemMessages.removeFirst();
             }
 
             // Update label text (show only the latest message)
@@ -623,54 +659,55 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * This is shared functionality used by both preview windows and detached output windows.
      *
      * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
-     * @param showNavigation Whether to show navigation buttons and result counter
      * @return A JPanel containing the search bar and content
      */
-    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, boolean showNavigation) {
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
-        
+
         // If single panel, create a scroll pane for it
         JComponent contentComponent;
+        var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
-            var scrollPane = new JScrollPane(markdownPanels.get(0));
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+            var scrollPane = new JScrollPane(markdownPanels.getFirst());
+            scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
         } else {
             // Multiple panels - create container with BoxLayout
-            JPanel messagesContainer = new JPanel();
+            var messagesContainer = new JPanel();
             messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-            messagesContainer.setBackground(markdownPanels.get(0).getBackground());
-            
+            componentsWithChatBackground.add(messagesContainer);
+
             for (MarkdownOutputPanel panel : markdownPanels) {
                 messagesContainer.add(panel);
             }
-            
+
             var scrollPane = new JScrollPane(messagesContainer);
             scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
             scrollPane.getVerticalScrollBar().setUnitIncrement(16);
             contentComponent = scrollPane;
         }
-        
+
         // Create main content panel to hold search bar and content
-        JPanel contentPanel = new JPanel(new BorderLayout());
-        contentPanel.setBackground(markdownPanels.get(0).getBackground());
-        
-        // Create search callback and search bar panel
-        var searchCallback = new MarkdownPanelSearchCallback(markdownPanels);
-        var searchBarPanel = new SearchBarPanel(searchCallback, true, true, 3);
-        searchCallback.setSearchBarPanel(searchBarPanel);
-        searchBarPanel.setBackground(contentPanel.getBackground());
-        
+        var contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        componentsWithChatBackground.add(contentPanel);
+
+        // Create searchable component adapter and generic search bar
+        var searchableComponent = new MarkdownOutputPanelSearchableComponent(markdownPanels);
+        var searchBar = new GenericSearchBar(searchableComponent);
+        componentsWithChatBackground.add(searchBar);
+
+        componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
+
         // Add components to content panel
-        contentPanel.add(searchBarPanel, BorderLayout.NORTH);
+        contentPanel.add(searchBar, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
-        
+
         // Register Ctrl/Cmd+F to focus search field
-        searchBarPanel.registerSearchFocusShortcut(contentPanel);
-        
+        searchBar.registerGlobalShortcuts(contentPanel);
+
         return contentPanel;
     }
 
@@ -689,9 +726,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         previewFrame.setBackground(themeManager != null && themeManager.isDarkTheme()
                                         ? UIManager.getColor("chat_background")
                                         : Color.WHITE);
-
-        // Set initial default close operation. This will be checked/modified by the WindowListener.
-        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
         var project = contextManager.getProject();
         assert project != null;
@@ -720,31 +754,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         });
 
-        // Add a WindowListener to handle the close ('X') button click
-        previewFrame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Check if the content is a PreviewTextPanel and if it has unsaved changes
-                if (contentComponent instanceof PreviewTextPanel ptp) {
-                    if (ptp.confirmClose()) {
-                        // If confirmClose returns true (Save/Don't Save), finalize history and allow disposal.
-                        ptp.finalizeHistoryEntry(); // Create history entry if needed
-                        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-                        // Note: The window listener only *vetoes* the close. If it doesn't veto,
-                        // the default close operation takes over. We don't need to call dispose() here.
-                    } else {
-                        // If confirmClose returns false (user cancelled), do nothing.
-                        // We must explicitly set the default close operation here because
-                        // the user might click 'X' multiple times.
-                        previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-                    }
-                } else {
-                    // If not a PreviewTextPanel, just allow the default dispose operation
-                    previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-                }
-            }
-        });
-
+        // Only use DO_NOTHING_ON_CLOSE for PreviewTextPanel (which has its own confirmation dialog)
+        // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
+        if (contentComponent instanceof PreviewTextPanel) {
+            previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
         var rootPane = previewFrame.getRootPane();
@@ -793,10 +807,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             showPreviewFrame(contextManager, "Preview: " + pf, panel);
 
         } catch (IOException ex) {
-            toolErrorRaw("Error reading file for preview: " + ex.getMessage());
+            toolError("Error reading file for preview: " + ex.getMessage());
             logger.error("Error reading file {} for preview", pf.absPath(), ex);
         } catch (Exception ex) {
-            toolErrorRaw("Error opening file preview: " + ex.getMessage());
+            toolError("Error opening file preview: " + ex.getMessage());
             logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
         }
     }
@@ -824,14 +838,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             var latestCtx = contextManager.getContextHistory().topContext();
             boolean isCurrentContext = latestCtx != null
                     && latestCtx.allFragments()
-                    .anyMatch(f -> f.id() == fragment.id());
+                    .anyMatch(f -> f.id().equals(fragment.id()));
 
             // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
             // a true PathFragment instance (gives us access to BrokkFile, etc.).
             ContextFragment workingFragment;
             if (isCurrentContext
                     && fragment.getType().isPathFragment()
-                    && fragment instanceof io.github.jbellis.brokk.context.FrozenFragment frozen) {
+                    && fragment instanceof FrozenFragment frozen)
+            {
                 workingFragment = frozen.unfreeze(contextManager);
             } else {
                 workingFragment = fragment;
@@ -856,9 +871,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 var compactionFutures = new ArrayList<CompletableFuture<?>>();
                 var markdownPanels = new ArrayList<MarkdownOutputPanel>();
-                
+                var escapeHtml = outputFragment.isEscapeHtml();
+
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel();
+                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
                     markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
@@ -868,7 +884,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, false);
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels);
 
                 // When all panels are compacted, scroll to the top
                 CompletableFuture
@@ -888,15 +904,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 3. Image fragments (clipboard image or image file)
             if (!workingFragment.isText()) {
                 if (workingFragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                    var pif = (ContextFragment.PasteImageFragment) workingFragment;
-                    var imagePanel = new PreviewImagePanel(contextManager, null, themeManager);
+                    var pif = (ContextFragment.AnonymousImageFragment) workingFragment;
+                    var imagePanel = new PreviewImagePanel(null);
                     imagePanel.setImage(pif.image());
                     showPreviewFrame(contextManager, title, imagePanel);
                     return;
                 }
                 if (workingFragment.getType() == ContextFragment.FragmentType.IMAGE_FILE) {
                     var iff = (ContextFragment.ImageFileFragment) workingFragment;
-                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file(), themeManager);
+                    PreviewImagePanel.showInFrame(frame, contextManager, iff.file());
                     return;
                 }
             }
@@ -940,7 +956,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                                  workingFragment);
                                 showPreviewFrame(contextManager, "Preview: " + externalFile, panel);
                             } catch (IOException ex) {
-                                toolErrorRaw("Error reading external file: " + ex.getMessage());
+                                toolError("Error reading external file: " + ex.getMessage());
                                 logger.error("Error reading external file {}", externalFile.absPath(), ex);
                             }
                         };
@@ -973,11 +989,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                                                     workingFragment);
             showPreviewFrame(contextManager, title, previewPanel);
         } catch (IOException ex) {
-            toolErrorRaw("Error reading fragment content: " + ex.getMessage());
+            toolError("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
-            toolErrorRaw("Error opening preview: " + ex.getMessage());
+            toolError("Error opening preview: " + ex.getMessage());
         }
     }
 
@@ -1087,11 +1103,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         });
     }
 
+    @Override
     public void updateContextHistoryTable() {
         Context selectedContext = contextManager.selectedContext();
         updateContextHistoryTable(selectedContext);
     }
 
+    @Override
     public void updateContextHistoryTable(Context contextToSelect) {
             historyOutputPanel.updateHistoryTable(contextToSelect);
     }
@@ -1120,6 +1138,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Shows the inline loading spinner in the output panel.
      */
+    @Override
     public void showOutputSpinner(String message) {
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.showSpinner(message);
@@ -1129,6 +1148,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Hides the inline loading spinner in the output panel.
      */
+    @Override
     public void hideOutputSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyOutputPanel.hideSpinner();
@@ -1156,6 +1176,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         rightVerticalSplitPane.repaint();
     }
 
+    @Override
     public void updateWorkspace() {
         workspacePanel.updateContextTable();
     }
@@ -1178,6 +1199,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
+    @Override
     public InstructionsPanel getInstructionsPanel() {
         return instructionsPanel;
     }
@@ -1370,20 +1392,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     /**
-     * Creates a new JDialog with the Brokk icon set properly.
-     *
-     * @param owner The parent Frame for this dialog
-     * @param title The title for the new dialog
-     * @param modal Whether the dialog should be modal
-     * @return A configured JDialog with the application icon
-     */
-    public static JDialog newDialog(Frame owner, String title, boolean modal) {
-        JDialog dialog = new JDialog(owner, title, modal);
-        applyIcon(dialog);
-        return dialog;
-    }
-
-    /**
      * Applies the application icon to the given window (JFrame or JDialog).
      *
      * @param window The window to set the icon for.
@@ -1405,6 +1413,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Disables the history panel via HistoryOutputPanel.
      */
+    @Override
     public void disableHistoryPanel() {
         historyOutputPanel.disableHistory();
     }
@@ -1412,6 +1421,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     /**
      * Enables the history panel via HistoryOutputPanel.
      */
+    @Override
     public void enableHistoryPanel() {
         historyOutputPanel.enableHistory();
     }
@@ -1421,6 +1431,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      *
      * @param blocked true to prevent clear/reset operations, false to allow them
      */
+    @Override
     public void blockLlmOutput(boolean blocked) {
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
@@ -1430,6 +1441,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public int showConfirmDialog(String message, String title, int optionType, int messageType) {
+        //noinspection MagicConstant
         return JOptionPane.showConfirmDialog(frame, message, title, optionType, messageType);
     }
 
@@ -1440,8 +1452,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     @Override
-    public void showMessageDialog(String message, String title, int messageType) {
-        JOptionPane.showMessageDialog(frame, message, title, messageType);
+    public void systemNotify(String message, String title, int messageType) {
+        SwingUtilities.invokeLater(() -> {
+            //noinspection MagicConstant
+            JOptionPane.showMessageDialog(frame, message, title, messageType);
+        });
     }
 
     /**
@@ -1459,5 +1474,21 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
         }
         return null;
+    }
+
+    private static class SearchableContentPanel extends JPanel implements ThemeAware {
+        private final List<JComponent> componentsWithChatBackground;
+
+        public SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
+            super(new BorderLayout());
+            this.componentsWithChatBackground = componentsWithChatBackground;
+        }
+
+        @Override
+        public void applyTheme(GuiTheme guiTheme) {
+            Color newBackgroundColor = ThemeColors.getColor(guiTheme.isDarkTheme(), "chat_background");
+            componentsWithChatBackground.forEach(c -> c.setBackground(newBackgroundColor));
+            SwingUtilities.updateComponentTreeUI(this);
+        }
     }
 }

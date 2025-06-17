@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -16,7 +18,6 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * A custom tree component for displaying project files with lazy loading,
@@ -26,13 +27,13 @@ public class ProjectTree extends JTree {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
 
-    private final Project project;
+    private final IProject project;
     private final ContextManager contextManager;
     private final Chrome chrome;
     private JPopupMenu currentContextMenu;
 
 
-    public ProjectTree(Project project, ContextManager contextManager, Chrome chrome) {
+    public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
         this.chrome = chrome;
@@ -115,6 +116,23 @@ public class ProjectTree extends JTree {
     private void handlePopupTrigger(MouseEvent e) {
         if (e.isPopupTrigger()) {
             TreePath path = getPathForLocation(e.getX(), e.getY());
+            if (path == null) {
+                // If exact hit detection failed, check if we're within any row's vertical bounds
+                int row = getRowForLocation(e.getX(), e.getY());
+                if (row >= 0) {
+                    path = getPathForRow(row);
+                } else {
+                    // Fallback: find the closest row by Y coordinate
+                    int rowCount = getRowCount();
+                    for (int i = 0; i < rowCount; i++) {
+                        Rectangle rowBounds = getRowBounds(i);
+                        if (rowBounds != null && e.getY() >= rowBounds.y && e.getY() < rowBounds.y + rowBounds.height) {
+                            path = getPathForRow(i);
+                            break;
+                        }
+                    }
+                }
+            }
             if (path != null) {
                 // If right-clicking on an item not in current selection, change selection to that item.
                 // Otherwise, keep current selection.
@@ -194,6 +212,12 @@ public class ProjectTree extends JTree {
 
         JMenuItem summarizeItem = new JMenuItem(selectedFiles.size() == 1 ? "Summarize" : "Summarize All");
         summarizeItem.addActionListener(ev -> {
+            if (!contextManager.getAnalyzerWrapper().isReady()) {
+                contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                                  AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                                  JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
             contextManager.submitContextTask("Summarize files", () -> {
                 contextManager.addSummaries(new HashSet<>(selectedFiles), Collections.emptySet());
             });
@@ -378,24 +402,23 @@ public class ProjectTree extends JTree {
         return null; // Child component not found
     }
 
-
     private List<ProjectFile> getSelectedProjectFiles() {
         TreePath[] selectionPaths = getSelectionPaths();
         if (selectionPaths == null || selectionPaths.length == 0) {
-            return Collections.emptyList();
+            return List.of(); // Immutable empty list
         }
 
-        var selectedFiles = new ArrayList<ProjectFile>();
+        var selectedFilesList = new ArrayList<ProjectFile>();
         for (TreePath path : selectionPaths) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             if (node.getUserObject() instanceof ProjectTreeNode treeNode && treeNode.getFile().isFile()) {
                 ProjectFile pf = getProjectFileFromNode(node);
                 if (pf != null) {
-                    selectedFiles.add(pf);
+                    selectedFilesList.add(pf);
                 }
             }
         }
-        return selectedFiles;
+        return List.copyOf(selectedFilesList); // Return immutable list
     }
 
     private ProjectFile getProjectFileFromNode(DefaultMutableTreeNode node) {

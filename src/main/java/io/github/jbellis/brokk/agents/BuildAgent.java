@@ -8,10 +8,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import io.github.jbellis.brokk.AnalyzerUtil;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.Llm;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -50,7 +47,7 @@ public class BuildAgent {
 
     // Use standard ChatMessage history
     private final List<ChatMessage> chatHistory = new ArrayList<>();
-    private final Project project;
+    private final IProject project;
     // Field to store the result from the reportBuildDetails tool
     private BuildDetails reportedDetails = null;
     // Field to store the reason from the abortBuildDetails tool
@@ -58,7 +55,7 @@ public class BuildAgent {
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
 
-    public BuildAgent(Project project, Llm llm, ToolRegistry toolRegistry) {
+    public BuildAgent(IProject project, Llm llm, ToolRegistry toolRegistry) {
         this.project = project;
         assert llm != null : "coder cannot be null";
         assert toolRegistry != null : "toolRegistry cannot be null";
@@ -111,7 +108,7 @@ public class BuildAgent {
                 }
                 // include non-existing paths if they end with `/` in case they get created later
                 var isDirectory = (Files.exists(path) && Files.isDirectory(path)) || pattern.endsWith("/");
-                if (!(pattern.startsWith("!")) && isDirectory) {
+                if (!pattern.startsWith("!") && isDirectory) {
                     this.currentExcludedDirectories.add(pattern);
                     addedFromGitignore.add(pattern);
                 }
@@ -297,42 +294,6 @@ public class BuildAgent {
              return "Abort signal received and processed.";
         }
 
-    /**
-     * Removes markdown code block syntax (single and triple backticks) from a string.
-     *
-     * @param text The string to process.
-     * @return The string with markdown code blocks removed, or an empty string if input is null/blank.
-     */
-    private static String unmarkdown(@Nullable String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-        String trimmedText = text.trim();
-
-        // Check for triple backticks (e.g., ```text``` or ```lang\ntext```)
-        if (trimmedText.startsWith("```") && trimmedText.endsWith("```") && trimmedText.length() >= 6) {
-            String content = trimmedText.substring(3, trimmedText.length() - 3);
-            int firstNewline = content.indexOf('\n');
-
-            if (firstNewline == 0) { // Starts with a newline, e.g. ```\ncode\n```
-                content = content.substring(1); // Remove the leading newline
-            } else if (firstNewline > 0) { // Has a newline, content before it could be lang specifier
-                // Assumes the first line is a language specifier if present and removes it
-                content = content.substring(firstNewline + 1);
-            }
-
-            // fall through to single-backtick check
-            trimmedText = content.trim();
-        }
-
-        // Check for single backticks (e.g., `text`)
-        if (trimmedText.startsWith("`") && trimmedText.endsWith("`") && trimmedText.length() >= 2) {
-            return trimmedText.substring(1, trimmedText.length() - 1).trim();
-        }
-
-        return trimmedText;
-    }
-
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(String buildLintCommand,
                                String testAllCommand,
@@ -364,8 +325,7 @@ public class BuildAgent {
         // Runs asynchronously on the background executor provided by ContextManager
         return CompletableFuture.supplyAsync(() -> {
             // Retrieve build details from the project associated with the ContextManager
-            Project project = (Project) cm.getProject();
-            BuildDetails details = project.loadBuildDetails();
+            BuildDetails details = cm.getProject().loadBuildDetails();
 
             if (details.equals(BuildDetails.EMPTY)) {
                 logger.warn("No build details available, cannot determine verification command.");
@@ -373,8 +333,8 @@ public class BuildAgent {
             }
 
             // Check project setting for test scope
-            Project.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
-            if (testScope == Project.CodeAgentTestScope.ALL) {
+            IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+            if (testScope == IProject.CodeAgentTestScope.ALL) {
                 logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
                 return details.testAllCommand();
             }

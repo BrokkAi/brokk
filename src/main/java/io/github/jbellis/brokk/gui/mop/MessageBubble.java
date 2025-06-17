@@ -1,18 +1,15 @@
 package io.github.jbellis.brokk.gui.mop;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Base component for chat message panels with common styling and structure.
  * Provides a standardized layout with header (icon + title) and content area.
  */
 public class MessageBubble extends JPanel {
-    private static final Logger logger = LogManager.getLogger(MessageBubble.class);
 
     /**
      * A panel that draws a rounded background and a highlight bar on the left.
@@ -38,13 +35,13 @@ public class MessageBubble extends JPanel {
             setBorder(BorderFactory.createEmptyBorder(padding, padding + highlightThickness, padding, padding));
 
             // Allow content to expand properly for centering
-            if (content instanceof JComponent) {
-                ((JComponent) content).setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+            if (content instanceof JComponent jComponent) {
+                jComponent.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
             }
             
             // Center JLabel
-            if (content instanceof JLabel) {
-                ((JLabel) content).setHorizontalAlignment(SwingConstants.CENTER);
+            if (content instanceof JLabel jLabel) {
+                jLabel.setHorizontalAlignment(SwingConstants.CENTER);
             }
             
             add(content, BorderLayout.CENTER); // Add original content
@@ -89,9 +86,9 @@ public class MessageBubble extends JPanel {
      * @param messageBgColor   The background color for the message (optional)
      * @param chatBgColor      The background color for the chat panel (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor,
-                         Color messageBgColor, Color chatBgColor)
+                         @Nullable Color messageBgColor, @Nullable Color chatBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, chatBgColor);
@@ -107,8 +104,8 @@ public class MessageBubble extends JPanel {
      * @param highlightColor   The color to use for the left highlight bar
      * @param messageBgColor   The background color for the message (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
-                         boolean isDarkTheme, Color highlightColor, Color messageBgColor)
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
+                         boolean isDarkTheme, Color highlightColor, @Nullable Color messageBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, null);
@@ -123,7 +120,7 @@ public class MessageBubble extends JPanel {
      * @param isDarkTheme      Whether dark theme is active
      * @param highlightColor   The color to use for the left highlight bar
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
@@ -133,9 +130,9 @@ public class MessageBubble extends JPanel {
     /**
      * Common initialization method for all constructors.
      */
-    private void initialize(String title, String iconText, Component contentComponent,
-                            boolean isDarkTheme, Color highlightColor, 
-                            Color customMessageBgColor, Color customChatBgColor)
+    private void initialize(String title, Icon iconText, Component contentComponent,
+                            boolean isDarkTheme, Color highlightColor,
+                            @Nullable Color customMessageBgColor, @Nullable Color customChatBgColor)
     {
         setLayout(new BorderLayout());
         Color chatBgColor = customChatBgColor != null ? 

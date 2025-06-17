@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Completions;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -9,6 +10,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -18,6 +20,7 @@ import java.awt.*;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -27,7 +30,7 @@ public class ProjectFilesPanel extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final io.github.jbellis.brokk.Project project;
+    private final IProject project;
 
     private JTextField searchField;
     private ProjectTree projectTree;
@@ -99,13 +102,13 @@ public class ProjectFilesPanel extends JPanel {
                         return;
                     }
 
-                    String typedLower = currentText.toLowerCase();
+                    String typedLower = currentText.toLowerCase(Locale.ROOT);
                     Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
                     List<ProjectFile> matches = trackedFiles.stream()
                         .filter(pf -> {
-                            String pathStrLower = pf.getRelPath().toString().toLowerCase();
-                            String fileNameLower = pf.getFileName().toLowerCase();
+                            String pathStrLower = pf.getRelPath().toString().toLowerCase(Locale.ROOT);
+                            String fileNameLower = pf.getFileName().toLowerCase(Locale.ROOT);
 
                             if (typedLower.contains("/") || typedLower.contains("\\")) {
                                 // If typed text has path separators, treat it as a path prefix match
@@ -118,7 +121,7 @@ public class ProjectFilesPanel extends JPanel {
                                 // Or if it's part of any directory name in the path
                                 Path currentParent = pf.getRelPath().getParent();
                                 while (currentParent != null) {
-                                    if (currentParent.getFileName().toString().toLowerCase().contains(typedLower)) {
+                                    if (currentParent.getFileName().toString().toLowerCase(Locale.ROOT).contains(typedLower)) {
                                         return true;
                                     }
                                     currentParent = currentParent.getParent();
@@ -126,7 +129,7 @@ public class ProjectFilesPanel extends JPanel {
                                 return false;
                             }
                         })
-                        .collect(Collectors.toList());
+                        .toList();
 
                     if (matches.size() == 1) {
                         projectTree.selectAndExpandToFile(matches.getFirst());
@@ -171,7 +174,7 @@ public class ProjectFilesPanel extends JPanel {
             }
 
             // Fallback: If toFile didn't find it, check if current text exactly matches a completion's replacement.
-            List<Completion> completions = ((ProjectFileCompletionProvider) ac.getCompletionProvider()).getCompletions(searchField);
+            List<Completion> completions = ac.getCompletionProvider().getCompletions(searchField);
             for (Completion comp : completions) {
                 if (comp instanceof ProjectFileCompletion pfc && pfc.getReplacementText().equals(searchText)) {
                     projectTree.selectAndExpandToFile(pfc.getProjectFile());
@@ -185,16 +188,16 @@ public class ProjectFilesPanel extends JPanel {
         }
     }
 
-    public void showFileInTree(ProjectFile file) {
+    public void showFileInTree(@Nullable ProjectFile file) {
         if (projectTree != null && file != null) {
             projectTree.selectAndExpandToFile(file);
         }
     }
 
     private static class ProjectFileCompletionProvider extends DefaultCompletionProvider {
-        private final io.github.jbellis.brokk.Project project;
+        private final IProject project;
 
-        public ProjectFileCompletionProvider(io.github.jbellis.brokk.Project project) {
+        public ProjectFileCompletionProvider(IProject project) {
             this.project = project;
         }
 
@@ -225,11 +228,7 @@ public class ProjectFilesPanel extends JPanel {
                     pf -> 0,
                     this::createProjectFileCompletion);
 
-            List<Completion> result = scoredCompletions.stream().map(c -> (Completion)c).collect(Collectors.toList());
-            // if (!result.isEmpty()) {
-            //     // AutoCompleteUtil.sizePopupGenerally(result, item -> ((ProjectFileCompletion)item).getProjectFile().relativePath());
-            // }
-            return result;
+            return scoredCompletions.stream().map(c -> (Completion)c).collect(Collectors.toList());
         }
 
         private ProjectFileCompletion createProjectFileCompletion(ProjectFile pf) {

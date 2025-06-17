@@ -1,10 +1,9 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,13 +22,12 @@ import java.util.function.Predicate;
  * Uses FileSelectionPanel for its core UI.
  */
 public class FileSelectionDialog extends JDialog {
-    private static final Logger logger = LogManager.getLogger(FileSelectionDialog.class);
 
     private final FileSelectionPanel fileSelectionPanel;
     private final JButton okButton;
     private final JButton cancelButton;
 
-    private BrokkFile selectedFile = null;
+    private @Nullable BrokkFile selectedFile = null;
     private boolean confirmed = false;
 
     /**
@@ -42,22 +40,20 @@ public class FileSelectionDialog extends JDialog {
      * @param fileFilter             Optional predicate to filter files in the tree (external mode only).
      * @param autocompleteCandidates Optional collection of external file paths for autocompletion.
      */
-    public FileSelectionDialog(Frame parent, Project project, String title, boolean allowExternalFiles,
-                               Predicate<File> fileFilter, Future<List<Path>> autocompleteCandidates) {
+    public FileSelectionDialog(Frame parent, @Nullable IProject project, String title, boolean allowExternalFiles,
+                               @Nullable Predicate<File> fileFilter, Future<List<Path>> autocompleteCandidates) {
         super(parent, title, true); // modal dialog
         assert autocompleteCandidates != null;
 
         // Configure the FileSelectionPanel
-        var panelConfig = new FileSelectionPanel.Config(
-                project,
-                allowExternalFiles,
-                fileFilter,
-                autocompleteCandidates,
-                false, // multiSelect = false
-                this::handlePanelSingleFileConfirmed, // Action for double-click confirm from panel
-                true, // includeProjectFilesInAutocomplete
-                null  // customHintText
-        );
+        var panelConfig = new FileSelectionPanel.Config(project,
+                                                        allowExternalFiles,
+                                                        fileFilter,
+                                                        autocompleteCandidates,
+                                                        false, // multiSelect = false
+                                                        this::handlePanelSingleFileConfirmed,
+                                                        true, // includeProjectFilesInAutocomplete
+                                                        null);
         fileSelectionPanel = new FileSelectionPanel(panelConfig);
 
         JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
@@ -146,7 +142,7 @@ public class FileSelectionDialog extends JDialog {
         return confirmed;
     }
 
-    public BrokkFile getSelectedFile() {
+    public @Nullable BrokkFile getSelectedFile() {
         return selectedFile;
     }
 }

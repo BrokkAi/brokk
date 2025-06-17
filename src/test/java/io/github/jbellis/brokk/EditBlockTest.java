@@ -52,41 +52,13 @@ class EditBlockTest {
                 }
 
                 @Override
-                public void toolErrorRaw(String msg) {
+                public void toolError(String msg, String title) {
                 }
 
                 @Override
-                public void llmOutput(String token, ChatMessageType type) {
+                public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 }
             };
-        }
-    }
-
-    static class TestConsoleIO implements IConsoleIO {
-        private final StringBuilder outputLog = new StringBuilder();
-        private final StringBuilder errorLog = new StringBuilder();
-
-        @Override
-        public void actionOutput(String text) {
-            outputLog.append(text).append("\n");
-        }
-
-        @Override
-        public void toolErrorRaw(String msg) {
-            errorLog.append(msg).append("\n");
-        }
-
-        @Override
-        public void llmOutput(String token, ChatMessageType type) {
-            // not needed for these tests
-        }
-
-        public String getOutputLog() {
-            return outputLog.toString();
-        }
-
-        public String getErrorLog() {
-            return errorLog.toString();
         }
     }
 
@@ -589,6 +561,81 @@ class EditBlockTest {
         // Assert that the file content remains unchanged
         String finalContent = Files.readString(existingFile);
         assertEquals(initialContent, finalContent, "File content should remain unchanged after the failed edit");
+    }
+
+    @Test
+    void testExtractCodeWithEmbeddedBackticks() {
+        String textWithEmbeddedBackticks = """
+                                           Some intro.
+                                           ```java
+                                           public class Test {
+                                               String s = "```"; // Embedded backticks
+                                               /*
+                                                * Another ``` example
+                                                */
+                                           }
+                                           ```
+                                           Some outro.
+                                           """;
+        // Expected code includes content between "```java\n" and the next "\n```" (if present) or "```"
+        // The content itself ends with a newline if the closing ``` is on its own line.
+        String expectedCode = """
+                              public class Test {
+                                  String s = "```"; // Embedded backticks
+                                  /*
+                                   * Another ``` example
+                                   */
+                              }
+                              """; //This will have a trailing newline from the text block if not careful. Let's be precise.
+
+        String expectedCodePrecise = "public class Test {\n" +
+                                     "    String s = \"```\"; // Embedded backticks\n" +
+                                     "    /*\n" +
+                                     "     * Another ``` example\n" +
+                                     "     */\n" +
+                                     "}\n";
+
+        String actualCode = EditBlock.extractCodeFromTripleBackticks(textWithEmbeddedBackticks);
+        assertEquals(expectedCodePrecise, actualCode);
+    }
+
+    @Test
+    void testExtractCodeWithEmbeddedBackticksAndMultipleBlocks() {
+        // This test verifies the behavior when multiple blocks are present and the first has embedded backticks.
+        // The greedy (.*) will cause it to capture content until the *last* ``` in the input string
+        // if `extractCodeFromTripleBackticks` is fed the whole string.
+        String textWithMultipleBlocks = """
+                                        ```java
+                                        public class Test1 {
+                                            String s = "```"; // Embedded
+                                        }
+                                        ```
+                                        Some intermediate text.
+                                        ```python
+                                        print("Hello")
+                                        ```
+                                        """;
+        String expectedMergedCode = """
+                                    public class Test1 {
+                                        String s = "```"; // Embedded
+                                    }
+                                    ```
+                                    Some intermediate text.
+                                    ```python
+                                    print("Hello")
+                                    """; // This will have a trailing newline
+
+        String expectedMergedCodePrecise = "public class Test1 {\n" +
+                                           "    String s = \"```\"; // Embedded\n" +
+                                           "}\n" +
+                                           "```\n" +
+                                           "Some intermediate text.\n" +
+                                           "```python\n" +
+                                           "print(\"Hello\")\n";
+
+        String actualCode = EditBlock.extractCodeFromTripleBackticks(textWithMultipleBlocks);
+        assertEquals(expectedMergedCodePrecise, actualCode,
+                     "Greedy regex (.*) is expected to merge content if multiple blocks are present in the input string.");
     }
 
     // ----------------------------------------------------

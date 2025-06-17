@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Locale;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
     Path absPath();
@@ -61,7 +62,7 @@ public interface BrokkFile extends Comparable<BrokkFile> {
         int lastDot = filename.lastIndexOf('.');
         // Ensure dot is not the first character and is not the last character
         if (lastDot > 0 && lastDot < filename.length() - 1) {
-            return filename.substring(lastDot + 1).toLowerCase();
+            return filename.substring(lastDot + 1).toLowerCase(Locale.ROOT);
         }
         return ""; // No extension found or invalid placement
     }

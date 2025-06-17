@@ -14,6 +14,7 @@ import java.util.Map;
 
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import org.jetbrains.annotations.Nullable;
 
 public class JMHighlighter implements Highlighter, ThemeAware {
 
@@ -26,11 +27,12 @@ public class JMHighlighter implements Highlighter, ThemeAware {
 
     // Stores highlights mapped by their layers
     private final Map<Integer, List<Highlight>> highlights = new HashMap<>();
-    private JTextComponent component; // The associated text component
+    private @Nullable JTextComponent component; // The associated text component
 
     /**
      * Installs the highlighter into a JTextComponent.
      */
+    @Override
     public void install(JTextComponent c) {
         component = c;
         removeAllHighlights();
@@ -39,6 +41,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Uninstalls the highlighter from the JTextComponent.
      */
+    @Override
     public void deinstall(JTextComponent c) {
         component = null; // Unbind from the text component
     }
@@ -46,6 +49,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Paints the highlights on the associated text component.
      */
+    @Override
     public void paint(Graphics g) {
         if (component == null) return;
 
@@ -88,6 +92,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Adds a highlight to the highest priority layer.
      */
+    @Override
     public Object addHighlight(int p0, int p1, HighlightPainter painter) throws BadLocationException {
         return addHighlight(UPPER_LAYER, p0, p1, painter);
     }
@@ -107,6 +112,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Removes a highlight from the highest priority layer.
      */
+    @Override
     public void removeHighlight(Object highlight) {
         removeHighlight(UPPER_LAYER, highlight);
     }
@@ -130,6 +136,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Removes all highlights from all layers.
      */
+    @Override
     public void removeAllHighlights() {
         highlights.clear();
         repaint();
@@ -138,10 +145,10 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Updates the position of an existing highlight.
      */
+    @Override
     public void changeHighlight(Object highlight, int p0, int p1) throws BadLocationException {
-        if (!(highlight instanceof HighlightInfo)) return;
+        if (!(highlight instanceof HighlightInfo hli)) return;
 
-        HighlightInfo hli = (HighlightInfo) highlight;
         Document doc = component.getDocument();
         hli.p0 = doc.createPosition(p0);
         hli.p1 = doc.createPosition(p1);
@@ -151,6 +158,7 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     /**
      * Retrieves all active highlights.
      */
+    @Override
     public Highlight[] getHighlights() {
         return highlights.values().stream()
                 .flatMap(List::stream)
@@ -197,14 +205,17 @@ public class JMHighlighter implements Highlighter, ThemeAware {
             this.painter = painter;
         }
 
+        @Override
         public int getStartOffset() {
             return p0.getOffset();
         }
 
+        @Override
         public int getEndOffset() {
             return p1.getOffset();
         }
 
+        @Override
         public HighlightPainter getPainter() {
             return painter;
         }

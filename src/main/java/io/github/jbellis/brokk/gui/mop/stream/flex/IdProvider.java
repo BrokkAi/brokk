@@ -2,8 +2,6 @@ package io.github.jbellis.brokk.gui.mop.stream.flex;
 
 import com.vladsch.flexmark.util.ast.Node;
 import com.vladsch.flexmark.util.data.DataKey;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Provides stable, deterministic IDs for markdown blocks.
@@ -13,7 +11,7 @@ import org.apache.logging.log4j.Logger;
  * content hasn't changed.
  */
 public class IdProvider {
-    private static final Logger logger = LogManager.getLogger(IdProvider.class);
+    // logger field removed as it was unused
     
     /**
      * DataKey for storing/retrieving the IdProvider from Flexmark's parser context.

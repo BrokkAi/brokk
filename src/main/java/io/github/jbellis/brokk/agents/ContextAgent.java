@@ -425,8 +425,7 @@ public class ContextAgent {
         var combinedStream = Stream.concat(skeletonFragments.stream(), pathFragments.stream());
         // deduplicate for Quick context
         if (!deepScan) {
-            var project = contextManager.getProject();
-            var existingFiles = contextManager.topContext().allFragments()
+            var existingFiles = contextManager.liveContext().allFragments()
                     .flatMap(f -> f.files().stream()) 
                     .collect(Collectors.toSet());
             combinedStream = combinedStream
@@ -805,9 +804,8 @@ public class ContextAgent {
                     .toList();
             // Need to filter here too for quick mode if skipping LLM
             if (!deepScan) {
-                 var project = contextManager.getProject();
-                 var existingFiles = contextManager.topContext().allFragments()
-                         .flatMap(f -> f.files().stream()) 
+                 var existingFiles = contextManager.liveContext().allFragments()
+                         .flatMap(f -> f.files().stream())
                          .collect(Collectors.toSet());
                  fragments = fragments.stream()
                          .filter(frag -> {

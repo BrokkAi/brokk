@@ -82,7 +82,7 @@ public class Llm {
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
         // Create task directory name for this specific LLM interaction
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
+        var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
         var taskDirName = String.format("%s %s", timestamp, taskDesc);
         this.taskHistoryDir = historyBaseDir.resolve(taskDirName);
@@ -185,7 +185,7 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.toolErrorRaw("LLM error: " + th.getMessage()); // Immediate feedback for user
+                    io.toolError("LLM error: " + th.getMessage()); // Immediate feedback for user
                     errorRef.set(th);
                     
                     // Update cost tracking with estimates
@@ -198,15 +198,21 @@ public class Llm {
 
         try {
             if (!latch.await(Service.LLM_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                lock.lock();
-                cancelled.set(true); // Ensure callback stops echoing
-                lock.unlock();
+                lock.lock(); // LockNotBeforeTry
+                try {
+                    cancelled.set(true); // Ensure callback stops echoing
+                } finally {
+                    lock.unlock();
+                }
                 errorRef.set(new HttpException(500, "LLM timed out"));
             }
         } catch (InterruptedException e) {
-            lock.lock();
-            cancelled.set(true); // Ensure callback stops echoing
-            lock.unlock();
+            lock.lock(); // LockNotBeforeTry
+            try {
+                cancelled.set(true); // Ensure callback stops echoing
+            } finally {
+                lock.unlock();
+            }
             throw e; // Propagate interruption
         }
 
@@ -321,7 +327,7 @@ public class Llm {
 
             response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
             var cr = response.chatResponse;
-            boolean isEmpty = cr == null || (Messages.getText(cr.aiMessage()).isEmpty()) && !cr.aiMessage().hasToolExecutionRequests();
+            boolean isEmpty = cr == null || (Messages.getText(cr.aiMessage()).isEmpty() && !cr.aiMessage().hasToolExecutionRequests()); // Parenthesize for clarity
             lastError = response.error;
             if (!isEmpty && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -346,7 +352,7 @@ public class Llm {
             if (backoffSeconds > 1) {
                 io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
             } else {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts, backoffSeconds));
+                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
             while (System.currentTimeMillis() < endTime) {
@@ -546,7 +552,7 @@ public class Llm {
      */
     static List<ChatMessage> emulateToolExecutionResults(List<ChatMessage> originalMessages) {
         var processedMessages = new ArrayList<ChatMessage>();
-        var pendingTerms = new ArrayList<ToolExecutionResultMessage>();
+        var pendingTerms = new ArrayList<ToolExecutionResultMessage>(); // Keep as ArrayList for internal modification
         for (var msg : originalMessages) {
             if (msg instanceof ToolExecutionResultMessage term) {
                 // Collect consecutive tool results to group together
@@ -593,7 +599,7 @@ public class Llm {
         return processedMessages;
     }
 
-    private static @NotNull String formatToolResults(ArrayList<ToolExecutionResultMessage> pendingTerms) {
+    private static @NotNull String formatToolResults(List<ToolExecutionResultMessage> pendingTerms) { // Changed parameter to List
         return pendingTerms.stream()
                 .map(tr -> """
                         <toolcall id="%s" name="%s">
@@ -800,7 +806,7 @@ public class Llm {
             // Extract text between fences, removing potential language identifier and trimming whitespace
             String fencedText = rawText.substring(firstFence + 3, lastFence).strip();
             // Handle optional language identifier like "json"
-            if (fencedText.toLowerCase().startsWith("json")) {
+            if (com.google.common.base.Ascii.toLowerCase(fencedText).startsWith("json")) {
                 fencedText = fencedText.substring(4).stripLeading();
             }
 
@@ -991,7 +997,7 @@ public class Llm {
             return;
         }
         try {
-            var timestamp = LocalDateTime.now(); // timestamp finished, not started
+            var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
 
             var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getService().nameOf(model),
                                                                         TaskEntry.formatMessages(request.messages()));
