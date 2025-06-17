@@ -15,7 +15,7 @@ import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
-import io.github.jbellis.brokk.gui.search.MarkdownOutputPanelSearchableComponent;
+import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -695,7 +695,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
-        var searchableComponent = new MarkdownOutputPanelSearchableComponent(markdownPanels);
+        var searchableComponent = new MarkdownSearchableComponent(markdownPanels);
         var searchBar = new GenericSearchBar(searchableComponent);
         componentsWithChatBackground.add(searchBar);
 

@@ -195,7 +195,7 @@ public class GenericSearchBar extends JPanel {
         targetComponent.highlightAll(query, caseSensitiveButton.isSelected());
 
         // For async components, the scrolling to first match will happen in the callback
-        // when the search completes (see onSearchComplete and MarkdownOutputPanelSearchableComponent.handleSearchComplete)
+        // when the search completes (see onSearchComplete and MarkdownSearchableComponent.handleSearchComplete)
     }
 
     /**

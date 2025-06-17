@@ -16,7 +16,7 @@ public class Colors {
 
     // Search colors (currently theme-independent)
     public static final Color SEARCH = Color.yellow;
-    public static final Color CURRENT_SEARCH = Color.yellow.darker();
+    public static final Color CURRENT_SEARCH = new Color(255, 165, 0); // Orange
 
     // --- Theme-aware Getters ---
 

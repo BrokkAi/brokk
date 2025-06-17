@@ -63,6 +63,13 @@ public interface SearchableComponent {
         default void onSearchError(String error) {
             // Default implementation does nothing - components can override for error handling
         }
+        
+        /**
+         * Called when a search operation starts.
+         */
+        default void onSearchStart() {
+            // Default implementation does nothing - components can override for start notifications
+        }
     }
 
     /**
@@ -83,8 +90,8 @@ public interface SearchableComponent {
      */
     default void notifySearchStart(String searchText) {
         var callback = getSearchCompleteCallback();
-        if (callback != null) {
-            callback.onSearchComplete(0, 0); // Immediate feedback with no matches initially
+        if (callback != null && searchText != null && !searchText.isEmpty()) {
+            callback.onSearchStart();
         }
     }
 
