@@ -458,7 +458,8 @@ public class GitLogTab extends JPanel {
                 } else {
                     // Normal branch handling
                     commits = getRepo().listCommitsDetailed(branchName);
-                    var isLocalBranch = branchName.equals(getRepo().getCurrentBranch()) || !branchName.contains("/");
+                    var localBranches = getRepo().listLocalBranches();
+                    var isLocalBranch = localBranches.contains(branchName);
                     if (isLocalBranch) {
                         canPull = getRepo().hasUpstreamBranch(branchName);
                         try {
@@ -498,7 +499,8 @@ public class GitLogTab extends JPanel {
     private void checkoutBranch(String branchName) {
         contextManager.submitUserTask("Checking out branch: " + branchName, () -> {
             try {
-                if (branchName.startsWith("origin/") || branchName.contains("/")) {
+                if (!getRepo().listLocalBranches().contains(branchName)) {
+                    // If it's not a known local branch, assume it's remote or needs tracking.
                     getRepo().checkoutRemoteBranch(branchName);
                     chrome.systemOutput("Created local tracking branch for " + branchName);
                 } else {
