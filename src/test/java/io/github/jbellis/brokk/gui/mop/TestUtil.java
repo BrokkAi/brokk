@@ -17,6 +17,7 @@ public final class TestUtil {
      * @param md Markdown text to parse
      * @return List of ComponentData objects parsed from the markdown
      */
+    @SuppressWarnings("unchecked")
     public static List<ComponentData> parseMarkdown(String md) {
         try {
             var renderer = new IncrementalBlockRenderer(false);
@@ -31,14 +32,15 @@ public final class TestUtil {
             throw new RuntimeException("Failed to parse markdown via reflection", e);
         }
     }
-    
+
     /**
      * Convert HTML to a list of ComponentData objects using reflection.
      * Useful for testing the direct HTML parsing path.
-     * 
+     *
      * @param html HTML string to parse
      * @return List of ComponentData objects parsed from the HTML
      */
+    @SuppressWarnings("unchecked")
     public static List<ComponentData> parseHtml(String html) {
         try {
             var renderer = new IncrementalBlockRenderer(false);
