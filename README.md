@@ -59,6 +59,7 @@ reasoning about your code.  This is the row of blue filenames you see below the 
 - Code: Tells the LLM you want code generation or modification.
 - Ask: Ask a question referencing the current context.
 - Search: Invokes a specialized agent that looks through your codebase for answers NOT in your current context.
+- Deep Scan: Recommends relevant source files to add to the Workspace to accomplish the given task.
 - Run in Shell: Executes any shell command, streaming the output into the Output Panel.
 - Stop: Cancels the currently running LLM or shell command.
 
