@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.search;
 
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
@@ -160,7 +161,7 @@ public class RTextAreaSearchableComponent implements SearchableComponent {
     @Override
     public void centerCaretInView() {
         try {
-            var matchRect = textArea.modelToView(textArea.getCaretPosition());
+            var matchRect = SwingUtil.modelToView(textArea, textArea.getCaretPosition());
             var viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
             if (viewport != null && matchRect != null) {
                 // Calculate the target Y position (1/3 from the top)
