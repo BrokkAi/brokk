@@ -88,7 +88,7 @@ public class CreatePullRequestDialog extends JDialog {
                                    Chrome chrome,
                                    ContextManager contextManager,
                                    String preselectedSourceBranch) {
-        super(owner, "Create a Pull Request", true);
+        super(owner, "Create a Pull Request", false);
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.preselectedSourceBranch = preselectedSourceBranch;
