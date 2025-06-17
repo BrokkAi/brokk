@@ -3,7 +3,9 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -19,6 +21,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.io.IOException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -150,6 +153,10 @@ public class GitCommitTab extends JPanel {
         var viewHistoryItem = new JMenuItem("View History"); // Declare the variable
         uncommittedContextMenu.add(viewHistoryItem);
 
+        // Add "Rollback Changes" item
+        var rollbackChangesItem = new JMenuItem("Rollback Changes");
+        uncommittedContextMenu.add(rollbackChangesItem);
+
         // Select row under right-click
         uncommittedContextMenu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
             @Override
@@ -168,7 +175,7 @@ public class GitCommitTab extends JPanel {
                         rightClickedFile = null;
                     }
                     // Update menu items
-                    updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem);
+                    updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem, rollbackChangesItem);
                 });
             }
 
@@ -207,10 +214,16 @@ public class GitCommitTab extends JPanel {
             }
         });
 
+        // Add action listener for the rollback changes item
+        rollbackChangesItem.addActionListener(e -> {
+            var selectedFiles = getSelectedFilesFromTable();
+            rollbackChangesWithUndo(selectedFiles);
+        });
+
         // Selection => update context menu item states
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem);
+                updateUncommittedContextMenuState(captureDiffItem, viewDiffItem, editFileItem, viewHistoryItem, rollbackChangesItem);
             }
         });
 
@@ -315,7 +328,7 @@ public class GitCommitTab extends JPanel {
                     }
                     SwingUtilities.invokeLater(() -> {
                         try {
-                            String shortHash = getRepo().getCurrentCommitId().substring(0, 7);
+                            String shortHash = GitUiUtil.shortenCommitId(getRepo().getCurrentCommitId());
                             String firstLine = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
                             chrome.systemOutput("Committed " + shortHash + ": " + firstLine);
                         } catch (Exception ex) {
@@ -494,7 +507,7 @@ public class GitCommitTab extends JPanel {
      * Updates the enabled state of context menu items for the uncommitted files table
      * based on the current selection.
      */
-    private void updateUncommittedContextMenuState(JMenuItem captureDiffItem, JMenuItem viewDiffItem, JMenuItem editFileItem, JMenuItem viewHistoryItem) {
+    private void updateUncommittedContextMenuState(JMenuItem captureDiffItem, JMenuItem viewDiffItem, JMenuItem editFileItem, JMenuItem viewHistoryItem, JMenuItem rollbackChangesItem) {
         int[] selectedRows = uncommittedFilesTable.getSelectedRows();
         int selectionCount = selectedRows.length;
 
@@ -508,6 +521,8 @@ public class GitCommitTab extends JPanel {
             editFileItem.setToolTipText("Select file(s) to edit");
             viewHistoryItem.setEnabled(false);
             viewHistoryItem.setToolTipText("Select a single existing file to view its history");
+            rollbackChangesItem.setEnabled(false);
+            rollbackChangesItem.setToolTipText("Select file(s) to rollback changes");
         } else if (selectionCount == 1) {
             // Exactly one file selected
             captureDiffItem.setEnabled(true);
@@ -530,6 +545,10 @@ public class GitCommitTab extends JPanel {
             viewHistoryItem.setToolTipText(isNew ?
                                            "Cannot view history for a new file" :
                                            "View commit history for this file");
+
+            // Enable Rollback Changes for all files
+            rollbackChangesItem.setEnabled(true);
+            rollbackChangesItem.setToolTipText("Rollback changes to HEAD state");
         } else { // More than one file selected
             captureDiffItem.setEnabled(true);
             captureDiffItem.setToolTipText("Capture diff of selected files to context");
@@ -541,6 +560,9 @@ public class GitCommitTab extends JPanel {
 
             viewHistoryItem.setEnabled(false); // Disable View History for multiple files
             viewHistoryItem.setToolTipText("Select a single existing file to view its history");
+
+            rollbackChangesItem.setEnabled(true); // Enable Rollback Changes for multiple files
+            rollbackChangesItem.setToolTipText("Rollback changes to HEAD state for selected files");
         }
     }
 
@@ -655,10 +677,72 @@ public class GitCommitTab extends JPanel {
     }
 
     /**
+     * Rollback selected files to their HEAD state with undo support via ContextHistory.
+     * Snapshots the workspace before rollback to enable undo.
+     */
+    private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
+        if (selectedFiles.isEmpty()) {
+            chrome.toolError("No files selected for rollback");
+            return;
+        }
+
+        contextManager.submitUserTask("Rolling back files", () -> {
+            try {
+                // Add files to context first (this ensures they can be restored)
+                contextManager.editFiles(selectedFiles);
+                // Capture original file contents for the task history
+                var originalContents = new HashMap<ProjectFile, String>();
+                for (var file : selectedFiles) {
+                    try {
+                        originalContents.put(file, file.read());
+                    } catch (IOException e) {
+                        logger.warn("Could not read original content of {}: {}", file, e.getMessage());
+                    }
+                }
+
+                // Take a snapshot of the current state before rollback
+                var frozen = contextManager.liveContext().freezeAndCleanup();
+                contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+
+                // Perform the actual rollback
+                logger.debug("Rolling back {} files to HEAD", selectedFiles.size());
+                getRepo().checkoutFilesFromCommit("HEAD", selectedFiles);
+
+                // Create a task result for the activity history
+                String fileList = GitUiUtil.formatFileList(selectedFiles);
+                var rollbackDescription = "Rollback " + fileList + " to HEAD";
+                var taskResult = new TaskResult(
+                    rollbackDescription,
+                    new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                    originalContents,
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
+                );
+                contextManager.addToHistory(taskResult, false);
+
+                // Update UI on EDT
+                SwingUtilities.invokeLater(() -> {
+                    String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
+                    chrome.systemOutput(successMessage);
+                    updateCommitPanel();
+                    gitPanel.updateLogTab();
+                });
+
+            } catch (Exception ex) {
+                logger.error("Error rolling back files:", ex);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Error rolling back files: " + ex.getMessage()));
+            }
+        });
+    }
+
+    /**
      * Performs the actual stash operation and updates the UI.
      */
     private void performStash(List<ProjectFile> selectedFiles, String stashDescription) throws GitAPIException {
         assert !SwingUtilities.isEventDispatchThread();
+
+        // Take a snapshot before mutating the working tree so the user can undo the stash
+        var frozen = contextManager.liveContext().freezeAndCleanup();
+        contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
 
         if (selectedFiles.isEmpty()) {
             getRepo().createStash(stashDescription);
@@ -669,9 +753,7 @@ public class GitCommitTab extends JPanel {
             if (selectedFiles.isEmpty()) {
                 chrome.systemOutput("All changes stashed successfully: " + stashDescription);
             } else {
-                String fileList = selectedFiles.size() <= 3
-                                  ? selectedFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
-                                  : selectedFiles.size() + " files";
+                String fileList = GitUiUtil.formatFileList(selectedFiles);
                 chrome.systemOutput("Stashed " + fileList + ": " + stashDescription);
             }
             commitMessageArea.setText("");

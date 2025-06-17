@@ -93,20 +93,20 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             if (repo.resolve(sha) != null) {
                 return true; // already present
             }
-            logger.debug("SHA {} not found locally - fetching {} from {}", sha.substring(0, 7), refSpec, remoteName);
+            logger.debug("SHA {} not found locally - fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
             repo.getGit().fetch()
                     .setRemote(remoteName)
                     .setRefSpecs(new RefSpec(refSpec))
                     .call();
             boolean resolved = repo.resolve(sha) != null;
             if (!resolved) {
-                logger.warn("Failed to resolve SHA {} even after fetching {} from {}", sha.substring(0, 7), refSpec, remoteName);
+                logger.warn("Failed to resolve SHA {} even after fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
             } else {
-                logger.debug("Successfully fetched SHA {}", sha.substring(0, 7));
+                logger.debug("Successfully fetched SHA {}", GitUiUtil.shortenCommitId(sha));
             }
             return resolved;
         } catch (Exception e) {
-            logger.warn("Error fetching ref '{}' for SHA {}: {}", refSpec, sha.substring(0, 7), e.getMessage());
+            logger.warn("Error fetching ref '{}' for SHA {}: {}", refSpec, GitUiUtil.shortenCommitId(sha), e.getMessage());
             return false;
         }
     }
@@ -950,7 +950,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             String headBranchFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
                             ensureShaIsLocal(repo, headSha, headBranchFetchRef, "origin");
                         } else {
-                             logger.warn("PR #{} head {} is from a fork, advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, headSha.substring(0,7));
+                             logger.warn("PR #{} head {} is from a fork, advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, GitUiUtil.shortenCommitId(headSha));
                              // For simplicity, we are not handling complex fork remote setups here.
                              // Checkout logic has more complete fork handling.
                         }
@@ -970,7 +970,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                 .collect(Collectors.toList());
                         fetchedFilesMap.put(prNumber, changedFiles);
                     } else {
-                        logger.warn("Could not resolve head ({}) or base ({}) SHA for PR #{} to list files.", headSha.substring(0,7), baseSha.substring(0,7), prNumber);
+                        logger.warn("Could not resolve head ({}) or base ({}) SHA for PR #{} to list files.", GitUiUtil.shortenCommitId(headSha), GitUiUtil.shortenCommitId(baseSha), prNumber);
                         fetchedFilesMap.put(prNumber, List.of("Error: Could not resolve SHAs locally."));
                     }
                 } catch (Exception e) {
@@ -1186,7 +1186,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 // Ensure PR head ref is fetched
                 String headFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
                 if (!ensureShaIsLocal(repo, prHeadSha, headFetchRef, "origin")) {
-                    throw new IOException("Failed to fetch PR head " + prHeadSha.substring(0, 7) + " for PR #" + pr.getNumber());
+                    throw new IOException("Failed to fetch PR head " + GitUiUtil.shortenCommitId(prHeadSha) + " for PR #" + pr.getNumber());
                 }
 
                 // Ensure base branch ref is fetched (to make prBaseSha available)
@@ -1197,18 +1197,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                      // For diffing, having the exact prBaseSha is crucial.
                      // A more robust solution might fetch the SHA directly if `refs/pull/N/base` was available or by depth.
                      logger.warn("PR #{} base SHA {} still not found locally after fetching branch {}. Diff might be incorrect.",
-                                 pr.getNumber(), prBaseSha.substring(0, 7), baseRemoteRef);
+                                 pr.getNumber(), GitUiUtil.shortenCommitId(prBaseSha), baseRemoteRef);
                      // Attempting to proceed, showDiff might handle it or use a less accurate base.
                 }
 
                 String diff = repo.showDiff(prHeadSha, prBaseSha);
                 if (diff.isEmpty()) {
-                    chrome.systemOutput("No differences found between PR #" + pr.getNumber() + " (head: " + prHeadSha.substring(0, 7) +
-                                                ") and its base " + baseBranchName + "@(" + prBaseSha.substring(0, 7) + ")");
+                    chrome.systemOutput("No differences found between PR #" + pr.getNumber() + " (head: " + GitUiUtil.shortenCommitId(prHeadSha) +
+                                                ") and its base " + baseBranchName + "@(" + GitUiUtil.shortenCommitId(prBaseSha) + ")");
                     return;
                 }
 
-                String description = "PR #" + pr.getNumber() + " (" + pr.getTitle() + ") diff vs " + baseBranchName + "@{" + prBaseSha.substring(0, 7) + "}";
+                String description = "PR #" + pr.getNumber() + " (" + pr.getTitle() + ") diff vs " + baseBranchName + "@{" + GitUiUtil.shortenCommitId(prBaseSha) + "}";
 
                 // Determine syntax style from changed files in the PR
                 String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;

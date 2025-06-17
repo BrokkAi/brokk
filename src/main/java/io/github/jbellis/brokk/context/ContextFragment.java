@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.gui.GitUiUtil;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
@@ -345,7 +346,7 @@ record GitFileFragment(ProjectFile file, String revision, String content, String
     public GitFileFragment(ProjectFile file, String revision, String content) {
         this(file, revision, content, FragmentUtils.calculateContentHash(
                 FragmentType.GIT_FILE,
-                String.format("%s @%s", file.getFileName(), revision.length() > 7 ? revision.substring(0, 7) : revision), // description for hash
+                String.format("%s @%s", file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
                 content, // text content for hash
                 FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
                 GitFileFragment.class.getName() // original class name for hash
@@ -378,7 +379,7 @@ record GitFileFragment(ProjectFile file, String revision, String content, String
         }
 
         private String shortRevision() {
-            return (revision.length() > 7) ? revision.substring(0, 7) : revision;
+            return GitUiUtil.shortenCommitId(revision);
         }
 
         @Override
