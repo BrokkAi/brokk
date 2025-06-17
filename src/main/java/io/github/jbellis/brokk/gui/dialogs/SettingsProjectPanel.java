@@ -90,9 +90,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private JTextField jiraBaseUrlField;
     private JPasswordField jiraApiTokenField;
     private JButton testJiraConnectionButton;
-
     private final JPanel bannerPanel;
-
 
     public SettingsProjectPanel(Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -450,7 +448,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private void testJiraConnectionAction() {
         String baseUrl = jiraBaseUrlField.getText().trim();
         String token = new String(jiraApiTokenField.getPassword()).trim();
-        String projectKey = jiraProjectKeyField.getText().trim();
 
         if (baseUrl.isEmpty() || token.isEmpty()) {
             JOptionPane.showMessageDialog(SettingsProjectPanel.this,
@@ -460,9 +457,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         IProject tempProject = new IProject() {
-            @Override public String getJiraBaseUrl() { return baseUrl; }
-            @Override public String getJiraApiToken() { return token; }
-            @Override public String getJiraProjectKey() { return projectKey; }
             @Override public Path getRoot() { return Path.of("."); } // Dummy
         };
 
