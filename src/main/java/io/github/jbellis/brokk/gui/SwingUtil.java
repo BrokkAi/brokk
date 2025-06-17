@@ -5,7 +5,9 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.Component;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.JTextComponent;
+import java.awt.*;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
@@ -119,6 +121,19 @@ public class SwingUtil {
         // If all else fails, create a simple colored rectangle as last resort
         logger.warn("No UI icons available, creating simple fallback for key '{}'", iconKey);
         return createSimpleFallbackIcon();
+    }
+
+    /**
+     * Replacement for the deprecated {@code JTextComponent.modelToView(int)}.
+     */
+    public static Rectangle modelToView(JTextComponent comp, int pos) throws BadLocationException {
+        var r2d = comp.modelToView2D(pos);
+        return r2d == null
+               ? null
+               : new Rectangle((int) r2d.getX(),
+                               (int) r2d.getY(),
+                               (int) r2d.getWidth(),
+                               (int) r2d.getHeight());
     }
 
     private static Icon createSimpleFallbackIcon() {

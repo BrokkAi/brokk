@@ -4,6 +4,7 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.text.BadLocationException;
@@ -169,7 +170,7 @@ public class ScrollSynchronizer
         // We shift p.y by half the viewport height to approximate center
         p.y += (viewport.getSize().height / 2);
 
-        int offset = editor.viewToModel(p);
+        int offset = editor.viewToModel2D(p);
         var bd = fp.getBufferDocument();
         return bd == null ? 0 : bd.getLineForOffset(offset);
     }
@@ -187,7 +188,7 @@ public class ScrollSynchronizer
         var viewport = fp.getScrollPane().getViewport();
         var editor = fp.getEditor();
         try {
-            var rect = editor.modelToView(offset);
+            var rect = SwingUtil.modelToView(editor, offset);
             if (rect == null) return;
 
             // We want to place the line near the center

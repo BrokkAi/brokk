@@ -28,6 +28,7 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import java.awt.*;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
@@ -488,7 +489,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     try {
                         editor.setCaretPosition(offset);
                         // Scroll to make the caret visible
-                        Rectangle rect = editor.modelToView(offset);
+                        Rectangle rect = SwingUtil.modelToView(editor, offset);
                         if (rect != null) {
                             editor.scrollRectToVisible(rect);
                         }
