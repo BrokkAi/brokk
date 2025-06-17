@@ -134,6 +134,7 @@ public final class FList<E> extends AbstractList<E> {
         return result;
     }
 
+    @SuppressWarnings("unchecked")
     public static <E> FList<E> emptyList() {
         //noinspection unchecked
         return (FList<E>)EMPTY_LIST;
