@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 
 import javax.swing.*;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import javax.swing.text.BadLocationException;
@@ -449,14 +450,14 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
         // Ensure endOffset is not before startOffset
         endOffset = Math.max(startOffset, endOffset);
 
-        Rectangle startViewRect = editor.modelToView(startOffset);
-        Rectangle endViewRect = editor.modelToView(endOffset);
+        Rectangle startViewRect = SwingUtil.modelToView(editor, startOffset);
+        Rectangle endViewRect = SwingUtil.modelToView(editor, endOffset);
 
         // Handle cases where modelToView might fail or return null
         if (startViewRect == null) {
             // Try getting view rect for the line before if possible
             if (startLine > 0) {
-                startViewRect = editor.modelToView(bd.getOffsetForLine(startLine - 1));
+                startViewRect = SwingUtil.modelToView(editor, bd.getOffsetForLine(startLine - 1));
                 if (startViewRect != null) {
                     // Estimate position based on previous line
                     startViewRect.y += startViewRect.height;

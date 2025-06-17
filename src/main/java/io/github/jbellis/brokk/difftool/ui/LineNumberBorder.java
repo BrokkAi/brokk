@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.text.BadLocationException;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.*;
 
 /**
@@ -114,8 +115,8 @@ public class LineNumberBorder extends EmptyBorder {
             startLine = textArea.getLineOfOffset(startOffset);
             endLine = textArea.getLineOfOffset(endOffset);
 
-            // Get the pixel coordinates of the first visible line
-            r1 = textArea.modelToView(startOffset);
+            // Get the pixel coordinates of the first visible line (modern API)
+            r1 = SwingUtil.modelToView(textArea, startOffset);
             y = r1.y;
             lineHeight = r1.height;
             heightCorrection = (lineHeight - fontHeight) / 2;

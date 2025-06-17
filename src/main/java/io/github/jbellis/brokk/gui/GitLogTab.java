@@ -316,7 +316,7 @@ public class GitLogTab extends JPanel {
 
                 var labelParts = new ArrayList<String>();
                 if (selectedRows.length == 1) {
-                    labelParts.add(getShortId(allSelectedCommitsFlat.getFirst().id()));
+                    labelParts.add(GitUiUtil.shortenCommitId(allSelectedCommitsFlat.getFirst().id()));
                 } else { // selectedRows.length > 1
                     var contiguousRowIndexGroups = new ArrayList<List<Integer>>();
                     var currentGroup = new ArrayList<Integer>();
@@ -335,13 +335,13 @@ public class GitLogTab extends JPanel {
 
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
                         ICommitInfo firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), 5);
-                        String firstShortId = getShortId(firstCommitInGroup.id());
+                        String firstShortId = GitUiUtil.shortenCommitId(firstCommitInGroup.id());
 
                         if (rowIndexGroup.size() == 1) {
                             labelParts.add(firstShortId);
                         } else {
                             ICommitInfo lastCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getLast(), 5);
-                            String lastShortId = getShortId(lastCommitInGroup.id());
+                            String lastShortId = GitUiUtil.shortenCommitId(lastCommitInGroup.id());
                             labelParts.add(String.format("%s..%s", firstShortId, lastShortId));
                         }
                     }
@@ -615,7 +615,7 @@ public class GitLogTab extends JPanel {
         createBranchFromCommitItem.addActionListener(e -> {
             int[] selectedRows = commitsTable.getSelectedRows();
             ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5);
-            promptToCreateBranchFromCommit(commitInfo.id(), getShortId(commitInfo.id()));
+            promptToCreateBranchFromCommit(commitInfo.id(), GitUiUtil.shortenCommitId(commitInfo.id()));
         });
 
         // The duplicated old mouse listener and action listener code has been removed.
@@ -682,9 +682,12 @@ public class GitLogTab extends JPanel {
         JMenuItem viewHistoryItem = new JMenuItem("View History");
         JMenuItem editFileItem = new JMenuItem("Edit File(s)");
         JMenuItem comparePrevWithLocalItem = new JMenuItem("Compare Previous with Local");
+        JMenuItem rollbackFilesItem = new JMenuItem("Rollback Files to This Commit");
 
         changesContextMenu.add(addFileToContextItem);
         changesContextMenu.add(editFileItem);
+        changesContextMenu.addSeparator();
+        changesContextMenu.add(rollbackFilesItem);
         changesContextMenu.addSeparator();
         changesContextMenu.add(viewHistoryItem);
         changesContextMenu.addSeparator();
@@ -722,6 +725,7 @@ public class GitLogTab extends JPanel {
                     viewHistoryItem.setEnabled(singleFileSelected);
                     addFileToContextItem.setEnabled(hasFileSelection);
                     editFileItem.setEnabled(hasFileSelection);
+                    rollbackFilesItem.setEnabled(hasFileSelection && isSingleCommit);
                     viewFileAtRevisionItem.setEnabled(singleFileSelected && isSingleCommit);
                     viewDiffItem.setEnabled(singleFileSelected && isSingleCommit);
                     compareFileWithLocalItem.setEnabled(singleFileSelected && isSingleCommit);
@@ -844,6 +848,25 @@ public class GitLogTab extends JPanel {
                 var selectedFiles = getSelectedFilePaths(paths);
                 for (var fp : selectedFiles) {
                     GitUiUtil.editFile(contextManager, fp);
+                }
+            }
+        });
+        rollbackFilesItem.addActionListener(e -> {
+            TreePath[] paths = changesTree.getSelectionPaths();
+            int[] selRows = commitsTable.getSelectedRows();
+            if (paths != null && paths.length > 0 && selRows.length == 1) {
+                List<String> selectedFilePaths = getSelectedFilePaths(paths);
+                if (!selectedFilePaths.isEmpty()) {
+                    // Get CommitInfo from hidden column 5
+                    ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selRows[0], 5);
+                    String commitId = commitInfo.id();
+                    
+                    // Convert file paths to ProjectFile objects
+                    List<ProjectFile> projectFiles = selectedFilePaths.stream()
+                            .map(fp -> new ProjectFile(contextManager.getRoot(), fp))
+                            .toList();
+                    
+                    GitUiUtil.rollbackFilesToCommit(contextManager, chrome, commitId, projectFiles);
                 }
             }
         });
@@ -1357,8 +1380,8 @@ public class GitLogTab extends JPanel {
             try {
                 getRepo().softReset(commitId);
                 SwingUtilities.invokeLater(() -> {
-                    String oldHeadShort = oldHeadId.length() >= 7 ? oldHeadId.substring(0, 7) : oldHeadId;
-                    String newHeadShort = commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+                    String oldHeadShort = GitUiUtil.shortenCommitId(oldHeadId);
+                    String newHeadShort = GitUiUtil.shortenCommitId(commitId);
                     chrome.systemOutput("Soft reset from " + oldHeadShort + " to " + newHeadShort + ": " + commitMessage);
 
                     // Refresh uncommitted files or anything else if needed
@@ -1728,9 +1751,6 @@ public class GitLogTab extends JPanel {
     // Helper methods
     // ==================================================================
 
-    private String getShortId(String commitId) {
-        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
-    }
 
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
@@ -1953,7 +1973,7 @@ public class GitLogTab extends JPanel {
         }
 
         // If not found in the current view, let the user know
-        chrome.systemOutput("Commit " + commitId.substring(0, 7) + " not found in current branch view");
+        chrome.systemOutput("Commit " + GitUiUtil.shortenCommitId(commitId) + " not found in current branch view");
     }
 
     private String performBasicBranchNameSanitization(String proposedName) {

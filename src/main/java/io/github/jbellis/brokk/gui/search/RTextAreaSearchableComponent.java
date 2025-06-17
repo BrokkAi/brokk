@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.search;
 
 import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
@@ -144,7 +145,7 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     @Override
     public void centerCaretInView() {
         try {
-            var matchRect = textArea.modelToView2D(textArea.getCaretPosition()).getBounds();
+            var matchRect = SwingUtil.modelToView(textArea, textArea.getCaretPosition());
             var viewport = ScrollingUtils.findParentViewport(textArea);
             if (viewport != null && matchRect != null) {
                 ScrollingUtils.centerRectInViewport(viewport, matchRect, 0.33);

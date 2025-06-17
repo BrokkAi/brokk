@@ -12,6 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+
+import io.github.jbellis.brokk.gui.GitWorktreeTab;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -20,71 +25,71 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 public class GitRepoTest {
     private Path projectRoot;
     private GitRepo repo;
-    
+
     @TempDir
     Path tempDir;
-    
+
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
         Files.createDirectories(projectRoot);
-        
+
         try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
             // Create an initial commit
             Path readme = projectRoot.resolve("README.md");
             Files.writeString(readme, "Initial commit file.");
             git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").setAuthor("Test User", "test@example.com").call();
+            git.commit().setMessage("Initial commit").setAuthor("Test User", "test@example.com").setSign(false).call();
         }
-        
+
         repo = new GitRepo(projectRoot);
     }
-    
+
     @AfterEach
     void tearDown() throws Exception {
         if (repo != null) {
             repo.close();
         }
     }
-    
+
     @Test
     void testRepositoryInitialization() throws Exception {
         Assertions.assertNotNull(repo);
         Assertions.assertTrue(Files.exists(projectRoot.resolve(".git")));
         Assertions.assertEquals(projectRoot.toAbsolutePath().normalize(), repo.getGitTopLevel());
     }
-    
+
     @Test
     void testSupportsWorktrees_gitAvailable() {
-        // This test assumes that the 'git' command-line executable is available 
+        // This test assumes that the 'git' command-line executable is available
         // in the environment where the tests are run.
-        Assertions.assertTrue(repo.supportsWorktrees(), 
+        Assertions.assertTrue(repo.supportsWorktrees(),
             "supportsWorktrees() should return true if git executable is available. " +
             "If this test fails, ensure 'git' is in the PATH or the method logic is broken.");
     }
-    
+
     @Test
     void testListWorktrees_afterInitialCommit() throws Exception {
         if (!repo.supportsWorktrees()) {
             System.out.println("Skipping testListWorktrees_afterInitialCommit as worktrees not supported.");
             return;
         }
-        
+
         List<IGitRepo.WorktreeInfo> worktrees = repo.listWorktrees();
         Assertions.assertEquals(1, worktrees.size());
-        
+
         var worktreeInfo = worktrees.get(0);
         Assertions.assertEquals(projectRoot.toRealPath(), worktreeInfo.path());
-        
+
         String expectedBranch = repo.getCurrentBranch();
         Assertions.assertEquals(expectedBranch, worktreeInfo.branch());
-        
+
         String expectedCommitId = repo.getCurrentCommitId();
         Assertions.assertNotNull(expectedCommitId);
         Assertions.assertFalse(expectedCommitId.isEmpty());
         Assertions.assertEquals(expectedCommitId, worktreeInfo.commitId());
     }
-    
+
     @Test
     void testAddAndListWorktree() throws Exception {
         if (!repo.supportsWorktrees()) {
@@ -117,7 +122,7 @@ public class GitRepoTest {
         String expectedCommitId = repo.getCurrentCommitId();
         Assertions.assertEquals(expectedCommitId, addedWorktree.commitId(), "Commit ID of the new worktree is incorrect.");
     }
-    
+
     @Test
     void testRemoveWorktree() throws Exception {
         if (!repo.supportsWorktrees()) {
@@ -353,7 +358,7 @@ public class GitRepoTest {
         String sanitized = repo.sanitizeBranchName(proposedName);
         assertEquals("another-branch-3", sanitized);
     }
-    
+
     @Test
     void testSanitizeBranchName_emptyAfterSanitization() throws Exception {
         String proposedName = "!@#$%^";
@@ -595,6 +600,153 @@ public class GitRepoTest {
         String result = repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitWorktreeTab.MergeMode.MERGE_COMMIT);
         assertNotNull(result);
         assertTrue(result.contains("Target branch 'nonexistent-target' could not be resolved"));
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit() throws Exception {
+        // Create test files with initial content
+        Path file1 = projectRoot.resolve("file1.txt");
+        Path file2 = projectRoot.resolve("file2.txt");
+        Path file3 = projectRoot.resolve("file3.txt");
+
+        Files.writeString(file1, "Initial content 1");
+        Files.writeString(file2, "Initial content 2");
+        Files.writeString(file3, "Initial content 3");
+
+        // Add and commit initial state
+        repo.getGit().add().addFilepattern("file1.txt").addFilepattern("file2.txt").addFilepattern("file3.txt").call();
+        repo.getGit().commit().setMessage("Initial commit with 3 files").call();
+        String initialCommit = repo.getCurrentCommitId();
+
+        // Modify files and commit
+        Files.writeString(file1, "Modified content 1");
+        Files.writeString(file2, "Modified content 2");
+        Files.writeString(file3, "Modified content 3");
+
+        repo.getGit().add().addFilepattern(".").call();
+        repo.getGit().commit().setMessage("Modified all files").call();
+
+        // Verify files have modified content
+        assertEquals("Modified content 1", Files.readString(file1));
+        assertEquals("Modified content 2", Files.readString(file2));
+        assertEquals("Modified content 3", Files.readString(file3));
+
+        // Create ProjectFile objects for file1 and file2 only
+        List<ProjectFile> filesToRollback = List.of(
+            new ProjectFile(projectRoot, "file1.txt"),
+            new ProjectFile(projectRoot, "file2.txt")
+        );
+
+        // Checkout file1 and file2 from initial commit
+        repo.checkoutFilesFromCommit(initialCommit, filesToRollback);
+
+        // Verify file1 and file2 are restored to initial state
+        assertEquals("Initial content 1", Files.readString(file1));
+        assertEquals("Initial content 2", Files.readString(file2));
+
+        // Verify file3 remains modified (not included in checkout)
+        assertEquals("Modified content 3", Files.readString(file3));
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_InvalidCommit() throws Exception {
+        Path file1 = projectRoot.resolve("file1.txt");
+        Files.writeString(file1, "Some content");
+        repo.getGit().add().addFilepattern("file1.txt").call();
+        repo.getGit().commit().setMessage("Add file1").setSign(false).call();
+
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "file1.txt"));
+
+        assertThrows(Exception.class, () -> {
+            repo.checkoutFilesFromCommit("invalid-commit-id", files);
+        }, "Should throw exception for invalid commit ID");
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_EmptyFilesList() throws Exception {
+        assertThrows(IllegalArgumentException.class, () -> {
+            repo.checkoutFilesFromCommit("HEAD", List.of());
+        }, "Should throw IllegalArgumentException for empty files list");
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_NullFilesList() throws Exception {
+        assertThrows(IllegalArgumentException.class, () -> {
+            repo.checkoutFilesFromCommit("HEAD", null);
+        }, "Should throw IllegalArgumentException for null files list");
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_NonExistentFile() throws Exception {
+        // Create and commit a file
+        Path file1 = projectRoot.resolve("file1.txt");
+        Files.writeString(file1, "Initial content");
+        repo.getGit().add().addFilepattern("file1.txt").call();
+        repo.getGit().commit().setMessage("Add file1").setSign(false).call();
+        String firstCommit = repo.getCurrentCommitId();
+
+        // Delete the file and commit
+        Files.delete(file1);
+        repo.getGit().rm().addFilepattern("file1.txt").call();
+        repo.getGit().commit().setMessage("Delete file1").setSign(false).call();
+
+        // Try to checkout the deleted file from the first commit
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "file1.txt"));
+        repo.checkoutFilesFromCommit(firstCommit, files);
+
+        // Verify the file is restored
+        assertTrue(Files.exists(file1));
+        assertEquals("Initial content", Files.readString(file1));
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_FileInSubdirectory() throws Exception {
+        // Create file in subdirectory
+        Path subDir = projectRoot.resolve("src/main/java");
+        Files.createDirectories(subDir);
+        Path file = subDir.resolve("MyClass.java");
+        Files.writeString(file, "public class MyClass {}");
+
+        repo.getGit().add().addFilepattern("src/main/java/MyClass.java").call();
+        repo.getGit().commit().setMessage("Add MyClass").setSign(false).call();
+        String firstCommit = repo.getCurrentCommitId();
+
+        // Modify the file
+        Files.writeString(file, "public class MyClass { /* modified */ }");
+        repo.getGit().add().addFilepattern(".").call();
+        repo.getGit().commit().setMessage("Modify MyClass").setSign(false).call();
+
+        // Checkout from first commit
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "src/main/java/MyClass.java"));
+        repo.checkoutFilesFromCommit(firstCommit, files);
+
+        // Verify restoration
+        assertEquals("public class MyClass {}", Files.readString(file));
+    }
+
+    @Test
+    void testCheckoutFilesFromCommit_WithUnstagedChanges() throws Exception {
+        // Create and commit a file
+        Path file1 = projectRoot.resolve("file1.txt");
+        Files.writeString(file1, "Initial content");
+        repo.getGit().add().addFilepattern("file1.txt").call();
+        repo.getGit().commit().setMessage("Initial commit").setSign(false).call();
+        String initialCommit = repo.getCurrentCommitId();
+
+        // Make changes and commit
+        Files.writeString(file1, "Committed change");
+        repo.getGit().add().addFilepattern("file1.txt").call();
+        repo.getGit().commit().setMessage("Update file1").setSign(false).call();
+
+        // Make unstaged changes
+        Files.writeString(file1, "Unstaged change");
+
+        // Checkout from initial commit (should overwrite unstaged changes)
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "file1.txt"));
+        repo.checkoutFilesFromCommit(initialCommit, files);
+
+        // Verify file is restored to initial state
+        assertEquals("Initial content", Files.readString(file1));
     }
 
     @Test

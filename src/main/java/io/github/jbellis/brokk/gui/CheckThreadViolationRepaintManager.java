@@ -67,7 +67,7 @@ public class CheckThreadViolationRepaintManager extends RepaintManager {
                 {}
                 """.stripIndent(),
                 threadName,
-                Thread.currentThread().getId(),
+                Thread.currentThread().threadId(),
                 c.getClass().getName(),
                 c.isShowing(),
                 c.isDisplayable(),

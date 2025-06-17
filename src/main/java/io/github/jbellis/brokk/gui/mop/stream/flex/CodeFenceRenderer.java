@@ -19,7 +19,7 @@ public class CodeFenceRenderer implements NodeRenderer {
     private final IdProvider idProvider;
     
     public CodeFenceRenderer(DataHolder options) {
-        this.idProvider = options.get(IdProvider.ID_PROVIDER);
+        this.idProvider = IdProvider.ID_PROVIDER.get(options);
     }
     
     @Override

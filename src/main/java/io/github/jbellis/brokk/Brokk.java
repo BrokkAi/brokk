@@ -146,43 +146,58 @@ public class Brokk {
         return new ParsedArgs(noProjectFlag, noKeyFlag, projectPathArg);
     }
 
-    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, @Nullable Path initialDialogPath) {
+    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, @Nullable Path initialDialogPath)
+    {
         boolean keyIsValid = false;
         Path currentDialogPath = initialDialogPath;
 
+        // 1 – silent validation for an already-persisted key (unless --no-key).
         if (!noKeyFlag) {
-            String currentBrokkKey = MainProject.getBrokkKey();
-            if (!currentBrokkKey.isEmpty()) {
+            var existingKey = MainProject.getBrokkKey();
+            if (!existingKey.isEmpty()) {
                 try {
-                    Service.validateKey(currentBrokkKey);
+                    Service.validateKey(existingKey);
                     keyIsValid = true;
                 } catch (IOException e) {
-                    logger.warn("Network error validating existing Brokk key at startup. Assuming valid for now.", e);
-                    keyIsValid = true; // Allow offline use
-                    final Path finalCurrentDialogPath = currentDialogPath;
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(finalCurrentDialogPath != null ? findOpenProjectWindow(finalCurrentDialogPath).getFrame() : null,
-                                                                                  "Network error validating Brokk key. AI services may be unavailable.",
-                                                                                  "Network Validation Warning", JOptionPane.WARNING_MESSAGE));
+                    logger.warn("Network error validating existing Brokk key; assuming valid for now.", e);
+                    keyIsValid = true; // allow offline use
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+                                                                                   "Network error validating Brokk key. AI services may be unavailable.",
+                                                                                   "Network Validation Warning",
+                                                                                   JOptionPane.WARNING_MESSAGE));
                 } catch (IllegalArgumentException e) {
                     logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
                 }
             }
-        } else {
-            keyIsValid = true; // --no-key implies key is not needed for validation
         }
 
+        // 2 – interactive loop until we have a valid key.
         while (!keyIsValid) {
             SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-            final Path dialogPathForLambda = currentDialogPath; // Capture for lambda
-            Path newKeyPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), false, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_KEY_ONLY), null);
-            if (newKeyPath == null) { // User quit dialog
-                logger.info("Startup dialog (key entry) was closed. Shutting down.");
-                return new KeyValidationResult(false, dialogPathForLambda);
+
+            boolean haveProjectPath = currentDialogPath != null && isValidDirectory(currentDialogPath);
+            var dialogMode = haveProjectPath
+                             ? StartupDialog.DialogMode.REQUIRE_KEY_ONLY
+                             : StartupDialog.DialogMode.REQUIRE_BOTH;
+
+            final Path pathForDialog = currentDialogPath;    // capture for EDT lambda
+            Path projectPathFromDialog = SwingUtil.runOnEdt(
+                    () -> StartupDialog.showDialog(null,
+                                                   MainProject.getBrokkKey(),
+                                                   false,
+                                                   pathForDialog,
+                                                   dialogMode),
+                    null);
+
+            if (projectPathFromDialog == null) {             // user cancelled
+                logger.info("Startup dialog cancelled; shutting down.");
+                return new KeyValidationResult(false, pathForDialog);
             }
-            // Assume key was validated by dialog. If it returned a path, that's the new project context.
-            keyIsValid = true;
-            currentDialogPath = newKeyPath; // Update dialog path if user selected a project
+
+            keyIsValid = true;                               // dialog guarantees key validity
+            currentDialogPath = projectPathFromDialog;       // may be newly chosen
         }
+
         return new KeyValidationResult(true, currentDialogPath);
     }
 
@@ -819,5 +834,9 @@ public class Brokk {
                 }
             }, SwingUtilities::invokeLater);
         }
+    }
+
+    public static ConcurrentHashMap<Path, Chrome> getOpenProjectWindows() {
+        return openProjectWindows;
     }
 }
