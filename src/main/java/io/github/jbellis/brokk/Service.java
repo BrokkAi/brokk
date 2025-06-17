@@ -32,12 +32,8 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
-import static java.lang.Math.min;
-
-
 /**
  * Manages dynamically loaded models via LiteLLM.
- *
  * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
  * knows how to reload the Service.
  */
@@ -588,13 +584,6 @@ public final class Service {
     }
 
     /**
-     * Checks if the model supports reasoning effort by checking if "reasoning_effort"
-     * is listed in its "supported_openai_params" metadata.
-     *
-     * @param modelName The display name of the model (e.g., "gemini-2.5-pro").
-     * @return True if "reasoning_effort" is in "supported_openai_params", false otherwise.
-     */
-    /**
      * Returns true if the given model exposes the toggle to completely disable reasoning
      * (independent of the usual LOW/MEDIUM/HIGH levels).
      */
@@ -629,10 +618,12 @@ public final class Service {
             return false;
         }
 
-        //noinspection unchecked
-        var supportedParamsList = (List<String>) info.get("supported_openai_params");
-        return supportedParamsList.stream()
-                .anyMatch("reasoning_effort"::equals);
+        return switch (info.get("supported_openai_params")) {
+            case List<?> list -> list.stream()
+                                     .map(Object::toString)
+                                     .anyMatch("reasoning_effort"::equals);
+            case null, default -> false;
+        };
     }
 
     /**
@@ -860,10 +851,6 @@ public final class Service {
         }
     }
 
-    /**
-     * Stubbed Streaming model for when LLM is unavailable.
-     * Can remain static as it has no dependency on Models instance state.
-     */
     /**
      * Sends feedback supplied by the GUI dialog to Brokk’s backend.
      * Files are attached with the multipart field name "attachment".

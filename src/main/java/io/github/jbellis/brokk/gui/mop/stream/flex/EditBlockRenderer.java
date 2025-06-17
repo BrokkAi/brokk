@@ -22,7 +22,7 @@ public class EditBlockRenderer implements NodeRenderer {
     private final IdProvider idProvider;
     
     public EditBlockRenderer(DataHolder options) {
-        this.idProvider = options.get(IdProvider.ID_PROVIDER);
+        this.idProvider = IdProvider.ID_PROVIDER.get(options);
     }
     
     @Override

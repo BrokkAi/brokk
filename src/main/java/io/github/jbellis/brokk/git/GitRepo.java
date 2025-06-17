@@ -785,6 +785,33 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Checkout specific files from a commit, restoring them to their state at that commit.
+     * This is equivalent to `git checkout <commitId> -- <files>`
+     */
+    public void checkoutFilesFromCommit(String commitId, List<ProjectFile> files) throws GitAPIException {
+        if (files == null || files.isEmpty()) {
+            throw new IllegalArgumentException("No files specified for checkout");
+        }
+        
+        logger.debug("Checking out {} files from commit {}", files.size(), commitId);
+        
+        var checkoutCommand = git.checkout()
+                .setStartPoint(commitId);
+        
+        // Add each file path to the checkout command
+        for (ProjectFile file : files) {
+            var relativePath = file.toString();
+            checkoutCommand.addPath(relativePath);
+            logger.trace("Adding file to checkout: {}", relativePath);
+        }
+        
+        checkoutCommand.call();
+        refresh();
+        
+        logger.debug("Successfully checked out {} files from commit {}", files.size(), commitId);
+    }
+
+    /**
      * Get current branch name
      */
     public String getCurrentBranch() throws GitAPIException {

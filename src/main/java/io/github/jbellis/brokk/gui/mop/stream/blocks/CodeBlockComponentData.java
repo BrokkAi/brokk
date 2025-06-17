@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.mop.stream.blocks;
 
+import io.github.jbellis.brokk.difftool.ui.CompositeHighlighter;
+import io.github.jbellis.brokk.difftool.ui.JMHighlighter;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.mop.MessageBubble;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -60,6 +62,11 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
         } catch (IOException e) {
             logger.error("Failed to load theme", e);
         }
+
+        // Set up the composite highlighter to enable search highlighting
+        var jmHighlighter = new JMHighlighter();
+        var compositeHighlighter = new CompositeHighlighter(jmHighlighter);
+        codeArea.setHighlighter(compositeHighlighter);
 
         return codeArea;
     }

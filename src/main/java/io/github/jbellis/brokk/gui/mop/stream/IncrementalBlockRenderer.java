@@ -22,8 +22,10 @@ import org.jsoup.nodes.Node;
 
 import javax.swing.*;
 import java.awt.Component;
+import java.awt.Container;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -42,6 +44,20 @@ public final class IncrementalBlockRenderer {
     // The root panel that will contain all our content blocks
     private final JPanel root;
     private final boolean isDarkTheme;
+
+    /** Callback fired on EDT after each successful rendering pass. */
+    public interface RenderListener { void onRenderFinished(); }
+
+    private volatile RenderListener renderListener = null;
+
+    /**
+     * Register (or clear) a listener that will be invoked exactly once
+     * for every completed rendering pass.  Passing {@code null} removes
+     * any previously registered listener.
+     */
+    public void setRenderListener(RenderListener listener) {
+        this.renderListener = listener;
+    }
     
     // Flexmark parser components
     private final Parser parser;
@@ -267,6 +283,15 @@ public final class IncrementalBlockRenderer {
         Reconciler.reconcile(root, components, registry, isDarkTheme);
         // After components are (re)built update marker index
         rebuildMarkerIndex();
+
+        // Notify listener that rendering has finished
+        if (renderListener != null) {
+            try {
+                renderListener.onRenderFinished();
+            } catch (Exception e) {
+                logger.warn("RenderListener threw exception", e);
+            }
+        }
     }
 
     public String createHtml(CharSequence md) {
@@ -503,7 +528,7 @@ public final class IncrementalBlockRenderer {
                 }
             }
         }
-        if (c instanceof java.awt.Container container) {
+        if (c instanceof Container container) {
             for (var child : container.getComponents()) {
                 walkAndIndex(child);
             }
@@ -529,7 +554,7 @@ public final class IncrementalBlockRenderer {
     /**
      * Returns the Swing component that displays the given marker id, if any.
      */
-    public java.util.Optional<JComponent> findByMarkerId(int id) {
+    public Optional<JComponent> findByMarkerId(int id) {
         return Optional.ofNullable(markerIndex.get(id));
     }
 
@@ -576,6 +601,15 @@ public final class IncrementalBlockRenderer {
             }
             comp.revalidate();
             comp.repaint();
+
+            // Signal that this render pass (including marker-style changes) is finished
+            if (renderListener != null) {
+                try {
+                    renderListener.onRenderFinished();
+                } catch (Exception e) {
+                    logger.warn("RenderListener threw exception during updateMarkerStyle", e);
+                }
+            }
         } else {
         }
     }

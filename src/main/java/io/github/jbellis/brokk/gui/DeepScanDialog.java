@@ -301,9 +301,15 @@ class DeepScanDialog {
         } else {
             for (ContextFragment fragment : projectCodeFragments) {
                 JPanel row = createFragmentRow.apply(fragment, projectOptions);
-                JComboBox<String> comboBox = (JComboBox<String>) row.getComponent(1); // Assuming combo is the second component (EAST)
-                projectCodeComboboxMap.put(comboBox, fragment);
-                projectCodeSection.add(row);
+                Component comp = row.getComponent(1);
+                if (comp instanceof JComboBox<?> cb) {
+                    @SuppressWarnings("unchecked")
+                    var casted = (JComboBox<String>) cb;
+                    projectCodeComboboxMap.put(casted, fragment);
+                    projectCodeSection.add(row);
+                } else {
+                    throw new IllegalStateException("Expected JComboBox at index 1, got " + comp.getClass());
+                }
             }
         }
         // Wrap project code section in a scroll pane
@@ -329,9 +335,15 @@ class DeepScanDialog {
         } else {
             for (ContextFragment fragment : testCodeFragments) {
                 JPanel row = createFragmentRow.apply(fragment, testOptions);
-                JComboBox<String> comboBox = (JComboBox<String>) row.getComponent(1); // Assuming combo is the second component (EAST)
-                testCodeComboboxMap.put(comboBox, fragment);
-                testCodeSection.add(row);
+                Component comp = row.getComponent(1);
+                if (comp instanceof JComboBox<?> cb) {
+                    @SuppressWarnings("unchecked")
+                    var casted = (JComboBox<String>) cb;
+                    testCodeComboboxMap.put(casted, fragment);
+                    testCodeSection.add(row);
+                } else {
+                    throw new IllegalStateException("Expected JComboBox at index 1, got " + comp.getClass());
+                }
             }
         }
         // Wrap test code section in a scroll pane

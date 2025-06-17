@@ -15,7 +15,7 @@ import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
-import io.github.jbellis.brokk.gui.search.MarkdownOutputPanelSearchableComponent;
+import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -659,9 +659,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * This is shared functionality used by both preview windows and detached output windows.
      *
      * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
-     * @return A JPanel containing the search bar and content
+     * @param toolbarPanel Optional panel to add to the right of the search bar
+     * @return A JPanel containing the search bar, optional toolbar, and content
      */
-    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels) {
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
@@ -695,14 +696,31 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
-        var searchableComponent = new MarkdownOutputPanelSearchableComponent(markdownPanels);
+        var searchableComponent = new MarkdownSearchableComponent(markdownPanels);
         var searchBar = new GenericSearchBar(searchableComponent);
         componentsWithChatBackground.add(searchBar);
 
+        // Create top panel with search bar and optional toolbar
+        JPanel topPanel;
+        if (toolbarPanel != null) {
+            topPanel = new JPanel(new BorderLayout());
+            topPanel.add(searchBar, BorderLayout.CENTER);
+            topPanel.add(toolbarPanel, BorderLayout.EAST);
+            toolbarPanel.setBackground(markdownPanels.getFirst().getBackground());
+            componentsWithChatBackground.add(toolbarPanel);
+            topPanel.setBackground(markdownPanels.getFirst().getBackground());
+            componentsWithChatBackground.add(topPanel);
+        } else {
+            topPanel = searchBar;
+        }
+
         componentsWithChatBackground.forEach(c -> c.setBackground(markdownPanels.getFirst().getBackground()));
 
+        // Add 5px gap below the top panel
+        topPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
+    
         // Add components to content panel
-        contentPanel.add(searchBar, BorderLayout.NORTH);
+        contentPanel.add(topPanel, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
 
         // Register Ctrl/Cmd+F to focus search field
@@ -884,7 +902,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels);
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, null);
 
                 // When all panels are compacted, scroll to the top
                 CompletableFuture
