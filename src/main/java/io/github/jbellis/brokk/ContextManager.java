@@ -618,10 +618,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void editFiles(Collection<ProjectFile> files)
     {
-        var proposedEditableFragments = files.stream()
-                .map(pf -> new ContextFragment.ProjectPathFragment(pf, this)) // Pass IContextManager
-                .toList();
-        editFiles(proposedEditableFragments);
+        var filesByType = files.stream()
+                               .collect(Collectors.partitioningBy(BrokkFile::isText));
+
+        var textFiles = filesByType.get(true);
+        var binaryFiles = filesByType.get(false);
+
+        if (!textFiles.isEmpty()) {
+            var proposedEditableFragments = textFiles.stream()
+                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
+                    .toList();
+            this.editFiles(proposedEditableFragments);
+        }
+
+        if (!binaryFiles.isEmpty()) {
+            addReadOnlyFiles(binaryFiles);
+        }
     }
 
     private Context applyEditableFileChanges(Context currentLiveCtx, List<ContextFragment.ProjectPathFragment> fragmentsToAdd) {
@@ -648,6 +660,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Add the given files to editable.
      */
     public void editFiles(List<ContextFragment.ProjectPathFragment> fragments) {
+        assert fragments.stream().allMatch(ContextFragment.PathFragment::isText) : "Only text files can be made editable";
         pushContext(currentLiveCtx -> applyEditableFileChanges(currentLiveCtx, fragments));
         io.systemOutput("Edited " + joinForOutput(fragments));
     }
