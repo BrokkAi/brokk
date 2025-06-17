@@ -825,8 +825,28 @@ public class HistoryOutputPanel extends JPanel {
             outputPanel.setText(output);
             
             // Use shared utility method to create searchable content panel (without navigation for detached window)
-            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel));
+            JPanel searchableContentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel));
             
+            JPanel contentPanel = new JPanel(new BorderLayout());
+            contentPanel.add(searchableContentPanel, BorderLayout.CENTER);
+            
+            if (!isBlockingMode) {
+                JPanel capturePanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 5));
+                capturePanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+                
+                JButton captureButton = new JButton("Capture");
+                captureButton.setToolTipText("Add the output to context");
+                captureButton.addActionListener(e -> {
+                    parentPanel.contextManager.submitContextTask("Capturing output", () -> {
+                        parentPanel.contextManager.addVirtualFragment(output);
+                        parentPanel.chrome.systemOutput("Content captured from output window");
+                    });
+                });
+                capturePanel.add(captureButton);
+                
+                contentPanel.add(capturePanel, BorderLayout.SOUTH);
+            }
+
             // Add the content panel to the frame
             add(contentPanel);
             
