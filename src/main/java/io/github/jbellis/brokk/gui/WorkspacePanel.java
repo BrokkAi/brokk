@@ -31,6 +31,7 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -575,14 +576,14 @@ public class WorkspacePanel extends JPanel {
         setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "Workspace",
-                javax.swing.border.TitledBorder.DEFAULT_JUSTIFICATION,
-                javax.swing.border.TitledBorder.DEFAULT_POSITION,
+                TitledBorder.DEFAULT_JUSTIFICATION,
+                TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)
         ));
 
         buildContextPanel();
 
-        ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
+        safeGetLabel(0).setText(EMPTY_CONTEXT);
         setWorkspaceEditable(true); // Set initial state
     }
 
@@ -1023,7 +1024,17 @@ public class WorkspacePanel extends JPanel {
         tableModel.setRowCount(0);
 
         if (ctx == null || ctx.isEmpty()) {
-            ((JLabel) locSummaryPanel.getComponent(0)).setText(EMPTY_CONTEXT);
+            // Reset summary label
+            safeGetLabel(0).setText(EMPTY_CONTEXT);
+
+            // Clear and hide the cost label
+            var cost = safeGetLabel(1);
+            cost.setText(" ");
+            cost.setVisible(false);
+
+            // Remove any warning messages
+            warningPanel.removeAll();
+
             revalidate();
             repaint();
             return;
@@ -1068,8 +1079,8 @@ public class WorkspacePanel extends JPanel {
         }
 
         var approxTokens = Messages.getApproximateTokens(fullText.toString());
-        var innerLabel = (JLabel) locSummaryPanel.getComponent(0);
-        var costLabel = (JLabel) locSummaryPanel.getComponent(1);
+        var innerLabel = safeGetLabel(0);
+        var costLabel = safeGetLabel(1);
 
         // Check for context size warnings against configured models
         var models = contextManager.getService();
@@ -1275,7 +1286,7 @@ public class WorkspacePanel extends JPanel {
         if (selectedFragments.isEmpty()) {
             return new NoSelection();
         } else if (selectedFragments.size() == 1) {
-            return new SingleFragment(selectedFragments.get(0));
+            return new SingleFragment(selectedFragments.getFirst());
         } else {
             return new MultiFragment(selectedFragments);
         }
@@ -1798,6 +1809,17 @@ public class WorkspacePanel extends JPanel {
 
     private boolean isUrl(String text) {
         return text.matches("^https?://\\S+$");
+    }
+
+    /**
+     * Return the JLabel stored in {@code locSummaryPanel} at the given index or throw
+     */
+    private JLabel safeGetLabel(int index) {
+        return switch (locSummaryPanel.getComponent(index)) {
+            case JLabel lbl -> lbl;
+            default -> throw new IllegalStateException(
+                    "Expected JLabel at locSummaryPanel index " + index);
+        };
     }
 
     /**
