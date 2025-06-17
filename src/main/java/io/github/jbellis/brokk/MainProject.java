@@ -534,42 +534,6 @@ public final class MainProject extends AbstractProject {
     }
 
 
-    @Override
-    @Deprecated
-    public String getJiraProjectKey() {
-        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
-        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
-            return jiraConfig.projectKey();
-        }
-        return "";
-    }
-
-    @Override
-    @Deprecated
-    public void setJiraProjectKey(String projectKey) {
-        String trimmedValue = (projectKey == null) ? "" : projectKey.trim();
-        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
-        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
-            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
-            ? jc : null;
-
-        if (currentJiraConfig != null) { // Current provider is JIRA
-            if (!Objects.equals(trimmedValue, currentJiraConfig.projectKey())) {
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
-                    currentJiraConfig.baseUrl(), currentJiraConfig.apiToken(), trimmedValue);
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-        } else { // Current provider is NOT JIRA
-            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira project key
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig("", "", trimmedValue);
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-            // If trimmedValue is empty and current provider is not JIRA, do nothing.
-        }
-    }
-
     public void saveProjectProperties() {
         // Use AbstractProject's saveProperties for consistency if it were public static or passed instance
         // For now, keep local implementation matching AbstractProject's logic.
@@ -863,76 +827,6 @@ public final class MainProject extends AbstractProject {
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
-    }
-
-    @Override
-    @Deprecated
-    public String getJiraBaseUrl() {
-        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
-        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
-            return jiraConfig.baseUrl();
-        }
-        return "";
-    }
-
-    @Override
-    @Deprecated
-    public void setJiraBaseUrl(String baseUrl) {
-        String trimmedValue = (baseUrl == null) ? "" : baseUrl.trim();
-        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
-        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
-            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
-            ? jc : null;
-
-        if (currentJiraConfig != null) { // Current provider is JIRA
-            if (!Objects.equals(trimmedValue, currentJiraConfig.baseUrl())) {
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
-                    trimmedValue, currentJiraConfig.apiToken(), currentJiraConfig.projectKey());
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-        } else { // Current provider is NOT JIRA
-            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira base URL
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(trimmedValue, "", "");
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-        }
-    }
-
-    @Override
-    @Deprecated
-    public String getJiraApiToken() {
-        io.github.jbellis.brokk.IssueProvider provider = getIssuesProvider();
-        if (provider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-            provider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
-            return jiraConfig.apiToken();
-        }
-        return "";
-    }
-
-    @Override
-    @Deprecated
-    public void setJiraApiToken(String token) {
-        String trimmedValue = (token == null) ? "" : token.trim();
-        io.github.jbellis.brokk.IssueProvider currentProvider = getIssuesProvider();
-        io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig currentJiraConfig =
-            (currentProvider.type() == io.github.jbellis.brokk.issues.IssueProviderType.JIRA &&
-             currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jc)
-            ? jc : null;
-
-        if (currentJiraConfig != null) { // Current provider is JIRA
-            if (!Objects.equals(trimmedValue, currentJiraConfig.apiToken())) {
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig(
-                    currentJiraConfig.baseUrl(), trimmedValue, currentJiraConfig.projectKey());
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-        } else { // Current provider is NOT JIRA
-            if (!trimmedValue.isEmpty()) { // Trying to set a non-empty Jira API token
-                var newJiraConfig = new io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig("", trimmedValue, "");
-                setIssuesProvider(new io.github.jbellis.brokk.IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, newJiraConfig));
-            }
-        }
     }
 
     public static String getTheme() {
