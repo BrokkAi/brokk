@@ -608,14 +608,14 @@ public class GitLogTab extends JPanel {
         compareAllToLocalItem.addActionListener(e -> {
             int row = commitsTable.getSelectedRow();
             if (row == -1) return;
-            
+
             ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(row, 5);
             GitUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
         });
         createBranchFromCommitItem.addActionListener(e -> {
             int[] selectedRows = commitsTable.getSelectedRows();
             ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], 5);
-            promptToCreateBranchFromCommit(commitInfo.id(), getShortId(commitInfo.id()));
+            promptToCreateBranchFromCommit(commitInfo.id(), GitUiUtil.shortenCommitId(commitInfo.id()));
         });
 
         // The duplicated old mouse listener and action listener code has been removed.
