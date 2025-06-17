@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.MainProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,20 +71,26 @@ public class GuiTheme {
             // Apply theme to RSyntaxTextArea components
             applyThemeAsync(themeName);
 
-            // Update the UI
-            SwingUtilities.updateComponentTreeUI(frame);
-
-            // Update registered popup menus
-            for (JPopupMenu menu : popupMenus) {
-                SwingUtilities.updateComponentTreeUI(menu);
-            }
-
-            // Make sure scroll panes update properly
-            if (mainScrollPane != null) {
-                mainScrollPane.revalidate();
-            }
+            Brokk.getOpenProjectWindows()
+                    .values()
+                    .forEach(chrome -> chrome.getTheme().applyThemeToChromeComponents());
         } catch (Exception e) {
             chrome.toolError("Failed to switch theme: " + e.getMessage());
+        }
+    }
+
+    private void applyThemeToChromeComponents() {
+        // Update the UI
+        SwingUtilities.updateComponentTreeUI(frame);
+
+        // Update registered popup menus
+        for (JPopupMenu menu : popupMenus) {
+            SwingUtilities.updateComponentTreeUI(menu);
+        }
+
+        // Make sure scroll panes update properly
+        if (mainScrollPane != null) {
+            mainScrollPane.revalidate();
         }
     }
 
