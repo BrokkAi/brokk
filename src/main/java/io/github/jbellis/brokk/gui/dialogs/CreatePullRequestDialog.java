@@ -713,16 +713,21 @@ public class CreatePullRequestDialog extends JDialog {
 
             var finalDesc = desc;
             SwingUtilities.invokeLater(() -> {
-                descriptionArea.setText(finalDesc);
+                setTextAndResetCaret(descriptionArea, finalDesc);
                 // Now that description is set, launch title generation
                 if (!"".equals(finalDesc) && !"(generation failed)".equals(finalDesc)) {
                     spawnTitleWorker(finalDesc);
                 } else {
                     // If description failed or was cancelled, reflect that in title field too or clear it.
-                    titleField.setText("".equals(finalDesc) ? "" : "(title generation failed)");
+                    setTextAndResetCaret(titleField, "".equals(finalDesc) ? "" : "(title generation failed)");
                 }
             });
         }
+    }
+
+    private static void setTextAndResetCaret(javax.swing.text.JTextComponent textComponent, String text) {
+        textComponent.setText(text);
+        textComponent.setCaretPosition(0);
     }
 
     private void createPullRequest() {
@@ -815,8 +820,8 @@ public class CreatePullRequestDialog extends JDialog {
 
         // Optimistic placeholders while work runs
         SwingUtilities.invokeLater(() -> {
-            descriptionArea.setText("Generating description ...");
-            titleField.setText("Generating title ...");
+            setTextAndResetCaret(descriptionArea, "Generating description ...");
+            setTextAndResetCaret(titleField, "Generating title ...");
         });
 
         currentDescriptionWorker = new PrDescriptionWorker(contextManager, diffTxt);
@@ -847,7 +852,7 @@ public class CreatePullRequestDialog extends JDialog {
                     logger.warn("Title summarization worker failed to get result", e);
                 }
                 var finalTtl = ttl;
-                SwingUtilities.invokeLater(() -> titleField.setText(finalTtl));
+                SwingUtilities.invokeLater(() -> setTextAndResetCaret(titleField, finalTtl));
             }
         };
         currentTitleWorker.execute();
