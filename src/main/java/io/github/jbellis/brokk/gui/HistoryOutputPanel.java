@@ -721,9 +721,9 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Appends text to the LLM output area
      */
-    public void appendLlmOutput(String text, ChatMessageType type) {
-        llmStreamArea.append(text, type);
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().append(text, type));
+    public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage) {
+        llmStreamArea.append(text, type, isNewMessage);
+        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage));
     }
 
     /**

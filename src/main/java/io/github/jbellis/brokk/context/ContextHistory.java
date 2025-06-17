@@ -91,7 +91,9 @@ public class ContextHistory {
     }
 
     public synchronized UndoResult undo(int steps, IConsoleIO io) {
-        if (steps <= 0 || !hasUndoStates()) return UndoResult.none();
+        if (steps <= 0 || !hasUndoStates()) {
+            return UndoResult.none();
+        }
 
         var toUndo = Math.min(steps, history.size() - 1);
         for (int i = 0; i < toUndo; i++) {

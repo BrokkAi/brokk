@@ -46,6 +46,10 @@ public final class MainProject extends AbstractProject {
     // New key for the IssueProvider record as JSON
     private static final String ISSUES_PROVIDER_JSON_KEY = "issuesProviderJson";
 
+    // Keys for Architect Options persistence
+    private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
+    private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
+
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
     private static final String JIRA_PROJECT_BASE_URL_KEY = "jiraProjectBaseUrl";
@@ -820,6 +824,39 @@ public final class MainProject extends AbstractProject {
             } catch (Exception e) {
                 logger.error("Error notifying listener of GitHub token change", e);
             }
+        }
+    }
+
+    @Override
+    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+        String json = projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
+        if (json != null && !json.isBlank()) {
+            try {
+                return objectMapper.readValue(json, io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.class);
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to deserialize ArchitectOptions from JSON: {}. Returning defaults.", json, e);
+            }
+        }
+        return io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.DEFAULTS;
+    }
+
+    @Override
+    public boolean getArchitectRunInWorktree() {
+        return Boolean.parseBoolean(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
+    }
+
+    @Override
+    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        assert options != null;
+        try {
+            String json = objectMapper.writeValueAsString(options);
+            projectProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
+            projectProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
+            saveProjectProperties();
+            logger.debug("Saved Architect options and worktree preference to project properties.");
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize ArchitectOptions to JSON: {}. Settings not saved.", options, e);
+            // Not re-throwing as this is a preference, not critical state.
         }
     }
 

@@ -650,13 +650,6 @@ public final class Service {
             return null;
         }
 
-        // OpenAI says, "Your rate limit is calculated as the maximum of max_tokens
-        // and the estimated number of tokens based on the character count of your request.
-        // https://platform.openai.com/docs/guides/rate-limits
-        // We don't have a good way to predict output size, but almost all of them are lower than 32k,
-        // and CodeAgent can pick up an request that stopped early from the last edit block
-        var maxTokens = min(32768, getMaxOutputTokens(location));
-
         // We connect to LiteLLM using an OpenAiStreamingChatModel, specifying baseUrl
         // placeholder, LiteLLM manages actual keys
         String baseUrl = MainProject.getProxyUrl();
@@ -664,7 +657,7 @@ public final class Service {
                 .logRequests(true)
                 .logResponses(true)
                 .strictJsonSchema(true)
-                .maxTokens(maxTokens)
+                .maxTokens(getMaxOutputTokens(location))
                 .baseUrl(baseUrl)
                 .timeout(Duration.ofSeconds(LLM_TIMEOUT_SECONDS));
 

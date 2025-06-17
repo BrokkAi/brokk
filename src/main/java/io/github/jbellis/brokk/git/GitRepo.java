@@ -618,11 +618,35 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Creates a new branch from a specific commit.
+     * The newBranchName should ideally be the result of {@link #sanitizeBranchName(String)}
+     * to ensure it's valid and unique.
+     *
+     * @param newBranchName The name for the new branch.
+     * @param sourceCommitId The commit ID to base the new branch on.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void createBranchFromCommit(String newBranchName, String sourceCommitId) throws GitAPIException {
+        if (listLocalBranches().contains(newBranchName)) {
+            throw new GitStateException("Branch '" + newBranchName + "' already exists. Use sanitizeBranchName to get a unique name.");
+        }
+
+        logger.debug("Creating new branch '{}' from commit '{}'", newBranchName, sourceCommitId);
+        git.branchCreate()
+                .setName(newBranchName)
+                .setStartPoint(sourceCommitId) // JGit's setStartPoint can take a commit SHA
+                .call();
+        logger.debug("Successfully created branch '{}' from commit '{}'", newBranchName, sourceCommitId);
+
+        refresh();
+    }
+
+    /**
      * Create a new branch from an existing one and check it out
      */
     public void createAndCheckoutBranch(String newBranchName, String sourceBranchName) throws GitAPIException {
         if (listLocalBranches().contains(newBranchName)) {
-            throw new GitStateException("Branch '" + newBranchName + "' already exists");
+            throw new GitStateException("Branch '" + newBranchName + "' already exists. Use sanitizeBranchName to get a unique name.");
         }
 
         logger.debug("Creating new branch '{}' from '{}'", newBranchName, sourceBranchName);

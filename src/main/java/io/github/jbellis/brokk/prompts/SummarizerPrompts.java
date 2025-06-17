@@ -30,8 +30,8 @@ public class SummarizerPrompts {
            better than Augment Code.  Here are
            [Brokk's explanation of "how does bm25 search work?"](https://gist.github.com/jbellis/c2696f58f22a1c1a2aa450fdf45c21f4)
            in the [DataStax Cassandra repo](https://github.com/datastax/cassandra/) (a brand-new feature, not in anyone's training set), starting cold
-           with no context, compared to\s
-           [Claude Code's (probably the second-best code RAG out there)](https://github.com/user-attachments/assets/3f77ea58-9fe3-4eab-8698-ec4e20cf1974).  \s
+           with no context, compared to
+           [Claude Code's (probably the second-best code RAG out there)](https://github.com/user-attachments/assets/3f77ea58-9fe3-4eab-8698-ec4e20cf1974).
         1. Automatically determine the most-related classes to your working context and summarize them
         1. Parse a stacktrace and add source for all the methods to your context
         1. Add source for all the usages of a class, field, or method to your context

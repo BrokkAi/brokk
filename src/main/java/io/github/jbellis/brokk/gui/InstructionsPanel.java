@@ -62,6 +62,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.Toolkit;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 
@@ -74,6 +76,9 @@ import static io.github.jbellis.brokk.gui.Constants.*;
  */
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
+
+    private static Icon cachedSpinnerDark;
+    private static Icon cachedSpinnerLight;
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
@@ -347,6 +352,42 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public void actionPerformed(ActionEvent e) {
                 if (commandInputUndoManager.canRedo()) {
                     commandInputUndoManager.redo();
+                }
+            }
+        });
+
+        // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
+        // otherwise, use the default JTextArea paste behaviour.
+        var pasteKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V,
+                                                    java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        area.getInputMap().put(pasteKeyStroke, "smartPaste");
+        area.getActionMap().put("smartPaste", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                var clipboard  = Toolkit.getDefaultToolkit().getSystemClipboard();
+                var contents   = clipboard.getContents(null);
+                boolean imageHandled = false;
+
+                if (contents != null) {
+                    for (var flavor : contents.getTransferDataFlavors()) {
+                        try {
+                            if (flavor.equals(DataFlavor.imageFlavor)
+                                || flavor.isFlavorJavaFileListType()
+                                || flavor.getMimeType().startsWith("image/")) {
+                                // Re-use existing WorkspacePanel logic
+                                chrome.getContextPanel()
+                                      .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                                imageHandled = true;
+                                break;
+                            }
+                        } catch (Exception ex) {
+                            // Ignore and fall back to default paste handling
+                        }
+                    }
+                }
+
+                if (!imageHandled) {
+                    area.paste(); // Default text paste
                 }
             }
         });
@@ -995,14 +1036,32 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void triggerDeepScan(ActionEvent e) {
         var goal = getInstructions();
-        deepScanButton.setEnabled(false);
-        try {
-            DeepScanDialog.triggerDeepScan(chrome, goal);
-        } finally {
-            deepScanButton.setEnabled(true);
-            chrome.getContextManager().submitBackgroundTask("", this::checkBalanceAndNotify);
-            notifyActionComplete("Deep Scan");
+        if (contextManager == null || contextManager.getProject() == null) {
+            chrome.toolError("Deep Scan requires a project and ContextManager to be active.");
+            enableDeepScanButton(false);
+            return;
         }
+        disableDeepScanButton();
+
+        DeepScanDialog.triggerDeepScan(chrome, goal)
+            .whenComplete((v, throwable) -> {
+                // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
+                SwingUtilities.invokeLater(() -> {
+                    enableDeepScanButton(true);
+
+                    if (throwable != null) {
+                        if (throwable instanceof InterruptedException ||
+                            (throwable.getCause() instanceof InterruptedException)) {
+                            logger.info("Deep Scan analysis was cancelled or interrupted.");
+                        } else {
+                            logger.error("Deep Scan analysis failed.", throwable);
+                            chrome.toolError("Deep Scan analysis encountered an error: " + throwable.getMessage());
+                        }
+                    }
+                    this.contextManager.submitBackgroundTask("Post Deep Scan: Balance Check", this::checkBalanceAndNotify);
+                    notifyActionComplete("Deep Scan"); // General notification that the "Deep Scan" action initiated here has concluded its primary phase.
+                });
+            });
     }
 
     /**
@@ -1862,5 +1921,53 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.error("Error showing @ popup", ex);
             }
         }
+    }
+
+    private Icon getCachedSpinnerIcon() {
+        boolean isDark = chrome.themeManager.isDarkTheme();
+        Icon cachedIcon = isDark ? cachedSpinnerDark : cachedSpinnerLight;
+
+        if (cachedIcon == null) {
+            String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
+            var url = getClass().getResource(path);
+
+            if (url == null) {
+                logger.warn("Spinner icon resource not found: {}", path);
+                return null; // Or a default placeholder icon
+            }
+
+            ImageIcon originalIcon = new ImageIcon(url);
+            cachedIcon = new ImageIcon(originalIcon.getImage());
+
+            if (isDark) {
+                cachedSpinnerDark = cachedIcon;
+            } else {
+                cachedSpinnerLight = cachedIcon;
+            }
+        }
+        return cachedIcon;
+    }
+
+    private void disableDeepScanButton() {
+        SwingUtilities.invokeLater(() -> {
+            var spinner = getCachedSpinnerIcon();
+            deepScanButton.setIcon(spinner);
+            deepScanButton.setDisabledIcon(spinner); // Keep spinner visible when disabled
+            deepScanButton.setText("Scanning…");
+            deepScanButton.setToolTipText("Deep scan in progress...");
+            deepScanButton.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            deepScanButton.setEnabled(false);
+        });
+    }
+
+    private void enableDeepScanButton(boolean enable) {
+        SwingUtilities.invokeLater(() -> {
+            deepScanButton.setEnabled(enable);
+            deepScanButton.setIcon(null);
+            deepScanButton.setDisabledIcon(null);
+            deepScanButton.setText("Deep Scan");
+            deepScanButton.setToolTipText("Perform a deeper analysis (Code + Tests) to suggest relevant context");
+            deepScanButton.setCursor(Cursor.getDefaultCursor());
+        });
     }
 }

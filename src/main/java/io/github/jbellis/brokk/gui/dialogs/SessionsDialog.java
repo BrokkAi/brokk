@@ -142,7 +142,7 @@ public class SessionsDialog extends JDialog {
                     label.setText("");
                 } else {
                     label.setIcon(null);
-                    label.setText(value.toString());
+                    label.setText(value != null ? value.toString() : "");
                 }
                 label.setHorizontalAlignment(JLabel.CENTER);
 

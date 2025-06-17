@@ -199,7 +199,7 @@ public class WorkspaceTools {
             return "Fragment IDs list cannot be empty.";
         }
 
-        var currentContext = contextManager.topContext();
+        var currentContext = contextManager.liveContext();
         var allFragments = currentContext.getAllFragmentsInDisplayOrder();
         var idsToDropSet = new HashSet<>(fragmentIds);
 

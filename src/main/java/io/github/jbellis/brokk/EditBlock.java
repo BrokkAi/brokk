@@ -37,13 +37,14 @@ public class EditBlock {
      */
     public static String extractCodeFromTripleBackticks(String text) {
         // Pattern: ``` followed by optional non-newline chars, then newline, then capture until ```
+        // The (.*) is greedy to ensure embedded ``` within the block are treated as content.
         var matcher = Pattern.compile(
-                "```[^\\n]*\\n(.*?)```", // Skip first line, capture starting from the second
+                "```[^\\n]*\\n(.*)```", // Skips language specifier line; (.*) captures content greedily.
                 Pattern.DOTALL
         ).matcher(text);
 
         if (matcher.find()) {
-            // group(1) captures the content between the newline and the closing ```
+            // group(1) captures the content between the initial newline (after ```[lang]) and the closing ```
             return matcher.group(1);
         }
         return "";

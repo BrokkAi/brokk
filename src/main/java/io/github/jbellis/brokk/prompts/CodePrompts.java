@@ -322,7 +322,7 @@ public abstract class CodePrompts {
         var messages = new ArrayList<ChatMessage>();
 
         // 1. System Intro + Style Guide
-        messages.add(systemMessage(cm, ""));
+        messages.add(systemMessage(cm, LAZY_REMINDER));
         // 2. No examples provided for full-file replacement
 
         // 3. History Messages (provides conversational context)
@@ -381,7 +381,7 @@ public abstract class CodePrompts {
           <style_guide>
           %s
           </style_guide>
-          """.stripIndent().formatted(systemIntro(""), styleGuide).trim();
+          """.stripIndent().formatted(systemIntro(LAZY_REMINDER), styleGuide).trim();
         messages.add(new SystemMessage(text));
 
         // 2. Target File Content + Goal

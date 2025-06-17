@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
@@ -178,7 +179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 // pass
             }
         };
@@ -748,17 +749,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> undoContextAsync() {
         return submitUserTask("Undo", () -> {
-            UndoResult result = contextHistory.undo(1, io);
-            if (result.wasUndone()) {
-                // Update liveContext by unfreezing the new top of history
-                liveContext = Context.unfreeze(topContext());
-                notifyContextListeners(topContext());
-                project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
-                io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
+            if (undoContext()) {
+                io.systemOutput("Undid most recent step");
             } else {
-                io.systemOutput("no undo state available");
+                io.systemOutput("Nothing to undo");
             }
         });
+    }
+
+    public boolean undoContext() {
+        UndoResult result = contextHistory.undo(1, io);
+        if (result.wasUndone()) {
+            liveContext = Context.unfreeze(topContext());
+            notifyContextListeners(topContext());
+            project.saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -1591,6 +1599,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             project.saveBuildDetails(inferredDetails);
+
+            SwingUtilities.invokeLater(() -> {
+                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
+                dlg.getProjectPanel().showBuildBanner();
+            });
+
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
         });
