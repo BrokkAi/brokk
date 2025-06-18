@@ -75,6 +75,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private final Map<Integer, List<String>> prChangedFilesCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
+    private JTable prFilesTable;
+    private DefaultTableModel prFilesTableModel;
 
     private SwingWorker<Map<Integer, String>, Void> activeCiFetcher;
     private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
@@ -218,46 +220,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return String.class;
             }
         };
-        prTable = new JTable(prTableModel) {
-            @Override
-            public String getToolTipText(MouseEvent event) {
-                Point p = event.getPoint();
-                int viewRow = rowAtPoint(p);
-                if (viewRow >= 0 && viewRow < getRowCount()) {
-                    int modelRow = convertRowIndexToModel(viewRow);
-                    if (modelRow >= 0 && modelRow < prTableModel.getRowCount()) {
-                        Object prNumObj = prTableModel.getValueAt(modelRow, PR_COL_NUMBER);
-                        if (prNumObj instanceof String prNumStr && prNumStr.startsWith("#")) {
-                            try {
-                                int prNumber = Integer.parseInt(prNumStr.substring(1));
-                                List<String> files = prChangedFilesCache.get(prNumber);
-                                if (files != null) {
-                                    if (files.isEmpty()) {
-                                        return "No files changed in this PR.";
-                                    }
-                                    var tooltipBuilder = new StringBuilder("<html>Changed files:<br>");
-                                    List<String> filesToShow = files;
-                                    if (files.size() > MAX_TOOLTIP_FILES) {
-                                        filesToShow = files.subList(0, MAX_TOOLTIP_FILES);
-                                        tooltipBuilder.append(String.join("<br>", filesToShow));
-                                        tooltipBuilder.append("<br>...and ").append(files.size() - MAX_TOOLTIP_FILES).append(" more files.");
-                                    } else {
-                                        tooltipBuilder.append(String.join("<br>", filesToShow));
-                                    }
-                                    tooltipBuilder.append("</html>");
-                                    return tooltipBuilder.toString();
-                                } else {
-                                    return "Loading changed file list...";
-                                }
-                            } catch (NumberFormatException nfe) {
-                                logger.trace("Could not parse PR number from table for tooltip: {}", prNumObj, nfe);
-                            }
-                        }
-                    }
-                }
-                return super.getToolTipText(event); // Or null if no default tooltip behavior is desired
-            }
-        };
+        prTable = new JTable(prTableModel);
         prTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prTable.setRowHeight(18);
         prTable.getColumnModel().getColumn(PR_COL_NUMBER).setPreferredWidth(50);  // #
@@ -268,8 +231,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTable.getColumnModel().getColumn(PR_COL_FORK).setPreferredWidth(120); // Fork
         prTable.getColumnModel().getColumn(PR_COL_STATUS).setPreferredWidth(70);  // Status
 
-        // Ensure tooltips are enabled for the table
-        ToolTipManager.sharedInstance().registerComponent(prTable);
 
         prTableAndButtonsPanel.add(new JScrollPane(prTable), BorderLayout.CENTER);
 
@@ -308,9 +269,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER); // Add to centerContentPanel
         mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
 
-        // Right side - Commits in the selected PR
+        // Right side - Commits and Files in the selected PR
+        JPanel prCommitsAndFilesPanel = new JPanel(new BorderLayout());
+        prCommitsAndFilesPanel.setBorder(BorderFactory.createTitledBorder("Pull Request Details"));
+
+        // Create vertical split pane for commits (top) and files (bottom)
+        JSplitPane rightSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        rightSplitPane.setResizeWeight(0.5); // 50% for commits, 50% for files
+
+        // Commits panel
         JPanel prCommitsPanel = new JPanel(new BorderLayout());
-        prCommitsPanel.setBorder(BorderFactory.createTitledBorder("Commits in Pull Request"));
+        prCommitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
 
         prCommitsTableModel = new DefaultTableModel(new Object[]{"Message"}, 0) {
             @Override
@@ -377,6 +346,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return super.getToolTipText(event); // Or null
             }
         };
+        prCommitsTable.setTableHeader(null);
         prCommitsTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prCommitsTable.setRowHeight(18);
 
@@ -388,9 +358,38 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prCommitsPanel.add(new JScrollPane(prCommitsTable), BorderLayout.CENTER);
 
+        // Files panel
+        JPanel prFilesPanel = new JPanel(new BorderLayout());
+        prFilesPanel.setBorder(BorderFactory.createTitledBorder("Changed Files"));
+
+        prFilesTableModel = new DefaultTableModel(new Object[]{"File"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return String.class;
+            }
+        };
+        prFilesTable = new JTable(prFilesTableModel);
+        prFilesTable.setTableHeader(null);
+        prFilesTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        prFilesTable.setRowHeight(18);
+        prFilesTable.getColumnModel().getColumn(0).setPreferredWidth(400); // File
+
+        prFilesPanel.add(new JScrollPane(prFilesTable), BorderLayout.CENTER);
+
+        // Add panels to split pane
+        rightSplitPane.setTopComponent(prCommitsPanel);
+        rightSplitPane.setBottomComponent(prFilesPanel);
+
+        prCommitsAndFilesPanel.add(rightSplitPane, BorderLayout.CENTER);
+
         // Add the panels to the split pane
         splitPane.setLeftComponent(mainPrAreaPanel);
-        splitPane.setRightComponent(prCommitsPanel);
+        splitPane.setRightComponent(prCommitsAndFilesPanel);
 
         add(splitPane, BorderLayout.CENTER);
 
@@ -409,6 +408,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     GHPullRequest selectedPr = displayedPrs.get(modelRow);
                     int prNumber = selectedPr.getNumber();
                     updateCommitsForPullRequest(selectedPr);
+                    updateFilesForPullRequest(selectedPr);
 
                     // Temporarily set button state while loading
                     checkoutPrButton.setText("Loading...");
@@ -463,10 +463,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     diffPrButton.setEnabled(false);
                     openInBrowserButton.setEnabled(false);
                     prCommitsTableModel.setRowCount(0); // Clear commits table
+                    prFilesTableModel.setRowCount(0); // Clear files table
                     currentPrCommitDetailsList.clear();
                 }
             } else if (prTable.getSelectedRow() == -1) { // if selection is explicitly cleared
                  disablePrButtonsAndClearCommits();
+            }
+        });
+
+        // Add commit selection listener to update files table
+        prCommitsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateFilesForSelectedCommits();
             }
         });
 
@@ -543,6 +551,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         diffPrButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
         prCommitsTableModel.setRowCount(0);
+        prFilesTableModel.setRowCount(0);
         currentPrCommitDetailsList.clear();
     }
 
@@ -627,7 +636,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 prCommitsCache.clear(); // Clear commits cache for new PR list
                 // ciStatusCache is updated incrementally, not fully cleared here unless error
                 populateDynamicFilterChoices(allPrsFromApi);
-                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI and file fetching
+                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
             });
             return null;
         });
@@ -807,9 +816,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             prTable.getSelectionModel().setValueIsAdjusting(false);
         }
 
-        // Asynchronously fetch CI statuses and changed files for the displayed PRs
+        // Asynchronously fetch CI statuses for the displayed PRs
         fetchCiStatusesForDisplayedPrs();
-        fetchChangedFilesForDisplayedPrs();
     }
 
     private class CiStatusFetcherWorker extends SwingWorker<Map<Integer, String>, Void> {
@@ -1004,26 +1012,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
     }
 
-    private void fetchChangedFilesForDisplayedPrs() {
-        assert SwingUtilities.isEventDispatchThread();
-
-        // Fetch files for all displayed PRs where not already cached or cache has error markers
-        List<GHPullRequest> prsRequiringFileFetch = displayedPrs.stream()
-                .filter(pr -> !prChangedFilesCache.containsKey(pr.getNumber()) ||
-                               (prChangedFilesCache.get(pr.getNumber()) != null &&
-                                !prChangedFilesCache.get(pr.getNumber()).isEmpty() &&
-                                prChangedFilesCache.get(pr.getNumber()).getFirst().startsWith("Error:")))
-                .collect(Collectors.toList());
-
-
-        if (prsRequiringFileFetch.isEmpty()) return;
-
-        if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
-            activePrFilesFetcher.cancel(true);
-        }
-        activePrFilesFetcher = new PrFilesFetcherWorker(prsRequiringFileFetch, contextManager.getProject());
-        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
-    }
 
 
     private String getBaseFilterValue(String displayOptionWithCount) {
@@ -1109,6 +1097,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         }
 
+        // Show loading message immediately
+        currentPrCommitDetailsList.clear();
+        prCommitsTableModel.setRowCount(0);
+        prCommitsTableModel.addRow(new Object[]{"Loading commits..."});
+
         var future = contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
@@ -1141,16 +1134,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 prCommitsCache.put(prNumber, new ArrayList<>(newCommitList)); // Cache the successfully fetched commits (use a copy)
                 SwingUtilities.invokeLater(() -> {
-                    currentPrCommitDetailsList = newCommitList; // Assign the new list on EDT
-                    prCommitsTableModel.setRowCount(0);
-                    if (currentPrCommitDetailsList.isEmpty()) {
-                        prCommitsTableModel.addRow(new Object[]{"No commits found for PR #" + prNumber});
-                        return;
-                    }
-                    for (var commit : currentPrCommitDetailsList) {
-                        prCommitsTableModel.addRow(new Object[]{commit.message()});
-                    }
-                });
+                        currentPrCommitDetailsList = newCommitList; // Assign the new list on EDT
+                        prCommitsTableModel.setRowCount(0);
+                        if (currentPrCommitDetailsList.isEmpty()) {
+                            prCommitsTableModel.addRow(new Object[]{"No commits found for PR #" + prNumber});
+                            return;
+                        }
+                        for (var commit : currentPrCommitDetailsList) {
+                            prCommitsTableModel.addRow(new Object[]{commit.message()});
+                        }
+                        // Update files table since commits changed
+                        updateFilesForSelectedCommits();
+                    });
             } catch (Exception e) {
                 logger.error("Error fetching commits for PR #{}", prNumber, e);
                 // Cache the error indication
@@ -1162,6 +1157,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     currentPrCommitDetailsList.clear(); // Clear on EDT in case of error
                     prCommitsTableModel.setRowCount(0);
                     prCommitsTableModel.addRow(new Object[]{errorMsg});
+                    prFilesTableModel.setRowCount(0); // Clear files on error too
                 });
             }
             return null;
@@ -1389,5 +1385,108 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         org.kohsuke.github.GHPullRequest pr = displayedPrs.get(selectedRow);
         String url = pr.getHtmlUrl().toString();
         Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(chrome.getFrame()));
+    }
+
+    /**
+     * Updates the files table for the currently selected PR.
+     */
+    private void updateFilesForPullRequest(GHPullRequest selectedPr) {
+        int prNumber = selectedPr.getNumber();
+        List<String> files = prChangedFilesCache.get(prNumber);
+        
+        prFilesTableModel.setRowCount(0);
+        if (files == null) {
+            prFilesTableModel.addRow(new Object[]{"Loading changed files..."});
+            // Fetch files for this specific PR
+            fetchChangedFilesForSpecificPr(selectedPr);
+        } else if (files.isEmpty()) {
+            prFilesTableModel.addRow(new Object[]{"No files changed in this PR"});
+        } else {
+            for (String file : files) {
+                if (file.startsWith("Error:")) {
+                    prFilesTableModel.addRow(new Object[]{file});
+                } else {
+                    // Format as "<file name> - full file path"
+                    String fileName = file.substring(file.lastIndexOf('/') + 1);
+                    String displayText = fileName + " - " + file;
+                    prFilesTableModel.addRow(new Object[]{displayText});
+                }
+            }
+        }
+    }
+
+    /**
+     * Fetches changed files for a specific PR if not already cached.
+     */
+    private void fetchChangedFilesForSpecificPr(GHPullRequest pr) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Check if already cached or has error markers
+        List<String> cachedFiles = prChangedFilesCache.get(pr.getNumber());
+        if (cachedFiles != null && 
+            (cachedFiles.isEmpty() || !cachedFiles.getFirst().startsWith("Error:"))) {
+            return; // Already have valid data
+        }
+
+        if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+            activePrFilesFetcher.cancel(true);
+        }
+        
+        activePrFilesFetcher = new PrFilesFetcherWorker(List.of(pr), contextManager.getProject());
+        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
+    }
+
+    /**
+     * Updates the files table based on currently selected commits.
+     * If no commits are selected, shows all files in the PR.
+     * If commits are selected, shows only files changed in those commits.
+     */
+    private void updateFilesForSelectedCommits() {
+        int[] selectedCommitRows = prCommitsTable.getSelectedRows();
+        
+        prFilesTableModel.setRowCount(0);
+        
+        if (selectedCommitRows.length == 0) {
+            // No commits selected - show all PR files
+            int selectedPrRow = prTable.getSelectedRow();
+            if (selectedPrRow >= 0 && selectedPrRow < displayedPrs.size()) {
+                GHPullRequest selectedPr = displayedPrs.get(selectedPrRow);
+                updateFilesForPullRequest(selectedPr);
+            }
+        } else {
+            // Commits selected - show files from those commits
+            Set<String> allChangedFiles = new HashSet<>();
+            for (int row : selectedCommitRows) {
+                if (row < currentPrCommitDetailsList.size()) {
+                    ICommitInfo commitInfo = currentPrCommitDetailsList.get(row);
+                    try {
+                        var projectFiles = commitInfo.changedFiles();
+                        for (var file : projectFiles) {
+                            allChangedFiles.add(file.toString());
+                        }
+                    } catch (GitAPIException e) {
+                        logger.warn("Could not get changed files for commit {}: {}", commitInfo.id(), e.getMessage());
+                        allChangedFiles.add("Error loading files for commit " + commitInfo.id());
+                    }
+                }
+            }
+            
+            if (allChangedFiles.isEmpty()) {
+                prFilesTableModel.addRow(new Object[]{"No files changed in selected commits"});
+            } else {
+                var sortedFiles = new ArrayList<>(allChangedFiles);
+                Collections.sort(sortedFiles);
+                for (String file : sortedFiles) {
+                    if (file.startsWith("Error")) {
+                        prFilesTableModel.addRow(new Object[]{file});
+                    } else {
+                        // Format as "<file name> - full file path"
+                        String fileName = file.substring(file.lastIndexOf('/') + 1);
+                        String displayText = fileName + " - " + file;
+                        prFilesTableModel.addRow(new Object[]{displayText});
+                    }
+                }
+            }
+        }
     }
 }
