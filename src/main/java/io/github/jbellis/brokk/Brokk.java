@@ -286,6 +286,7 @@ public class Brokk {
     public static void main(String[] args) {
         logger.debug("Brokk starting");
         setupSystemPropertiesAndIcon();
+        MainProject.loadRecentProjects(); // Load and potentially clean recent projects list
         ParsedArgs parsedArgs = parseArguments(args);
 
         boolean isDark = MainProject.getTheme().equals("dark");
