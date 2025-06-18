@@ -324,6 +324,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void updateCommitRelatedUI(List<CommitInfo> newCommits, List<GitRepo.ModifiedFile> newFiles, String commitPanelMessage) {
+        Collections.reverse(newCommits);
         this.currentCommits = newCommits;
         commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
         if (fileStatusTable != null) {
