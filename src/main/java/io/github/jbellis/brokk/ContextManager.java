@@ -1176,14 +1176,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Redacts SEARCH/REPLACE blocks from an AiMessage.
-     * If the message contains S/R blocks, they are replaced with "[elided SEARCH/REPLACE block]".
+     * If the message contains S/R blocks, they are replaced with "[elided edits for file %s]".
      * If the message does not contain S/R blocks, or if the redacted text is blank, Optional.empty() is returned.
      *
      * @param aiMessage The AiMessage to process.
      * @param parser    The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
         // Pass an empty set for trackedFiles as it's not needed for redaction.
         var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
         // Check if there are actual S/R block objects, not just text parts
@@ -1198,10 +1198,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var sb = new StringBuilder();
             for (int i = 0; i < blocks.size(); i++) {
                 var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
+                EditBlock.SearchReplaceBlock block = ob.block();
+                if (block == null) { // Plain text part
                     sb.append(ob.text());
                 } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
+                    if (block.filename() == null) {
+                        sb.append("[elided edits]");
+                    } else {
+                        sb.append("[elided edits for file %s]".formatted(block.filename()));
+                    }
                     // If the next output block is also an S/R block, add a newline
                     if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
                         sb.append('\n');
@@ -1209,6 +1214,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             }
             String redactedText = sb.toString();
+            redactedText = redactedText
+                    .replace("SEARCH/REPLACE block", "edit")
+                    .replace("SEARCH/REPLACE blocks", "edits")
+                    .replace("*SEARCH/REPLACE* block", "edit")
+                    .replace("*SEARCH/REPLACE* blocks", "edits");
             return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
         }
     }
