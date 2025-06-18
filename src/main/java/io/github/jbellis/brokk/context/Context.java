@@ -33,6 +33,7 @@ public class Context {
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Welcome to Brokk";
     public static final String SUMMARIZING = "(Summarizing)";
+    public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
     final List<ContextFragment> editableFiles; // Can hold PathFragment or FrozenFragment
