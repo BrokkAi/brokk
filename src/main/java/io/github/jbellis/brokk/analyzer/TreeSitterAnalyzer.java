@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
@@ -1325,9 +1326,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
-    // Provide immediate children for the default IAnalyzer.getSymbols implementation
+    /**
+     * Returns the immediate children of the given CodeUnit based on TreeSitter parsing results.
+     * 
+     * <p>This implementation uses the pre-built {@code childrenByParent} map that was populated
+     * during AST parsing. The parent-child relationships are determined by the TreeSitter
+     * grammar and capture queries for the specific language.
+     */
     @Override
-    public List<CodeUnit> directChildren(CodeUnit cu) {
+    public @NotNull List<CodeUnit> directChildren(CodeUnit cu) {
         return childrenByParent.getOrDefault(cu, List.of());
     }
 

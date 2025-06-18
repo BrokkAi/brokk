@@ -52,6 +52,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   private var adjacency: Map[String, Map[String, Int]] = Map.empty
   private var reverseAdjacency: Map[String, Map[String, Int]] = Map.empty
   private var classesForPagerank: Set[String] = Set.empty
+
+  // Cache for directChildren to avoid expensive CPG queries
+  private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
+
   initializePageRank()
 
   /**
@@ -1167,13 +1171,32 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   override def close(): Unit = cpg.close()
 
   /**
-   * Provide immediate children for the default IAnalyzer.getSymbols implementation.
+   * Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
+   *
+   * This implementation queries the Code Property Graph (CPG) to find parent-child
+   * relationships between code elements. The relationships are determined by the
+   * semantic structure of the analyzed code.
+   *
+   * '''CPG-based Child Resolution:'''
+   *  - '''Classes:''' Children include methods and fields from the CPG TypeDecl
+   *    - Filters out constructors (`<init>`), static initializers (`<clinit>`), and operators
+   *    - Excludes synthetic fields like `outerClass`
+   *    - Uses `resolveMethodName` for proper method name resolution
+   *  - '''Modules:''' Children include all other declarations in the same source file
+   *    - Useful for languages with file-based module systems
+   *  - '''Functions/Fields:''' No children (return empty list)
    */
   override def directChildren(cu: CodeUnit): java.util.List[CodeUnit] =
     import scala.jdk.CollectionConverters.*
 
     if cu == null then
       return java.util.List.of()
+
+    // Check cache first to avoid expensive CPG queries
+    directChildrenCache.computeIfAbsent(cu, _ => computeDirectChildren(cu))
+
+  private def computeDirectChildren(cu: CodeUnit): java.util.List[CodeUnit] =
+    import scala.jdk.CollectionConverters.*
 
     cu match
       // For classes: return methods and fields (short-circuit on synthetic ones)
@@ -1203,7 +1226,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
                 methods ++ fields
               }
             }
-        children.distinct.asJava
+        // Use LinkedHashSet for efficient deduplication while preserving order
+        val uniqueChildren = collection.mutable.LinkedHashSet[CodeUnit]()
+        uniqueChildren ++= children
+        uniqueChildren.toList.asJava
 
       // For module CUs: treat every other declaration in the same file as a “child”
       case mod if mod.isModule =>

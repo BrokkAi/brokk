@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import org.jetbrains.annotations.NotNull;
 import scala.Tuple2;
 
 import java.util.*;
@@ -112,15 +113,50 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    /** language-specific: given a CU return its immediate children */
+    /**
+     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
+     * 
+     * <p>This method is used by the default {@link #getSymbols(Set)} implementation to traverse
+     * the code unit hierarchy and collect symbols from nested declarations. The specific parent-child
+     * relationships depend on the target language:
+     * 
+     * <ul>
+     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes</li>
+     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file</li>
+     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)</li>
+     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)</li>
+     * </ul>
+     * 
+     * <p><strong>Implementation Notes:</strong>
+     * <ul>
+     *   <li>This method should be efficient as it may be called frequently during symbol resolution</li>
+     *   <li>Return an empty list rather than null for CodeUnits with no children</li>
+     *   <li>The returned list should contain only immediate children, not recursive descendants</li>
+     *   <li>Implementations should handle null input gracefully by returning an empty list</li>
+     * </ul>
+     * 
+     * @see #getSymbols(Set) for how this method is used in symbol collection
+     */
+    @NotNull
     default List<CodeUnit> directChildren(CodeUnit cu) { return List.of(); }
 
+    /**
+     * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
+     */
     private static void addShort(String full, Set<String> out) {
         if (full == null || full.isEmpty()) return;
-        var lastDot    = full.lastIndexOf('.');
-        var lastDollar = full.lastIndexOf('$');
-        var idx        = Math.max(lastDot, lastDollar);
-        var shortName  = idx >= 0 ? full.substring(idx + 1) : full;
+        
+        // Optimized: scan from the end to find the last separator (faster than two indexOf calls)
+        int idx = -1;
+        for (int i = full.length() - 1; i >= 0; i--) {
+            char c = full.charAt(i);
+            if (c == '.' || c == '$') {
+                idx = i;
+                break;
+            }
+        }
+        
+        var shortName = idx >= 0 ? full.substring(idx + 1) : full;
         if (!shortName.isEmpty()) out.add(shortName);
     }
 
@@ -136,7 +172,7 @@ public interface IAnalyzer {
     default Set<String> getSymbols(Set<CodeUnit> sources) {
         var visited = new HashSet<CodeUnit>();
         var work    = new ArrayDeque<>(sources);
-        var symbols = ConcurrentHashMap.<String>newKeySet();
+        var symbols = new HashSet<String>(); // Use regular HashSet for better performance
 
         while (!work.isEmpty()) {
             var cu = work.poll();
