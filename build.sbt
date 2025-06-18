@@ -146,7 +146,8 @@ javaOptions ++= Seq(
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
   "-Dbrokk.prtab=true",
-  "-Dbrokk.issuetab=true"
+  "-Dbrokk.issuetab=true",
+  "-Dbrokk.upgradeagenttab=true"
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
