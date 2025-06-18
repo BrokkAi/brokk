@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer;
 import scala.Tuple2;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public interface IAnalyzer {
     // Basics
@@ -111,6 +112,18 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    /** language-specific: given a CU return its immediate children */
+    default List<CodeUnit> directChildren(CodeUnit cu) { return List.of(); }
+
+    private static void addShort(String full, Set<String> out) {
+        if (full == null || full.isEmpty()) return;
+        var lastDot    = full.lastIndexOf('.');
+        var lastDollar = full.lastIndexOf('$');
+        var idx        = Math.max(lastDot, lastDollar);
+        var shortName  = idx >= 0 ? full.substring(idx + 1) : full;
+        if (!shortName.isEmpty()) out.add(shortName);
+    }
+
     /**
      * Gets a set of relevant symbol names (classes, methods, fields) defined within the given source CodeUnits.
      *
@@ -121,7 +134,21 @@ public interface IAnalyzer {
      * @return unqualified symbol names found within the sources
      */
     default Set<String> getSymbols(Set<CodeUnit> sources) {
-        throw new UnsupportedOperationException();
+        var visited = new HashSet<CodeUnit>();
+        var work    = new ArrayDeque<>(sources);
+        var symbols = ConcurrentHashMap.<String>newKeySet();
+
+        while (!work.isEmpty()) {
+            var cu = work.poll();
+            if (!visited.add(cu)) continue;
+
+            // 1) add the unit’s own short name
+            addShort(cu.shortName(), symbols);
+
+            // 2) recurse
+            work.addAll(directChildren(cu));
+        }
+        return symbols;
     }
 
     /**

@@ -152,3 +152,6 @@ javaOptions ++= Seq(
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
 Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))
+// forking a jvm is a bit expensive but it lets us run the treesitter tests more than once
+// Otherwise there are conflicts trying to load the native treesitter libs wore than once
+Test / fork := true

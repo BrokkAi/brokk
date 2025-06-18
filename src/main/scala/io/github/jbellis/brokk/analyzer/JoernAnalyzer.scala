@@ -1166,52 +1166,49 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   override def close(): Unit = cpg.close()
 
-  override def getSymbols(sources: java.util.Set[CodeUnit]): java.util.Set[String] = {
+  /**
+   * Provide immediate children for the default IAnalyzer.getSymbols implementation.
+   */
+  override def directChildren(cu: CodeUnit): java.util.List[CodeUnit] =
     import scala.jdk.CollectionConverters.*
-    import scala.collection.parallel.CollectionConverters.*
 
-    val sourceUnits = sources.asScala
-    val sourceFiles = sourceUnits.map(_.source).toSet
-    val symbols = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+    if cu == null then
+      return java.util.List.of()
 
-    // Add short names of the source units themselves
-    sourceUnits.par.foreach { cu =>
-      val shortName = cu.shortName()
-      if (shortName != null && shortName.nonEmpty) {
-        symbols.add(shortName)
-      }
-    }
+    cu match
+      // For classes: return methods and fields (short-circuit on synthetic ones)
+      case cls if cls.isClass =>
+        val children =
+          cpg.typeDecl
+            .fullNameExact(cls.fqName())
+            .headOption
+            .toList
+            .flatMap { td =>
+              toFile(td).toList.flatMap { file =>
+                val methods =
+                  td.method
+                    .filterNot(m => m.name == "<init>" || m.name == "<clinit>" || m.name.startsWith("<operator>"))
+                    .flatMap { m =>
+                      val fqn = resolveMethodName(chopColon(m.fullName))
+                      cuFunction(fqn, file)
+                    }
+                    .l
 
-    // Find TypeDecls within the specified source files
-    cpg.typeDecl.l.par
-      .filter(td => toFile(td).exists(sourceFiles.contains))
-      .foreach { td =>
-        val className = td.fullName.split('.').last
-        if (className.nonEmpty) {
-          symbols.add(className) // Add class short name
-        }
+                val fields =
+                  td.member
+                    .filterNot(_.name == "outerClass")
+                    .flatMap(f => cuField(s"${td.fullName}.${f.name}", file))
+                    .l
 
-        // Add method short names (resolved)
-        td.method
-          .nameNot("<init>", "<clinit>", "<lambda>.*") // Exclude constructors, static initializers, lambdas
-          .l.par
-          .foreach { m =>
-            val resolvedName = resolveMethodName(chopColon(m.fullName))
-            val methodShortName = resolvedName.split('.').last
-            if (methodShortName.nonEmpty) {
-              symbols.add(methodShortName) // Add method short name
+                methods ++ fields
+              }
             }
-          }
+        children.distinct.asJava
 
-        // Add field short names
-        td.member.l.par.foreach { f =>
-          val fieldName = f.name
-          if (fieldName != null && fieldName.nonEmpty) {
-            symbols.add(fieldName) // Add just the field name
-          }
-        }
-      }
+      // For module CUs: treat every other declaration in the same file as a “child”
+      case mod if mod.isModule =>
+        getDeclarationsInFile(mod.source()).asScala.filterNot(_ == mod).toList.asJava
 
-    symbols
-  }
+      // Functions, fields, etc. have no children
+      case _ => java.util.List.of()
 }
