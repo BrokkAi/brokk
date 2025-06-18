@@ -1216,9 +1216,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String redactedText = sb.toString();
             redactedText = redactedText
                     .replace("SEARCH/REPLACE block", "edit")
-                    .replace("SEARCH/REPLACE blocks", "edits")
                     .replace("*SEARCH/REPLACE* block", "edit")
-                    .replace("*SEARCH/REPLACE* blocks", "edits");
+                    .replace("`SEARCH/REPLACE` block", "edit");
             return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
         }
     }
