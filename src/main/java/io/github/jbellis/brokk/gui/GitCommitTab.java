@@ -9,7 +9,9 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -42,11 +44,11 @@ public class GitCommitTab extends JPanel {
 
     // Commit tab UI
     private JTable uncommittedFilesTable;
+    private FileStatusTable fileStatusPane;
     private JButton suggestMessageButton;
     private JTextArea commitMessageArea;
     private JButton commitButton;
     private JButton stashButton;
-    private final Map<ProjectFile, String> fileStatusMap = new HashMap<>();
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
@@ -63,61 +65,10 @@ public class GitCommitTab extends JPanel {
     private void buildCommitTabUI()
     {
         // Table for uncommitted files
-        // Add a hidden column to store ProjectFile objects
-        DefaultTableModel model = new DefaultTableModel(new Object[]{"Filename", "Path", "ProjectFile"}, 0) {
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 2) {
-                    return ProjectFile.class;
-                }
-                return String.class;
-            }
-
-            @Override
-            public boolean isCellEditable(int row, int col) {
-                return false;
-            }
-        };
-        uncommittedFilesTable = new JTable(model);
-        uncommittedFilesTable.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-            @Override
-            public java.awt.Component getTableCellRendererComponent(
-                    javax.swing.JTable table, Object value,
-                    boolean isSelected, boolean hasFocus,
-                    int row, int column)
-            {
-                var cell = (javax.swing.table.DefaultTableCellRenderer)
-                        super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                var projectFile = (ProjectFile) table.getModel().getValueAt(row, 2); // Get ProjectFile from hidden column
-                String status = fileStatusMap.get(projectFile);
-                boolean darkTheme = com.google.common.base.Ascii.toLowerCase(UIManager.getLookAndFeel().getName()).contains("dark");
-
-                if (isSelected) {
-                    cell.setForeground(table.getSelectionForeground());
-                } else {
-                    var newColor = ThemeColors.getColor(darkTheme, "git_status_new");
-                    var modifiedColor = ThemeColors.getColor(darkTheme, "git_status_modified");
-                    var deletedColor = ThemeColors.getColor(darkTheme, "git_status_deleted");
-
-                    switch (status) {
-                        case "new" -> cell.setForeground(newColor);
-                        case "deleted" -> cell.setForeground(deletedColor);
-                        case "modified" -> cell.setForeground(modifiedColor);
-                        default -> cell.setForeground(table.getForeground());
-                    }
-                }
-                return cell;
-            }
-        });
-        uncommittedFilesTable.setRowHeight(18);
-        uncommittedFilesTable.getColumnModel().getColumn(0).setPreferredWidth(150);
-        uncommittedFilesTable.getColumnModel().getColumn(1).setPreferredWidth(450);
-        // Hide the ProjectFile column
-        var projectFileColumn = uncommittedFilesTable.getColumnModel().getColumn(2);
-        projectFileColumn.setMinWidth(0);
-        projectFileColumn.setMaxWidth(0);
-        projectFileColumn.setWidth(0);
-        projectFileColumn.setPreferredWidth(0);
+        fileStatusPane = new FileStatusTable();
+        uncommittedFilesTable = fileStatusPane.getTable();
+        // JTable already obtained above from FileStatusTable
+        // Renderer, row height, and column widths are now handled by FileStatusTable.
         uncommittedFilesTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
         // Double-click => show diff
@@ -227,8 +178,8 @@ public class GitCommitTab extends JPanel {
             }
         });
 
-        JScrollPane uncommittedScrollPane = new JScrollPane(uncommittedFilesTable);
-        add(uncommittedScrollPane, BorderLayout.CENTER);
+        // FileStatusTable is itself a JScrollPane
+        add(fileStatusPane, BorderLayout.CENTER);
 
         // Commit message + bottom panel
         JPanel commitBottomPanel = new JPanel(new BorderLayout());
@@ -347,6 +298,8 @@ public class GitCommitTab extends JPanel {
         });
         buttonPanel.add(commitButton);
 
+        // "Create PR" button has been moved to GitCommitBrowserPanel.
+
         // Commit message area => enable/disable commit/stash buttons
         commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
             @Override
@@ -423,53 +376,39 @@ public class GitCommitTab extends JPanel {
                 logger.trace("Found uncommitted files with statuses: {}", uncommittedFileStatuses.size());
 
                 SwingUtilities.invokeLater(() -> {
-                    fileStatusMap.clear();
                     // Convert Set to List to maintain an order for adding to table and restoring selection by index
                     var uncommittedFilesList = new ArrayList<>(uncommittedFileStatuses);
-                    for (var modifiedFileStatus : uncommittedFilesList) {
-                        fileStatusMap.put(modifiedFileStatus.file(), modifiedFileStatus.status());
-                    }
 
-                    var model = (DefaultTableModel) uncommittedFilesTable.getModel();
-                    model.setRowCount(0);
+                    // Populate the table via the reusable FileStatusTable widget
+                    // This also populates the statusMap within FileStatusTable
+                    fileStatusPane.setFiles(uncommittedFilesList);
 
-                    if (uncommittedFilesList.isEmpty()) {
-                        logger.trace("No uncommitted files found");
-                        suggestMessageButton.setEnabled(false);
-                        commitButton.setEnabled(false);
-                        stashButton.setEnabled(false);
-                    } else {
-                        logger.trace("Found {} uncommitted files to display", uncommittedFilesList.size());
-                        List<Integer> rowsToSelect = new ArrayList<>();
+        if (uncommittedFilesList.isEmpty()) {
+            logger.trace("No uncommitted files found");
+            suggestMessageButton.setEnabled(false);
+            commitButton.setEnabled(false);
+            stashButton.setEnabled(false);
+        } else {
+            logger.trace("Found {} uncommitted files to display", uncommittedFilesList.size());
 
-                        for (int i = 0; i < uncommittedFilesList.size(); i++) {
-                            var modifiedFileStatus = uncommittedFilesList.get(i);
-                            var projectFile = modifiedFileStatus.file();
-                            model.addRow(new Object[]{projectFile.getFileName(), projectFile.getParent().toString(), projectFile});
-                            logger.trace("Added file to table: {} with status {}", projectFile, modifiedFileStatus.status());
+            // Restore selection for any rows that were previously selected
+            for (int i = 0; i < uncommittedFilesList.size(); i++) {
+                var pf = uncommittedFilesList.get(i).file();
+                if (previouslySelectedFiles.contains(pf)) {
+                    uncommittedFilesTable.addRowSelectionInterval(i, i);
+                }
+            }
 
-                            if (previouslySelectedFiles.contains(projectFile)) {
-                                rowsToSelect.add(i);
-                            }
-                        }
+            suggestMessageButton.setEnabled(true);
 
-                        if (!rowsToSelect.isEmpty()) {
-                            for (int row : rowsToSelect) {
-                                uncommittedFilesTable.addRowSelectionInterval(row, row);
-                            }
-                            logger.trace("Restored selection for {} rows", rowsToSelect.size());
-                        }
-
-                        suggestMessageButton.setEnabled(true);
-
-                        var text = commitMessageArea.getText().trim();
-                        var hasNonCommentText = Arrays.stream(text.split("\n"))
-                                .anyMatch(line -> !line.trim().isEmpty()
-                                        && !line.trim().startsWith("#"));
-                        commitButton.setEnabled(hasNonCommentText);
-                        stashButton.setEnabled(true);
-                    }
-                    updateCommitButtonText();
+            var text = commitMessageArea.getText().trim();
+            var hasNonCommentText = Arrays.stream(text.split("\n"))
+                    .anyMatch(line -> !line.trim().isEmpty()
+                            && !line.trim().startsWith("#"));
+            commitButton.setEnabled(hasNonCommentText);
+            stashButton.setEnabled(true);
+        }
+        updateCommitButtonText();
                 });
             } catch (Exception e) {
                 logger.error("Error fetching uncommitted files:", e);
@@ -533,7 +472,7 @@ public class GitCommitTab extends JPanel {
             // Get file details for conditional enablement
             int row = selectedRows[0];
             ProjectFile projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-            String status = fileStatusMap.get(projectFile);
+            String status = fileStatusPane.statusFor(projectFile);
 
             // Enable Edit File
             editFileItem.setEnabled(true);

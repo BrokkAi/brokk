@@ -18,9 +18,9 @@ import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
-// import io.github.jbellis.brokk.gui.components.SplitButton; // No longer needed for Architect
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
+import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
+import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -47,23 +47,19 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
-import java.util.Locale; // Added import
+import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
-import java.util.Comparator;
+import java.util.*;
 import java.util.List;
-import java.util.function.Consumer;
-import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
-import java.awt.datatransfer.DataFlavor;
-import java.awt.Toolkit;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 
@@ -76,9 +72,6 @@ import static io.github.jbellis.brokk.gui.Constants.*;
  */
 public class InstructionsPanel extends JPanel implements IContextManager.ContextListener {
     private static final Logger logger = LogManager.getLogger(InstructionsPanel.class);
-
-    private static Icon cachedSpinnerDark;
-    private static Icon cachedSpinnerLight;
 
     public static final String ACTION_ARCHITECT = "Architect";
     public static final String ACTION_CODE = "Code";
@@ -112,7 +105,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
-    private final JButton deepScanButton;
+    private final LoadingButton deepScanButton;
     private final JPanel centerPanel;
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
@@ -211,10 +204,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         configureModelsButton.setToolTipText("Open settings to configure AI models");
         configureModelsButton.addActionListener(e -> SettingsDialog.showSettingsDialog(chrome, SettingsGlobalPanel.MODELS_TAB_TITLE));
 
-        // Renamed button and updated action listener
-        deepScanButton = new JButton("Deep Scan");
+        deepScanButton = new LoadingButton("Deep Scan", null, chrome, this::triggerDeepScan);
         deepScanButton.setToolTipText("Perform a deeper analysis (Code + Tests) to suggest relevant context");
-        deepScanButton.addActionListener(this::triggerDeepScan);
         deepScanButton.setEnabled(false); // Start disabled like command input
 
         // Top Bar (History, Configure Models, Stop) (North)
@@ -1038,16 +1029,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var goal = getInstructions();
         if (contextManager == null || contextManager.getProject() == null) {
             chrome.toolError("Deep Scan requires a project and ContextManager to be active.");
-            enableDeepScanButton(false);
+            deepScanButton.setEnabled(false);
             return;
         }
-        disableDeepScanButton();
+        deepScanButton.setLoading(true, "Scanning…");
 
         DeepScanDialog.triggerDeepScan(chrome, goal)
             .whenComplete((v, throwable) -> {
                 // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
                 SwingUtilities.invokeLater(() -> {
-                    enableDeepScanButton(true);
+                    deepScanButton.setLoading(false, null); // Restores button state
 
                     if (throwable != null) {
                         if (throwable instanceof InterruptedException ||
@@ -1921,53 +1912,5 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.error("Error showing @ popup", ex);
             }
         }
-    }
-
-    private Icon getCachedSpinnerIcon() {
-        boolean isDark = chrome.themeManager.isDarkTheme();
-        Icon cachedIcon = isDark ? cachedSpinnerDark : cachedSpinnerLight;
-
-        if (cachedIcon == null) {
-            String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
-            var url = getClass().getResource(path);
-
-            if (url == null) {
-                logger.warn("Spinner icon resource not found: {}", path);
-                return null; // Or a default placeholder icon
-            }
-
-            ImageIcon originalIcon = new ImageIcon(url);
-            cachedIcon = new ImageIcon(originalIcon.getImage());
-
-            if (isDark) {
-                cachedSpinnerDark = cachedIcon;
-            } else {
-                cachedSpinnerLight = cachedIcon;
-            }
-        }
-        return cachedIcon;
-    }
-
-    private void disableDeepScanButton() {
-        SwingUtilities.invokeLater(() -> {
-            var spinner = getCachedSpinnerIcon();
-            deepScanButton.setIcon(spinner);
-            deepScanButton.setDisabledIcon(spinner); // Keep spinner visible when disabled
-            deepScanButton.setText("Scanning…");
-            deepScanButton.setToolTipText("Deep scan in progress...");
-            deepScanButton.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-            deepScanButton.setEnabled(false);
-        });
-    }
-
-    private void enableDeepScanButton(boolean enable) {
-        SwingUtilities.invokeLater(() -> {
-            deepScanButton.setEnabled(enable);
-            deepScanButton.setIcon(null);
-            deepScanButton.setDisabledIcon(null);
-            deepScanButton.setText("Deep Scan");
-            deepScanButton.setToolTipText("Perform a deeper analysis (Code + Tests) to suggest relevant context");
-            deepScanButton.setCursor(Cursor.getDefaultCursor());
-        });
     }
 }
