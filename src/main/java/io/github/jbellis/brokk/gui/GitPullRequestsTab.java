@@ -72,7 +72,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private List<org.kohsuke.github.GHPullRequest> allPrsFromApi = new ArrayList<>();
     private List<org.kohsuke.github.GHPullRequest> displayedPrs = new ArrayList<>();
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
-    private final Map<Integer, List<String>> prChangedFilesCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
     private JTable prFilesTable;
@@ -609,7 +608,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
-                    prChangedFilesCache.clear();
                     ciStatusCache.clear();
                     prCommitsCache.clear();
                     prTableModel.setRowCount(0);
@@ -632,7 +630,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             List<org.kohsuke.github.GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
-                prChangedFilesCache.clear(); // Clear file cache for new PR list
                 prCommitsCache.clear(); // Clear commits cache for new PR list
                 // ciStatusCache is updated incrementally, not fully cleared here unless error
                 populateDynamicFilterChoices(allPrsFromApi);
@@ -972,10 +969,37 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
 
                     if (repo.resolve(headSha) != null && repo.resolve(baseSha) != null) {
-                        List<String> changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
-                                .stream()
-                                .map(Object::toString) // ProjectFile::toString
-                                .collect(Collectors.toList());
+                        List<String> changedFiles;
+                        try {
+                            String mergeBase;
+                            if (pr.isMerged()) {
+                                // For merged PRs, use the original base SHA to get historical diff
+                                mergeBase = repo.getMergeBase(headSha, baseSha);
+                            } else {
+                                // For open PRs, use current tip of target branch to see current diff
+                                String currentTargetTip = repo.resolve(pr.getBase().getRef()).getName();
+                                mergeBase = repo.getMergeBase(headSha, currentTargetTip);
+                            }
+
+                            if (mergeBase != null) {
+                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase)
+                                        .stream()
+                                        .map(projFile -> projFile.toString())
+                                        .collect(Collectors.toList());
+                            } else {
+                                // Fallback to direct diff if merge base calculation fails
+                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
+                                        .stream()
+                                        .map(projFile -> projFile.toString())
+                                        .collect(Collectors.toList());
+                            }
+                        } catch (IOException e) {
+                            logger.warn("Could not determine PR #{} merge status, using fallback diff calculation: {}", prNumber, e.getMessage());
+                            changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
+                                    .stream()
+                                    .map(projFile -> projFile.toString())
+                                    .collect(Collectors.toList());
+                        }
                         fetchedFilesMap.put(prNumber, changedFiles);
                     } else {
                         logger.warn("Could not resolve head ({}) or base ({}) SHA for PR #{} to list files.", GitUiUtil.shortenCommitId(headSha), GitUiUtil.shortenCommitId(baseSha), prNumber);
@@ -996,9 +1020,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return;
             }
             try {
-                Map<Integer, List<String>> newFilesData = get();
-                prChangedFilesCache.putAll(newFilesData);
-                // No table update needed here, tooltip listener will pick up changes.
+                get(); // Consume the result to complete the future properly
+                // Files are now loaded on demand, no caching
             } catch (InterruptedException e) {
                 logger.warn("PR files fetcher worker interrupted", e);
                 Thread.currentThread().interrupt();
@@ -1391,48 +1414,67 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Updates the files table for the currently selected PR.
      */
     private void updateFilesForPullRequest(GHPullRequest selectedPr) {
-        int prNumber = selectedPr.getNumber();
-        List<String> files = prChangedFilesCache.get(prNumber);
-        
         prFilesTableModel.setRowCount(0);
-        if (files == null) {
-            prFilesTableModel.addRow(new Object[]{"Loading changed files..."});
-            // Fetch files for this specific PR
-            fetchChangedFilesForSpecificPr(selectedPr);
-        } else if (files.isEmpty()) {
-            prFilesTableModel.addRow(new Object[]{"No files changed in this PR"});
-        } else {
-            for (String file : files) {
-                if (file.startsWith("Error:")) {
-                    prFilesTableModel.addRow(new Object[]{file});
-                } else {
-                    // Format as "<file name> - full file path"
-                    String fileName = file.substring(file.lastIndexOf('/') + 1);
-                    String displayText = fileName + " - " + file;
-                    prFilesTableModel.addRow(new Object[]{displayText});
-                }
-            }
-        }
+        prFilesTableModel.addRow(new Object[]{"Loading changed files..."});
+        // Always fetch files on demand
+        fetchChangedFilesForSpecificPr(selectedPr);
     }
 
     /**
-     * Fetches changed files for a specific PR if not already cached.
+     * Fetches changed files for a specific PR on demand.
      */
     private void fetchChangedFilesForSpecificPr(GHPullRequest pr) {
         assert SwingUtilities.isEventDispatchThread();
-
-        // Check if already cached or has error markers
-        List<String> cachedFiles = prChangedFilesCache.get(pr.getNumber());
-        if (cachedFiles != null && 
-            (cachedFiles.isEmpty() || !cachedFiles.getFirst().startsWith("Error:"))) {
-            return; // Already have valid data
-        }
 
         if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
             activePrFilesFetcher.cancel(true);
         }
         
-        activePrFilesFetcher = new PrFilesFetcherWorker(List.of(pr), contextManager.getProject());
+        activePrFilesFetcher = new PrFilesFetcherWorker(List.of(pr), contextManager.getProject()) {
+            @Override
+            protected void done() {
+                if (isCancelled()) {
+                    logger.debug("PR files fetcher worker cancelled.");
+                    return;
+                }
+                try {
+                    Map<Integer, List<String>> newFilesData = get();
+                    // Update the files table directly for the fetched PR
+                    List<String> files = newFilesData.get(pr.getNumber());
+                    SwingUtilities.invokeLater(() -> {
+                        // Only update if this PR is still selected
+                        int selectedRow = prTable.getSelectedRow();
+                        if (selectedRow >= 0 && selectedRow < displayedPrs.size() && 
+                            displayedPrs.get(selectedRow).getNumber() == pr.getNumber()) {
+                            prFilesTableModel.setRowCount(0);
+                            if (files == null || files.isEmpty()) {
+                                prFilesTableModel.addRow(new Object[]{"No files changed in this PR"});
+                            } else {
+                                for (String file : files) {
+                                    if (file.startsWith("Error:")) {
+                                        prFilesTableModel.addRow(new Object[]{file});
+                                    } else {
+                                        // Format as "<file name> - full file path"
+                                        String fileName = file.substring(file.lastIndexOf('/') + 1);
+                                        String displayText = fileName + " - " + file;
+                                        prFilesTableModel.addRow(new Object[]{displayText});
+                                    }
+                                }
+                            }
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    logger.warn("PR files fetcher worker interrupted", e);
+                    Thread.currentThread().interrupt();
+                } catch (CancellationException e) {
+                     logger.debug("PR files fetcher worker task was cancelled.");
+                } catch (ExecutionException e) {
+                     reportBackgroundError("Error executing PR files fetcher worker task", (Exception) e.getCause());
+                } catch (Exception e) {
+                    reportBackgroundError("Error processing PR files fetcher results", e);
+                }
+            }
+        };
         contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
     }
 
