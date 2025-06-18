@@ -992,14 +992,16 @@ public final class MainProject extends AbstractProject {
             }
             String propertyValue = props.getProperty(key);
             try {
+                Path projectPath = Path.of(key); // Create path once
                 ProjectPersistentInfo persistentInfo = objectMapper.readValue(propertyValue, ProjectPersistentInfo.class);
-                result.put(Path.of(key), persistentInfo);
+                allLoadedEntries.put(projectPath, persistentInfo);
             } catch (JsonProcessingException e) {
                 // Likely old-format timestamp, try to parse as long
                 try {
+                    Path projectPath = Path.of(key); // Create path once
                     long parsedLongValue = Long.parseLong(propertyValue);
                     ProjectPersistentInfo persistentInfo = ProjectPersistentInfo.fromTimestamp(parsedLongValue);
-                    result.put(Path.of(key), persistentInfo);
+                    allLoadedEntries.put(projectPath, persistentInfo);
                 } catch (NumberFormatException nfe) {
                     logger.warn("Could not parse value for key '{}' in projects.properties as JSON or long: {}", key, propertyValue);
                 }
