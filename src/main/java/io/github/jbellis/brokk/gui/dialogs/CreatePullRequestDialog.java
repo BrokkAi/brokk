@@ -442,7 +442,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private JPanel createButtonPanel() {
-        var buttonPanel = new JPanel(new FlowLayout());
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
 
         this.createPrButton = new LoadingButton("Create PR", null, chrome, null); // Assign to field
         this.createPrButton.addActionListener(e -> createPullRequest());
