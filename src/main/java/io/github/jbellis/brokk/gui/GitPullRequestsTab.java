@@ -971,16 +971,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     if (repo.resolve(headSha) != null && repo.resolve(baseSha) != null) {
                         List<String> changedFiles;
                         try {
-                            String mergeBase;
-                            if (pr.isMerged()) {
-                                // For merged PRs, use the original base SHA to get historical diff
-                                mergeBase = repo.getMergeBase(headSha, baseSha);
-                            } else {
-                                // For open PRs, use current tip of target branch to see current diff
-                                String currentTargetTip = repo.resolve(pr.getBase().getRef()).getName();
-                                mergeBase = repo.getMergeBase(headSha, currentTargetTip);
-                            }
-
+                            // Always use the PR's base SHA for diffing, which represents the exact
+                            // commit the PR was created from. This ensures we only show files that
+                            // actually changed in the PR, not additional changes in the target branch.
+                            String mergeBase = repo.getMergeBase(headSha, baseSha);
+                            
                             if (mergeBase != null) {
                                 changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase)
                                         .stream()
@@ -993,8 +988,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                         .map(projFile -> projFile.toString())
                                         .collect(Collectors.toList());
                             }
-                        } catch (IOException e) {
-                            logger.warn("Could not determine PR #{} merge status, using fallback diff calculation: {}", prNumber, e.getMessage());
+                        } catch (Exception e) {
+                            logger.warn("Error calculating changed files for PR #{}, using fallback diff: {}", prNumber, e.getMessage());
                             changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
                                     .stream()
                                     .map(projFile -> projFile.toString())
