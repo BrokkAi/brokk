@@ -17,6 +17,7 @@ public final class TestUtil {
      * @param md Markdown text to parse
      * @return List of ComponentData objects parsed from the markdown
      */
+    @SuppressWarnings("unchecked")
     public static List<ComponentData> parseMarkdown(String md) {
         try {
             var renderer = new IncrementalBlockRenderer(false);
@@ -39,6 +40,7 @@ public final class TestUtil {
      * @param html HTML string to parse
      * @return List of ComponentData objects parsed from the HTML
      */
+    @SuppressWarnings("unchecked")
     public static List<ComponentData> parseHtml(String html) {
         try {
             var renderer = new IncrementalBlockRenderer(false);

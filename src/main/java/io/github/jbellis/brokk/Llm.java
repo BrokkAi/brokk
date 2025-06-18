@@ -142,6 +142,11 @@ public class Llm {
                 if (!cancelled.get()) {
                     r.run();
                 }
+            } catch (RuntimeException e) {
+                errorRef.set(e);
+                if (latch.getCount() > 0) {
+                    latch.countDown(); // Ensure we release the lock if an exception occurs
+                }
             } finally {
                 lock.unlock();
             }
@@ -1051,7 +1056,7 @@ public class Llm {
         }
 
         long inputTokens = tokenUsage.inputTokenCount();
-        long cachedTokens = tokenUsage.inputTokensDetails() == null ? 0 : tokenUsage.inputTokensDetails().cachedTokens();
+        long cachedTokens = tokenUsage.inputTokensDetails() == null ? 0 : (tokenUsage.inputTokensDetails().cachedTokens() == null ? 0 : tokenUsage.inputTokensDetails().cachedTokens());
         long uncachedInputTokens = inputTokens - cachedTokens;
         long outputTokens = tokenUsage.outputTokenCount();
 
