@@ -983,7 +983,7 @@ public final class MainProject extends AbstractProject {
     }
 
     public static Map<Path, ProjectPersistentInfo> loadRecentProjects() {
-        var result = new HashMap<Path, ProjectPersistentInfo>();
+        var allLoadedEntries = new HashMap<Path, ProjectPersistentInfo>();
         var props = loadProjectsProperties();
         for (String key : props.stringPropertyNames()) {
             if (!key.contains(java.io.File.separator) || key.endsWith("_activeSession")) {
@@ -1006,7 +1006,26 @@ public final class MainProject extends AbstractProject {
                 logger.warn("Error processing recent project entry for key '{}': {}", key, e.getMessage());
             }
         }
-        return result;
+
+        var validEntries = new HashMap<Path, ProjectPersistentInfo>();
+        boolean entriesFiltered = false;
+
+        for (Map.Entry<Path, ProjectPersistentInfo> entry : allLoadedEntries.entrySet()) {
+            Path projectPath = entry.getKey();
+            ProjectPersistentInfo persistentInfo = entry.getValue();
+            if (Files.isDirectory(projectPath)) {
+                validEntries.put(projectPath, persistentInfo);
+            } else {
+                logger.warn("Recent project path '{}' no longer exists or is not a directory. Removing from recent projects list.", projectPath);
+                entriesFiltered = true;
+            }
+        }
+
+        if (entriesFiltered) {
+            saveRecentProjects(validEntries); // Persist the cleaned list
+        }
+
+        return validEntries;
     }
 
     public static void saveRecentProjects(Map<Path, ProjectPersistentInfo> projects) {
