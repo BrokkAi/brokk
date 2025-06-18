@@ -21,6 +21,7 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
@@ -1528,6 +1529,39 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Computes the merge base of two commits.
+     */
+    private ObjectId computeMergeBase(ObjectId firstId, ObjectId secondId) throws GitAPIException {
+        if (firstId == null || secondId == null) {
+            return null;
+        }
+        try (RevWalk walk = new RevWalk(repository)) {
+            RevCommit firstCommit = walk.parseCommit(firstId);
+            RevCommit secondCommit = walk.parseCommit(secondId);
+
+            walk.reset(); // Reset before setting new filter and marking starts
+            walk.setRevFilter(RevFilter.MERGE_BASE);
+            walk.markStart(firstCommit);
+            walk.markStart(secondCommit);
+            RevCommit mergeBase = walk.next();
+            return mergeBase != null ? mergeBase.getId() : null;
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+    }
+
+    /**
+     * Returns the SHA-1 of the merge base between the two rev-specs (or null
+     * if none exists).  revA and revB may be branch names, tags, commit IDs, etc.
+     */
+    public String getMergeBase(String revA, String revB) throws GitAPIException {
+        var idA = resolve(revA);
+        var idB = resolve(revB);
+        var mb = computeMergeBase(idA, idB);
+        return mb == null ? null : mb.getName();
+    }
+
+    /**
      * Lists all worktrees in the repository.
      */
     @Override
@@ -1743,62 +1777,192 @@ public class GitRepo implements Closeable, IGitRepo {
 
     @Override
     public List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
-        List<String> messages = new ArrayList<>();
-        ObjectId branchHead = resolve(branchName);
+        var revCommits = getRevCommitsBetween(branchName, targetBranchName, false);
+        return revCommits.stream()
+                .map(RevCommit::getShortMessage)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Lists commits between two branches, returning detailed CommitInfo objects.
+     * The commits are those on {@code sourceBranchName} that are not on {@code targetBranchName}.
+     * Commits are returned in chronological order (oldest first).
+     */
+    public List<CommitInfo> listCommitsBetweenBranches(String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
+        var revCommits = getRevCommitsBetween(sourceBranchName, targetBranchName, excludeMergeCommitsFromTarget);
+        return revCommits.stream()
+                .map(this::fromRevCommit)
+                .collect(Collectors.toList());
+    }
+
+    private List<RevCommit> getRevCommitsBetween(String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
+        List<RevCommit> commits = new ArrayList<>();
+        ObjectId sourceHead = resolve(sourceBranchName);
         ObjectId targetHead = resolve(targetBranchName);
 
-        if (branchHead == null || targetHead == null) {
-            logger.warn("Could not resolve heads for {} or {}", branchName, targetBranchName);
-            // Fallback: Get last N commits from branchName if target is problematic, or just give up.
-            // For now, returning empty on resolution failure.
-            return messages;
+        if (sourceHead == null) {
+            logger.warn("Could not resolve head for source branch: {}", sourceBranchName);
+            return commits; // Return empty list if source branch cannot be resolved
         }
+        // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
 
         try (RevWalk revWalk = new RevWalk(repository)) {
-            RevCommit branchCommit = revWalk.parseCommit(branchHead);
-            RevCommit targetCommit = revWalk.parseCommit(targetHead);
+            RevCommit sourceCommit = revWalk.parseCommit(sourceHead);
+            revWalk.markStart(sourceCommit);
 
-            // Find merge base
-            revWalk.setRevFilter(RevFilter.MERGE_BASE);
-            revWalk.markStart(branchCommit);
-            revWalk.markStart(targetCommit);
-            RevCommit mergeBase = revWalk.next();
+            RevCommit targetCommit = null;
+            if (targetHead != null) {
+                targetCommit = revWalk.parseCommit(targetHead);
+            }
 
-            // Reset RevWalk for logging commits
-            revWalk.reset();
-            revWalk.setRevFilter(RevFilter.ALL);
-            revWalk.markStart(branchCommit);
-            if (mergeBase != null) {
-                revWalk.markUninteresting(mergeBase);
+            if (excludeMergeCommitsFromTarget) {
+                if (targetCommit != null) {
+                    revWalk.markUninteresting(targetCommit); // Hide everything reachable from target
+                }
+                revWalk.setRevFilter(RevFilter.NO_MERGES); // Exclude all merge commits
             } else {
-                // No common ancestor, or targetBranchName is an ancestor of branchName (or unrelated).
-                // In this case, include all commits from branchName up to where it met targetBranchName (if ever)
-                // or just all reachable from branchName if no merge base and targetHead isn't an ancestor.
-                // For simplicity, if no merge base, we might log all of branchName, or a fixed number.
-                // Let's refine this: if no merge base, it implies targetBranch is either an ancestor
-                // or they are unrelated. If target is ancestor, log since target.
-                // If unrelated, this is tricky. For now, if no merge base, assume we take all from branchCommit.
-                // This part might need more sophisticated handling based on desired UX for unrelated branches.
-                logger.warn("No common merge base found between {} and {}. Listing all commits from {}",
-                            branchName, targetBranchName, branchName);
-                // To avoid listing everything from an old branch, we could cap it or rely on branchCommit not being too far.
-                // For now, if no merge base, we will proceed to list commits from branchCommit without an uninteresting mark specific to mergeBase.
-                // This means it will list all commits reachable from branchCommit if revWalk is not further constrained.
-                // This is equivalent to `git log mergeBase..branchName` if mergeBase exists.
-                // If no mergeBase, effectively `git log branchName` (excluding commits also on target if target was marked uninteresting generally).
-                // Let's ensure targetCommit is marked uninteresting if no merge base, to get `target..branch` effect
-                revWalk.markUninteresting(targetCommit);
+                // Original logic for "target..source"
+                if (targetCommit != null) {
+                    ObjectId mergeBaseId = computeMergeBase(sourceCommit.getId(), targetCommit.getId());
+                    if (mergeBaseId != null) {
+                        // The RevCommit must be parsed by this revWalk instance to be used by it
+                        RevCommit mergeBaseForRevWalk = revWalk.parseCommit(mergeBaseId);
+                        revWalk.markUninteresting(mergeBaseForRevWalk);
+                    } else {
+                        // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
+                        // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
+                        logger.warn("No common merge base found between {} ({}) and {} ({}). Listing commits from {} not on {}.",
+                                    sourceBranchName, sourceCommit.getName(),
+                                    targetBranchName, targetCommit.getName(),
+                                    sourceBranchName, targetBranchName);
+                        revWalk.markUninteresting(targetCommit);
+                    }
+                } else {
+                    logger.warn("Target branch {} could not be resolved. Listing all commits from source branch {}.",
+                                targetBranchName, sourceBranchName);
+                    // No target head, so list all commits from sourceCommit. Nothing to mark uninteresting.
+                }
             }
 
+            // Iterate and collect commits
             for (RevCommit commit : revWalk) {
-                messages.add(commit.getShortMessage());
+                commits.add(commit);
             }
-            // Messages will be in reverse chronological order (newest first). Reverse to get oldest first for squash message.
-            Collections.reverse(messages);
+            // Commits are now in reverse chronological order (newest first) directly from RevWalk.
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
-        return messages;
+        return commits;
+    }
+
+    /**
+     * True when the local branch has no upstream or is ahead of its upstream.
+     * Returns false if the provided branch name is not a local branch.
+     */
+    public boolean branchNeedsPush(String branch) throws GitAPIException {
+        if (!listLocalBranches().contains(branch)) {
+            return false; // Not a local branch, so it cannot need pushing
+        }
+        return !hasUpstreamBranch(branch)                // never pushed → no upstream
+               || !getUnpushedCommitIds(branch).isEmpty(); // ahead of remote
+    }
+
+    /**
+     * Lists files changed between two branches, specifically the changes introduced on the source branch
+     * since it diverged from the target branch.
+     */
+    public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
+            throws GitAPIException {
+        ObjectId sourceHeadId = resolve(sourceBranch);
+        if (sourceHeadId == null) {
+            logger.warn("Source branch '{}' could not be resolved. Returning empty list of changed files.", sourceBranch);
+            return List.of();
+        }
+
+        ObjectId targetHeadId = resolve(targetBranch); // Can be null if target branch doesn't exist
+        logger.debug("Resolved source branch '{}' to {}, target branch '{}' to {}",
+                     sourceBranch, sourceHeadId, targetBranch, targetHeadId == null ? "null" : targetHeadId);
+
+
+        ObjectId mergeBaseId = computeMergeBase(sourceHeadId, targetHeadId);
+
+        if (mergeBaseId == null) {
+            // If no common ancestor is found (e.g., unrelated histories, one branch is new, or one head was null),
+            // use the target's head as the base. If targetHeadId is also null (target branch doesn't exist),
+            // mergeBaseId will remain null, leading to a diff against an empty tree.
+            logger.debug("No common merge base computed for source {} ({}) and target {} ({}). " +
+                         "Falling back to target head {}.",
+                         sourceBranch, sourceHeadId, targetBranch, targetHeadId,
+                         targetHeadId == null ? "null" : targetHeadId);
+            mergeBaseId = targetHeadId;
+        }
+        logger.debug("Effective merge base for diffing {} ({}) against {} ({}) is {}",
+                     sourceBranch, sourceHeadId, targetBranch, targetHeadId,
+                     mergeBaseId == null ? "null (empty tree)" : mergeBaseId);
+
+
+        var modifiedFiles = new ArrayList<ModifiedFile>();
+
+        try (RevWalk revWalk = new RevWalk(repository);
+             // DiffFormatter output stream is not used for file listing but is required by constructor
+             DiffFormatter diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
+            diffFormatter.setRepository(repository);
+            diffFormatter.setDetectRenames(true); // Enable rename detection
+
+            RevCommit sourceCommit = revWalk.parseCommit(sourceHeadId);
+            RevTree newTree = sourceCommit.getTree();
+            try (var reader = repository.newObjectReader()) {
+                var newTreeParser = new CanonicalTreeParser(null, reader, newTree);
+
+                AbstractTreeIterator oldTreeParser;
+                if (mergeBaseId == null) {
+                    // If mergeBaseId is null (e.g., target branch doesn't exist or no common ancestor and target was null),
+                    // diff source against an empty tree. This shows all files in source as new.
+                    oldTreeParser = new EmptyTreeIterator();
+                } else {
+                    RevCommit mergeBaseCommit = revWalk.parseCommit(mergeBaseId);
+                    RevTree oldTree = mergeBaseCommit.getTree();
+                    // oldTreeParser needs its own reader, or ensure the existing reader is used correctly
+                    try (var oldTreeReader = repository.newObjectReader()) {
+                         oldTreeParser = new CanonicalTreeParser(null, oldTreeReader, oldTree);
+                    }
+                }
+
+                List<DiffEntry> diffs = diffFormatter.scan(oldTreeParser, newTreeParser);
+
+                for (var entry : diffs) {
+                    // Skip /dev/null paths, which can appear for add/delete of binary files or certain modes
+                    // Handled by only using relevant paths (getOldPath for DELETE, getNewPath for ADD/COPY/MODIFY/RENAME's new side)
+                    // and relying on toProjectFile which would inherently handle or error on /dev/null if it were a real project path.
+                    // The main concern is ensuring we use the correct path (old vs new) based on ChangeType.
+
+                    var result = switch (entry.getChangeType()) {
+                        case ADD, COPY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
+                        case MODIFY -> new ModifiedFile(toProjectFile(entry.getNewPath()), "modified");
+                        case DELETE -> new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted");
+                        case RENAME -> {
+                            modifiedFiles.add(new ModifiedFile(toProjectFile(entry.getOldPath()), "deleted"));
+                            yield new ModifiedFile(toProjectFile(entry.getNewPath()), "new");
+                        }
+                        default -> {
+                            logger.warn("Unhandled DiffEntry ChangeType: {} for old path '{}', new path '{}'",
+                                        entry.getChangeType(), entry.getOldPath(), entry.getNewPath());
+                            yield null;
+                    }
+                    };
+                    if (result != null) {
+                        modifiedFiles.add(result);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            throw new GitWrappedIOException(e);
+        }
+
+        // Sort for consistent UI presentation
+        modifiedFiles.sort(Comparator.comparing(mf -> mf.file().toString()));
+        logger.debug("Found {} files changed between {} and {}: {}", modifiedFiles.size(), sourceBranch, targetBranch, modifiedFiles);
+        return modifiedFiles;
     }
 
     @Override
