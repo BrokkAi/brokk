@@ -17,6 +17,7 @@ import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMod
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -551,6 +552,8 @@ public class WorkspacePanel extends JPanel {
     private JPanel warningPanel; // Panel for warning messages
     private boolean workspaceCurrentlyEditable = true;
     private Context currentContext;
+    private OverlayPanel workspaceOverlay;
+    private JLayeredPane workspaceLayeredPane;
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -911,12 +914,23 @@ public class WorkspacePanel extends JPanel {
         warningPanel.setBorder(new EmptyBorder(0, 5, 5, 5)); // Top, Left, Bottom, Right padding
         contextSummaryPanel.add(warningPanel, BorderLayout.CENTER);
 
-        // Table panel
+        // Table panel with overlay support
         var tablePanel = new JPanel(new BorderLayout());
         var tableScrollPane = new JScrollPane(contextTable, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         tableScrollPane.setPreferredSize(new Dimension(600, 150));
 
         BorderUtils.addFocusBorder(tableScrollPane, contextTable);
+
+        // Create gray semi-transparent overlay for history viewing
+        workspaceOverlay = OverlayPanel.createGrayOverlay(
+                overlay -> {}, // No action on click - this overlay is not meant to be dismissed by user
+                READ_ONLY_TIP,
+                60 // Light transparency (80/255 ≈ 31%) - visible but not too heavy
+        );
+        workspaceOverlay.setVisible(false); // Start hidden
+
+        // Create layered pane to support overlay
+        workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
 
         // Add a mouse listener to the scroll pane for right-clicks on empty areas
         tableScrollPane.addMouseListener(new MouseAdapter() {
@@ -932,9 +946,11 @@ public class WorkspacePanel extends JPanel {
 
             private void handleScrollPanePopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    // Get the scroll pane from the layered pane
+                    var scrollPane = (JScrollPane) workspaceLayeredPane.getComponent(0);
                     // Get the event point in view coordinates
-                    Point viewPoint = SwingUtilities.convertPoint(tableScrollPane, e.getPoint(),
-                                                                  tableScrollPane.getViewport().getView());
+                    var viewPoint = SwingUtilities.convertPoint(scrollPane, e.getPoint(),
+                                                                  scrollPane.getViewport().getView());
 
                     // If the click is in the table and on a row, let the table's listener handle it
                     if (contextTable.getRowCount() > 0) {
@@ -945,12 +961,12 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Otherwise show the table popup menu
-                    tablePopupMenu.show(tableScrollPane, e.getX(), e.getY());
+                    tablePopupMenu.show(scrollPane, e.getX(), e.getY());
                 }
             }
         });
 
-        tablePanel.add(tableScrollPane, BorderLayout.CENTER);
+        tablePanel.add(workspaceLayeredPane, BorderLayout.CENTER);
 
         setLayout(new BorderLayout());
 
@@ -958,12 +974,11 @@ public class WorkspacePanel extends JPanel {
 
         add(contextSummaryPanel, BorderLayout.SOUTH);
 
-        // Listener for table scroll pane (focus on click, specific popup for empty area)
-        tableScrollPane.addMouseListener(new MouseAdapter() {
+        // Listener for layered pane (focus on click, specific popup for empty area)
+        workspaceLayeredPane.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                // Retain existing specific behavior for scroll pane clicks (focus table)
-                // Popup is handled by handleScrollPanePopup
+                // Focus table when clicking on the layered pane
                 if (!e.isPopupTrigger() && SwingUtilities.isLeftMouseButton(e)) {
                     contextTable.requestFocusInWindow();
                 }
@@ -1882,9 +1897,14 @@ public class WorkspacePanel extends JPanel {
     public void setWorkspaceEditable(boolean editable) {
         SwingUtilities.invokeLater(() -> {
             this.workspaceCurrentlyEditable = editable;
-            if (contextTable != null) {
-                contextTable.repaint();
+
+            // Show/hide overlay based on editable state
+            if (editable) {
+                workspaceOverlay.hideOverlay();
+            } else {
+                workspaceOverlay.showOverlay();
             }
+
             refreshMenuState();
         });
     }
