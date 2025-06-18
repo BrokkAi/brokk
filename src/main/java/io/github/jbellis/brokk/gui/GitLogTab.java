@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
-import io.github.jbellis.brokk.difftool.utils.Colors; // Added import
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
@@ -12,11 +11,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
-import javax.swing.table.DefaultTableCellRenderer; // Added import
 import javax.swing.table.TableCellRenderer;
-import javax.swing.tree.DefaultMutableTreeNode; // Added import
-import javax.swing.tree.DefaultTreeModel; // Added import
-import javax.swing.tree.TreePath; // Added import
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -461,12 +456,19 @@ public class GitLogTab extends JPanel {
                     var localBranches = getRepo().listLocalBranches();
                     var isLocalBranch = localBranches.contains(branchName);
                     if (isLocalBranch) {
-                        canPull = getRepo().hasUpstreamBranch(branchName);
-                        try {
-                            unpushedCommitIds.addAll(getRepo().getUnpushedCommitIds(branchName));
-                            canPush = !unpushedCommitIds.isEmpty() && canPull; // Can only push if upstream exists
-                        } catch (GitAPIException e) {
-                            logger.warn("Could not check for unpushed commits: {}", e.getMessage());
+                        boolean hasUpstream = getRepo().hasUpstreamBranch(branchName);
+                        canPull = hasUpstream; // canPull is true if there's an upstream
+                        if (hasUpstream) {
+                            try {
+                                unpushedCommitIds.addAll(getRepo().getUnpushedCommitIds(branchName));
+                                canPush = !unpushedCommitIds.isEmpty(); // Push if unpushed commits and upstream exists
+                            } catch (GitAPIException e) {
+                                logger.warn("Could not check for unpushed commits for branch {}: {}", branchName, e.getMessage());
+                            }
+                        } else {
+                            // No upstream, so we can "push" to create it.
+                            // The act of pushing will effectively push all local commits of this branch.
+                            canPush = true;
                         }
                     }
                 }

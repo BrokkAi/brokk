@@ -253,7 +253,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gitHubPanel.add(gitHubTokenField, gbc);
 
-        var explanationLabel = new JLabel("<html>This token is used to access GitHub APIs. It should have read access to Pull Requests and Issues.</html>");
+        var explanationLabel = new JLabel("<html>This token is used to access GitHub APIs. It should have read and write access to Pull Requests and Issues.</html>");
         explanationLabel.setFont(explanationLabel.getFont().deriveFont(Font.ITALIC, explanationLabel.getFont().getSize() * 0.9f));
         gbc.gridx = 1;
         gbc.gridy = row++;

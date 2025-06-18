@@ -808,11 +808,20 @@ public class GitCommitBrowserPanel extends JPanel {
 
         contextManager.submitUserTask("Pushing " + branchName, () -> {
             try {
-                getRepo().push(); // Pushes current branch
-                SwingUtil.runOnEdt(() -> {
-                    chrome.systemOutput("Pushed " + branchName);
-                    refreshCurrentViewAfterGitOp();
-                });
+                if (getRepo().hasUpstreamBranch(branchName)) {
+                    getRepo().push(branchName);
+                    SwingUtil.runOnEdt(() -> {
+                        chrome.systemOutput("Pushed " + branchName);
+                        refreshCurrentViewAfterGitOp();
+                    });
+                } else {
+                    // No upstream, so push and set remote tracking to origin
+                    getRepo().pushAndSetRemoteTracking(branchName, "origin");
+                    SwingUtil.runOnEdt(() -> {
+                        chrome.systemOutput("Pushed " + branchName + " and set upstream to origin/" + branchName);
+                        refreshCurrentViewAfterGitOp();
+                    });
+                }
             } catch (GitRepo.GitPushRejectedException e) {
                  logger.warn("Push rejected for {}: {}", branchName, e.getMessage());
                  SwingUtil.runOnEdt(() -> chrome.toolError("Push rejected. Tip: Pull changes first.\nDetails: " + e.getMessage(), "Push Rejected"));
@@ -966,7 +975,11 @@ public class GitCommitBrowserPanel extends JPanel {
                         : null;
                 configureButton(pullButton, pullEnabled, pullTooltip, pullListener);
 
-                var pushTooltip = canPush ? "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName : "Nothing to push or no upstream for " + activeBranchOrContextName;
+                var pushTooltip = canPush 
+                ? (unpushedCommitIds.isEmpty() ? "Push upstream for " + activeBranchOrContextName : "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName)
+                : "Nothing to push for " + activeBranchOrContextName;
+                
+                
                 boolean pushEnabled = canPush && !isStashView && !isSearchView && !isRemoteBranchView;
                 java.awt.event.ActionListener pushListener = pushEnabled
                         ? e -> pushBranchInternal(activeBranchOrContextName)

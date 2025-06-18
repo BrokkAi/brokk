@@ -20,6 +20,7 @@ import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
@@ -452,10 +453,25 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Push the committed changes to the remote repository
+     * Push the committed changes for the specified branch to the "origin" remote.
+     * This method assumes the remote is "origin" and the remote branch has the same name as the local branch.
+     * If the branch has a configured upstream, JGit might use that, but explicitly setting RefSpec ensures this branch is pushed.
+     *
+     * @param branchName The name of the local branch to push.
+     * @throws GitAPIException if the push fails.
      */
-    public void push() throws GitAPIException {
-        Iterable<PushResult> results = git.push().call();
+    public void push(String branchName) throws GitAPIException {
+        if (branchName == null || branchName.isBlank()) {
+            throw new IllegalArgumentException("Branch name cannot be null or empty for push operation.");
+        }
+
+        logger.debug("Pushing branch {} to origin", branchName);
+        var refSpec = new RefSpec(String.format("refs/heads/%s:refs/heads/%s", branchName, branchName));
+
+        Iterable<PushResult> results = git.push()
+                                          .setRemote("origin") // Default to "origin"
+                                          .setRefSpecs(refSpec)
+                                          .call();
         var rejectionMessages = new StringBuilder();
 
         for (var result : results) {
@@ -466,9 +482,9 @@ public class GitRepo implements Closeable, IGitRepo {
                     if (rejectionMessages.length() > 0) {
                         rejectionMessages.append("\n");
                     }
-                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' update failed: ");
+                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' (local '").append(branchName).append("') update failed: ");
                     if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
-                            status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
+                        status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
                         rejectionMessages.append("The remote contains work that you do not have locally. ")
                                 .append("Pull and merge from the remote (or rebase) before pushing.");
                     } else {
@@ -485,6 +501,74 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitPushRejectedException("Push rejected by remote:\n" + rejectionMessages.toString());
         }
         // If loop completes without rejections, push was successful or refs were up-to-date.
+    }
+
+    /**
+     * Pushes the given local branch to the specified remote,
+     * creates upstream tracking for it, and returns the PushResult list.
+     * Assumes the remote branch should have the same name as the local branch.
+     */
+    public Iterable<PushResult> pushAndSetRemoteTracking(String localBranchName, String remoteName) throws GitAPIException {
+        return pushAndSetRemoteTracking(localBranchName, remoteName, localBranchName);
+    }
+
+    /**
+     * Pushes the given local branch to the specified remote,
+     * creates upstream tracking for it, and returns the PushResult list.
+     */
+    public Iterable<PushResult> pushAndSetRemoteTracking(String localBranchName, String remoteName, String remoteBranchName) throws GitAPIException {
+        logger.debug("Pushing branch {} to {}/{} and setting up remote tracking", localBranchName, remoteName, remoteBranchName);
+        var refSpec = new RefSpec(
+                String.format("refs/heads/%s:refs/heads/%s", localBranchName, remoteBranchName)
+        );
+
+        // 1. Push the branch
+        Iterable<PushResult> results = git.push()
+                                          .setRemote(remoteName)
+                                          .setRefSpecs(refSpec)
+                                          .call();
+
+        var rejectionMessages = new StringBuilder();
+        for (var result : results) {
+            for (var rru : result.getRemoteUpdates()) {
+                var status = rru.getStatus();
+                if (status != RemoteRefUpdate.Status.OK && status != RemoteRefUpdate.Status.UP_TO_DATE) {
+                    if (!rejectionMessages.isEmpty()) {
+                        rejectionMessages.append("\n");
+                    }
+                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' (local '").append(localBranchName).append("') update failed: ");
+                    if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
+                        status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
+                        rejectionMessages.append("The remote contains work that you do not have locally. ")
+                                .append("Pull and merge from the remote (or rebase) before pushing.");
+                    } else {
+                        rejectionMessages.append(status.toString());
+                        if (rru.getMessage() != null) {
+                            rejectionMessages.append(" (").append(rru.getMessage()).append(")");
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!rejectionMessages.isEmpty()) {
+            throw new GitPushRejectedException("Push rejected by remote:\n" + rejectionMessages.toString());
+        }
+
+        // 2. Record upstream info in config only if push was successful
+        try {
+            var config = repository.getConfig();
+            config.setString("branch", localBranchName, "remote", remoteName);
+            config.setString("branch", localBranchName, "merge", "refs/heads/" + remoteBranchName);
+            config.save();
+            logger.info("Successfully set up remote tracking for branch {} -> {}/{}", localBranchName, remoteName, remoteBranchName);
+        } catch (IOException e) {
+            throw new GitRepoException("Push to " + remoteName + "/" + remoteBranchName + " succeeded, but failed to set up remote tracking configuration for " + localBranchName, e);
+        }
+
+        refresh();
+        
+        return results;
     }
 
     /**
