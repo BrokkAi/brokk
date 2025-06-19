@@ -544,20 +544,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> submitUserTask(String description, boolean isLlmTask, Runnable task) {
-        return submitUserTask(description, isLlmTask, true, task);
-    }
-
-    public CompletableFuture<Void> submitUninterruptibleUserTask(String description, Runnable task) {
-        return submitUserTask(description, false, false, task);
-    }
-
-    private CompletableFuture<Void> submitUserTask(String description, boolean isLlmTask, boolean interruptible, Runnable task) {
         return userActionExecutor.submit(() -> {
             userActionThread.set(Thread.currentThread());
             io.disableActionButtons();
-            if (!interruptible) {
-                io.getInstructionsPanel().disableStopButton();
-            }
 
             try {
                 if (isLlmTask) {
@@ -2022,7 +2011,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture representing the completion of the session rename task
      */
     public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
-        var future = submitUninterruptibleUserTask("Renaming session", () -> {
+        var future = submitUserTask("Renaming session", () -> {
             try {
                 String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 project.renameSession(sessionId, newName);
