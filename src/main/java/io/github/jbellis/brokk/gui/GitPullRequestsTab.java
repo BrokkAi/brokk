@@ -59,6 +59,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prCommitsTableModel;
     private JButton checkoutPrButton;
     private JButton diffPrButton;
+    private JButton viewPrDiffButton;
     private JButton openInBrowserButton;
 
     private FilterBox statusFilter;
@@ -252,6 +253,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.add(diffPrButton);
         prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
+        viewPrDiffButton = new JButton("View Diff");
+        viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
+        viewPrDiffButton.setEnabled(false);
+        viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
+        prButtonPanel.add(viewPrDiffButton);
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+
         openInBrowserButton = new JButton("Open in Browser");
         openInBrowserButton.setToolTipText("Open the selected PR in your web browser");
         openInBrowserButton.setEnabled(false);
@@ -413,6 +421,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     checkoutPrButton.setText("Loading...");
                     checkoutPrButton.setEnabled(false);
                     diffPrButton.setEnabled(true);
+                    viewPrDiffButton.setEnabled(true);
                     openInBrowserButton.setEnabled(true);
 
                     this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
@@ -460,6 +469,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     checkoutPrButton.setText("Check Out");
                     checkoutPrButton.setEnabled(false);
                     diffPrButton.setEnabled(false);
+                    viewPrDiffButton.setEnabled(false);
                     openInBrowserButton.setEnabled(false);
                     prCommitsTableModel.setRowCount(0); // Clear commits table
                     prFilesTableModel.setRowCount(0); // Clear files table
@@ -548,6 +558,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         checkoutPrButton.setText("Check Out");
         checkoutPrButton.setEnabled(false);
         diffPrButton.setEnabled(false);
+        viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
         prCommitsTableModel.setRowCount(0);
         prFilesTableModel.setRowCount(0);
@@ -1052,7 +1063,76 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         checkoutPrButton.setText("Check Out");
         checkoutPrButton.setEnabled(false);
         diffPrButton.setEnabled(false);
+        viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
+    }
+
+    private void viewFullPrDiff() {
+        int selectedRow = prTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
+            return;
+        }
+        GHPullRequest pr = displayedPrs.get(selectedRow);
+        logger.info("Opening full diff viewer for PR #{}", pr.getNumber());
+
+        contextManager.submitUserTask("Show PR Diff", () -> {
+            try {
+                var repo = getRepo();
+                if (repo == null) {
+                    chrome.toolError("Git repository not available.", "Diff Error");
+                    return null;
+                }
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prHeadFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
+                String prBaseBranchName = pr.getBase().getRef(); // e.g., "main"
+                String prBaseFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError("Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha) + " available locally.", "Diff Error");
+                    return null;
+                }
+                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                    // This is a warning because prBaseSha might be an old commit not on the current tip of the base branch.
+                    // listFilesChangedBetweenBranches might still work if it's an ancestor.
+                    logger.warn("PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.", GitUiUtil.shortenCommitId(prBaseSha), prBaseFetchRef);
+                }
+
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+
+                if (modifiedFiles.isEmpty()) {
+                    chrome.systemNotify("No changes found in PR #" + pr.getNumber(), "Diff Info", JOptionPane.INFORMATION_MESSAGE);
+                    return null;
+                }
+
+                var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
+
+                for (var mf : modifiedFiles) {
+                    var projectFile = mf.file();
+                    var status = mf.status();
+                    io.github.jbellis.brokk.difftool.ui.BufferSource leftSource, rightSource;
+
+                    if ("deleted".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource("", prHeadSha + " (Deleted)", projectFile.getFileName());
+                    } else if ("new".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource("", prBaseSha + " (New)", projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                    } else { // modified
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                    }
+                    builder.addComparison(leftSource, rightSource);
+                }
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame("PR #" + pr.getNumber() + " Diff: " + pr.getTitle()));
+
+            } catch (Exception ex) {
+                logger.error("Error opening PR diff viewer for PR #{}", pr.getNumber(), ex);
+                chrome.toolError("Unable to open diff for PR #" + pr.getNumber() + ": " + ex.getMessage(), "Diff Error");
+            }
+            return null;
+        });
     }
 
 
