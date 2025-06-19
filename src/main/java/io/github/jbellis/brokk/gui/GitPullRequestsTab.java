@@ -82,33 +82,68 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
 
     /**
-     * Ensure a commit SHA is available locally, fetching the specified refSpec from the remote if necessary.
+     * Checks if a commit's data is fully available and parsable in the local repository.
      *
-     * @param sha         The object id that must be present locally
-     * @param repo        GitRepo to operate on (non-null)
-     * @param refSpec     The refSpec to fetch if the SHA is missing (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head")
-     * @param remoteName  Which remote to fetch from (e.g. "origin")
-     * @return true if the SHA is now resolvable locally, false otherwise
+     * @param repo The GitRepo instance.
+     * @param sha  The commit SHA to check.
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise.
+     */
+    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
+        if (sha == null) return false;
+        org.eclipse.jgit.lib.ObjectId objectId = null;
+        try {
+            objectId = repo.resolve(sha);
+            if (objectId == null) {
+                logger.debug("SHA {} cannot be resolved.", GitUiUtil.shortenCommitId(sha));
+                return false; // Cannot resolve, definitely not available
+            }
+            // Try to parse the commit to ensure its data is present
+            try (org.eclipse.jgit.revwalk.RevWalk revWalk = new org.eclipse.jgit.revwalk.RevWalk(repo.getGit().getRepository())) {
+                revWalk.parseCommit(objectId);
+                return true; // Resolvable and parsable
+            }
+        } catch (org.eclipse.jgit.errors.MissingObjectException e) {
+            logger.debug("Commit object for SHA {} (resolved to {}) is missing locally.", GitUiUtil.shortenCommitId(sha), objectId != null ? objectId.name() : "unresolved", e);
+            return false; // Resolvable but data is missing
+        } catch (IOException | GitAPIException e) { // GitAPIException from repo.resolve, IOException from parseCommit (other than MissingObjectException)
+            logger.warn("Error checking local availability of commit {}: {}", GitUiUtil.shortenCommitId(sha), e.getMessage(), e);
+            return false; // Error during check, assume not available
+        }
+    }
+
+
+    /**
+     * Ensure a commit SHA is available locally and is fully parsable, fetching the specified refSpec from the remote if necessary.
+     *
+     * @param sha         The commit SHA that must be present and parsable locally.
+     * @param repo        GitRepo to operate on (non-null).
+     * @param refSpec     The refSpec to fetch if the SHA is missing or not parsable (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head").
+     * @param remoteName  Which remote to fetch from (e.g. "origin").
+     * @return true if the SHA is now locally available and parsable, false otherwise.
      */
     private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
+        if (isCommitLocallyAvailable(repo, sha)) {
+            return true;
+        }
+
+        // If not available or missing, try to fetch
+        logger.debug("SHA {} not fully available locally - fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
         try {
-            if (repo.resolve(sha) != null) {
-                return true; // already present
-            }
-            logger.debug("SHA {} not found locally - fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
             repo.getGit().fetch()
                     .setRemote(remoteName)
                     .setRefSpecs(new RefSpec(refSpec))
                     .call();
-            boolean resolved = repo.resolve(sha) != null;
-            if (!resolved) {
-                logger.warn("Failed to resolve SHA {} even after fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
+            // After fetch, verify again
+            if (isCommitLocallyAvailable(repo, sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", GitUiUtil.shortenCommitId(sha));
+                return true;
             } else {
-                logger.debug("Successfully fetched SHA {}", GitUiUtil.shortenCommitId(sha));
+                logger.warn("Failed to make SHA {} fully available locally even after fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
+                return false;
             }
-            return resolved;
         } catch (Exception e) {
-            logger.warn("Error fetching ref '{}' for SHA {}: {}", refSpec, GitUiUtil.shortenCommitId(sha), e.getMessage());
+            // Includes GitAPIException, IOException, etc.
+            logger.warn("Error during fetch operation in ensureShaIsLocal for SHA {}: {}", GitUiUtil.shortenCommitId(sha), e.getMessage(), e);
             return false;
         }
     }
@@ -963,10 +998,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     String headSha = pr.getHead().getSha();
                     String baseSha = pr.getBase().getSha();
                     int prNumber = pr.getNumber();
-
-                    // Ensure head SHA is available
-                    String headFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    // Assuming 'origin' is the primary remote. Fork logic might be needed if this fails.
+                    boolean headLocallyAvailable;
+                    boolean baseLocallyAvailable;
 
                     GitHubAuth auth;
                     try {
@@ -976,28 +1009,29 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         throw new RuntimeException("Failed to initialize GitHubAuth for PR #" + prNumber + ": " + e.getMessage(), e);
                     }
 
-                    if (!ensureShaIsLocal(repo, headSha, headFetchRef, "origin")) {
+                    // Ensure head SHA is available
+                    String headFetchRefSpec = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                    headLocallyAvailable = ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
+
+                    if (!headLocallyAvailable) {
                         // If direct PR head fetch fails, try fetching the source branch if it's from origin
                         if (pr.getHead().getRepository().getFullName().equals(auth.getOwner() + "/" + auth.getRepoName())) {
-                            String headBranchName = pr.getHead().getRef(); // e.g. "feature/my-branch" or "refs/heads/feature/my-branch"
+                            String headBranchName = pr.getHead().getRef(); // e.g., "feature/my-branch" or "refs/heads/feature/my-branch"
                             if (headBranchName.startsWith("refs/heads/")) headBranchName = headBranchName.substring("refs/heads/".length());
-                            String headBranchFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
-                            ensureShaIsLocal(repo, headSha, headBranchFetchRef, "origin");
+                            String headBranchFetchRefSpec = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
+                            headLocallyAvailable = ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
                         } else {
-                             logger.warn("PR #{} head {} is from a fork, advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, GitUiUtil.shortenCommitId(headSha));
-                             // For simplicity, we are not handling complex fork remote setups here.
-                             // Checkout logic has more complete fork handling.
+                             logger.warn("PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, GitUiUtil.shortenCommitId(headSha));
+                             // headLocallyAvailable remains the result of the first ensureShaIsLocal attempt
                         }
                     }
 
-
                     // Ensure base SHA is available
                     String baseBranchName = pr.getBase().getRef(); // e.g. "main"
-                    String baseFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                    ensureShaIsLocal(repo, baseSha, baseFetchRef, "origin");
+                    String baseFetchRefSpec = String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
+                    baseLocallyAvailable = ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
 
-
-                    if (repo.resolve(headSha) != null && repo.resolve(baseSha) != null) {
+                    if (headLocallyAvailable && baseLocallyAvailable) {
                         List<String> changedFiles;
                         try {
                             // Always use the PR's base SHA for diffing, which represents the exact
@@ -1026,11 +1060,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         }
                         fetchedFilesMap.put(prNumber, changedFiles);
                     } else {
-                        logger.warn("Could not resolve head ({}) or base ({}) SHA for PR #{} to list files.", GitUiUtil.shortenCommitId(headSha), GitUiUtil.shortenCommitId(baseSha), prNumber);
-                        fetchedFilesMap.put(prNumber, List.of("Error: Could not resolve SHAs locally."));
+                        String missingShasMsg = "";
+                        if (!headLocallyAvailable) missingShasMsg += "head (" + GitUiUtil.shortenCommitId(headSha) + ")";
+                        if (!baseLocallyAvailable) {
+                            if (!missingShasMsg.isEmpty()) missingShasMsg += " and ";
+                            missingShasMsg += "base (" + GitUiUtil.shortenCommitId(baseSha) + ")";
+                        }
+                        logger.warn("Could not make {} SHA(s) for PR #{} fully available locally to list files.", missingShasMsg, prNumber);
+                        fetchedFilesMap.put(prNumber, List.of("Error: Could not make required SHAs locally available. Ensure refs are fetched."));
                     }
                 } catch (Exception e) {
-                    logger.error("Error fetching/processing files for PR #{}", pr.getNumber(), e);
+                    logger.error("Error fetching or processing files for PR #{}", pr.getNumber(), e);
                     fetchedFilesMap.put(pr.getNumber(), List.of("Error fetching files: " + e.getMessage()));
                 }
             }
