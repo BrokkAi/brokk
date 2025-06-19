@@ -29,7 +29,6 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -321,102 +320,99 @@ public class BuildAgent {
      * @return A CompletableFuture containing the suggested verification command string (either specific test command or build/lint command),
      * or null if BuildDetails are unavailable.
      */
-    static CompletableFuture<String> determineVerificationCommandAsync(IContextManager cm) {
-        // Runs asynchronously on the background executor provided by ContextManager
-        return CompletableFuture.supplyAsync(() -> {
-            // Retrieve build details from the project associated with the ContextManager
-            BuildDetails details = cm.getProject().loadBuildDetails();
+    static @Nullable String determineVerificationCommand(IContextManager cm) {
+        // Retrieve build details from the project associated with the ContextManager
+        BuildDetails details = cm.getProject().loadBuildDetails();
 
-            if (details.equals(BuildDetails.EMPTY)) {
-                logger.warn("No build details available, cannot determine verification command.");
-                return null;
-            }
+        if (details.equals(BuildDetails.EMPTY)) {
+            logger.warn("No build details available, cannot determine verification command.");
+            return null;
+        }
 
-            // Check project setting for test scope
-            IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
-            if (testScope == IProject.CodeAgentTestScope.ALL) {
-                logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
-                return details.testAllCommand();
-            }
+        // Check project setting for test scope
+        IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+        if (testScope == IProject.CodeAgentTestScope.ALL) {
+            logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", details.testAllCommand());
+            return details.testAllCommand();
+        }
 
-            // Proceed with workspace-specific test determination
-            logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
+        // Proceed with workspace-specific test determination
+        logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
 
-            // Get ProjectFiles from editable and read-only fragments
-            Stream<ProjectFile> projectFilesFromEditableOrReadOnly =
+        // Get ProjectFiles from editable and read-only fragments
+        Stream<ProjectFile> projectFilesFromEditableOrReadOnly =
                 Stream.concat(
-                        cm.topContext().editableFiles(),
-                        cm.topContext().readonlyFiles()
-                      )
-                      .flatMap(fragment -> fragment.files().stream()); // No analyzer
+                                cm.topContext().editableFiles(),
+                                cm.topContext().readonlyFiles()
+                        )
+                        .flatMap(fragment -> fragment.files().stream()); // No analyzer
 
-            // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-            Stream<ProjectFile> projectFilesFromSkeletons =
+        // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
+        Stream<ProjectFile> projectFilesFromSkeletons =
                 cm.topContext().virtualFragments()
-                    .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                    .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
+                        .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
+                        .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
-            // Combine all relevant ProjectFiles into a single set for checking against test files
-            var workspaceFiles =
+        // Combine all relevant ProjectFiles into a single set for checking against test files
+        var workspaceFiles =
                 Stream.concat(projectFilesFromEditableOrReadOnly, projectFilesFromSkeletons)
-                      .collect(Collectors.toSet());
+                        .collect(Collectors.toSet());
 
-            // Check if any of the identified project test files are present in the current workspace set
-            var projectTestFiles = cm.getTestFiles();
-            var workspaceTestFiles = projectTestFiles.stream()
-                                                     .filter(workspaceFiles::contains)
-                                                     .toList();
+        // Check if any of the identified project test files are present in the current workspace set
+        var projectTestFiles = cm.getTestFiles();
+        var workspaceTestFiles = projectTestFiles.stream()
+                .filter(workspaceFiles::contains)
+                .toList();
 
-            // Decide which command to use
-            if (workspaceTestFiles.isEmpty()) {
-                logger.debug("No relevant test files found in workspace, using build/lint command: {}", details.buildLintCommand());
+        // Decide which command to use
+        if (workspaceTestFiles.isEmpty()) {
+            logger.debug("No relevant test files found in workspace, using build/lint command: {}", details.buildLintCommand());
+            return details.buildLintCommand();
+        }
+
+        // Determine if template is files-based or classes-based
+        String testSomeTemplate = details.testSomeCommand();
+        boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
+        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}");
+
+        if (!isFilesBased && !isClassesBased) {
+            logger.debug("Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}", details.buildLintCommand());
+            return details.buildLintCommand();
+        }
+
+        List<String> targetItems;
+        if (isFilesBased) {
+            // Use file paths directly
+            targetItems = workspaceTestFiles.stream()
+                    .map(ProjectFile::toString)
+                    .toList();
+            logger.debug("Using files-based template with {} files", targetItems.size());
+        } else { // isClassesBased
+            IAnalyzer analyzer;
+            try {
+                analyzer = cm.getAnalyzer();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new CancellationException("Interrupted while retrieving analyzer");
+            }
+
+            if (analyzer.isEmpty()) {
+                logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
                 return details.buildLintCommand();
             }
 
-            // Determine if template is files-based or classes-based
-            String testSomeTemplate = details.testSomeCommand();
-            boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-            boolean isClassesBased = testSomeTemplate.contains("{{#classes}}");
-
-            if (!isFilesBased && !isClassesBased) {
-                logger.debug("Test template doesn't use {{#files}} or {{#classes}}, using build/lint command: {}", details.buildLintCommand());
+            targetItems = AnalyzerUtil.testFilesToFQCNs(analyzer, workspaceTestFiles);
+            if (targetItems.isEmpty()) {
+                logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
                 return details.buildLintCommand();
             }
+            logger.debug("Using classes-based template with {} classes", targetItems.size());
+        }
 
-            List<String> targetItems;
-            if (isFilesBased) {
-                // Use file paths directly
-                targetItems = workspaceTestFiles.stream()
-                                                .map(ProjectFile::toString)
-                                                .toList();
-                logger.debug("Using files-based template with {} files", targetItems.size());
-            } else { // isClassesBased
-                IAnalyzer analyzer;
-                try {
-                    analyzer = cm.getAnalyzer();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new CancellationException("Interrupted while retrieving analyzer");
-                }
-
-                if (analyzer.isEmpty()) {
-                    logger.warn("Analyzer is empty; falling back to build/lint command: {}", details.buildLintCommand());
-                    return details.buildLintCommand();
-                }
-
-                targetItems = AnalyzerUtil.testFilesToFQCNs(analyzer, workspaceTestFiles);
-                if (targetItems.isEmpty()) {
-                    logger.debug("No classes found in workspace test files for class-based template, using build/lint command: {}", details.buildLintCommand());
-                    return details.buildLintCommand();
-                }
-                logger.debug("Using classes-based template with {} classes", targetItems.size());
-            }
-
-            // Perform simple template interpolation
-            String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, isFilesBased);
-            logger.debug("Interpolated test command: '{}'", interpolatedCommand);
-            return interpolatedCommand;
-        }, cm.getBackgroundTasks());
+        // Perform simple template interpolation
+        String interpolatedCommand = interpolateMustacheTemplate(testSomeTemplate, targetItems, isFilesBased);
+        logger.debug("Interpolated test command: '{}'", interpolatedCommand);
+        return interpolatedCommand;
     }
 
     /**

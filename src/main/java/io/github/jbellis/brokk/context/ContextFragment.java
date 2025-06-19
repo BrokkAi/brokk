@@ -1494,8 +1494,8 @@ public interface ContextFragment {
         public String text() {
             // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
-            return TaskEntry.formatMessages(history.stream().flatMap(e -> 
-                e.isCompressed() 
+            return TaskEntry.formatMessages(history.stream().flatMap(e ->
+                e.isCompressed()
                     ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
                     : castNonNull(e.log()).messages().stream()
             ).toList());

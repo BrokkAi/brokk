@@ -95,7 +95,7 @@ public class EditBlockParser {
         );
     }
 
-    protected String instructions(String input, String reminder) {
+    protected final String instructions(String input, String reminder) {
         return """
         <rules>
         %s
@@ -122,9 +122,12 @@ public class EditBlockParser {
         and one to insert in the new location.
 
         Pay attention to which filenames the user wants you to edit, especially if they are asking
-        you to create a new filename. To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
+        you to create a new filename.
+        
+        Important! To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
         block with nothing in between the search and divider marker lines, and the new file's full contents between
-        the divider and replace marker lines.
+        the divider and replace marker lines. Rule of thumb: replace the entire file if you will need to
+        change more than half of it.
  
         If the user just says something like "ok" or "go ahead" or "do that", they probably want you
         to make SEARCH/REPLACE blocks for the code changes you just proposed.

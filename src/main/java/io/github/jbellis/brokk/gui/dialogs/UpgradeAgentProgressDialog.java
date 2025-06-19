@@ -1,22 +1,30 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.Llm;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheFactory;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import dev.langchain4j.data.message.ChatMessage;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -27,10 +35,13 @@ public class UpgradeAgentProgressDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(UpgradeAgentProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea errorTextArea;
+    private JTextArea agentOutputTextArea; // Added for detailed agent output
     private final JButton cancelButton;
     private final SwingWorker<Void, ProgressData> worker;
     private final int totalFiles;
     private final AtomicInteger processedFileCount = new AtomicInteger(0);
+    private final @Nullable Integer relatedK;
+    private final @Nullable String perFileCommandTemplate;
     private ExecutorService executorService; // Moved here for wider access
 
 
@@ -40,9 +51,13 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                       String instructions,
                                       Service.FavoriteModel selectedFavorite,
                                       List<ProjectFile> filesToProcess,
-                                      Chrome chrome) {
+                                      Chrome chrome,
+                                      @Nullable Integer relatedK,
+                                      @Nullable String perFileCommandTemplate) {
         super(owner, "Upgrade Agent Progress", true);
         this.totalFiles = filesToProcess.size();
+        this.relatedK = relatedK;
+        this.perFileCommandTemplate = perFileCommandTemplate;
 
         setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(600, 400));
@@ -55,7 +70,26 @@ public class UpgradeAgentProgressDialog extends JDialog {
         errorTextArea.setEditable(false);
         errorTextArea.setLineWrap(true);
         errorTextArea.setWrapStyleWord(true);
-        JScrollPane scrollPane = new JScrollPane(errorTextArea);
+        JScrollPane errorScrollPane = new JScrollPane(errorTextArea);
+
+        agentOutputTextArea = new JTextArea();
+        agentOutputTextArea.setEditable(false);
+        agentOutputTextArea.setLineWrap(true);
+        agentOutputTextArea.setWrapStyleWord(true);
+        agentOutputTextArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        JScrollPane agentOutputScrollPane = new JScrollPane(agentOutputTextArea);
+
+        JPanel agentOutputPanel = new JPanel(new BorderLayout(5,5));
+        agentOutputPanel.add(new JLabel("Agent Output:"), BorderLayout.NORTH);
+        agentOutputPanel.add(agentOutputScrollPane, BorderLayout.CENTER);
+
+        JPanel errorsPanel = new JPanel(new BorderLayout(5,5));
+        errorsPanel.add(new JLabel("File Processing Errors/Status:"), BorderLayout.NORTH);
+        errorsPanel.add(errorScrollPane, BorderLayout.CENTER);
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, agentOutputPanel, errorsPanel);
+        splitPane.setResizeWeight(0.7); // Give more space to agent output initially
+        splitPane.setBorder(BorderFactory.createEmptyBorder(0,10,0,10));
 
         cancelButton = new JButton("Cancel");
 
@@ -65,12 +99,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
         topPanel.setBorder(BorderFactory.createEmptyBorder(10,10,0,10));
         add(topPanel, BorderLayout.NORTH);
 
-        JPanel centerPanel = new JPanel(new BorderLayout(5,5));
-        centerPanel.add(new JLabel("Errors:"), BorderLayout.NORTH);
-        centerPanel.add(scrollPane, BorderLayout.CENTER);
-        centerPanel.setBorder(BorderFactory.createEmptyBorder(0,10,0,10));
-        add(centerPanel, BorderLayout.CENTER);
-
+        add(splitPane, BorderLayout.CENTER);
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttonPanel.add(cancelButton);
@@ -81,10 +110,9 @@ public class UpgradeAgentProgressDialog extends JDialog {
             // executorService is now a field of UpgradeAgentProgressDialog
 
             @Override
-            protected Void doInBackground() throws Exception {
+            protected Void doInBackground() {
                 // Initialize the class field executorService here
                 UpgradeAgentProgressDialog.this.executorService = Executors.newFixedThreadPool(200);
-                var project = chrome.getProject();
                 var contextManager = chrome.getContextManager();
                 var service = contextManager.getService();
 
@@ -93,47 +121,120 @@ public class UpgradeAgentProgressDialog extends JDialog {
                         break;
                     }
                     executorService.submit(() -> {
-                        if (Thread.currentThread().isInterrupted() || isCancelled()) {
-                             publish(new ProgressData(file.toString(), "Cancelled by user."));
-                            return;
-                        }
+                        var dialogConsoleIO = new DialogConsoleIO(UpgradeAgentProgressDialog.this, file.toString());
                         try {
-                            // First attempt with selected model
-                            StreamingChatLanguageModel llm = service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning());
-                            Llm llmWrapper = contextManager.getLlm(llm, "Upgrade Agent: " + file.getFileName());
-                            List<ChatMessage> messages = CodePrompts.instance.getSimpleFileReplaceMessages(project, file, instructions);
-
-                            Optional<String> error = CodeAgent.executeReplace(file, llmWrapper, messages);
-
-                            if (error.isPresent()) {
-                                // Retry with grok-3-mini
-                                if (isCancelled() || Thread.currentThread().isInterrupted()){
-                                     publish(new ProgressData(file.toString(), "Cancelled before retry. Initial error: " + error.get()));
-                                    return;
-                                }
-                                StreamingChatLanguageModel retryModel = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
-                                Llm retryLlmWrapper = contextManager.getLlm(retryModel, "Upgrade Agent (retry): " + file.getFileName());
-                                error = CodeAgent.executeReplace(file, retryLlmWrapper, messages); // Re-use messages
-
-                                if (error.isPresent()) {
-                                    publish(new ProgressData(file.toString(), error.get()));
-                                } else {
-                                    publish(new ProgressData(file.toString(), null)); // Retry succeeded
-                                }
-                            } else {
-                                publish(new ProgressData(file.toString(), null)); // First attempt succeeded
+                            if (Thread.currentThread().isInterrupted() || isCancelled()) {
+                                publish(new ProgressData(file.toString(), "Cancelled by user."));
+                                dialogConsoleIO.systemOutput("Processing cancelled by user for file: " + file);
+                                return;
                             }
-                        } catch (IOException e) {
-                            publish(new ProgressData(file.toString(), "IO Error: " + e.getMessage()));
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt(); // Preserve interrupt status
-                            publish(new ProgressData(file.toString(), "Processing interrupted."));
-                        } catch (Exception e) {
-                            publish(new ProgressData(file.toString(), "Unexpected error: " + e.getMessage()));
+                            dialogConsoleIO.systemOutput("Starting processing for file: " + file);
+
+                            var model = service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning());
+                            var agent = new CodeAgent(contextManager, model, dialogConsoleIO);
+
+                            List<ChatMessage> readOnlyMessages;
+                            try {
+                                readOnlyMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceReadOnlyMessages(contextManager));
+                                if (UpgradeAgentProgressDialog.this.relatedK != null) {
+                                    var acFragment = contextManager.liveContext().buildAutoContext(UpgradeAgentProgressDialog.this.relatedK);
+                                    if (!acFragment.text().isBlank()) {
+                                        var msgText = """
+                                                      <related_classes>
+                                                      The user requested to include the top %d related classes.
+                                                      
+                                                      %s
+                                                      </related_classes>
+                                                      """.stripIndent().formatted(UpgradeAgentProgressDialog.this.relatedK, acFragment.text());
+                                        readOnlyMessages.add(new UserMessage(msgText));
+                                        dialogConsoleIO.systemOutput("Added " + UpgradeAgentProgressDialog.this.relatedK + " related classes to context.");
+                                    }
+                                }
+
+                                // Execute per-file command if provided
+                                if (UpgradeAgentProgressDialog.this.perFileCommandTemplate != null && !UpgradeAgentProgressDialog.this.perFileCommandTemplate.isBlank()) {
+                                    dialogConsoleIO.systemOutput("Preparing to execute per-file command for " + file);
+                                    try {
+                                        MustacheFactory mf = new DefaultMustacheFactory();
+                                        Mustache mustache = mf.compile(new StringReader(UpgradeAgentProgressDialog.this.perFileCommandTemplate), "perFileCommand");
+                                        StringWriter writer = new StringWriter();
+                                        Map<String, Object> scope = new HashMap<>();
+                                        scope.put("filepath", file.toString()); // Using relative path
+                                        mustache.execute(writer, scope).flush();
+                                        String finalCommand = writer.toString();
+
+                                        dialogConsoleIO.actionOutput("Executing per-file command: " + finalCommand);
+                                        logger.info("Executing per-file command for {}: {}", file, finalCommand);
+                                        String commandOutputText;
+                                        try {
+                                            String output = Environment.instance.runShellCommand(finalCommand,
+                                                                                                 contextManager.getProject().getRoot(),
+                                                                                                 line -> {}); // No live consumer for now
+                                            commandOutputText = """
+                                                                <per_file_command_output command="%s">
+                                                                %s
+                                                                </per_file_command_output>
+                                                                """.stripIndent().formatted(finalCommand, output);
+                                            dialogConsoleIO.systemOutput("Per-file command executed successfully. Output:\n" + output);
+                                        } catch (Environment.SubprocessException ex) {
+                                            logger.warn("Per-file command failed for {}: {}", file, finalCommand, ex);
+                                            commandOutputText = """
+                                                                <per_file_command_output command="%s">
+                                                                Error executing command: %s
+                                                                Output (if any):
+                                                                %s
+                                                                </per_file_command_output>
+                                                                """.stripIndent().formatted(finalCommand, ex.getMessage(), ex.getOutput());
+                                            dialogConsoleIO.toolError("Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(), "Command Execution Error");
+                                        }
+                                        readOnlyMessages.add(new UserMessage(commandOutputText));
+                                    } catch (Exception e) { // Catches errors in Mustache compilation or other setup
+                                        logger.error("Error preparing or executing per-file command for {}", file, e);
+                                        String errorForProgress = "Error with per-file command infrastructure: " + e.getMessage();
+                                        publish(new ProgressData(file.toString(), errorForProgress)); // For main error log
+                                        dialogConsoleIO.toolError("System error during per-file command setup: " + e.getMessage(), "Command Setup Error");
+
+                                        String errorMsgForLlm = """
+                                                               <per_file_command_output command_template="%s">
+                                                               Failed to prepare or execute command for file %s: %s
+                                                               This was an error in the command execution system, not the command's own output.
+                                                               </per_file_command_output>
+                                                               """.stripIndent().formatted(UpgradeAgentProgressDialog.this.perFileCommandTemplate, file.toString(), e.getMessage());
+                                        readOnlyMessages.add(new UserMessage(errorMsgForLlm));
+                                        // Continue to agent.runSingleFileEdit, LLM will be informed.
+                                    }
+                                }
+
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                publish(new ProgressData(file.toString(), "Interrupted during message preparation."));
+                                dialogConsoleIO.systemOutput("Interrupted during message preparation for file: " + file);
+                                return;
+                            }
+
+                            var result = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
+
+                            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                                Thread.currentThread().interrupt(); // Preserve interrupt status
+                                publish(new ProgressData(file.toString(), "Processing interrupted."));
+                                dialogConsoleIO.systemOutput("File processing for " + file + " was interrupted.");
+                            } else if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+                                String failureMessage = "Processing failed: " + result.stopDetails().reason();
+                                String explanation = result.stopDetails().explanation();
+                                if (explanation != null && !explanation.isEmpty()) {
+                                    failureMessage += " - " + explanation;
+                                }
+                                publish(new ProgressData(file.toString(), failureMessage));
+                                dialogConsoleIO.toolError(failureMessage, "Agent Processing Error");
+                            } else {
+                                publish(new ProgressData(file.toString(), null)); // Success
+                                dialogConsoleIO.systemOutput("Successfully processed file: " + file);
+                            }
+                        } finally {
+                             dialogConsoleIO.systemOutput("Finished processing for file: " + file + "\n--------------------");
                         }
                     });
                 }
-
                 executorService.shutdown();
                 try {
                     // Wait for tasks to complete or for cancellation
@@ -230,5 +331,53 @@ public class UpgradeAgentProgressDialog extends JDialog {
         pack();
         setLocationRelativeTo(owner);
         worker.execute();
+    }
+
+    /**
+     * @param fileContext To prefix messages related to a specific file
+     */
+    private record DialogConsoleIO(UpgradeAgentProgressDialog dialog, String fileContext) implements IConsoleIO {
+        private void appendToAgentOutput(String text, boolean includeFileContext) {
+            SwingUtilities.invokeLater(() -> {
+                String prefix = includeFileContext ? "[" + fileContext + "] " : "";
+                dialog.agentOutputTextArea.append(prefix + text + "\n");
+                dialog.agentOutputTextArea.setCaretPosition(dialog.agentOutputTextArea.getDocument().getLength());
+            });
+        }
+
+        private void appendTokenToAgentOutput(String token) {
+            SwingUtilities.invokeLater(() -> {
+                dialog.agentOutputTextArea.append(token);
+                dialog.agentOutputTextArea.setCaretPosition(dialog.agentOutputTextArea.getDocument().getLength());
+            });
+        }
+
+        @Override
+        public void toolError(String msg, String title) {
+            appendToAgentOutput(title + ": " + msg, true);
+        }
+
+        @Override
+        public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage) {
+            if (isNewMessage) {
+                String prefix = "[" + fileContext + "] [" + type.toString() + "] ";
+                if (dialog.agentOutputTextArea.getDocument().getLength() > 0) {
+                    appendToAgentOutput("\n" + prefix, false); // Newline before new message block
+                } else {
+                    appendToAgentOutput(prefix, false);
+                }
+            }
+            appendTokenToAgentOutput(token); // Append token directly without extra newline
+        }
+
+        @Override
+        public void systemOutput(String message) {
+            appendToAgentOutput(message, true);
+        }
+
+        @Override
+        public void systemNotify(String message, String title, int messageType) {
+            appendToAgentOutput(title + ": " + message, true);
+        }
     }
 }
