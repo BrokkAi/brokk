@@ -18,7 +18,7 @@ public class StackTrace {
     /**
      * The first line of the stack trace containing the error that happened.
      */
-    private final String exceptionType;
+    @Nullable private final String exceptionType;
     private final String originalStackTrace;
 
     /**
@@ -45,7 +45,7 @@ public class StackTrace {
      *
      * @return the exception type, or null if the first line couldn't be parsed
      */
-    public String getExceptionType() {
+    public @Nullable String getExceptionType() {
         return this.exceptionType;
     }
 

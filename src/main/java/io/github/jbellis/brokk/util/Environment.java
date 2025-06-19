@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.gui.Chrome;
+import org.jetbrains.annotations.Nullable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -19,7 +20,7 @@ public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
 
-    private TrayIcon brokkTrayIcon = null;
+    @Nullable private TrayIcon brokkTrayIcon = null;
 
     private Environment() {
     }

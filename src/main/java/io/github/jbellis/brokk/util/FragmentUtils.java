@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
+import org.jetbrains.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -19,13 +20,13 @@ public final class FragmentUtils {
         // Private constructor to prevent instantiation
     }
 
-    private static void updateDigest(MessageDigest md, String data) {
+    private static void updateDigest(MessageDigest md, @Nullable String data) {
         if (data != null) {
             md.update(data.getBytes(StandardCharsets.UTF_8));
         }
     }
 
-    private static void updateDigest(MessageDigest md, byte[] data) {
+    private static void updateDigest(MessageDigest md, @Nullable byte[] data) {
         if (data != null) {
             md.update(data);
         }
@@ -37,15 +38,14 @@ public final class FragmentUtils {
 
     private static String calculateHashInternal(ContextFragment.FragmentType type,
                                                 String description,
-                                                String shortDescription, // Can be null
-                                                String textContent,      // Can be null
-                                                byte[] imageBytesContent,// Can be null
+                                                @Nullable String shortDescription,
+                                                @Nullable String textContent,
+                                                @Nullable byte[] imageBytesContent,
                                                 boolean isTextFragment,
                                                 String syntaxStyle,
-                                                Set<ProjectFile> files,  // Can be null or empty
-                                                String originalClassName,
-                                                Map<String, String> meta // Can be null or empty
-                                                )
+                                                @Nullable Set<ProjectFile> files,
+                                                @Nullable String originalClassName,
+                                                @Nullable Map<String, String> meta)
     {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -62,10 +62,9 @@ public final class FragmentUtils {
 
             if (files != null && !files.isEmpty()) {
                 String sortedFilesString = files.stream()
-                                                .filter(Objects::nonNull)
-                                                .map(pf -> pf.getRoot().toString() + "|" + pf.getRelPath().toString())
-                                                .sorted()
-                                                .collect(Collectors.joining(";"));
+                        .map(pf -> pf.getRoot().toString() + "|" + pf.getRelPath().toString())
+                        .sorted()
+                        .collect(Collectors.joining(";"));
                 updateDigest(md, sortedFilesString);
             }
 
@@ -73,9 +72,9 @@ public final class FragmentUtils {
 
             if (meta != null && !meta.isEmpty()) {
                 String sortedMetaString = meta.entrySet().stream()
-                                              .sorted(Map.Entry.comparingByKey())
-                                              .map(entry -> entry.getKey() + "=" + entry.getValue())
-                                              .collect(Collectors.joining(";"));
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(entry -> entry.getKey() + "=" + entry.getValue())
+                        .collect(Collectors.joining(";"));
                 updateDigest(md, sortedMetaString);
             }
 
@@ -102,14 +101,15 @@ public final class FragmentUtils {
      * Used by AnonymousImageFragment.
      */
     public static String calculateContentHash(ContextFragment.FragmentType type,
-                                                String description,
-                                                String textContent, // null for images
-                                                byte[] imageBytesContent,
-                                                boolean isTextFragment,
-                                                String syntaxStyle,
-                                                Set<ProjectFile> files,
-                                                String originalClassName,
-                                                Map<String, String> meta) {
+                                              String description,
+                                              @Nullable String textContent,
+                                              @Nullable byte[] imageBytesContent,
+                                              boolean isTextFragment,
+                                              String syntaxStyle,
+                                              @Nullable Set<ProjectFile> files,
+                                              @Nullable String originalClassName,
+                                              @Nullable Map<String, String> meta)
+    {
         return calculateHashInternal(type, description, null, textContent, imageBytesContent, isTextFragment, syntaxStyle, files, originalClassName, meta);
     }
 
@@ -118,15 +118,15 @@ public final class FragmentUtils {
      * Includes a distinct shortDescription.
      */
     public static String calculateContentHash(ContextFragment.FragmentType type,
-                                                String description,
-                                                String shortDescription,
-                                                String textContent,
-                                                byte[] imageBytesContent,
-                                                boolean isTextFragment,
-                                                String syntaxStyle,
-                                                Set<ProjectFile> files,
-                                                String originalClassName,
-                                                Map<String, String> meta) {
+                                              String description,
+                                              String shortDescription,
+                                              @Nullable String textContent,
+                                              @Nullable byte[] imageBytesContent,
+                                              boolean isTextFragment,
+                                              String syntaxStyle,
+                                              @Nullable Set<ProjectFile> files,
+                                              @Nullable String originalClassName,
+                                              @Nullable Map<String, String> meta) {
         return calculateHashInternal(type, description, shortDescription, textContent, imageBytesContent, isTextFragment, syntaxStyle, files, originalClassName, meta);
     }
 }

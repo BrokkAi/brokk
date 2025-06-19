@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import org.jetbrains.annotations.NotNull;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -21,7 +20,7 @@ public final class MarkdownImageParser {
      * @param textContent The text content to parse.
      * @return A set of unique image URLs found in the content. Returns an empty set if the content is null or blank.
      */
-    public static @NotNull Set<String> extractImageUrls(@NotNull String textContent) {
+    public static Set<String> extractImageUrls(String textContent) {
         if (textContent.isBlank()) {
             return Set.of();
         }

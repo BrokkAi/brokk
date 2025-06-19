@@ -5,13 +5,13 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
 
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
@@ -24,7 +24,7 @@ public class Messages {
      * We render these as "System" messages in the output. We don't use actual System messages since those
      * are only allowed at the very beginning for some models.
      */
-    public static @NotNull CustomMessage customSystem(String text) {
+    public static  CustomMessage customSystem(String text) {
         return new CustomMessage(Map.of("text", text));
     }
 
@@ -56,7 +56,7 @@ public class Messages {
                     .map(c -> ((TextContent) c).text())
                     .collect(Collectors.joining("\n"));
             case ToolExecutionResultMessage tr -> "%s -> %s".formatted(tr.toolName(), tr.text());
-            case CustomMessage cm -> cm.attributes().get("text").toString();
+            case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             default -> throw new UnsupportedOperationException(message.getClass().toString());
         };
     }
@@ -85,7 +85,7 @@ public class Messages {
     public static String getRepr(ChatMessage message) {
         return switch (message) {
             case SystemMessage sm -> sm.text();
-            case CustomMessage cm -> cm.attributes().get("text").toString();
+            case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             case AiMessage am -> {
                 var raw = am.text() == null ? "" : am.text();
                 if (!am.hasToolExecutionRequests()) {
@@ -114,7 +114,7 @@ public class Messages {
         };
     }
 
-    public static @NotNull String getRepr(ToolExecutionRequest tr) {
+    public static String getRepr(ToolExecutionRequest tr) {
         return "%s(%s)".formatted(tr.name(), tr.arguments());
     }
 

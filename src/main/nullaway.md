@@ -12,3 +12,5 @@ The warnings are generally self-explanatory, but it's worth being explicit about
   method call that you *know* is never null, you can use NullnessUtil.castNonNull() to deal with it. But if the value
   is only *not supposed* to be null, you should use Objects.requireNonNull() instead. Assertions are not
   respected by Null Away, so you should avoid that option.
+
+Style: put @Nullable in front of the type, after modifiers. E.g. `public static final @Nullable Foo foo`.
