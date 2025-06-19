@@ -15,7 +15,6 @@ Compile / unmanagedJars ++= Seq(
   baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
   baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
   baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
-  baseDirectory.value / "errorprone" / "jsr305-3.0.2.jar" // Needed for @Nullable annotations
 )
 
 // also add to javac’s annotation-processor classpath
@@ -26,7 +25,6 @@ Compile / javacOptions ++= {
     baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
     baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
     baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
-    baseDirectory.value / "errorprone" / "jsr305-3.0.2.jar"
   )
 
   val procPath = pluginJars.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
