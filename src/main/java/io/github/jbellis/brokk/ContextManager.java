@@ -2013,8 +2013,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
         var future = submitUserTask("Renaming session", () -> {
             try {
-                project.renameSession(sessionId, newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
-                logger.debug("Renamed session {} to {}", sessionId, newNameFuture);
+                String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                project.renameSession(sessionId, newName);
+                logger.debug("Renamed session {} to {}", sessionId, newName);
             } catch (Exception e) {
                 logger.warn("Error renaming Session", e);
                 throw new RuntimeException(e);
