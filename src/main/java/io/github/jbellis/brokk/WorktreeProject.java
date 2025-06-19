@@ -214,4 +214,19 @@ public final class WorktreeProject extends AbstractProject {
     public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
         parent.setIssuesProvider(provider);
     }
+
+    @Override
+    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+        return parent.getArchitectOptions();
+    }
+
+    @Override
+    public boolean getArchitectRunInWorktree() {
+        return parent.getArchitectRunInWorktree();
+    }
+
+    @Override
+    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        parent.setArchitectOptions(options, runInWorktree);
+    }
 }

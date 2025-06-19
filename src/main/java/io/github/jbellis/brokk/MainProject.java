@@ -2,6 +2,7 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.Service.ModelConfig;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -792,16 +793,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+    public ArchitectAgent.ArchitectOptions getArchitectOptions() {
         String json = projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
-                return objectMapper.readValue(json, io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.class);
+                return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize ArchitectOptions from JSON: {}. Returning defaults.", json, e);
             }
         }
-        return io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.DEFAULTS;
+        return ArchitectAgent.ArchitectOptions.DEFAULTS;
     }
 
     @Override
@@ -810,7 +811,7 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+    public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         assert options != null;
         try {
             String json = objectMapper.writeValueAsString(options);
