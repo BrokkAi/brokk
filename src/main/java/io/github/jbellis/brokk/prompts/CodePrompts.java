@@ -19,6 +19,8 @@ import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static java.util.Objects.requireNonNull;
+
 
 /**
  * Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks.
@@ -646,8 +648,7 @@ public abstract class CodePrompts {
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(IContextManager cm) {
-        var c = cm.topContext();
-
+        var c = requireNonNull(cm.topContext());
         var summaries = Streams.concat(c.getReadOnlyFragments(), c.getEditableFragments())
                 .map(ContextFragment::formatSummary)
                 .filter(s -> !s.isBlank())

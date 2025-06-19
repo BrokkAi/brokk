@@ -193,10 +193,10 @@ public class EditBlock {
         }
     }
 
-    public record ParseResult(List<SearchReplaceBlock> blocks, String parseError) {
+    public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {
     }
 
-    public record ExtendedParseResult(List<OutputBlock> blocks, String parseError) {
+    public record ExtendedParseResult(List<OutputBlock> blocks, @Nullable String parseError) {
     }
 
     /**
