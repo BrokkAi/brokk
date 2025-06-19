@@ -46,7 +46,7 @@ javacOptions := {
       "-Xep:EmptyBlockTag:OFF " +
       "-Xep:NonCanonicalType:OFF " +
       "-Xep:NullAway:ERROR " +
-      "-XepOpt:NullAway:AnnotatedPackages=io.github.jbellis.brokk.analyzer,io.github.jbellis.brokk.context,io.github.jbellis.brokk.git,io.github.jbellis.brokk.util " +
+      "-XepOpt:NullAway:AnnotatedPackages=io.github.jbellis.brokk.analyzer,io.github.jbellis.brokk.context,io.github.jbellis.brokk.git,io.github.jbellis.brokk.issues,io.github.jbellis.brokk.util " +
       "-XepOpt:NullAway:ExcludedFieldAnnotations=org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test " +
       "-XepOpt:NullAway:ExcludedClassAnnotations=org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance " +
       "-XepOpt:NullAway:UnannotatedSubPackages=io.github.jbellis.brokk.test " +

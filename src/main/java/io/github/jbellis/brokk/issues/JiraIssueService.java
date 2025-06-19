@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.IssueProvider;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -17,6 +18,8 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.*;
 
+import static java.util.Objects.requireNonNull;
+
 public class JiraIssueService implements IssueService {
 
     private static final Logger logger = LogManager.getLogger(JiraIssueService.class);
@@ -26,7 +29,7 @@ public class JiraIssueService implements IssueService {
 
     private final JiraAuth jiraAuth;
     private final IProject project; // May be needed for project-specific Jira settings
-    private List<String> availableStatusesCache;
+    private @Nullable List<String> availableStatusesCache;
 
     public JiraIssueService(IProject project) {
         this.project = project;
@@ -65,7 +68,7 @@ public class JiraIssueService implements IssueService {
         }
         logger.debug("Attempting to list Jira issues with filter options: {}", filterOptions);
 
-        io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
+        IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
             String errorMessage = "JiraIssueService called with non-Jira or misconfigured provider. Type: " + provider.type();
             logger.error(errorMessage);
@@ -73,12 +76,16 @@ public class JiraIssueService implements IssueService {
         }
 
         String baseUrl = jiraConfig.baseUrl();
+        if (baseUrl.isBlank()) {
+            String errorMessage = "Jira base URL is not configured. Cannot list issues.";
+            logger.error(errorMessage);
+            throw new IOException(errorMessage);
+        }
         OkHttpClient client = this.httpClient(); // httpClient already uses the provider
 
         String projectKey = jiraConfig.projectKey();
         if (projectKey.isBlank()) {
-            logger.warn("Jira project key not set in JiraConfig for project {}, defaulting to 'CASSANDRA' for JQL query.", project.getRoot().getFileName());
-            projectKey = "CASSANDRA"; // Fallback for testing as per goal
+            throw new IOException("Jira project key is not configured. Cannot list issues.");
         }
 
         String statusClause = "";
@@ -112,7 +119,7 @@ public class JiraIssueService implements IssueService {
         String jql = jqlBuilder.toString();
         logger.debug("Executing Jira JQL query: {}", jql);
 
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + "/rest/api/2/search").newBuilder();
+        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/search")).newBuilder();
         urlBuilder.addQueryParameter("jql", jql);
         urlBuilder.addQueryParameter("fields", "key,summary,updated,status,reporter,assignee,labels");
         urlBuilder.addQueryParameter("maxResults", "50");
@@ -198,7 +205,7 @@ public class JiraIssueService implements IssueService {
     }
 
     @Override
-    public IssueDetails loadDetails(String issueId) throws IOException {
+    public @Nullable IssueDetails loadDetails(String issueId) throws IOException {
         logger.debug("Attempting to load Jira issue details for issueId: {}", issueId);
 
         if (project == null) {
@@ -207,7 +214,7 @@ public class JiraIssueService implements IssueService {
             throw new IOException(errorMessage);
         }
 
-        io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
+        IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
             String errorMessage = "JiraIssueService called (loadDetails) with non-Jira or misconfigured provider. Type: " + provider.type();
             logger.error(errorMessage);
@@ -223,7 +230,7 @@ public class JiraIssueService implements IssueService {
 
         OkHttpClient client = this.httpClient(); // httpClient already uses the provider
 
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + "/rest/api/2/issue/" + issueId).newBuilder();
+        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/issue/" + issueId)).newBuilder();
         urlBuilder.addQueryParameter("fields", "summary,description,status,reporter,assignee,labels,comment,attachment,updated,created,issuetype");
         urlBuilder.addQueryParameter("expand", "renderedFields");
 
@@ -373,7 +380,7 @@ public class JiraIssueService implements IssueService {
         }
 
         logger.debug("Fetching available statuses from Jira API.");
-        io.github.jbellis.brokk.IssueProvider provider = project.getIssuesProvider();
+        IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
             String errorMessage = "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: " + provider.type();
             logger.error(errorMessage);
@@ -381,8 +388,13 @@ public class JiraIssueService implements IssueService {
         }
 
         String baseUrl = jiraConfig.baseUrl();
+        if (baseUrl.isBlank()) {
+            String errorMessage = "Jira base URL is not configured. Cannot list statuses.";
+            logger.error(errorMessage);
+            throw new IOException(errorMessage);
+        }
         OkHttpClient client = httpClient(); // httpClient already uses the provider
-        HttpUrl.Builder urlBuilder = HttpUrl.parse(baseUrl + "/rest/api/2/status").newBuilder();
+        HttpUrl.Builder urlBuilder = requireNonNull(HttpUrl.parse(baseUrl + "/rest/api/2/status")).newBuilder();
         Request request = new Request.Builder()
                 .url(urlBuilder.build())
                 .header("Accept", "application/json")
