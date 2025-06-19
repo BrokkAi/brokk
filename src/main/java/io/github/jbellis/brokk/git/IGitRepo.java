@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.git;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -123,7 +124,7 @@ public interface IGitRepo {
      * @return A string describing conflicts if any, or null/empty if no conflicts.
      * @throws GitAPIException if a Git error occurs during the check.
      */
-    default String checkMergeConflicts(String worktreeBranch, String targetBranch, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
 

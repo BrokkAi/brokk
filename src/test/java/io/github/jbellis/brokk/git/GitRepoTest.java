@@ -283,7 +283,7 @@ public class GitRepoTest {
 
     @Test
     void testGetCommitMessagesBetween_sameBranch() throws Exception {
-        List<String> messages = repo.getCommitMessagesBetween("main", "main");
+        List<String> messages = repo.getCommitMessagesBetween(repo.getCurrentBranch(), repo.getCurrentBranch());
         assertTrue(messages.isEmpty(), "Should be no messages between a branch and itself.");
     }
 
@@ -588,18 +588,15 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_InvalidWorktreeBranch() throws Exception {
         String mainBranch = repo.getCurrentBranch();
-        String result = repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitWorktreeTab.MergeMode.MERGE_COMMIT);
-        assertNotNull(result);
-        assertTrue(result.contains("Worktree branch 'nonexistent-feature' could not be resolved"));
+        assertThrows(GitRepo.GitRepoException.class,
+                     () -> repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitWorktreeTab.MergeMode.MERGE_COMMIT));
     }
 
     @Test
     void testCheckMergeConflicts_InvalidTargetBranch() throws Exception {
-        String mainBranch = repo.getCurrentBranch();
         repo.getGit().branchCreate().setName("feature-exists").call();
-        String result = repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitWorktreeTab.MergeMode.MERGE_COMMIT);
-        assertNotNull(result);
-        assertTrue(result.contains("Target branch 'nonexistent-target' could not be resolved"));
+        assertThrows(GitRepo.GitRepoException.class,
+                     () -> repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitWorktreeTab.MergeMode.MERGE_COMMIT));
     }
 
     @Test
