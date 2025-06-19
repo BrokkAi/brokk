@@ -1671,6 +1671,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         updateButtonStates();
     }
 
+    public void disableStopButton() {
+        SwingUtilities.invokeLater(() -> stopButton.setEnabled(false));
+    }
+
     private void notifyActionComplete(String actionName) {
         chrome.notifyActionComplete("Action '" + actionName + "' completed.");
     }
