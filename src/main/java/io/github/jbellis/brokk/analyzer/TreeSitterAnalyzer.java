@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
@@ -1325,59 +1326,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
     }
 
+    /**
+     * Returns the immediate children of the given CodeUnit based on TreeSitter parsing results.
+     * 
+     * <p>This implementation uses the pre-built {@code childrenByParent} map that was populated
+     * during AST parsing. The parent-child relationships are determined by the TreeSitter
+     * grammar and capture queries for the specific language.
+     */
     @Override
-    public Set<String> getSymbols(Set<CodeUnit> sources) {
-        // Step 1: Collect all relevant CodeUnits using existing BFS logic to handle hierarchy
-        Set<CodeUnit> allRelevantCodeUnits = new HashSet<>();
-        Queue<CodeUnit> traversalQueue = new ArrayDeque<>(sources); // Changed to ArrayDeque
-        Set<CodeUnit> visitedForTraversal = new HashSet<>();
-
-        while (!traversalQueue.isEmpty()) {
-            CodeUnit current = traversalQueue.poll();
-            if (!visitedForTraversal.add(current)) { // If already visited during this traversal, skip
-                continue;
-            }
-
-            allRelevantCodeUnits.add(current); // Add to the set for later parallel processing
-
-            List<CodeUnit> children = childrenByParent.getOrDefault(current, Collections.emptyList());
-            for (CodeUnit child : children) {
-                if (!visitedForTraversal.contains(child)) { // Add to queue only if not already processed or in queue for this traversal
-                    traversalQueue.add(child);
-                }
-            }
-        }
-
-        // Step 2: Process the collected CodeUnits in parallel
-        Set<String> symbols = ConcurrentHashMap.newKeySet();
-
-        allRelevantCodeUnits.parallelStream().forEach(currentUnit -> {
-            String shortName = currentUnit.shortName();
-            if (shortName == null || shortName.isEmpty()) {
-                return; // Skip if shortName is invalid
-            }
-
-            int lastDot = shortName.lastIndexOf('.');
-            int lastDollar = shortName.lastIndexOf('$');
-            int lastSeparator = Math.max(lastDot, lastDollar);
-
-            String unqualifiedName;
-            if (lastSeparator == -1) {
-                unqualifiedName = shortName;
-            } else {
-                // Ensure there's something after the separator
-                if (lastSeparator < shortName.length() - 1) {
-                    unqualifiedName = shortName.substring(lastSeparator + 1);
-                } else {
-                    unqualifiedName = ""; // Or log a warning
-                }
-            }
-
-            if (!unqualifiedName.isEmpty()) {
-                symbols.add(unqualifiedName);
-            }
-        });
-
-        return symbols;
+    public @NotNull List<CodeUnit> directChildren(CodeUnit cu) {
+        return childrenByParent.getOrDefault(cu, List.of());
     }
+
 }
