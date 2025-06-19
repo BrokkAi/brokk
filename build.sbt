@@ -11,8 +11,27 @@ name := "brokk"
 // Add local Error Prone JAR and its dependencies to the compile classpath for javac -Xplugin:ErrorProne
 Compile / unmanagedJars ++= Seq(
   baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
-  baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar" // Dependency for Error Prone dataflow checks
+  baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
+  baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
+  baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
+  baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
+  baseDirectory.value / "errorprone" / "jsr305-3.0.2.jar" // Needed for @Nullable annotations
 )
+
+// also add to javac’s annotation-processor classpath
+Compile / javacOptions ++= {
+  val pluginJars = Seq(
+    baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
+    baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
+    baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
+    baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
+    baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
+    baseDirectory.value / "errorprone" / "jsr305-3.0.2.jar"
+  )
+
+  val procPath = pluginJars.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+  Seq("-processorpath", procPath)
+}
 
 val javaVersion = "21"
 javacOptions := {
@@ -22,7 +41,22 @@ javacOptions := {
     "-parameters",           // Preserve method parameter names
     "-g:source,lines,vars",  // Generate full debugging information
     // Error Prone configuration
-    "-Xplugin:ErrorProne -Xep:FutureReturnValueIgnored:OFF -Xep:MissingSummary:OFF -Xep:EmptyBlockTag:OFF -Xep:NonCanonicalType:OFF",
+    "-Xmaxerrs", "500",
+    "-Xplugin:ErrorProne " +
+      "-Xep:FutureReturnValueIgnored:OFF " +
+      "-Xep:MissingSummary:OFF " +
+      "-Xep:EmptyBlockTag:OFF " +
+      "-Xep:NonCanonicalType:OFF " +
+      "-Xep:NullAway:ERROR " +
+      "-XepOpt:NullAway:AnnotatedPackages=io.github.jbellis.brokk.context " +
+      "-XepOpt:NullAway:ExcludedFieldAnnotations=org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test " +
+      "-XepOpt:NullAway:ExcludedClassAnnotations=org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance " +
+      "-XepOpt:NullAway:UnannotatedSubPackages=io.github.jbellis.brokk.test " +
+      "-XepOpt:NullAway:AcknowledgeRestrictiveAnnotations=true " +
+      "-XepOpt:NullAway:JarInferStrictMode=true " +
+      "-XepOpt:NullAway:CheckOptionalEmptiness=true " +
+      "-XepOpt:NullAway:KnownInitializers=org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll " +
+      "-XepOpt:NullAway:HandleTestAssertionLibraries=true ",
     "-Werror",
     "-Xlint:deprecation",
     "-Xlint:unchecked",
@@ -65,6 +99,9 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
+  // NullAway - version must match local jar version
+  "com.uber.nullaway" % "nullaway" % "0.12.7",
+  
   // LangChain4j dependencies
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
@@ -90,17 +127,19 @@ libraryDependencies ++= Seq(
   "com.fifesoft" % "autocomplete" % "3.3.2",
   "io.github.java-diff-utils" % "java-diff-utils" % "4.15",
   "org.yaml" % "snakeyaml" % "2.3",
-  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.2.1.202505142326-r",
-  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.2.1.202505142326-r",
   "com.fasterxml.jackson.core" % "jackson-databind" % "2.18.3",
+  "org.jspecify" % "jspecify" % "1.0.0",
   "com.vladsch.flexmark" % "flexmark" % "0.64.8",
   "com.vladsch.flexmark" % "flexmark-html2md-converter" % "0.64.8",
   "org.kohsuke" % "github-api" % "1.327",
   "org.jsoup" % "jsoup" % "1.19.1",
   "com.jgoodies" % "jgoodies-forms" % "1.9.0",
   "com.github.spullara.mustache.java" % "compiler" % "0.9.10",
+  "org.checkerframework" % "checker-util" % "3.49.3",
 
-  // Bouncy Castle for JGit SSH
+  // JGit and SSH
+  "org.eclipse.jgit" % "org.eclipse.jgit" % "7.2.1.202505142326-r",
+  "org.eclipse.jgit" % "org.eclipse.jgit.ssh.apache" % "7.2.1.202505142326-r",
   "org.bouncycastle" % "bcprov-jdk18on" % "1.80",
 
   // TreeSitter Java parser
@@ -152,6 +191,3 @@ javaOptions ++= Seq(
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
 Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))
-// forking a jvm is a bit expensive but it lets us run the treesitter tests more than once
-// Otherwise there are conflicts trying to load the native treesitter libs.
-Test / fork := true

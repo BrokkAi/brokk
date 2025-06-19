@@ -11,6 +11,9 @@ import io.github.jbellis.brokk.context.FragmentDtos.*;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
@@ -97,29 +100,27 @@ public class DtoMapper {
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
-    public static ContextFragment resolveAndBuildFragment(String idToResolve,
-                                                          Map<String, ReferencedFragmentDto> referencedDtos,
-                                                          Map<String, VirtualFragmentDto> virtualDtos,
-                                                          Map<String, TaskFragmentDto> taskDtos,
-                                                          IContextManager mgr,
-                                                          @Nullable Map<String, byte[]> imageBytesMap,
-                                                          Map<String, ContextFragment> fragmentCacheForRecursion) {
+    public static @Nullable ContextFragment resolveAndBuildFragment(String idToResolve,
+                                                                    Map<String, ReferencedFragmentDto> referencedDtos,
+                                                                    Map<String, VirtualFragmentDto> virtualDtos,
+                                                                    Map<String, TaskFragmentDto> taskDtos,
+                                                                    IContextManager mgr,
+                                                                    @Nullable Map<String, byte[]> imageBytesMap,
+                                                                    Map<String, ContextFragment> fragmentCacheForRecursion) {
         if (referencedDtos.containsKey(idToResolve)) {
-            return _buildReferencedFragment(referencedDtos.get(idToResolve), mgr, imageBytesMap);
+            return _buildReferencedFragment(castNonNull(referencedDtos.get(idToResolve)), mgr, imageBytesMap);
         }
         if (virtualDtos.containsKey(idToResolve)) {
-            return _buildVirtualFragment(virtualDtos.get(idToResolve), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
+            return _buildVirtualFragment(castNonNull(virtualDtos.get(idToResolve)), mgr, imageBytesMap, fragmentCacheForRecursion, referencedDtos, virtualDtos, taskDtos);
         }
         if (taskDtos.containsKey(idToResolve)) {
-            return _buildTaskFragment(taskDtos.get(idToResolve), mgr);
+            return _buildTaskFragment(castNonNull(taskDtos.get(idToResolve)), mgr);
         }
         logger.error("Fragment DTO not found for ID: {} during resolveAndBuildFragment", idToResolve);
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve + " during resolveAndBuildFragment");
     }
 
-    private static @Nullable ContextFragment _buildReferencedFragment(@Nullable ReferencedFragmentDto dto, IContextManager mgr, @Nullable Map<String, byte[]> imageBytesMap) {
-        if (dto == null) return null;
-
+    private static ContextFragment _buildReferencedFragment(ReferencedFragmentDto dto, IContextManager mgr, @Nullable Map<String, byte[]> imageBytesMap) {
         return switch (dto) {
             case ProjectFileDto pfd -> ContextFragment.ProjectPathFragment.withId(
                     new ProjectFile(Path.of(pfd.repoRoot()), Path.of(pfd.relPath())), pfd.id(), mgr);
@@ -138,7 +139,7 @@ public class DtoMapper {
                     ContextFragment.FragmentType.valueOf(ffd.originalType()),
                     ffd.description(),
                     ffd.shortDescription(),
-                    ffd.textContent(),
+                    requireNonNull(ffd.isTextFragment() ? ffd.textContent() : ""),
                     imageBytesMap != null ? imageBytesMap.get(ffd.id()) : null,
                     ffd.isTextFragment(),
                     ffd.syntaxStyle(),
@@ -149,7 +150,7 @@ public class DtoMapper {
         };
     }
 
-    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(@Nullable TaskFragmentDto dto, IContextManager mgr) {
+    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(@Nullable TaskFragmentDto dto, IContextManager mgr) { // Already @Nullable
         if (dto == null) return null;
 
         var messages = dto.messages().stream()
@@ -162,7 +163,7 @@ public class DtoMapper {
                                                                         Map<String, ContextFragment> fragmentCacheForRecursion,
                                                                         Map<String, ReferencedFragmentDto> allReferencedDtos,
                                                                         Map<String, VirtualFragmentDto> allVirtualDtos,
-                                                                        Map<String, TaskFragmentDto> allTaskDtos) {
+                                                                        Map<String, TaskFragmentDto> allTaskDtos) { // Already @Nullable
         if (dto == null) return null;
 
         return switch (dto) {
@@ -173,7 +174,7 @@ public class DtoMapper {
                     ContextFragment.FragmentType.valueOf(frozenDto.originalType()),
                     frozenDto.description(),
                     frozenDto.shortDescription(),
-                    frozenDto.textContent(),
+                    frozenDto.isTextFragment() ? frozenDto.textContent() : null,
                     imageBytesMap != null ? imageBytesMap.get(frozenDto.id()) : null,
                     frozenDto.isTextFragment(),
                     frozenDto.syntaxStyle(),
@@ -215,7 +216,6 @@ public class DtoMapper {
             case HistoryFragmentDto historyDto -> {
                 var historyEntries = historyDto.history().stream()
                         .map(taskEntryDto -> _fromTaskEntryDto(taskEntryDto, mgr, fragmentCacheForRecursion, allReferencedDtos, allVirtualDtos, allTaskDtos))
-                        .filter(java.util.Objects::nonNull)
                         .toList();
                 yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
@@ -228,8 +228,8 @@ public class DtoMapper {
             try {
                 var filesDto = ff.files().stream().map(DtoMapper::toProjectFileDto).collect(Collectors.toSet());
                 return new FrozenFragmentDto(
-                    ff.id(), 
-                    ff.getType().name(), 
+                    ff.id(),
+                    ff.getType().name(),
                     ff.description(),
                     ff.shortDescription(),
                     ff.isText() ? ff.text() : null,
@@ -447,26 +447,24 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
 
     // Note: fragmentCache parameter is for recursive resolution of dependencies.
     private static TaskEntry _fromTaskEntryDto(TaskEntryDto dto, IContextManager mgr,
-                                              Map<String, ContextFragment> fragmentCacheForRecursion,
-                                              Map<String, ReferencedFragmentDto> allReferencedDtos,
-                                              Map<String, VirtualFragmentDto> allVirtualDtos,
-                                              Map<String, TaskFragmentDto> allTaskDtos) {
-        if (dto == null) return null;
-
+                                               Map<String, ContextFragment> fragmentCacheForRecursion,
+                                               Map<String, ReferencedFragmentDto> allReferencedDtos,
+                                               Map<String, VirtualFragmentDto> allVirtualDtos,
+                                               Map<String, TaskFragmentDto> allTaskDtos) {
         if (dto.log() != null) {
             ContextFragment.TaskFragment taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
-                dto.log().id(), // ID of the TaskFragment to resolve
-                idToResolve -> resolveAndBuildFragment(idToResolve, allReferencedDtos, allVirtualDtos, allTaskDtos,
-                                                       mgr, null, fragmentCacheForRecursion) // imageBytesMap not needed for TaskFragment directly
+                    dto.log().id(), // ID of the TaskFragment to resolve
+                    idToResolve -> resolveAndBuildFragment(idToResolve, allReferencedDtos, allVirtualDtos, allTaskDtos,
+                                                           mgr, null, fragmentCacheForRecursion) // imageBytesMap not needed for TaskFragment directly
             );
             return new TaskEntry(dto.sequence(), taskFragment, null);
         } else if (dto.summary() != null) {
             return TaskEntry.fromCompressed(dto.sequence(), dto.summary());
         } else {
-            logger.warn("TaskEntryDto {} had neither log nor summary during deserialization.", dto);
-            return null; // Invalid TaskEntry
+            throw new RuntimeException("TaskEntryDto %s had neither log nor summary during deserialization.".formatted(dto));
         }
     }
+
 
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto) { // IContextManager not needed as ProjectFileDto has full path info
         ProjectFileDto pfd = dto.sourceFile();
