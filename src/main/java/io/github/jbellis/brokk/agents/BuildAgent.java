@@ -19,7 +19,6 @@ import io.github.jbellis.brokk.util.BuildToolConventions;
 import io.github.jbellis.brokk.util.BuildToolConventions.BuildSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.StringReader;
@@ -31,6 +30,8 @@ import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * The BuildAgent class is responsible for executing a process to gather and report build details
@@ -48,9 +49,9 @@ public class BuildAgent {
     private final List<ChatMessage> chatHistory = new ArrayList<>();
     private final IProject project;
     // Field to store the result from the reportBuildDetails tool
-    private BuildDetails reportedDetails = null;
+    private @Nullable BuildDetails reportedDetails = null;
     // Field to store the reason from the abortBuildDetails tool
-    private String abortReason = null;
+    private @Nullable String abortReason = null;
     // Field to store directories to exclude from code intelligence
     private List<String> currentExcludedDirectories = new ArrayList<>();
 
@@ -67,13 +68,12 @@ public class BuildAgent {
      *
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
-    @NotNull
     public BuildDetails execute() throws InterruptedException {
         // 1. Initial step: List files in the root directory to give the agent a starting point
         ToolExecutionRequest initialRequest = ToolExecutionRequest.builder()
-                                                                  .name("listFiles")
-                                                                  .arguments("{\"directoryPath\": \".\"}") // Request root dir
-                                                                  .build();
+                .name("listFiles")
+                .arguments("{\"directoryPath\": \".\"}") // Request root dir
+                .build();
         ToolExecutionResult initialResult = toolRegistry.executeTool(this, initialRequest);
         ToolExecutionResultMessage initialResultMessage = initialResult.toExecutionResultMessage();
 
@@ -226,33 +226,33 @@ public class BuildAgent {
 
         // System Prompt
         messages.add(new SystemMessage("""
-        You are an agent tasked with finding build information for the *development* environment of a software project.
-        Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
-        Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
-        configurations unless they are the only ones available.
-
-        Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
-        as necessary, to determine the information needed by `reportBuildDetails`.
-
-        For the `testSomeCommand` parameter, use Mustache templating with either {{classes}} or {{files}} variables. Examples:
-
-        | Build tool        | One-liner a user could write
-        | ----------------- | ------------------------------------------------------------------------
-        | **SBT**           | `sbt "testOnly{{#classes}} {{.}}{{/classes}}"`
-        | **Maven**         | `mvn test -Dtest={{#classes}}{{.}}{{^-last}},{{/-last}}{{/classes}}`
-        | **Gradle**        | `gradle test{{#classes}} --tests {{.}}{{/classes}}`
-        | **Go**            | `go test -run '{{#classes}}{{.}}{{^-last}} | {{/-last}}{{/classes}}`
-        | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{.}}{{^-last}} | {{/-last}}{{/classes}}"`
-        | **pytest**        | `pytest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
-        | **Jest**          | `jest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
-       
-        A baseline set of excluded directories has been established from build conventions and .gitignore.
-        When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
-        you identify that should be excluded from code intelligence, beyond this baseline.
-
-        Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-        The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
-        """.stripIndent()));
+                                       You are an agent tasked with finding build information for the *development* environment of a software project.
+                                       Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                                       Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
+                                       configurations unless they are the only ones available.
+                                       
+                                       Use the tools to examine build files (like `pom.xml`, `build.gradle`, etc.), configuration files, and linting files,
+                                       as necessary, to determine the information needed by `reportBuildDetails`.
+                                       
+                                       For the `testSomeCommand` parameter, use Mustache templating with either {{classes}} or {{files}} variables. Examples:
+                                       
+                                       | Build tool        | One-liner a user could write
+                                       | ----------------- | ------------------------------------------------------------------------
+                                       | **SBT**           | `sbt "testOnly{{#classes}} {{.}}{{/classes}}"`
+                                       | **Maven**         | `mvn test -Dtest={{#classes}}{{.}}{{^-last}},{{/-last}}{{/classes}}`
+                                       | **Gradle**        | `gradle test{{#classes}} --tests {{.}}{{/classes}}`
+                                       | **Go**            | `go test -run '{{#classes}}{{.}}{{^-last}} | {{/-last}}{{/classes}}`
+                                       | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{.}}{{^-last}} | {{/-last}}{{/classes}}"`
+                                       | **pytest**        | `pytest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
+                                       | **Jest**          | `jest {{#files}}{{.}}{{^-last}} {{/-last}}{{/files}}`
+                                       
+                                       A baseline set of excluded directories has been established from build conventions and .gitignore.
+                                       When you use `reportBuildDetails`, the `excludedDirectories` parameter should contain *additional* directories
+                                       you identify that should be excluded from code intelligence, beyond this baseline.
+                                       
+                                       Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
+                                       The reportBuildDetails tool expects exactly four parameters: buildLintCommand, testAllCommand, testSomeCommand, and excludedDirectories.
+                                       """.stripIndent()));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -270,28 +270,28 @@ public class BuildAgent {
             @P("Command template to run specific tests using Mustache templating. Should use either a {{classes}} or a {{files}} variable. Again, if no class- or file- based framework is in use, leave it blank.") String testSomeCommand,
             @P("List of directories to exclude from code intelligence (e.g., generated code, build artifacts)") List<String> excludedDirectories
         ) {
-            // Combine baseline excluded directories with those suggested by the LLM
-            var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(s -> Path.of(s).normalize())
-                    .map(Path::toString)
-                    .collect(Collectors.toSet());
+        // Combine baseline excluded directories with those suggested by the LLM
+        var finalExcludes = Stream.concat(this.currentExcludedDirectories.stream(), excludedDirectories.stream())
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> Path.of(s).normalize())
+                .map(Path::toString)
+                .collect(Collectors.toSet());
 
-            this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
-            logger.debug("reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
-            return "Build details report received and processed.";
-        }
+        this.reportedDetails = new BuildDetails(buildLintCommand, testAllCommand, testSomeCommand, finalExcludes);
+        logger.debug("reportBuildDetails tool executed, details captured. Final excluded directories: {}", finalExcludes);
+        return "Build details report received and processed.";
+    }
 
     @Tool(value = "Abort the process if you cannot determine the build details or the project structure is unsupported.")
     public String abortBuildDetails(
             @P("Explanation of why the build details cannot be determined") String explanation
          ) {
-             // Store the explanation in the agent's field
-             this.abortReason = explanation;
-             logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
-             return "Abort signal received and processed.";
-        }
+        // Store the explanation in the agent's field
+        this.abortReason = explanation;
+        logger.debug("abortBuildDetails tool executed with explanation: {}", explanation);
+        return "Abort signal received and processed.";
+    }
 
     /** Holds semi-structured information about a project's build process */
     public record BuildDetails(String buildLintCommand,
@@ -300,10 +300,10 @@ public class BuildAgent {
                                Set<String> excludedDirectories)
     {
         public BuildDetails {
-            Objects.requireNonNull(buildLintCommand);
-            Objects.requireNonNull(testAllCommand);
-            Objects.requireNonNull(testSomeCommand);
-            Objects.requireNonNull(excludedDirectories);
+            requireNonNull(buildLintCommand);
+            requireNonNull(testAllCommand);
+            requireNonNull(testSomeCommand);
+            requireNonNull(excludedDirectories);
         }
 
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of());
@@ -340,18 +340,17 @@ public class BuildAgent {
         logger.debug("Code Agent Test Scope is WORKSPACE, determining tests in workspace.");
 
         // Get ProjectFiles from editable and read-only fragments
-        Stream<ProjectFile> projectFilesFromEditableOrReadOnly =
-                Stream.concat(
-                                cm.topContext().editableFiles(),
-                                cm.topContext().readonlyFiles()
-                        )
-                        .flatMap(fragment -> fragment.files().stream()); // No analyzer
+        var topContext = requireNonNull(cm.topContext());
+        var projectFilesFromEditableOrReadOnly = Stream.concat(
+                        topContext.editableFiles(),
+                        topContext.readonlyFiles()
+                )
+                .flatMap(fragment -> fragment.files().stream()); // No analyzer
 
         // Get ProjectFiles specifically from SkeletonFragments among all virtual fragments
-        Stream<ProjectFile> projectFilesFromSkeletons =
-                cm.topContext().virtualFragments()
-                        .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
-                        .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
+        var projectFilesFromSkeletons = topContext.virtualFragments()
+                .filter(vf -> vf.getType() == ContextFragment.FragmentType.SKELETON)
+                .flatMap(skeletonFragment -> skeletonFragment.files().stream()); // No analyzer
 
         // Combine all relevant ProjectFiles into a single set for checking against test files
         var workspaceFiles =

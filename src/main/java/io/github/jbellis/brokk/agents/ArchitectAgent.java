@@ -8,7 +8,10 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
-import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
+import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
@@ -19,15 +22,8 @@ import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -76,7 +72,12 @@ public class ArchitectAgent {
      * @param goal The initial user instruction or goal for the agent.
      * @param options Configuration for which tools the agent can use.
      */
-    public ArchitectAgent(ContextManager contextManager, StreamingChatLanguageModel model, ToolRegistry toolRegistry, String goal, ArchitectOptions options) {
+    public ArchitectAgent(ContextManager contextManager,
+                          StreamingChatLanguageModel model,
+                          ToolRegistry toolRegistry,
+                          String goal,
+                          ArchitectOptions options)
+    {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
         this.model = Objects.requireNonNull(model, "model cannot be null");
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry cannot be null");
@@ -150,18 +151,20 @@ public class ArchitectAgent {
 
         // TODO label this Architect
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
-        var result = new CodeAgent(contextManager, contextManager.getCodeModel()).runTask(instructions, true);
+        var agent = new CodeAgent(contextManager, contextManager.getCodeModel());
+        var result = agent.runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         var entry = contextManager.addToHistory(result, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            String summary = """
+            var entrySummary = entry != null ? entry.summary() : "CodeAgent completed with no specific summary.";
+            var summary = """
                     CodeAgent success!
                     <summary>
                     %s
                     </summary>
-                    """.stripIndent().formatted(entry.summary(), stopDetails); // stopDetails may be redundant for success
+                    """.stripIndent().formatted(entrySummary); // stopDetails may be redundant for success
             logger.debug("Summary for successful callCodeAgent: {}", summary);
             return summary;
         }
@@ -179,7 +182,7 @@ public class ArchitectAgent {
         // For other failures (PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, etc.),
         // set flag to offer undo and return the summary with failure details.
         this.offerUndoToolNext = true;
-        String summary = """
+        var summary = """
                 CodeAgent was not successful. Changes were made but can be undone with 'undoLastChanges'.
                 <summary>
                 %s
@@ -188,22 +191,22 @@ public class ArchitectAgent {
                 <stop-details>
                 %s
                 </stop-details>
-                """.stripIndent().formatted(entry.summary(), stopDetails);
+                """.stripIndent().formatted(entry != null ? entry.summary() : "CodeAgent failed with no specific summary.", stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
         return summary;
     }
 
     @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
-    public String undoLastChanges() throws InterruptedException {
+    public String undoLastChanges() {
         logger.debug("undoLastChanges invoked");
         io.systemOutput("Undoing last CodeAgent changes...");
         if (contextManager.undoContext()) {
-            String resultMsg = "Successfully reverted the last CodeAgent changes.";
+            var resultMsg = "Successfully reverted the last CodeAgent changes.";
             logger.debug(resultMsg);
             io.systemOutput(resultMsg);
             return resultMsg;
         } else {
-            String resultMsg = "Nothing to undo (concurrency bug?)";
+            var resultMsg = "Nothing to undo (concurrency bug?)";
             logger.debug(resultMsg);
             io.systemOutput(resultMsg);
             return resultMsg;
@@ -225,7 +228,11 @@ public class ArchitectAgent {
 
         // Instantiate and run SearchAgent
         io.llmOutput("Search Agent engaged: " +query, ChatMessageType.CUSTOM);
-        var searchAgent = new SearchAgent(query, contextManager, model, toolRegistry, searchAgentId.getAndIncrement());
+        var searchAgent = new SearchAgent(query,
+                                    contextManager,
+                                    model,
+                                    toolRegistry,
+                                    searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
@@ -259,7 +266,10 @@ public class ArchitectAgent {
 
         // Check if ContextAgent is enabled in options before using it
         if (options.includeContextAgent()) {
-            var contextAgent = new ContextAgent(contextManager, contextManager.getSearchModel(), goal, true);
+            var contextAgent = new ContextAgent(contextManager,
+                                                contextManager.getSearchModel(),
+                                                goal,
+                                                true);
             contextAgent.execute();
         }
 
@@ -276,7 +286,7 @@ public class ArchitectAgent {
                 models.add(contextManager.getCodeModel());
             }
             if (options.includeSearchAgent) {
-                models.add(contextManager.getSearchModel());;
+                models.add(contextManager.getSearchModel());
             }
             int minInputTokenLimit = models.stream()
                     .filter(Objects::nonNull)
@@ -290,7 +300,7 @@ public class ArchitectAgent {
             }
 
             // Calculate current workspace token size
-            List<ChatMessage> workspaceContentMessages = new ArrayList<>(contextManager.getWorkspaceContentsMessages(true));
+            var workspaceContentMessages = new ArrayList<>(contextManager.getWorkspaceContentsMessages(true));
             int workspaceTokenSize = Messages.getApproximateTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
@@ -298,7 +308,7 @@ public class ArchitectAgent {
 
             // Figure out which tools are allowed in this step
             var toolSpecs = new ArrayList<ToolSpecification>();
-            boolean criticalWorkspaceSize = minInputTokenLimit < Integer.MAX_VALUE && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
+            var criticalWorkspaceSize = minInputTokenLimit < Integer.MAX_VALUE && workspaceTokenSize > (ArchitectPrompts.WORKSPACE_CRITICAL_THRESHOLD * minInputTokenLimit);
 
             if (criticalWorkspaceSize) {
                 io.systemOutput(String.format("Workspace size (%,d tokens) is %.0f%% of limit %,d. Tool usage restricted to workspace modification.",
@@ -354,8 +364,7 @@ public class ArchitectAgent {
             }
 
             // Ask the LLM for the next step
-            Llm.StreamingResult result;
-            result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
+            var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
 
             if (result.error() != null) {
                 logger.debug("Error from LLM while deciding next action: {}", result.error().getMessage());
@@ -393,16 +402,12 @@ public class ArchitectAgent {
             var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
             var otherReqs = new ArrayList<ToolExecutionRequest>();
             for (var req : deduplicatedRequests) {
-                if (req.name().equals("projectFinished")) {
-                    answerReq = req;
-                } else if (req.name().equals("abortProject")) {
-                    abortReq = req;
-                } else if (req.name().equals("callSearchAgent")) {
-                    searchAgentReqs.add(req);
-                } else if (req.name().equals("callCodeAgent")) {
-                    codeAgentReqs.add(req);
-                } else {
-                    otherReqs.add(req);
+                switch (req.name()) {
+                    case "projectFinished" -> answerReq = req;
+                    case "abortProject" -> abortReq = req;
+                    case "callSearchAgent" -> searchAgentReqs.add(req);
+                    case "callCodeAgent" -> codeAgentReqs.add(req);
+                    default -> otherReqs.add(req);
                 }
             }
 
@@ -411,27 +416,25 @@ public class ArchitectAgent {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
                 logger.debug("Project final answer: {}", toolResult.resultText());
-                return new TaskResult("Architect: " + goal,
-                                      new ContextFragment.TaskFragment(contextManager, List.of(new AiMessage(toolResult.resultText())), goal),
-                                      Map.of(),
-                                      new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText()));
+                var fragment = new ContextFragment.TaskFragment(contextManager,
+                                                                List.of(new AiMessage(toolResult.resultText())),
+                                                                goal);
+                var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText());
+                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
             }
             if (abortReq != null) {
                 logger.debug("LLM decided to abortProject. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, abortReq);
                 logger.debug("Project aborted: {}", toolResult.resultText());
-                return new TaskResult("Architect: " + goal,
-                                      new ContextFragment.TaskFragment(contextManager, List.of(new AiMessage(toolResult.resultText())), goal),
-                                      Map.of(),
-                                      new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText()));
+                var fragment = new ContextFragment.TaskFragment(contextManager,
+                                                                  List.of(new AiMessage(toolResult.resultText())),
+                                                                  goal);
+                var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText());
+                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
             }
 
             // 7) Execute remaining tool calls in the desired order:
-            otherReqs.sort((req1, req2) -> {
-                int rank1 = getPriorityRank(req1.name());
-                int rank2 = getPriorityRank(req2.name());
-                return Integer.compare(rank1, rank2);
-            });
+            otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 var toolResult = toolRegistry.executeTool(this, req);
                 architectMessages.add(ToolExecutionResultMessage.from(req, toolResult.resultText()));
@@ -452,7 +455,7 @@ public class ArchitectAgent {
             }
 
             // Collect search results, handling potential interruptions/cancellations
-            boolean interrupted = false;
+            var interrupted = false;
             for (var searchTask : searchAgentTasks) {
                 var request = searchTask.request();
                 var future = searchTask.future();
@@ -474,7 +477,7 @@ public class ArchitectAgent {
                     if (e.getCause() instanceof FatalLlmException) {
                         var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(e.getCause().getMessage());
                         io.systemOutput(errorMessage);
-                        break;
+                        break; 
                     }
                     var errorMessage = "Error executing Search Agent: %s".formatted(e.getCause().getMessage());
                     architectMessages.add(ToolExecutionResultMessage.from(request, errorMessage));
@@ -501,7 +504,7 @@ public class ArchitectAgent {
         }
     }
 
-    private @NotNull TaskResult llmErrorResult() {
+    private TaskResult llmErrorResult() {
         return new TaskResult(contextManager,
                               "Architect: " + goal,
                               List.of(),
@@ -514,10 +517,12 @@ public class ArchitectAgent {
      * Lower number means higher priority.
      */
     private int getPriorityRank(String toolName) {
-        if (toolName.equals("dropFragments")) return 1;
-        if (toolName.equals("addReadOnlyFiles")) return 2;
-        if (toolName.equals("addEditableFilesToWorkspace")) return 3;
-        return 4; // all other tools have lowest priority
+        return switch (toolName) {
+            case "dropFragments" -> 1;
+            case "addReadOnlyFiles" -> 2;
+            case "addEditableFilesToWorkspace" -> 3;
+            default -> 4; // all other tools have lowest priority
+        };
     }
 
     /**
@@ -525,7 +530,10 @@ public class ArchitectAgent {
      * This includes the standard system prompt, workspace contents, history, agent's session messages,
      * and the final user message with the goal and conditional workspace warnings.
      */
-    private List<ChatMessage> buildPrompt(int workspaceTokenSize, int minInputTokenLimit, List<ChatMessage> precomputedWorkspaceMessages) {
+    private List<ChatMessage> buildPrompt(int workspaceTokenSize,
+                                          int minInputTokenLimit,
+                                          List<ChatMessage> precomputedWorkspaceMessages)
+    {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, CodePrompts.ARCHITECT_REMINDER));
