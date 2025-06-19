@@ -686,10 +686,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return null;
             }
 
-            for (var pr: fetchedPrs) {
-                pr.isMerged(); // pre-fetch this before we go back to EDT
-            }
-
             // Process fetched PRs on EDT
             List<org.kohsuke.github.GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
@@ -850,17 +846,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     logger.warn("Could not get metadata for PR #{}", pr.getNumber(), ex);
                 }
 
-                String statusValue;
-                try {
-                    if (pr.isMerged()) {
-                        statusValue = "Merged";
-                    } else {
-                        statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "?");
-                    }
-                } catch (IOException ex) {
-                    logger.warn("Error checking if PR #{} is merged: {}", pr.getNumber(), ex.getMessage());
-                    statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "Err"); // Fallback
-                }
+                String statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "?");
 
                 prTableModel.addRow(new Object[]{
                         "#" + pr.getNumber(), pr.getTitle(), author, formattedUpdated,
@@ -896,11 +882,15 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     break;
                 }
                 try {
-                    String status = getCiStatus(prToFetch);
-                    fetchedStatuses.put(prToFetch.getNumber(), status);
+                    if (prToFetch.isMerged()) { // This can throw IOException
+                        fetchedStatuses.put(prToFetch.getNumber(), "Merged");
+                    } else {
+                        String status = getCiStatus(prToFetch); // This can throw IOException
+                        fetchedStatuses.put(prToFetch.getNumber(), status);
+                    }
                 } catch (IOException e) {
-                    logger.warn("Failed to get CI status for PR #{} during targeted fetch", prToFetch.getNumber(), e);
-                    // Store a generic error marker if needed, or let it be absent from results
+                    logger.warn("Failed to get status (merged/CI) for PR #{} due to IOException: {}", prToFetch.getNumber(), e);
+                    fetchedStatuses.put(prToFetch.getNumber(), "Err");
                 }
             }
             return fetchedStatuses;
@@ -948,15 +938,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         List<GHPullRequest> prsRequiringCiFetch = new ArrayList<>();
         for (GHPullRequest pr : displayedPrs) {
-            try {
-                if (pr.isMerged()) {
-                    continue;
-                }
-            } catch (IOException e) {
-                logger.warn("Could not determine if PR #{} is merged. Skipping status fetch. Error: {}", pr.getNumber(), e.getMessage());
-                continue;
-            }
-
             String currentStatusInCache = ciStatusCache.get(pr.getNumber());
             if (currentStatusInCache == null || "?".equals(currentStatusInCache) || "...".equals(currentStatusInCache) ||
                 "Error".equals(currentStatusInCache) || "Err".equals(currentStatusInCache)) {
