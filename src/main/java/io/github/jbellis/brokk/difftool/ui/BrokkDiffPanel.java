@@ -41,6 +41,7 @@ public class BrokkDiffPanel extends JPanel {
     private final List<FileComparisonInfo> fileComparisons;
     private int currentFileIndex = 0;
     private JLabel fileIndicatorLabel;
+    private final boolean isMultipleCommitsContext;
 
     // LRU cache for loaded diff panels - keeps max 3 panels in memory
     private static final int MAX_CACHED_PANELS = 5;
@@ -97,6 +98,7 @@ public class BrokkDiffPanel extends JPanel {
         this.theme = theme;
         assert builder.contextManager != null;
         this.contextManager = builder.contextManager;
+        this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
 
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
@@ -131,6 +133,7 @@ public class BrokkDiffPanel extends JPanel {
         private final GuiTheme theme;
         private final ContextManager contextManager;
         private final List<FileComparisonInfo> fileComparisons;
+        private boolean isMultipleCommitsContext = false;
 
         public Builder(GuiTheme theme, ContextManager contextManager) {
             this.theme = theme;
@@ -156,6 +159,11 @@ public class BrokkDiffPanel extends JPanel {
         public Builder addComparison(BufferSource leftSource, BufferSource rightSource) {
             assert leftSource != null && rightSource != null : "Both left and right sources must be provided for comparison.";
             this.fileComparisons.add(new FileComparisonInfo(leftSource, rightSource));
+            return this;
+        }
+
+        public Builder setMultipleCommitsContext(boolean isMultipleCommitsContext) {
+            this.isMultipleCommitsContext = isMultipleCommitsContext;
             return this;
         }
 
@@ -389,6 +397,7 @@ public class BrokkDiffPanel extends JPanel {
 
         var fileComparison = new FileComparison.FileComparisonBuilder(this, theme, contextManager)
                 .withSources(compInfo.leftSource, compInfo.rightSource)
+                .setMultipleCommitsContext(this.isMultipleCommitsContext)
                 .build();
 
         fileComparison.addPropertyChangeListener(evt -> handleFileComparisonResult(evt, fileIndex));

@@ -30,6 +30,7 @@ public class FileComparison extends SwingWorker<String, Object> {
     private final BufferSource leftSource;
     private final BufferSource rightSource;
     private final GuiTheme theme;
+    private final boolean isMultipleCommitsContext;
 
     // Constructor
     private FileComparison(FileComparisonBuilder builder, GuiTheme theme, ContextManager contextManager) {
@@ -38,6 +39,7 @@ public class FileComparison extends SwingWorker<String, Object> {
         this.rightSource = builder.rightSource;
         this.theme = theme;
         this.contextManager = contextManager;
+        this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
     }
 
     // Static Builder class
@@ -47,6 +49,7 @@ public class FileComparison extends SwingWorker<String, Object> {
         private BufferSource leftSource;
         private BufferSource rightSource;
         private GuiTheme theme; // Default to light
+        private boolean isMultipleCommitsContext = false;
 
         public FileComparisonBuilder(BrokkDiffPanel mainPanel, GuiTheme theme, ContextManager contextManager) {
             this.mainPanel = mainPanel;
@@ -62,6 +65,11 @@ public class FileComparison extends SwingWorker<String, Object> {
 
         public FileComparisonBuilder withTheme(GuiTheme theme) {
             this.theme = theme;
+            return this;
+        }
+
+        public FileComparisonBuilder setMultipleCommitsContext(boolean isMultipleCommitsContext) {
+            this.isMultipleCommitsContext = isMultipleCommitsContext;
             return this;
         }
 
@@ -132,11 +140,13 @@ public class FileComparison extends SwingWorker<String, Object> {
             rightDocSyntaxHint = fileSourceRight.file().getName();
         }
 
-        String leftDisplayTitle = getDisplayTitleForSource(left);
-
         String leftFileDisplay = leftDocSyntaxHint;
-
-        var nodeTitle = "%s (%s)".formatted(leftFileDisplay, leftDisplayTitle);
+        String nodeTitle;
+        if (this.isMultipleCommitsContext) {
+            nodeTitle = leftFileDisplay;
+        } else {
+            nodeTitle = "%s (%s)".formatted(leftFileDisplay, getDisplayTitleForSource(left));
+        }
         var node = new JMDiffNode(nodeTitle, true);
 
         if (left instanceof BufferSource.FileSource fileSourceLeft) {

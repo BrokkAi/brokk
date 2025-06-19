@@ -1106,7 +1106,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     return null;
                 }
 
-                var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
+                var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                        .setMultipleCommitsContext(true); // Indicate this is a multiple commits context
 
                 for (var mf : modifiedFiles) {
                     var projectFile = mf.file();
