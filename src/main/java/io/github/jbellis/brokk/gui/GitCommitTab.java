@@ -26,6 +26,7 @@ import java.awt.*;
 import java.io.IOException;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -198,17 +199,29 @@ public class GitCommitTab extends JPanel {
         suggestMessageButton.setToolTipText("Suggest a commit message for the selected files");
         suggestMessageButton.setEnabled(false);
         suggestMessageButton.addActionListener(e -> {
+            suggestMessageButton.setEnabled(false); // Disable button immediately
             List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
-            // Execute the suggestion task and handle the result on the EDT
-            Future<String> suggestionFuture = suggestMessageAsync(selectedFiles);
-            contextManager.submitContextTask("Handling suggestion result", () -> {
-                try {
-                    String suggestedMessage = suggestionFuture.get();
-                    setCommitMessageText(suggestedMessage);
-                } catch (InterruptedException | ExecutionException ex) {
-                    throw new RuntimeException(ex);
-                }
-            });
+            CompletableFuture<String> suggestionFuture = suggestMessageAsync(selectedFiles);
+
+            suggestionFuture.whenComplete((suggestedMessage, throwable) ->
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        if (throwable == null) {
+                            setCommitMessageText(suggestedMessage);
+                        } else {
+                            // Handle exceptions, e.g., log them or show an error to the user
+                            logger.error("Error suggesting commit message:", throwable);
+                            // Optionally inform the user via chrome.toolError or similar
+                            if (chrome != null) { // Ensure chrome is available
+                                String rootCauseMessage = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
+                                chrome.toolError("Failed to suggest commit message: " + rootCauseMessage, "Suggestion Error");
+                            }
+                        }
+                    } finally {
+                        suggestMessageButton.setEnabled(true); // Re-enable button in all cases
+                    }
+                })
+            );
         });
         buttonPanel.add(suggestMessageButton);
 
@@ -707,13 +720,19 @@ public class GitCommitTab extends JPanel {
      * @param selectedFiles List of files to diff, or empty to diff all changes.
      * @return A Future containing the suggested message, or null if no changes or error.
      */
-    private Future<String> suggestMessageAsync(List<ProjectFile> selectedFiles) {
+    private CompletableFuture<String> suggestMessageAsync(List<ProjectFile> selectedFiles) {
         // Submit the Callable to a background task executor managed by ContextManager
         // We use submitBackgroundTask to ensure it runs off the EDT and provides user feedback
         return contextManager.submitBackgroundTask("Suggesting commit message", () -> {
-            String diff = selectedFiles.isEmpty()
-                          ? getRepo().diff()
-                          : getRepo().diffFiles(selectedFiles);
+            String diff;
+            try {
+                diff = selectedFiles.isEmpty()
+                        ? getRepo().diff()
+                        : getRepo().diffFiles(selectedFiles);
+            } catch (GitAPIException e) {
+                logger.error("Git diff operation failed while suggesting commit message", e);
+                throw new RuntimeException("Failed to generate diff for commit message suggestion", e);
+            }
 
             if (diff.isEmpty()) {
                 SwingUtilities.invokeLater(() -> chrome.systemOutput("No changes detected"));
