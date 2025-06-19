@@ -380,11 +380,29 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return String.class;
             }
         };
-        prFilesTable = new JTable(prFilesTableModel);
+        prFilesTable = new JTable(prFilesTableModel) {
+            @Override
+            public String getToolTipText(MouseEvent event) {
+                Point p = event.getPoint();
+                int viewRow = rowAtPoint(p);
+                if (viewRow >= 0 && viewRow < getRowCount()) {
+                    int modelRow = convertRowIndexToModel(viewRow);
+                    if (modelRow >= 0 && modelRow < prFilesTableModel.getRowCount()) {
+                        Object cellValue = prFilesTableModel.getValueAt(modelRow, 0);
+                        if (cellValue instanceof String s) {
+                            return s;
+                        }
+                    }
+                }
+                return super.getToolTipText(event);
+            }
+        };
         prFilesTable.setTableHeader(null);
         prFilesTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prFilesTable.setRowHeight(18);
         prFilesTable.getColumnModel().getColumn(0).setPreferredWidth(400); // File
+
+        ToolTipManager.sharedInstance().registerComponent(prFilesTable);
 
         prFilesPanel.add(new JScrollPane(prFilesTable), BorderLayout.CENTER);
 
