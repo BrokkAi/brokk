@@ -149,6 +149,7 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
       free_tier_eligible: true
+      is_private: true
 
 litellm_settings:
   num_retries: 0
