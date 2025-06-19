@@ -194,7 +194,7 @@ public class ImportDependencyDialog {
                 // For JARs, use Java language's candidates. Passing null to getDependencyCandidates might be
                 // for fetching general, non-project-specific JARs (e.g. from a global cache).
                 candidates = chrome.getContextManager().submitBackgroundTask("Scanning for JAR files",
-                                                                           () -> Language.JAVA.getDependencyCandidates(null));
+                                                                           () -> Language.JAVA.getDependencyCandidates(chrome.getProject()));
             } else { // DIRECTORY
                 filter = File::isDirectory;
                 if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {

@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQuery;
@@ -47,13 +48,12 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override protected String getQueryResource() { return "treesitter/javascript.scm"; }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName, // Changed from namespaceName
-                                      String classChain)
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain)
     {
-        // The packageName parameter is now supplied by determinePackageName.
         return switch (captureName) {
             case "class.definition" -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -81,7 +81,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             }
             default -> {
                 log.debug("Ignoring capture in JavascriptAnalyzer: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }
@@ -203,7 +203,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, CodeUnit functionCu) {
+    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, @Nullable CodeUnit functionCu) {
         if (bodyNode == null || bodyNode.isNull()) {
             return List.of();
         }

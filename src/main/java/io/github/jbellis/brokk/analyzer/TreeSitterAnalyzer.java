@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
@@ -488,6 +488,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * Translate a capture produced by the query into a {@link CodeUnit}.
      * Return {@code null} to ignore this capture.
      */
+    @Nullable
     protected abstract CodeUnit createCodeUnit(ProjectFile file,
                                                String captureName,
                                                String simpleName,
@@ -993,10 +994,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
             case FUNCTION_LIKE: {
                 // Add extra comments determined from the function body
-                CodeUnit tempCuForComments = null; // Ideally, resolve CU here if needed by getExtraFunctionComments
-                                                // For now, pass null, JsxAnalyzer override will handle bodyNode directly.
                 TSNode bodyNodeForComments = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                List<String> extraComments = getExtraFunctionComments(bodyNodeForComments, src, tempCuForComments);
+                List<String> extraComments = getExtraFunctionComments(bodyNodeForComments, src, null);
                 for (String comment : extraComments) {
                     if (comment != null && !comment.isBlank()) {
                         signatureLines.add(comment); // Comments are added without indent here; buildSkeletonRecursive adds indent.
@@ -1063,7 +1062,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * @param src The source code.
      * @return The formatted return type text.
      */
-    protected String formatReturnType(TSNode returnTypeNode, String src) {
+    protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
         return returnTypeNode == null || returnTypeNode.isNull() ? "" : textSlice(returnTypeNode, src);
     }
 
@@ -1181,7 +1180,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * @param functionCu The CodeUnit for the function. Can be null if not available.
      * @return A list of comment strings, or an empty list if none.
      */
-    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, CodeUnit functionCu) {
+    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, @Nullable CodeUnit functionCu) {
         return List.of(); // Default: no extra comments
     }
 
@@ -1328,13 +1327,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     /**
      * Returns the immediate children of the given CodeUnit based on TreeSitter parsing results.
-     * 
+     *
      * <p>This implementation uses the pre-built {@code childrenByParent} map that was populated
      * during AST parsing. The parent-child relationships are determined by the TreeSitter
      * grammar and capture queries for the specific language.
      */
     @Override
-    public @NotNull List<CodeUnit> directChildren(CodeUnit cu) {
+    public List<CodeUnit> directChildren(CodeUnit cu) {
         return childrenByParent.getOrDefault(cu, List.of());
     }
 

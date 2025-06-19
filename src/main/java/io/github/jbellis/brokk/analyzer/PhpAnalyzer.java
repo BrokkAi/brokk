@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
 import java.util.*;
@@ -78,11 +78,12 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain)
+    {
         return switch (captureName) {
             case "class.definition", "interface.definition", "trait.definition" -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -111,7 +112,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     !"namespace.name".equals(captureName)) {       // Main query's namespace.name
                      log.debug("Ignoring capture in PhpAnalyzer: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
                 }
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }

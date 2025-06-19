@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
@@ -126,11 +127,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         log.trace("GoAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
                   file.getFileName(), captureName, simpleName, packageName, classChain);
 
@@ -184,7 +185,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             default -> {
                 log.warn("Unhandled capture name in GoAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
                          captureName, simpleName, file.getFileName());
-                yield null;
+                yield null; // Explicitly yield null for unhandled cases
             }
         };
     }

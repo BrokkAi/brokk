@@ -55,10 +55,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         CodeUnit result;
         try {
             result = switch (captureName) {
