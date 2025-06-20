@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+
 import io.github.jbellis.brokk.util.Environment;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -83,10 +84,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
+    private volatile Future<?> currentSearchFuture;
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
-    private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
     private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
 
 
@@ -143,7 +144,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         JPanel topContentPanel = new JPanel();
         topContentPanel.setLayout(new BoxLayout(topContentPanel, BoxLayout.Y_AXIS));
 
-        gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
+        GitHubTokenMissingPanel gitHubTokenMissingPanel = new GitHubTokenMissingPanel(chrome);
         JPanel tokenPanelWrapper = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
         tokenPanelWrapper.add(gitHubTokenMissingPanel);
         topContentPanel.add(tokenPanelWrapper);
@@ -156,7 +157,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
         // topContentPanel no longer contains searchPanel
-        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); 
+        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH);
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
             logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchBox.getText());
@@ -165,9 +166,20 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         searchDebounceTimer.setRepeats(false);
 
         searchBox.addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { changed(); }
-            @Override public void removeUpdate(DocumentEvent e) { changed(); }
-            @Override public void changedUpdate(DocumentEvent e) { changed(); }
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                changed();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                changed();
+            }
 
             private void changed() {
                 var current = searchBox.getText().strip();
@@ -621,8 +633,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
+        if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
+            currentSearchFuture.cancel(true);
+        }
         searchBox.setLoading(true, "Searching issues");
-        var future = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
+        currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;
             try {
                 // Read filter values on EDT or before submitting task. searchBox can be null during early init.
@@ -666,11 +681,14 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 return null;
             }
 
+            if (Thread.currentThread().isInterrupted()) {
+                return null;
+            }
             // Perform filtering and display processing in the background
             processAndDisplayWorker(fetchedIssueHeaders, true);
             return null;
         });
-        trackCancellableFuture(future);
+        trackCancellableFuture(currentSearchFuture);
     }
 
     private void triggerClientSideFilterUpdate() {
@@ -692,6 +710,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
 
     private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
+        if (Thread.currentThread().isInterrupted()) {
+            searchBox.setLoading(false, null);
+            return;
+        }
         // This method runs on a background thread.
         logger.debug("processAndDisplayWorker: Starting. Source list size: {}. isFullUpdate: {}", sourceList.size(), isFullUpdate);
 
@@ -908,15 +930,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         bodyForCapture = (bodyForCapture == null || bodyForCapture.isBlank()) ? "*No description provided.*" : bodyForCapture;
         String content = String.format("""
                                        # Issue #%s: %s
-
+                                       
                                        **Author:** %s
                                        **Status:** %s
                                        **URL:** %s
                                        **Labels:** %s
                                        **Assignees:** %s
-
+                                       
                                        ---
-
+                                       
                                        %s
                                        """.stripIndent(),
                                        header.id(),

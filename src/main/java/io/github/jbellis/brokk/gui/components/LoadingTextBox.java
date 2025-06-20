@@ -79,11 +79,9 @@ public final class LoadingTextBox extends JPanel {
         if (loading) {
             spinner.setIcon(SpinnerIconUtil.getSpinner(chrome));
             spinner.setVisible(true);
-            textField.setEnabled(false);
             textField.setToolTipText(busyTooltip != null ? busyTooltip : "Searching...");
         } else {
             spinner.setVisible(false);
-            textField.setEnabled(true);
             textField.setToolTipText(idleTooltip);
         }
     }
