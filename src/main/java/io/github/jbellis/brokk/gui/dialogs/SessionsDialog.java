@@ -25,6 +25,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview
@@ -493,7 +494,7 @@ public class SessionsDialog extends JDialog {
                                                      "Enter new name for session '" + sessionInfo.name() + "':",
                                                      sessionInfo.name());
         if (newName != null && !newName.trim().isBlank()) {
-            contextManager.renameSessionAsync(sessionInfo.id(), newName.trim()).thenRun(() ->
+            contextManager.renameSessionAsync(sessionInfo.id(), CompletableFuture.completedFuture(newName.trim())).thenRun(() ->
                 SwingUtilities.invokeLater(() -> {
                     refreshSessionsTable();
                     historyOutputPanel.updateSessionComboBox();

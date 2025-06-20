@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -149,7 +150,7 @@ public final class HistoryIo {
     private static String summarizeAction(Context ctx) {
         try {
             // Assuming ctx.action is Future<String>
-            String summary = ctx.action.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            String summary = ctx.action.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             return (summary == null || summary.isBlank()) ? "Context updated" : summary;
         } catch (java.util.concurrent.TimeoutException e) {
             return "(Summary Unavailable)";

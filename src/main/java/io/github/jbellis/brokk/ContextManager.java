@@ -1825,18 +1825,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .findFirst();
 
         if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
-            try {
-                var summary = actionFuture.get();
-                renameSessionAsync(currentSessionId, summary).thenRun(() -> {
-                    SwingUtilities.invokeLater(() -> {
-                        if (io instanceof Chrome chrome) {
-                            chrome.getHistoryOutputPanel().updateSessionComboBox();
-                        }
-                    });
+            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                SwingUtilities.invokeLater(() -> {
+                    if (io instanceof Chrome chrome) {
+                        chrome.getHistoryOutputPanel().updateSessionComboBox();
+                    }
                 });
-            } catch (Exception e) {
-                logger.warn("Error renaming Session", e);
-            }
+            });
         }
 
         return newLiveContext.getTaskHistory().getLast();
@@ -2021,13 +2016,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Renames an existing session asynchronously.
      *
      * @param sessionId The UUID of the session to rename
-     * @param newName   The new name for the session
+     * @param newNameFuture A Future that will provide the new name for the session
      * @return A CompletableFuture representing the completion of the session rename task
      */
-    public CompletableFuture<Void> renameSessionAsync(UUID sessionId, String newName) {
-        var future = submitUserTask("Renaming session to " + newName, () -> {
-            project.renameSession(sessionId, newName);
-            logger.debug("Renamed session {} to {}", sessionId, newName);
+    public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
+        var future = submitBackgroundTask("Renaming session", () -> {
+            try {
+                String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                project.renameSession(sessionId, newName);
+                logger.debug("Renamed session {} to {}", sessionId, newName);
+            } catch (Exception e) {
+                logger.warn("Error renaming Session", e);
+                throw new RuntimeException(e);
+            }
         });
         return CompletableFuture.runAsync(() -> {
             try {
