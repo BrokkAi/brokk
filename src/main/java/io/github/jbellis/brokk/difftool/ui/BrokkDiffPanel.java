@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.util.ArrayList;
@@ -28,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
-public class BrokkDiffPanel extends JPanel {
+public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private static final String STATE_PROPERTY = "state";
     private final ContextManager contextManager;
@@ -607,6 +608,23 @@ public class BrokkDiffPanel extends JPanel {
 
     private void refreshUI() {
         updateNavigationButtons();
+        revalidate();
+        repaint();
+    }
+
+    @Override
+    public void applyTheme(GuiTheme guiTheme) {
+        assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
+        
+        // Apply theme to cached panels
+        for (var panel : panelCache.values()) {
+            if (panel != null) {
+                panel.applyTheme(guiTheme);
+            }
+        }
+        
+        // Update all child components including toolbar buttons and labels
+        SwingUtilities.updateComponentTreeUI(this);
         revalidate();
         repaint();
     }
