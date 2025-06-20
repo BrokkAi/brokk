@@ -28,9 +28,15 @@ public interface AnalyzerListener
     void onRepoChange();
 
     /**
+     * Called before each Analyzer build starts.
+     */
+    void beforeEachBuild();
+
+    /**
      * Called after each Analyzer build, successful or not.
      * This includes the initial build and any subsequent rebuilds.
+     * @param successful true if the build was successfully completed, false otherwise.
      * @param externalRebuildRequested true if the build was triggered by an external request.
      */
-    void afterEachBuild(boolean externalRebuildRequested);
+    void afterEachBuild(boolean successful, boolean externalRebuildRequested);
 }

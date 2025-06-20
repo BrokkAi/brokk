@@ -549,6 +549,8 @@ public class WorkspacePanel extends JPanel {
     private final PopupMenuMode popupMenuMode;
     private JPanel locSummaryPanel;
     private JPanel warningPanel; // Panel for warning messages
+    private JPanel analyzerRebuildPanel;
+    private JLabel analyzerRebuildSpinner;
     private boolean workspaceCurrentlyEditable = true;
     private Context currentContext;
 
@@ -910,6 +912,12 @@ public class WorkspacePanel extends JPanel {
         warningPanel = new JPanel(new BorderLayout()); // Changed to BorderLayout
         warningPanel.setBorder(new EmptyBorder(0, 5, 5, 5)); // Top, Left, Bottom, Right padding
         contextSummaryPanel.add(warningPanel, BorderLayout.CENTER);
+
+        // Analyzer rebuild notification panel (below warning panel)
+        analyzerRebuildPanel = new JPanel(new BorderLayout());
+        analyzerRebuildPanel.setBorder(new EmptyBorder(0, 5, 5, 5)); // Top, Left, Bottom, Right padding
+        analyzerRebuildPanel.setVisible(false);
+        contextSummaryPanel.add(analyzerRebuildPanel, BorderLayout.SOUTH);
 
         // Table panel
         var tablePanel = new JPanel(new BorderLayout());
@@ -1900,6 +1908,77 @@ public class WorkspacePanel extends JPanel {
             }
             refreshMenuState();
         });
+    }
+
+    /**
+     * Shows the analyzer rebuild notification with spinner.
+     */
+    public void showAnalyzerRebuildSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            if (analyzerRebuildSpinner == null) {
+                analyzerRebuildSpinner = new JLabel();
+                var spinnerIcon = getCachedSpinnerIcon();
+                if (spinnerIcon != null) {
+                    analyzerRebuildSpinner.setIcon(spinnerIcon);
+                }
+                
+                // Create notification text that supports wrapping
+                JTextArea notificationText = new JTextArea("Rebuilding Code Intelligence. Workspace will automatically update");
+                notificationText.setWrapStyleWord(true);
+                notificationText.setLineWrap(true);
+                notificationText.setEditable(false);
+                notificationText.setFocusable(false);
+                notificationText.setOpaque(false);
+                notificationText.setFont(UIManager.getFont("Label.font"));
+                notificationText.setForeground(UIManager.getColor("Label.foreground"));
+                notificationText.setBorder(null);
+                
+                // Layout: spinner on left (aligned to top), text on right
+                JPanel spinnerWrapper = new JPanel(new BorderLayout());
+                spinnerWrapper.setOpaque(false);
+                spinnerWrapper.add(analyzerRebuildSpinner, BorderLayout.NORTH);
+                
+                JPanel contentPanel = new JPanel(new BorderLayout(5, 0));
+                contentPanel.setOpaque(false);
+                contentPanel.add(spinnerWrapper, BorderLayout.WEST);
+                contentPanel.add(notificationText, BorderLayout.CENTER);
+                
+                analyzerRebuildPanel.removeAll();
+                analyzerRebuildPanel.add(contentPanel, BorderLayout.CENTER);
+            }
+            
+            analyzerRebuildPanel.setVisible(true);
+            analyzerRebuildPanel.revalidate();
+            analyzerRebuildPanel.repaint();
+        });
+    }
+
+    /**
+     * Hides the analyzer rebuild notification.
+     */
+    public void hideAnalyzerRebuildSpinner() {
+        SwingUtilities.invokeLater(() -> {
+            if (analyzerRebuildPanel != null) {
+                analyzerRebuildPanel.setVisible(false);
+                analyzerRebuildPanel.revalidate();
+                analyzerRebuildPanel.repaint();
+            }
+        });
+    }
+
+    private Icon getCachedSpinnerIcon() {
+        boolean isDark = chrome.getTheme() != null && chrome.getTheme().isDarkTheme();
+        String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
+        var url = getClass().getResource(path);
+
+        if (url == null) {
+            logger.warn("Spinner icon resource not found: {}", path);
+            return null;
+        }
+
+        ImageIcon originalIcon = new ImageIcon(url);
+        // Create a new ImageIcon from the Image to ensure animation restarts
+        return new ImageIcon(originalIcon.getImage());
     }
 
     private void refreshMenuState() {
