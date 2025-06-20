@@ -855,7 +855,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void revertCommit(String commitId) throws GitAPIException {
         try {
-            git.revert().include(repository.resolve(commitId)).call();
+            var resolvedCommit = repository.resolve(commitId);
+            if (resolvedCommit == null) {
+                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
+            }
+            git.revert().include(resolvedCommit).call();
         } catch (IOException e) {
             throw new GitRepoException("Unable to resolve" + commitId, e);
         }

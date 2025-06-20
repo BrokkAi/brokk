@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.RebaseCommand;
 import org.eclipse.jgit.api.RebaseResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -30,7 +31,6 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import javax.swing.JCheckBox;
 import javax.swing.JOptionPane;
-
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -613,7 +613,7 @@ public class GitWorktreeTab extends JPanel {
                         return;
                     }
                 }
-                
+
                 chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
 
                 WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
@@ -1140,9 +1140,17 @@ public class GitWorktreeTab extends JPanel {
                         }
                     }
 
-                    org.eclipse.jgit.api.MergeResult squashResult = parentGitRepo.getGit().merge()
+                    var resolvedBranch = parentGitRepo.resolve(worktreeBranchName);
+                    if (resolvedBranch == null) {
+                        String errorMessage = "Unable to resolve branch: " + worktreeBranchName;
+                        logger.error(errorMessage);
+                        chrome.toolError(errorMessage, "Branch Resolution Failed");
+                        return;
+                    }
+
+                    MergeResult squashResult = parentGitRepo.getGit().merge()
                         .setSquash(true)
-                        .include(parentGitRepo.resolve(worktreeBranchName))
+                        .include(resolvedBranch)
                         .call();
 
                     if (!squashResult.getMergeStatus().isSuccessful()) {
@@ -1178,8 +1186,16 @@ public class GitWorktreeTab extends JPanel {
 
                         // 3. Rebase the current branch (tempRebaseBranchName) onto the target branch.
                         logger.info("Rebasing current branch ({}) onto {}", tempRebaseBranchName, targetBranch);
+                        var resolvedTarget = parentGitRepo.resolve(targetBranch);
+                        if (resolvedTarget == null) {
+                            String errorMessage = "Unable to resolve target branch: " + targetBranch;
+                            logger.error(errorMessage);
+                            chrome.toolError(errorMessage, "Branch Resolution Failed");
+                            return;
+                        }
+
                         RebaseResult rebaseResult = parentGitRepo.getGit().rebase()
-                                .setUpstream(parentGitRepo.resolve(targetBranch)) // targetBranch is the new base
+                                .setUpstream(resolvedTarget) // targetBranch is the new base
                                 .call(); // Rebase acts on the current branch (tempRebaseBranchName)
 
                         if (!rebaseResult.getStatus().isSuccessful()) {
