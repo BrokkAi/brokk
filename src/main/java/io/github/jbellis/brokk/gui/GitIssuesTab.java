@@ -64,7 +64,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private FilterBox assigneeFilter;
     private LoadingTextBox searchBox;
     private Timer searchDebounceTimer;
-    private static final int SEARCH_DEBOUNCE_DELAY = 300; // ms for search debounce
+    private static final int SEARCH_DEBOUNCE_DELAY = 400; // ms for search debounce
 
     // Context Menu for Issue Table
     private JPopupMenu issueContextMenu;
@@ -148,12 +148,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Search Panel
         JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
+        searchPanel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
         searchBox = new LoadingTextBox("", 20, chrome);
         searchBox.asTextField().setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
-        searchPanel.add(new JLabel("Search: "), BorderLayout.WEST);
         searchPanel.add(searchBox, BorderLayout.CENTER);
-        topContentPanel.add(searchPanel);
 
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); // Add combined top panel
 
@@ -256,6 +254,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
         JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout());
+        issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH); // Add search panel above the table
 
         // Issue Table
         issueTableModel = new DefaultTableModel(
