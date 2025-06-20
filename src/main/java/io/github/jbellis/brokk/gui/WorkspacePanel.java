@@ -907,7 +907,7 @@ public class WorkspacePanel extends JPanel {
         contextSummaryPanel.add(locSummaryPanel, BorderLayout.NORTH);
 
         // Warning panel (for red/yellow context size warnings)
-        warningPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        warningPanel = new JPanel(new BorderLayout()); // Changed to BorderLayout
         warningPanel.setBorder(new EmptyBorder(0, 5, 5, 5)); // Top, Left, Bottom, Right padding
         contextSummaryPanel.add(warningPanel, BorderLayout.CENTER);
 
@@ -1154,19 +1154,18 @@ public class WorkspacePanel extends JPanel {
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
             String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the following models: %s. Performance will be degraded.", approxTokens, modelListStr);
-            JLabel warningLabel = new JLabel(warningText);
-            warningLabel.setForeground(Color.RED);
-            warningLabel.setToolTipText(warningTooltip);
-            warningPanel.add(warningLabel); 
+            
+            JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
+            warningPanel.add(warningArea, BorderLayout.CENTER);
+
         } else if (!yellowWarningModels.isEmpty()) {
             String modelListStr = yellowWarningModels.entrySet().stream()
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
             String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the following models: %s. Performance may be degraded.", approxTokens, modelListStr);
-            JLabel warningLabel = new JLabel(warningText);
-            warningLabel.setForeground(Color.YELLOW); // Standard yellow might be hard to see on some themes; consider a darker yellow or orange if needed.
-            warningLabel.setToolTipText(warningTooltip);
-            warningPanel.add(warningLabel); 
+            
+            JTextArea warningArea = createWarningTextArea(warningText, Color.YELLOW, warningTooltip); // Standard yellow might be hard to see on some themes
+            warningPanel.add(warningArea, BorderLayout.CENTER);
         }
         
         warningPanel.revalidate();
@@ -1181,6 +1180,20 @@ public class WorkspacePanel extends JPanel {
      */
     public void updateContextTable() {
         SwingUtilities.invokeLater(() -> populateContextTable(contextManager.selectedContext()));
+    }
+
+    private JTextArea createWarningTextArea(String text, Color foregroundColor, String tooltip) {
+        JTextArea textArea = new JTextArea(text);
+        textArea.setWrapStyleWord(true);
+        textArea.setLineWrap(true);
+        textArea.setEditable(false);
+        textArea.setFocusable(false);
+        textArea.setOpaque(false);
+        textArea.setFont(UIManager.getFont("Label.font"));
+        textArea.setForeground(foregroundColor);
+        textArea.setToolTipText(tooltip);
+        textArea.setBorder(null);
+        return textArea;
     }
 
     /**
