@@ -762,11 +762,7 @@ public class Context {
     public boolean workspaceEquals(Context other) {
         return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
     }
-
-    public boolean isFrozen() {
-        return allFragments().noneMatch(ContextFragment::isDynamic);
-    }
-
+    
     public boolean containsFrozenFragments() {
         return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }
