@@ -61,6 +61,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private JButton diffPrButton;
     private JButton viewPrDiffButton;
     private JButton openInBrowserButton;
+    private JButton capturePrDiffButton;
 
     private FilterBox statusFilter;
     private FilterBox authorFilter;
@@ -288,6 +289,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.add(diffPrButton);
         prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
+        capturePrDiffButton = new JButton("Capture Diff");
+        capturePrDiffButton.setToolTipText("Capture the full diff of this PR to context");
+        capturePrDiffButton.setEnabled(false);
+        capturePrDiffButton.addActionListener(e -> captureSelectedPrDiff());
+        prButtonPanel.add(capturePrDiffButton);
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+
         viewPrDiffButton = new JButton("View Diff");
         viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
         viewPrDiffButton.setEnabled(false);
@@ -476,6 +484,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     diffPrButton.setEnabled(true);
                     viewPrDiffButton.setEnabled(true);
                     openInBrowserButton.setEnabled(true);
+                    capturePrDiffButton.setEnabled(true); // Enable capture diff button
 
                     this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
                         String prHeadSha = selectedPr.getHead().getSha(); // This call might throw a RTE from the library on failure
@@ -524,6 +533,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     diffPrButton.setEnabled(false);
                     viewPrDiffButton.setEnabled(false);
                     openInBrowserButton.setEnabled(false);
+                    capturePrDiffButton.setEnabled(false);
                     prCommitsTableModel.setRowCount(0); // Clear commits table
                     prFilesTableModel.setRowCount(0); // Clear files table
                     currentPrCommitDetailsList.clear();
@@ -613,6 +623,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         diffPrButton.setEnabled(false);
         viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
+        capturePrDiffButton.setEnabled(false);
         prCommitsTableModel.setRowCount(0);
         prFilesTableModel.setRowCount(0);
         currentPrCommitDetailsList.clear();
@@ -1104,6 +1115,51 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         diffPrButton.setEnabled(false);
         viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
+        capturePrDiffButton.setEnabled(false);
+    }
+
+    private void captureSelectedPrDiff() {
+        int selectedRow = prTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
+            return;
+        }
+        GHPullRequest pr = displayedPrs.get(selectedRow);
+        logger.info("Capturing diff for PR #{}", pr.getNumber());
+
+        contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
+            try {
+                var repo = getRepo();
+                if (repo == null) {
+                    chrome.toolError("Git repository not available.", "Capture Diff Error");
+                    return;
+                }
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prTitle = pr.getTitle();
+                int prNumber = pr.getNumber();
+
+                // Ensure SHAs are local
+                String prHeadFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                String prBaseBranchName = pr.getBase().getRef();
+                String prBaseFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError("Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha) + " available locally.", "Capture Diff Error");
+                    return;
+                }
+                // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
+                // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
+                ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
+
+
+                GitUiUtil.capturePrDiffToContext(contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
+
+            } catch (Exception ex) {
+                logger.error("Error capturing diff for PR #{}", pr.getNumber(), ex);
+                chrome.toolError("Unable to capture diff for PR #" + pr.getNumber() + ": " + ex.getMessage(), "Capture Diff Error");
+            }
+        });
     }
 
     private void viewFullPrDiff() {
