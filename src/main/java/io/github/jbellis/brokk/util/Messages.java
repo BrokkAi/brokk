@@ -22,6 +22,11 @@ public class Messages {
     // Tokenizer can remain static as it's stateless based on model ID
     private static final OpenAiTokenizer tokenizer = new OpenAiTokenizer("gpt-4o");
 
+    public static void init() {
+        // tokenizer is surprisingly heavyweigh to initialize, this is just to give a hook to force that early
+        logger.debug("Messages helper initializing");
+    }
+    
     /**
      * We render these as "System" messages in the output. We don't use actual System messages since those
      * are only allowed at the very beginning for some models.

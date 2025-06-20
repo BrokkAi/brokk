@@ -11,6 +11,7 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
+import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -67,6 +68,7 @@ public class Brokk {
         }
     }
 
+    // start loading embeddings model immediately
     static {
         embeddingModelFuture = CompletableFuture.supplyAsync(() -> {
             logger.info("Loading embedding model asynchronously...");
@@ -296,6 +298,9 @@ public class Brokk {
 
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
+
+        // run this after we show the splash screen, it's expensive
+        Thread.ofPlatform().start(Messages::init);
 
         Path initialDialogPath = parsedArgs.projectPathArg != null ? Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize() : null;
         KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag, initialDialogPath);
