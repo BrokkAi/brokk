@@ -579,15 +579,7 @@ class EditBlockTest {
                                            """;
         // Expected code includes content between "```java\n" and the next "\n```" (if present) or "```"
         // The content itself ends with a newline if the closing ``` is on its own line.
-        String expectedCode = """
-                              public class Test {
-                                  String s = "```"; // Embedded backticks
-                                  /*
-                                   * Another ``` example
-                                   */
-                              }
-                              """; //This will have a trailing newline from the text block if not careful. Let's be precise.
-
+        // This will have a trailing newline from the text block if not careful. Let's be precise.
         String expectedCodePrecise = "public class Test {\n" +
                                      "    String s = \"```\"; // Embedded backticks\n" +
                                      "    /*\n" +
@@ -615,16 +607,7 @@ class EditBlockTest {
                                         print("Hello")
                                         ```
                                         """;
-        String expectedMergedCode = """
-                                    public class Test1 {
-                                        String s = "```"; // Embedded
-                                    }
-                                    ```
-                                    Some intermediate text.
-                                    ```python
-                                    print("Hello")
-                                    """; // This will have a trailing newline
-
+        // This will have a trailing newline
         String expectedMergedCodePrecise = "public class Test1 {\n" +
                                            "    String s = \"```\"; // Embedded\n" +
                                            "}\n" +

@@ -5,7 +5,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.util.*;
@@ -16,7 +15,6 @@ import java.util.stream.Collectors;
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
-    @NotNull
     public static AnalyzerWrapper.CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
         StringBuilder code = new StringBuilder();
         Set<CodeUnit> sources = new HashSet<>();
@@ -97,7 +95,6 @@ public class AnalyzerUtil {
         return result;
     }
 
-    @NotNull
     public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes)
     {
         return classes.stream()
@@ -110,7 +107,7 @@ public class AnalyzerUtil {
                 .collect(Collectors.toSet());
     }
 
-    public static @NotNull Map<CodeUnit, String> getSkeletonStrings(IAnalyzer analyzer, Set<CodeUnit> classes) {
+    public static Map<CodeUnit, String> getSkeletonStrings(IAnalyzer analyzer, Set<CodeUnit> classes) {
         var coalescedUnits = coalesceInnerClasses(classes);
         return coalescedUnits.stream().parallel()
                 .map(cu -> Map.entry(cu, analyzer.getSkeleton(cu.fqName())))

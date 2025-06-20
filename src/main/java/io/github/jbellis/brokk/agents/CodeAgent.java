@@ -24,6 +24,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
+import static java.util.Objects.requireNonNull;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -71,8 +72,8 @@ public class CodeAgent {
             String message;
             TaskResult.StopDetails stopDetails;
             if (llmError != null) {
-                message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, llmError.getMessage());
+                message = "LLM returned an error even after retries: " + Objects.toString(llmError.getMessage(), "Unknown LLM error") + ". Ending task";
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, Objects.toString(llmError.getMessage(), "Unknown LLM error"));
             } else {
                 message = "Empty LLM response even after retries. Ending task";
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
@@ -80,17 +81,23 @@ public class CodeAgent {
             io.toolError(message);
             throw new EditStopException(stopDetails);
         }
+        // Assertions were here, using requireNonNull for NullAway
+        var nonNullLlmResponse = requireNonNull(llmResponse, "llmResponse should not be null if hasUsableContent is true");
+        var nonNullAiMessage = requireNonNull(nonNullLlmResponse.aiMessage(), "llmResponse.aiMessage() should not be null if hasUsableContent is true");
 
         var updatedTaskMessages = new ArrayList<>(currentState.taskMessages());
         updatedTaskMessages.add(currentState.nextRequest());
-        updatedTaskMessages.add(llmResponse.aiMessage());
+        updatedTaskMessages.add(nonNullAiMessage);
 
         EditState newState = currentState.afterLlmInteraction(updatedTaskMessages);
         return new LlmOutcome(newState, streamingResult);
     }
 
     private ParseOutcome handleParsing(EditState currentState, StreamingResult streamingResult, EditBlockParser parser) {
-        String llmText = streamingResult.chatResponse().aiMessage().text();
+        // Assertions were here, using requireNonNull for NullAway
+        var nonNullChatResponse = requireNonNull(streamingResult.chatResponse(), "chatResponse should not be null at parsing stage unless there was a severe prior error");
+        var nonNullAiMessage = requireNonNull(nonNullChatResponse.aiMessage(), "aiMessage should not be null");
+        String llmText = nonNullAiMessage.text();
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
         var parseResult = parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
@@ -137,7 +144,9 @@ public class CodeAgent {
         if (messageForRetry != null) {
             nextRequest = messageForRetry;
             logger.debug(consoleLogForRetry);
-            io.llmOutput(consoleLogForRetry, ChatMessageType.CUSTOM);
+            if (consoleLogForRetry != null) { // Guard against potential null if logic paths change
+                io.llmOutput(consoleLogForRetry, ChatMessageType.CUSTOM);
+            }
             continueToApplyPhase = false; // Signal to loop in runTask for retry
         }
 
@@ -191,8 +200,8 @@ public class CodeAgent {
         try {
             editResult = EditBlock.applyEditBlocks(contextManager, io, blocks);
         } catch (IOException e) {
-            io.toolError(e.getMessage());
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, e.getMessage()));
+            io.toolError(Objects.toString(e.getMessage(), "IO error during edit application"));
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, Objects.toString(e.getMessage(), "IO error during edit application")));
         }
 
         if (editResult.hadSuccessfulEdits()) {
@@ -512,8 +521,9 @@ public class CodeAgent {
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
                  var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
-                 var model = contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
-                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
+                 // Use a model known to be available and suitable for this type of task, like quickModel
+                 var modelToUse = contextManager.getService().quickModel();
+                 var coder = contextManager.getLlm(modelToUse, "Full File Replacement: " + file.getFileName());
 
                  return executeReplace(file, coder, messages);
              } catch (InterruptedException e) {
@@ -722,8 +732,9 @@ public class CodeAgent {
         // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, result.error().getMessage());
-            io.toolError("Quick edit failed: " + result.error().getMessage());
+            String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
+            io.toolError("Quick edit failed: " + errorMessage);
         } else if (result.chatResponse() == null || result.chatResponse().aiMessage() == null || result.chatResponse().aiMessage().text() == null || result.chatResponse().aiMessage().text().isBlank()) {
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
             io.toolError("LLM returned empty response for quick edit.");

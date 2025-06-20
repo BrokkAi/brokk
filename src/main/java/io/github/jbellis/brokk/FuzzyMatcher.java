@@ -8,6 +8,8 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.Objects;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * A fuzzy matcher inspired by IntelliJ's MinusculeMatcher. It finds the best
  * subsequence alignment of a pattern within a given name, supporting CamelHump
@@ -77,7 +79,7 @@ public class FuzzyMatcher {
      *
      * @param pattern The pattern to match against names.
      */
-    public FuzzyMatcher(@NotNull String pattern) {
+    public FuzzyMatcher( String pattern) {
         // Equivalent to Strings.trimEnd(pattern, "* ")
         String trimmedPattern = FuzzyMatcherUtil.trimEnd(pattern.trim(), "*");
         this.patternChars = trimmedPattern.toCharArray();
@@ -148,7 +150,7 @@ public class FuzzyMatcher {
     /**
      * Returns the cleaned pattern string (trimmed and without trailing '*').
      */
-    public @NotNull String getPattern() {
+    public String getPattern() {
         return new String(patternChars);
     }
 
@@ -158,7 +160,7 @@ public class FuzzyMatcher {
      * @param name The text to check against the pattern.
      * @return {@code true} if the name matches, {@code false} otherwise.
      */
-    public boolean matches(@NotNull String name) {
+    public boolean matches( String name) {
         return matchingFragments(name) != null;
     }
 
@@ -177,7 +179,7 @@ public class FuzzyMatcher {
      * @param name The text to score against the pattern.
      * @return The matching score, or {@link Integer#MAX_VALUE} if no match exists.
      */
-    public int score(@NotNull String name) {
+    public int score(String name) {
         var fragments = matchingFragments(name);
         if (fragments == null) {
             return Integer.MAX_VALUE; // No match
@@ -192,7 +194,8 @@ public class FuzzyMatcher {
         int degree = calculateScore(name, fragments);
 
         // Add bonus if the match starts at the beginning (PreferStartMatchMatcherWrapper logic)
-        if (fragments.getHead().getStartOffset() == 0) {
+        var headFragment = requireNonNull(fragments.getHead());
+        if (headFragment.getStartOffset() == 0) {
             // The original `matchingDegree` returns higher for better. We'll calculate it that way
             // and then invert. The START_MATCH_WEIGHT is a large positive bonus.
             degree += START_MATCH_WEIGHT;
@@ -209,7 +212,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchingFragments}.
      */
     @Nullable
-    private FList<TextRange> matchingFragments(@NotNull String name) {
+    private FList<TextRange> matchingFragments( String name) {
         // Basic length check
         if (name.length() < minNameLength) {
             return null;
@@ -266,7 +269,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchBySubstring}.
      */
     @Nullable
-    private FList<TextRange> matchBySubstring(@NotNull String name) {
+    private FList<TextRange> matchBySubstring( String name) {
         boolean infix = isPatternChar(0, '*');
         var patternWithoutWildcard = filterWildcard(patternChars);
         if (name.length() < patternWithoutWildcard.length) {
@@ -311,12 +314,12 @@ public class FuzzyMatcher {
      * potentially augmented by the START_MATCH_WEIGHT and then inverted.
      * Based on {@code MinusculeMatcherImpl.matchingDegree}.
      */
-    private int calculateScore(@NotNull String name, @NotNull FList<TextRange> fragments) {
+    private int calculateScore( String name,  FList<TextRange> fragments) {
         // fragments is never null or empty here due to checks in score()
         assert !fragments.isEmpty();
 
-        final var first = fragments.getHead();
-        boolean startMatch = first.getStartOffset() == 0;
+        final var first = requireNonNull(fragments.getHead());
+        boolean startMatch = first != null && first.getStartOffset() == 0;
 
         int matchingCaseScore = 0; // Renamed from matchingCase to avoid confusion
         int patternPos = -1;       // Tracks the index in patternChars corresponding to the last matched name character
@@ -407,7 +410,7 @@ public class FuzzyMatcher {
         // Check if the match starts at a word boundary
         boolean wordStart = startIndex == 0 || FuzzyMatcherUtil.isWordStart(name, startIndex);
         // Check if the match ends exactly at the end of the name string
-        boolean finalMatch = fragments.getLast().getEndOffset() == name.length();
+        boolean finalMatch = requireNonNull(fragments.getLast()).getEndOffset() == name.length();
 
         // Combine components into the final score (higher is better internally before inversion)
         // Realigned with MinusculeMatcherImpl.matchingDegree formula
@@ -498,7 +501,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchWildcards}.
      */
     @Nullable
-    private FList<TextRange> matchWildcards(@NotNull String name, int patternIndex, int nameIndex, boolean isAsciiName) {
+    private FList<TextRange> matchWildcards( String name, int patternIndex, int nameIndex, boolean isAsciiName) {
         // Base case: End of pattern reached
         if (patternIndex == patternChars.length) {
             return FList.emptyList();
@@ -541,7 +544,7 @@ public class FuzzyMatcher {
      * starting the search from nameIndex. Respects case sensitivity options and potential
      * word start requirements (original optimization).
      */
-    private int findNextPatternCharOccurrence(@NotNull String name, int nameIndex, int patternIndex, boolean isAsciiName) {
+    private int findNextPatternCharOccurrence( String name, int nameIndex, int patternIndex, boolean isAsciiName) {
         // Optimization from original: If previous char was not wildcard/separator, only match at word starts.
         // This favors matching "FB" to "FooBar" at F and B, rather than F and some lowercase b later.
         boolean requireWordStart = patternIndex > 0 &&
@@ -561,7 +564,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchFragment}.
      */
     @Nullable
-    private FList<TextRange> matchFragment(@NotNull String name, int patternIndex, int nameIndex, boolean isAsciiName) {
+    private FList<TextRange> matchFragment( String name, int patternIndex, int nameIndex, boolean isAsciiName) {
         // Find the longest possible contiguous match starting here
         int fragmentLength = maxMatchingFragment(name, patternIndex, nameIndex);
         // If no character matches at the start (nameIndex), fail immediately.
@@ -577,7 +580,7 @@ public class FuzzyMatcher {
      * that matches the pattern (starting at patternIndex).
      * Based on {@code MinusculeMatcherImpl.maxMatchingFragment}.
      */
-    private int maxMatchingFragment(@NotNull String name, int patternIndex, int nameIndex) {
+    private int maxMatchingFragment( String name, int patternIndex, int nameIndex) {
         // Check if the very first character matches according to rules (case, etc.)
         if (!isFirstCharMatching(name, nameIndex, patternIndex)) {
             return 0;
@@ -605,7 +608,7 @@ public class FuzzyMatcher {
      * Checks if the first character of a potential fragment matches based on case sensitivity rules.
      * Based on {@code MinusculeMatcherImpl.isFirstCharMatching}.
      */
-    private boolean isFirstCharMatching(@NotNull String name, int nameIndex, int patternIndex) {
+    private boolean isFirstCharMatching( String name, int nameIndex, int patternIndex) {
         if (nameIndex >= name.length()) return false; // Cannot match past the end of the name
 
         boolean ignoreCase = true; // Since options is always NONE
@@ -625,7 +628,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchInsideFragment}.
      */
     @Nullable
-    private FList<TextRange> matchInsideFragment(@NotNull String name,
+    private FList<TextRange> matchInsideFragment( String name,
                                                  int patternIndex,
                                                  int nameIndex,
                                                  boolean isAsciiName,
@@ -653,7 +656,7 @@ public class FuzzyMatcher {
      * require longer fragments to be considered significant.
      * Based on {@code MinusculeMatcherImpl.isMiddleMatch}.
      */
-    private boolean isMiddleMatch(@NotNull String name, int patternIndex, int nameIndex) {
+    private boolean isMiddleMatch( String name, int patternIndex, int nameIndex) {
         // Check if previous pattern char was wildcard (or beginning of pattern)
         boolean prevWildcard = patternIndex == 0 || isWildcard(patternIndex - 1);
         // Check if next pattern char exists and is not a wildcard
@@ -673,7 +676,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.improveCamelHumps}.
      */
     @Nullable
-    private FList<TextRange> improveCamelHumps(@NotNull String name,
+    private FList<TextRange> improveCamelHumps( String name,
                                                int patternIndex, // Start index in pattern for current fragment
                                                int nameIndex,    // Start index in name for current fragment
                                                boolean isAsciiName,
@@ -712,7 +715,7 @@ public class FuzzyMatcher {
      * Helper for improveCamelHumps: Looks for the uppercase pattern character at subsequent word starts.
      */
     @Nullable
-    private FList<TextRange> findUppercaseMatchFurther(@NotNull String name,
+    private FList<TextRange> findUppercaseMatchFurther( String name,
                                                        int patternIndex, // Index of uppercase pattern char causing mismatch
                                                        int nameIndex, // Index in name where mismatch occurred
                                                        boolean isAsciiName)
@@ -731,7 +734,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.findLongestMatchingPrefix}.
      */
     @Nullable
-    private FList<TextRange> findLongestMatchingPrefix(@NotNull String name,
+    private FList<TextRange> findLongestMatchingPrefix( String name,
                                                        int patternIndex, // Start of pattern fragment
                                                        int nameIndex,    // Start of name fragment
                                                        boolean isAsciiName,
@@ -807,7 +810,7 @@ public class FuzzyMatcher {
      * Based on {@code MinusculeMatcherImpl.matchSkippingWords}.
      */
     @Nullable
-    private FList<TextRange> matchSkippingWords(@NotNull String name,
+    private FList<TextRange> matchSkippingWords( String name,
                                                 final int patternIndex, // The non-wildcard pattern index we are trying to match
                                                 int currentNameIndex, // First potential start index in name for patternIndex
                                                 boolean allowSpecialChars, // Whether skipping separators/dots is allowed initially (true after wildcard)
@@ -852,7 +855,7 @@ public class FuzzyMatcher {
      * character at patternIndex, considering case and word boundaries.
      * Based on {@code MinusculeMatcherImpl.seemsLikeFragmentStart}.
      */
-    private boolean seemsLikeFragmentStart(@NotNull String name, int patternIndex, int nameIndex) {
+    private boolean seemsLikeFragmentStart( String name, int patternIndex, int nameIndex) {
         // Ensure indices are valid before accessing arrays/string
         if (patternIndex >= patternChars.length || nameIndex >= name.length()) {
             return false;
@@ -927,7 +930,7 @@ public class FuzzyMatcher {
      * Prepends a new TextRange to an existing FList of ranges, merging if adjacent.
      * Based on {@code MinusculeMatcherImpl.prependRange}.
      */
-    private static @NotNull FList<TextRange> prependRange(@NotNull FList<TextRange> ranges, int from, int length) {
+    private static  FList<TextRange> prependRange( FList<TextRange> ranges, int from, int length) {
         if (length == 0) return ranges; // Don't prepend empty ranges
 
         var newRange = TextRange.from(from, length);
@@ -937,7 +940,7 @@ public class FuzzyMatcher {
         if (head != null && newRange.getEndOffset() == head.getStartOffset()) {
             var mergedRange = new TextRange(newRange.getStartOffset(), head.getEndOffset());
             // Return the tail of the original list with the new merged range prepended
-            return ranges.getTail().prepend(mergedRange);
+            return requireNonNull(ranges.getTail()).prepend(mergedRange);
         }
         // Otherwise, just prepend the new range without merging
         return ranges.prepend(newRange);
@@ -948,7 +951,7 @@ public class FuzzyMatcher {
      * that occurs at a word start boundary in the name, starting the search from 'startFrom'.
      * Based on {@code MinusculeMatcherImpl.indexOfWordStart}.
      */
-    private int indexOfWordStart(@NotNull String name, int patternIndex, int startFrom, boolean isAsciiName) {
+    private int indexOfWordStart( String name, int patternIndex, int startFrom, boolean isAsciiName) {
         final char p = patternChars[patternIndex];
         // Original complex optimization: If pattern is lowercase and has humps, don't match word starts unless prev pattern char was separator.
         // if (myHasHumps && isLowerCase[patternIndex] && !(patternIndex > 0 && isWordSeparator[patternIndex - 1])) { return -1; }

@@ -182,8 +182,8 @@ public class BuildAgent {
             if (reportRequest != null) {
                 var terminalResult = toolRegistry.executeTool(this, reportRequest);
                 if (terminalResult.status() == ToolExecutionResult.Status.SUCCESS) {
-                    assert reportedDetails != null;
-                    return reportedDetails;
+                    // The assertion was here, but requireNonNull is more explicit for NullAway
+                    return requireNonNull(reportedDetails, "reportedDetails should be non-null after successful reportBuildDetails tool execution");
                 } else {
                     // Tool execution failed
                     logger.warn("reportBuildDetails tool execution failed. Error: {}", terminalResult.resultText());

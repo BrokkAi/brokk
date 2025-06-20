@@ -475,11 +475,11 @@ public class ArchitectAgent {
                 } catch (ExecutionException e) {
                     logger.warn("Error executing SearchAgent task '{}'", request.name(), e.getCause());
                     if (e.getCause() instanceof FatalLlmException) {
-                        var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(e.getCause().getMessage());
+                        var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(Objects.toString(e.getCause().getMessage(), "Unknown error"));
                         io.systemOutput(errorMessage);
                         break; 
                     }
-                    var errorMessage = "Error executing Search Agent: %s".formatted(e.getCause().getMessage());
+                    var errorMessage = "Error executing Search Agent: %s".formatted(Objects.toString(e.getCause() != null ? e.getCause().getMessage() : "Unknown error", "Unknown execution error"));
                     architectMessages.add(ToolExecutionResultMessage.from(request, errorMessage));
                 }
             }

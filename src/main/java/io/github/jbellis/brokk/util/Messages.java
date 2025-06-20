@@ -2,10 +2,12 @@ package io.github.jbellis.brokk.util;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiTokenizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +61,11 @@ public class Messages {
             case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             default -> throw new UnsupportedOperationException(message.getClass().toString());
         };
+    }
+
+    /** Helper for simplifying dealing with potentially-null response + message */
+    public static String getText(@Nullable ChatResponse response) {
+        return response == null ? "" : getText(response.aiMessage());
     }
 
     /**
