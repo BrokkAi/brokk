@@ -26,7 +26,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
-import java.util.Objects;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -1542,11 +1541,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
-                    if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+                    if (result.error() != null || result.originalResponse() == null) {
                         logger.warn("Image summarization failed or was cancelled.");
                         return "(Image summarization failed)";
                     }
-                    var description = result.chatResponse().aiMessage().text();
+                    var description = result.text();
                     return (description == null || description.isBlank()) ? "(Image description empty)" : description.trim();
                 } catch (IOException e) {
                     logger.error("Failed to convert pasted image for summarization", e);
@@ -1747,12 +1746,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 );
 
                 var result = getLlm(getAskModel(), "Generate style guide").sendRequest(messages);
-                if (result.error() != null || result.chatResponse() == null) {
+                if (result.error() != null || result.originalResponse() == null) {
                     io.systemOutput("Failed to generate style guide: " + (result.error() != null ? result.error().getMessage() : "LLM unavailable or cancelled"));
                     project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
                     return null;
                 }
-                var styleGuide = result.chatResponse().aiMessage().text();
+                var styleGuide = result.text();
                 if (styleGuide == null || styleGuide.isBlank()) {
                     io.systemOutput("LLM returned empty style guide.");
                     project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
@@ -1789,14 +1788,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             throw new RuntimeException(e);
         }
 
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+        if (result.error() != null || result.originalResponse() == null) {
             logger.warn("History compression failed ({}) for entry: {}",
                         result.error() != null ? result.error().getMessage() : "LLM unavailable or cancelled",
                         entry);
             return entry;
         }
 
-        String summary = result.chatResponse().aiMessage().text();
+        String summary = result.text();
         if (summary == null || summary.isBlank()) {
             logger.warn("History compression resulted in empty summary for entry: {}", entry);
             return entry;
@@ -2210,11 +2209,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-            if (result.error() != null || result.chatResponse() == null) {
+            if (result.error() != null || result.originalResponse() == null) {
                 logger.warn("Summarization failed or was cancelled.");
                 return "Summarization failed.";
             }
-            var summary = result.chatResponse().aiMessage().text().trim();
+            var summary = result.text().trim();
             if (summary.endsWith(".")) {
                 return summary.substring(0, summary.length() - 1);
             }

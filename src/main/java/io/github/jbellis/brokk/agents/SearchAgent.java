@@ -189,7 +189,7 @@ public class SearchAgent {
                 logger.warn("Summarization failed or was cancelled. Error: {}", result.error().getMessage());
                 return requireNonNull(step.execResult).resultText(); // Return raw result on failure
             }
-            return Messages.getText(result.chatResponse());
+            return result.text();
         });
     }
 
@@ -225,16 +225,16 @@ public class SearchAgent {
             messages.add(new UserMessage("<query>%s</query>\n\n".formatted(query) + contextWithClasses));
             var result = llm.sendRequest(messages);
             if (result.error() != null) {
-                String errorMsg = "LLM error evaluating context: " + Objects.toString(result.error().getMessage(), "Unknown error") + "; stopping search";
+                String errorMsg = "LLM error evaluating context: " + result.getDescription() + "; stopping search";
                 io.systemOutput(errorMsg);
                 return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMsg));
             }
-            if (result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+            if (result.isEmpty()) {
                 String errorMsg = "LLM returned empty response evaluating context; stopping search";
                 io.systemOutput(errorMsg);
                 return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, errorMsg));
             }
-            var contextText = result.chatResponse().aiMessage().text();
+            var contextText = result.text();
             knowledge.add(new Tuple2<>("Initial context", contextText));
             // Start summarizing the initial context evaluation asynchronously
             initialContextSummary = summarizeInitialContextAsync(query, contextText);
@@ -411,13 +411,11 @@ public class SearchAgent {
                                                  </information>
                                          """.stripIndent().formatted(query, initialContextResult)));
 
-            ChatResponse response;
             try {
-                response = llm.sendRequest(messages).chatResponse();
+                return llm.sendRequest(messages).text();
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-            return Messages.getText(response);
         });
     }
 
@@ -661,17 +659,12 @@ public class SearchAgent {
         }
         var result = llm.sendRequest(messages, tools, ToolChoice.REQUIRED, false);
 
-        if (result.error() != null) {
-            return List.of();
-        }
-        var response = result.chatResponse();
-        if (response == null || response.aiMessage() == null) {
-            logger.warn("LLM returned empty response when determining next action");
+        if (result.error() != null || result.isEmpty()) {
             return List.of();
         }
 
-        totalUsage = TokenUsage.sum(totalUsage, response.tokenUsage());
-
+        var response = castNonNull(result.originalResponse());
+        totalUsage = TokenUsage.sum(totalUsage, castNonNull(response).tokenUsage());
         return parseResponseToRequests(ToolRegistry.removeDuplicateToolRequests(response.aiMessage()));
     }
 

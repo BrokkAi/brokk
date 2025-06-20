@@ -758,34 +758,19 @@ public class GitCommitTab extends JPanel {
             return null;
         }
 
-        // Use quickest model for commit messages via ContextManager
         Llm.StreamingResult result;
         try {
             result = contextManager.getLlm(contextManager.getService().quickestModel(), "Infer commit message").sendRequest(messages);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
-        if (result.error() != null) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM error during commit message suggestion: " + result.error().getMessage()));
-            logger.warn("LLM error during commit message suggestion: {}", result.error().getMessage());
-            return null;
-        }
-        if (result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM did not provide a commit message or is unavailable."));
-            return null;
-        }
 
-        String commitMsg = result.chatResponse().aiMessage().text();
-
-        if (commitMsg == null || commitMsg.isBlank()) {
+        if (result.error() != null || result.isEmpty()) {
             SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM did not provide a commit message."));
             return null;
         }
 
-        // Escape quotes in the commit message
-        commitMsg = commitMsg.replace("\"", "\\\"");
-
-        return commitMsg; // Return the raw message; setting text is handled by the caller
+        return result.text();
     }
 
     /**

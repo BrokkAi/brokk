@@ -15,6 +15,8 @@ import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Agent responsible for identifying relevant test files for a given task.
  */
@@ -101,12 +103,12 @@ public class ValidationAgent {
         logger.trace("Invoking quickModel via Coder for initial test file filtering. Prompt:\n{}", userMessage);
         var result = llm.sendRequest(messages);
 
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
-            logger.warn("Error during initial test file filtering call: {}", result.error() != null ? result.error().getMessage() : "Empty response");
+        if (result.error() != null || result.isEmpty()) {
+            logger.warn("Error or empty response during initial test file filtering call: {}", result);
             return List.of();
         }
 
-        var llmResponse = result.chatResponse().aiMessage().text();
+        var llmResponse = result.text();
         logger.trace("Coder response for initial filtering:\n{}", llmResponse);
 
         return parseSuggestedFiles(llmResponse, allTestFiles);
@@ -196,12 +198,12 @@ public class ValidationAgent {
             // Use Coder to send the request
             Llm.StreamingResult result = llm.sendRequest(messages);
 
-            if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
-                logger.debug("Error during relevance check call for {} (Attempt {}): {}", file, attempt, result.error() != null ? result.error().getMessage() : "Empty response");
+            if (result.error() != null || result.isEmpty()) {
+                logger.debug("Error or empty resonse during relevance check call for {} (Attempt {}): {}", file, attempt, result);
                 continue;
             }
 
-            var llmResponse = result.chatResponse().aiMessage().text().strip();
+            var llmResponse = result.text().strip();
             logger.trace("Coder response for relevance check of {} (Attempt {}): {}", file, attempt, llmResponse);
 
             // Check if the response contains exactly one of the markers
@@ -215,7 +217,7 @@ public class ValidationAgent {
             }
 
             logger.debug("Ambiguous response for relevance check of {} (Attempt {}): {}", file, attempt, llmResponse);
-            messages.add(result.chatResponse().aiMessage());
+            messages.add(new UserMessage(result.text()));
             messages.add(new UserMessage("You must respond with exactly one of the markers {%s, %s}".formatted(RELEVANT_MARKER, IRRELEVANT_MARKER)));
         }
 

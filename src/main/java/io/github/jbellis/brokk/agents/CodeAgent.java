@@ -64,16 +64,12 @@ public class CodeAgent {
             throw new EditStopException(TaskResult.StopReason.INTERRUPTED);
         }
 
-        var llmResponse = streamingResult.chatResponse();
-        var llmError = streamingResult.error();
-
-        boolean hasUsableContent = llmResponse != null && !Messages.getText(llmResponse.aiMessage()).isBlank();
-        if (!hasUsableContent) {
+        if (streamingResult.isEmpty()) {
             String message;
             TaskResult.StopDetails stopDetails;
-            if (llmError != null) {
-                message = "LLM returned an error even after retries: " + Objects.toString(llmError.getMessage(), "Unknown LLM error") + ". Ending task";
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, Objects.toString(llmError.getMessage(), "Unknown LLM error"));
+            if (streamingResult.error() != null) {
+                message = "LLM returned an error even after retries: " + streamingResult.error().getMessage() + ". Ending task";
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, requireNonNull(streamingResult.error().getMessage()));
             } else {
                 message = "Empty LLM response even after retries. Ending task";
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
@@ -81,23 +77,22 @@ public class CodeAgent {
             io.toolError(message);
             throw new EditStopException(stopDetails);
         }
-        // Assertions were here, using requireNonNull for NullAway
-        var nonNullLlmResponse = requireNonNull(llmResponse, "llmResponse should not be null if hasUsableContent is true");
-        var nonNullAiMessage = requireNonNull(nonNullLlmResponse.aiMessage(), "llmResponse.aiMessage() should not be null if hasUsableContent is true");
-
         var updatedTaskMessages = new ArrayList<>(currentState.taskMessages());
         updatedTaskMessages.add(currentState.nextRequest());
-        updatedTaskMessages.add(nonNullAiMessage);
+        if (streamingResult.error() == null) {
+            // No error, safe to get the full original message
+            updatedTaskMessages.add(streamingResult.originalMessage());
+        } else {
+            // Error occurred, but we have partial text (guaranteed by hasUsableContent check earlier).
+            updatedTaskMessages.add(new AiMessage(streamingResult.text()));
+        }
 
         EditState newState = currentState.afterLlmInteraction(updatedTaskMessages);
         return new LlmOutcome(newState, streamingResult);
     }
 
     private ParseOutcome handleParsing(EditState currentState, StreamingResult streamingResult, EditBlockParser parser) {
-        // Assertions were here, using requireNonNull for NullAway
-        var nonNullChatResponse = requireNonNull(streamingResult.chatResponse(), "chatResponse should not be null at parsing stage unless there was a severe prior error");
-        var nonNullAiMessage = requireNonNull(nonNullChatResponse.aiMessage(), "aiMessage should not be null");
-        String llmText = nonNullAiMessage.text();
+        String llmText = streamingResult.text();
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
         var parseResult = parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
@@ -108,8 +103,7 @@ public class CodeAgent {
 
         int parseFailures = currentState.parseFailures();
         UserMessage nextRequest = currentState.nextRequest(); // Keep current by default
-
-        var isPartialResponse = streamingResult.error() != null || streamingResult.chatResponse().finishReason() == FinishReason.LENGTH;
+        
         UserMessage messageForRetry = null;
         String consoleLogForRetry = null;
 
@@ -129,7 +123,7 @@ public class CodeAgent {
             }
         } else {
             parseFailures = 0; // Current segment is clean.
-            if (isPartialResponse) {
+            if (streamingResult.isPartial()) {
                 if (newlyParsedBlocks.isEmpty()) {
                     messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
                     consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
@@ -602,21 +596,21 @@ public class CodeAgent {
         if (result.error() != null) {
             return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
         }
-        var response = result.chatResponse();
-        if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
+        // If no error, result.text() is available.
+        if (result.text().isBlank()) {
             return Optional.of("Empty LLM response for %s".formatted(file));
         }
 
         // for Upgrade Agent
-        if (response.aiMessage().text().contains("BRK_NO_CHANGES_REQUIRED")) {
+        if (result.text().contains("BRK_NO_CHANGES_REQUIRED")) {
             return Optional.empty();
         }
 
         // Extract and apply
-        var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
+        var newContent = EditBlock.extractCodeFromTripleBackticks(result.text());
         if (newContent == null || newContent.isBlank()) {
             // Allow empty if response wasn't just ``` ```
-            if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
+            if (result.text().strip().equals("```\n```") || result.text().strip().equals("``` ```")) {
                 // Treat explicitly empty fenced block as success
                 newContent = "";
             } else {
@@ -735,13 +729,12 @@ public class CodeAgent {
             String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
             io.toolError("Quick edit failed: " + errorMessage);
-        } else if (result.chatResponse() == null || result.chatResponse().aiMessage() == null || result.chatResponse().aiMessage().text() == null || result.chatResponse().aiMessage().text().isBlank()) {
+        } else if (result.text().isBlank()) {
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
             io.toolError("LLM returned empty response for quick edit.");
         } else {
-            // Success from LLM perspective
-            String responseText = result.chatResponse().aiMessage().text();
-            pendingHistory.add(new AiMessage(responseText));
+            // Success from LLM perspective (no error, text is not blank)
+            pendingHistory.add(result.originalMessage()); // Safe to call as error is null
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
 

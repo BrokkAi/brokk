@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * The BuildAgent class is responsible for executing a process to gather and report build details
@@ -147,14 +148,8 @@ public class BuildAgent {
                 logger.error("LLM error in BuildInfoAgent: " + result.error().getMessage());
                 return BuildDetails.EMPTY;
             }
-            var response = result.chatResponse();
-            if (response == null || response.aiMessage() == null || !response.aiMessage().hasToolExecutionRequests()) {
-                // This shouldn't happen with ToolChoice.REQUIRED and Coder retries, but handle defensively.
-                logger.error("LLM response did not contain expected tool call in BuildInfoAgent.");
-                return BuildDetails.EMPTY;
-            }
 
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(response.aiMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
             chatHistory.add(aiMessage); // Add AI request message to history
 
             // 5. Process Tool Execution Requests

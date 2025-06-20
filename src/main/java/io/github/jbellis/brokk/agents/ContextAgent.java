@@ -597,20 +597,19 @@ public class ContextAgent {
 
         // *** Execute LLM call with required tool ***
         var result = llm.sendRequest(messages, toolSpecs, ToolChoice.REQUIRED, false);
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+        if (result.error() != null || result.isEmpty()) {
             logger.warn("Error or empty response from LLM during context recommendation: {}. Returning empty.",
                         result.error() != null ? result.error().getMessage() : "Empty response");
             return LlmRecommendation.EMPTY;
         }
-        var aiMessage = result.chatResponse().aiMessage();
-        var toolRequests = aiMessage.toolExecutionRequests();
+        var toolRequests = result.toolRequests();
         debug("LLM ToolRequests: {}", toolRequests);
         // only one call is necessary but handle LLM making multiple calls
         for (var request : toolRequests) {
             contextManager.getToolRegistry().executeTool(contextTool, request);
         }
 
-        String reasoning = aiMessage.text() != null ? aiMessage.text().strip() : "LLM provided recommendations via tool call.";
+        String reasoning = result.text();
         // Filter out files/classes already in workspace
         var projectFiles = contextTool.getRecommendedFiles().stream()
                 .map(fname -> {
@@ -767,19 +766,13 @@ public class ContextAgent {
         debug("Invoking LLM (Quick) to select relevant {} (prompt size ~{} tokens)", inputType.itemTypePlural, promptTokens);
         var result = llm.sendRequest(messages); // No tools
 
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+        if (result.error() != null || result.isEmpty()) {
             logger.warn("Error or empty response from LLM during quick %s selection: {}. Returning empty.",
                         inputType.itemTypePlural, result.error() != null ? result.error().getMessage() : "Empty response");
             return List.of();
         }
 
-        var responseText = result.chatResponse().aiMessage().text();
-        if (responseText == null || responseText.isBlank()) {
-            logger.warn("Empty text response from LLM during quick %s selection. Returning empty.", inputType.itemTypePlural);
-            return List.of();
-        }
-
-        var responseLines = responseText.lines().map(String::strip).filter(s -> !s.isEmpty()).toList();
+        var responseLines = result.text().lines().map(String::strip).filter(s -> !s.isEmpty()).toList();
         debug("LLM simple response lines ({}): {}", inputType.itemTypePlural, responseLines);
         return responseLines;
     }

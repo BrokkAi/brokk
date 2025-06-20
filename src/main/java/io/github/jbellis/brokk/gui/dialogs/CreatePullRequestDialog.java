@@ -691,11 +691,11 @@ public class CreatePullRequestDialog extends JDialog {
                 return "";
             }
 
-            if (result.error() != null || result.chatResponse() == null) {
+            if (result.error() != null || result.isEmpty()) {
                 logger.warn("PR description generation failed: {}", result.error());
                 return "(generation failed)";
             }
-            return result.chatResponse().aiMessage().text().trim();
+            return result.text().trim();
         }
 
         @Override
@@ -852,7 +852,7 @@ public class CreatePullRequestDialog extends JDialog {
                 } catch (Exception e) {
                     logger.warn("Title summarization worker failed to get result", e);
                 }
-                var finalTtl = ttl;
+                String finalTtl = ttl;
                 SwingUtilities.invokeLater(() -> setTextAndResetCaret(titleField, finalTtl));
             }
         };

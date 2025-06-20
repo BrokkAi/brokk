@@ -68,11 +68,6 @@ public class Messages {
         };
     }
 
-    /** Helper for simplifying dealing with potentially-null response + message */
-    public static String getText(@Nullable ChatResponse response) {
-        return response == null ? "" : getText(response.aiMessage());
-    }
-
     /**
      * Helper method to create a ChatMessage of the specified type
      */
