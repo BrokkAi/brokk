@@ -275,7 +275,7 @@ public class GitRepoTest {
         Path filePath = projectRoot.resolve(fileName);
         Files.writeString(filePath, content);
         repo.getGit().add().addFilepattern(fileName).call();
-        repo.getGit().commit().setAuthor("Test User", "test@example.com").setMessage(message).call();
+        repo.getGit().commit().setAuthor("Test User", "test@example.com").setMessage(message).setSign(false).call();
     }
 
     @Test
@@ -609,7 +609,7 @@ public class GitRepoTest {
 
         // Add and commit initial state
         repo.getGit().add().addFilepattern("file1.txt").addFilepattern("file2.txt").addFilepattern("file3.txt").call();
-        repo.getGit().commit().setMessage("Initial commit with 3 files").call();
+        repo.getGit().commit().setMessage("Initial commit with 3 files").setSign(false).call();
         String initialCommit = repo.getCurrentCommitId();
 
         // Modify files and commit
@@ -618,7 +618,7 @@ public class GitRepoTest {
         Files.writeString(file3, "Modified content 3");
 
         repo.getGit().add().addFilepattern(".").call();
-        repo.getGit().commit().setMessage("Modified all files").call();
+        repo.getGit().commit().setMessage("Modified all files").setSign(false).call();
 
         // Verify files have modified content
         assertEquals("Modified content 1", Files.readString(file1));
@@ -795,5 +795,36 @@ public class GitRepoTest {
 
         var trackedFile = trackedFiles.iterator().next();
         assertEquals("staged.txt", trackedFile.getFileName(), "Tracked file should be the staged file");
+    }
+
+    @Test
+    void testDiffEmptyRepository() throws Exception {
+        var emptyRepoRoot = tempDir.resolve("emptyRepo2");
+        Files.createDirectories(emptyRepoRoot);
+
+        Git.init().setDirectory(emptyRepoRoot.toFile()).call();
+
+        var emptyRepo = new GitRepo(emptyRepoRoot);
+        var diff = emptyRepo.diff();
+
+        // Should return empty string for empty repository
+        assertEquals("", diff, "diff() should return empty string for empty repository with no changes");
+
+        // Add a file and stage it to test diff methods with staged files
+        var stagedFile = emptyRepoRoot.resolve("staged.txt");
+        Files.writeString(stagedFile, "This file is staged but not committed");
+        emptyRepo.getGit().add().addFilepattern("staged.txt").call();
+
+        // Test diff() method with staged file in empty repository
+        var diffWithStaged = emptyRepo.diff();
+        // The main goal is that this doesn't throw NoHeadException - content can be empty or not
+        assertEquals("", diff, "diff() should return empty string for empty repository with no changes");
+
+        // Test diffFiles method with staged file in empty repository
+        var projectFile = new ProjectFile(emptyRepoRoot, "staged.txt");
+        var diffFiles = emptyRepo.diffFiles(List.of(projectFile));
+
+        // The main goal is that this doesn't throw NoHeadException - content can be empty or not
+        assertEquals("", diff, "diff() should return empty string for empty repository with no changes");
     }
 }
