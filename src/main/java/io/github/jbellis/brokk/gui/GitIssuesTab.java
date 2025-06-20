@@ -65,6 +65,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private LoadingTextBox searchBox;
     private Timer searchDebounceTimer;
     private static final int SEARCH_DEBOUNCE_DELAY = 400; // ms for search debounce
+    private String lastSearchQuery = "";
+
 
     // Context Menu for Issue Table
     private JPopupMenu issueContextMenu;
@@ -148,12 +150,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Search Panel
         JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
-        searchPanel.setBorder(BorderFactory.createEmptyBorder(0, Constants.H_PAD, Constants.V_GAP, Constants.H_PAD));
-        searchBox = new LoadingTextBox("", 20, chrome);
+        // Removed setBorder for searchPanel as it will be part of issueTableAndButtonsPanel
+        searchBox = new LoadingTextBox("Search", 20, chrome); // Placeholder text "Search"
         searchBox.asTextField().setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(searchBox, BorderLayout.CENTER);
 
-        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); // Add combined top panel
+        // topContentPanel no longer contains searchPanel
+        mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); 
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
             logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchBox.getText());
@@ -165,7 +168,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             @Override public void insertUpdate(DocumentEvent e) { changed(); }
             @Override public void removeUpdate(DocumentEvent e) { changed(); }
             @Override public void changedUpdate(DocumentEvent e) { changed(); }
+
             private void changed() {
+                var current = searchBox.getText().strip();
+                if (Objects.equals(current, lastSearchQuery)) {
+                    return;
+                }
+                lastSearchQuery = current;
                 if (searchDebounceTimer.isRunning()) {
                     searchDebounceTimer.restart();
                 } else {
@@ -253,8 +262,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         filtersAndTablePanel.add(verticalFilterPanel, BorderLayout.WEST);
 
         // Panel for Issue Table (CENTER) and Issue Buttons (SOUTH)
-        JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout());
-        issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH); // Add search panel above the table
+        JPanel issueTableAndButtonsPanel = new JPanel(new BorderLayout(0, Constants.V_GAP)); // Added V_GAP
+        // Add search panel above the table, inside issueTableAndButtonsPanel
+        // The searchPanel will now be constrained by the width of this panel, which is aligned with the table.
+        issueTableAndButtonsPanel.add(searchPanel, BorderLayout.NORTH);
 
         // Issue Table
         issueTableModel = new DefaultTableModel(
