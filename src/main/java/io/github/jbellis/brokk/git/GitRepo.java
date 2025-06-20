@@ -258,7 +258,13 @@ public class GitRepo implements Closeable, IGitRepo {
         var trackedPaths = new HashSet<String>();
         try {
             // HEAD (unchanged) files
-            var headTreeId = resolve("HEAD^{tree}");
+            ObjectId headTreeId = null;
+            try {
+                headTreeId = resolve("HEAD^{tree}");
+            } catch (GitRepoException e) {
+                // HEAD^{tree} might not exist in empty repos - this is allowed
+                logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
+            }
             if (headTreeId != null) {
                 try (var revWalk = new RevWalk(repository);
                      var treeWalk = new TreeWalk(repository)) {

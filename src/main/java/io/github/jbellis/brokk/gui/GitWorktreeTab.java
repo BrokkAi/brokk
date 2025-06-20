@@ -1145,7 +1145,7 @@ public class GitWorktreeTab extends JPanel {
                         String errorMessage = "Unable to resolve branch: " + worktreeBranchName;
                         logger.error(errorMessage);
                         chrome.toolError(errorMessage, "Branch Resolution Failed");
-                        return;
+                        return null;
                     }
 
                     MergeResult squashResult = parentGitRepo.getGit().merge()
@@ -1191,7 +1191,7 @@ public class GitWorktreeTab extends JPanel {
                             String errorMessage = "Unable to resolve target branch: " + targetBranch;
                             logger.error(errorMessage);
                             chrome.toolError(errorMessage, "Branch Resolution Failed");
-                            return;
+                            return null;
                         }
 
                         RebaseResult rebaseResult = parentGitRepo.getGit().rebase()

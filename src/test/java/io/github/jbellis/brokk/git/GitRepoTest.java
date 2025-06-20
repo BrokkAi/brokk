@@ -12,11 +12,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
-import io.github.jbellis.brokk.gui.GitWorktreeTab;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -773,5 +770,30 @@ public class GitRepoTest {
         org.eclipse.jgit.lib.Ref branchRef2 = repo.getGit().getRepository().findRef(finalBranchName2);
         assertNotNull(branchRef2);
         assertEquals(initialCommitId, branchRef2.getObjectId().getName());
+    }
+
+    @Test
+    void testGetTrackedFilesEmptyRepository() throws Exception {
+        var emptyRepoRoot = tempDir.resolve("emptyRepo");
+        Files.createDirectories(emptyRepoRoot);
+
+        // Initialize empty git repository without any commits
+        Git.init().setDirectory(emptyRepoRoot.toFile()).call();
+
+        var emptyRepo = new GitRepo(emptyRepoRoot);
+        // Create a staged file to test that getTrackedFiles works with staged files in empty repo
+        var stagedFile = emptyRepoRoot.resolve("staged.txt");
+        Files.writeString(stagedFile, "This file is staged but not committed");
+        emptyRepo.getGit().add().addFilepattern("staged.txt").call();
+
+        // This should not throw an exception even though HEAD^{tree} doesn't exist
+        var trackedFiles = emptyRepo.getTrackedFiles();
+
+        // Should contain the staged file
+        assertNotNull(trackedFiles, "getTrackedFiles should not return null for empty repository");
+        assertEquals(1, trackedFiles.size(), "Should contain exactly one staged file");
+
+        var trackedFile = trackedFiles.iterator().next();
+        assertEquals("staged.txt", trackedFile.getFileName(), "Tracked file should be the staged file");
     }
 }
