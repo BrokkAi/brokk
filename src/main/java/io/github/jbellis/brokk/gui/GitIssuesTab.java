@@ -29,6 +29,7 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +68,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private Timer searchDebounceTimer;
     private static final int SEARCH_DEBOUNCE_DELAY = 400; // ms for search debounce
     private String lastSearchQuery = "";
+
+    // Debouncing for issue description loading
+    private static final int DESCRIPTION_DEBOUNCE_DELAY = 250; // ms
+    private final Timer descriptionDebounceTimer;
+    private IssueHeader pendingHeaderForDescription;
+    private Future<?> currentDescriptionFuture;
 
 
     // Context Menu for Issue Table
@@ -164,6 +171,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             updateIssueList();
         });
         searchDebounceTimer.setRepeats(false);
+
+        descriptionDebounceTimer = new Timer(DESCRIPTION_DEBOUNCE_DELAY, e -> {
+            if (pendingHeaderForDescription != null) {
+                // Cancel any previously initiated description load if it's still running
+                if (currentDescriptionFuture != null && !currentDescriptionFuture.isDone()) {
+                    currentDescriptionFuture.cancel(true);
+                }
+                currentDescriptionFuture = loadAndRenderIssueBodyFromHeader(pendingHeaderForDescription);
+            }
+        });
+        descriptionDebounceTimer.setRepeats(false);
 
         searchBox.addDocumentListener(new DocumentListener() {
             @Override
@@ -436,18 +454,36 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     if (modelRow < 0 || modelRow >= displayedIssues.size()) {
                         logger.warn("Selected row {} (model {}) is out of bounds for displayed issues size {}", viewRow, modelRow, displayedIssues.size());
                         disableIssueActionsAndClearDetails();
+                        pendingHeaderForDescription = null;
+                        if (descriptionDebounceTimer.isRunning()) {
+                            descriptionDebounceTimer.stop();
+                        }
                         return;
                     }
                     IssueHeader selectedHeader = displayedIssues.get(modelRow);
-                    loadAndRenderIssueBodyFromHeader(selectedHeader);
+
+                    // Enable actions immediately for responsiveness
                     copyDescriptionAction.setEnabled(true);
                     openInBrowserAction.setEnabled(true);
                     captureAction.setEnabled(true);
+
+                    // Debounce loading of the issue body
+                    pendingHeaderForDescription = selectedHeader;
+                    descriptionDebounceTimer.restart();
+
                 } else { // No selection or invalid row
                     disableIssueActionsAndClearDetails();
+                    pendingHeaderForDescription = null;
+                    if (descriptionDebounceTimer.isRunning()) {
+                        descriptionDebounceTimer.stop();
+                    }
                 }
             } else if (issueTable.getSelectedRow() == -1) { // if selection is explicitly cleared
                 disableIssueActionsAndClearDetails();
+                pendingHeaderForDescription = null;
+                if (descriptionDebounceTimer.isRunning()) {
+                    descriptionDebounceTimer.stop();
+                }
             }
         });
 
@@ -469,6 +505,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     public void removeNotify() {
         super.removeNotify();
         MainProject.removeSettingsChangeListener(this);
+        if (searchDebounceTimer != null) {
+            searchDebounceTimer.stop();
+        }
+        if (descriptionDebounceTimer != null) {
+            descriptionDebounceTimer.stop();
+        }
     }
 
     @Override
@@ -479,6 +521,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             if (searchDebounceTimer != null && searchDebounceTimer.isRunning()) {
                 searchDebounceTimer.stop();
             }
+            if (descriptionDebounceTimer != null && descriptionDebounceTimer.isRunning()) {
+                descriptionDebounceTimer.stop();
+            }
+            pendingHeaderForDescription = null;
 
             List<Future<?>> futuresToCancelAndAwait = new ArrayList<>(futuresToBeCancelledOnGutHubTokenChange);
 
@@ -574,13 +620,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         issueBodyTextPane.setText("");
     }
 
-    private void loadAndRenderIssueBodyFromHeader(IssueHeader header) {
+    private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
         assert SwingUtilities.isEventDispatchThread();
 
         if (header == null) {
             issueBodyTextPane.setContentType("text/html");
             issueBodyTextPane.setText("");
-            return;
+            return CompletableFuture.completedFuture(null); // Return a completed future
         }
 
         issueBodyTextPane.setContentType("text/html");
@@ -590,6 +636,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
                 String rawBody = details.markdownBody();
+
+                if (Thread.currentThread().isInterrupted()) {
+                    return null;
+                }
 
                 if (rawBody == null || rawBody.isBlank()) {
                     SwingUtilities.invokeLater(() -> {
@@ -617,16 +667,17 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 }
 
             } catch (Exception e) {
-                logger.error("Failed to load/render details for issue {}: {}", header.id(), e.getMessage(), e);
-                SwingUtilities.invokeLater(() -> {
-                    issueBodyTextPane.setContentType("text/plain");
-                    issueBodyTextPane.setText("Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
-                    issueBodyTextPane.setCaretPosition(0);
-                });
+                    logger.error("Failed to load/render details for issue {}: {}", header.id(), e.getMessage(), e);
+                    SwingUtilities.invokeLater(() -> {
+                        issueBodyTextPane.setContentType("text/plain");
+                        issueBodyTextPane.setText("Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
+                        issueBodyTextPane.setCaretPosition(0);
+                    });
             }
             return null;
         });
         trackCancellableFuture(future);
+        return future;
     }
 
     /**
