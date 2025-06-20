@@ -9,6 +9,7 @@ import io.github.jbellis.brokk.issues.*;
 import io.github.jbellis.brokk.util.HtmlUtil;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.gui.components.GitHubTokenMissingPanel;
+import io.github.jbellis.brokk.gui.components.LoadingTextBox;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -61,7 +62,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
-    private JTextField searchField;
+    private LoadingTextBox searchBox;
     private Timer searchDebounceTimer;
     private static final int SEARCH_DEBOUNCE_DELAY = 300; // ms for search debounce
 
@@ -148,21 +149,21 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         // Search Panel
         JPanel searchPanel = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         searchPanel.setBorder(BorderFactory.createEmptyBorder(3, 3, 3, 3));
-        searchField = new JTextField();
-        searchField.setToolTipText("Search issues (Ctrl+F to focus)");
+        searchBox = new LoadingTextBox("", 20, chrome);
+        searchBox.asTextField().setToolTipText("Search issues (Ctrl+F to focus)"); // Set tooltip on the inner JTextField
         searchPanel.add(new JLabel("Search: "), BorderLayout.WEST);
-        searchPanel.add(searchField, BorderLayout.CENTER);
+        searchPanel.add(searchBox, BorderLayout.CENTER);
         topContentPanel.add(searchPanel);
 
         mainIssueAreaPanel.add(topContentPanel, BorderLayout.NORTH); // Add combined top panel
 
         searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_DELAY, e -> {
-            logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchField.getText());
+            logger.debug("Search debounce timer triggered. Updating issue list with query: {}", searchBox.getText());
             updateIssueList();
         });
         searchDebounceTimer.setRepeats(false);
 
-        searchField.getDocument().addDocumentListener(new DocumentListener() {
+        searchBox.addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { changed(); }
             @Override public void removeUpdate(DocumentEvent e) { changed(); }
             @Override public void changedUpdate(DocumentEvent e) { changed(); }
@@ -183,8 +184,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         actionMap.put("focusSearchField", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                searchField.requestFocusInWindow();
-                searchField.selectAll();
+                searchBox.asTextField().requestFocusInWindow();
+                searchBox.asTextField().selectAll();
             }
         });
 
@@ -610,11 +611,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
+        searchBox.setLoading(true, "Searching issues");
         var future = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
             List<IssueHeader> fetchedIssueHeaders;
             try {
-                // Read filter values on EDT or before submitting task. searchField can be null during early init.
-                final String currentSearchQuery = (searchField != null) ? searchField.getText().strip() : "";
+                // Read filter values on EDT or before submitting task. searchBox can be null during early init.
+                final String currentSearchQuery = (searchBox != null) ? searchBox.getText().strip() : "";
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
@@ -649,6 +651,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                             "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
                     });
                     disableIssueActionsAndClearDetails();
+                    searchBox.setLoading(false, null); // Stop loading on error
                 });
                 return null;
             }
@@ -667,7 +670,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
             return;
         }
-
+        searchBox.setLoading(true, "Filtering issues");
         final List<IssueHeader> currentIssuesToFilter = new ArrayList<>(allIssuesFromApi); // Use a snapshot
 
         contextManager.submitBackgroundTask("Applying Client-Side Filters", () -> {
@@ -763,6 +766,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 issueTable.getSelectionModel().setValueIsAdjusting(true);
                 issueTable.getSelectionModel().setValueIsAdjusting(false);
             }
+            searchBox.setLoading(false, null); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
         });
     }
