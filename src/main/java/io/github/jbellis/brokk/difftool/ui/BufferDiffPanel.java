@@ -79,7 +79,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
     private ScrollSynchronizer scrollSynchronizer;
-    private JSplitPane splitPane;
 
     public BufferDiffPanel(BrokkDiffPanel mainPanel, @NotNull GuiTheme theme)
     {
@@ -211,8 +210,10 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
         var searchBarComponent = activateBarDialog();
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, searchBarComponent, filePanelComponent);
-        add(splitPane);
+        
+        // Add components directly to BorderLayout without vertical resize capability
+        add(searchBarComponent, BorderLayout.NORTH);
+        add(filePanelComponent, BorderLayout.CENTER);
 
         // Create the scroll synchronizer for the left & right panels
         scrollSynchronizer = new ScrollSynchronizer(this, requireFilePanel(PanelSide.LEFT), requireFilePanel(PanelSide.RIGHT));
