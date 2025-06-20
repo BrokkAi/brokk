@@ -112,11 +112,11 @@ public class LlmTest {
 
                 var chatResponse = result.chatResponse();
                 assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                assertNotNull(chatResponse.aiMessage(), "AI message should not be null for model: " + modelName);
-                assertNotNull(chatResponse.aiMessage().text(), "AI message text should not be null for model: " + modelName);
-                assertFalse(chatResponse.aiMessage().text().isBlank(), "AI message text should not be blank for model: " + modelName);
+                assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
+                assertNotNull(result.originalMessage().text(), "AI message text should not be null for model: " + modelName);
+                assertFalse(result.originalMessage().text().isBlank(), "AI message text should not be blank for model: " + modelName);
 
-                var firstLine = chatResponse.aiMessage().text().lines().findFirst().orElse("");
+                var firstLine = result.originalMessage().text().lines().findFirst().orElse("");
                 System.out.println("Response from " + modelName + ": " + firstLine.substring(0, min(firstLine.length(), 50)) + "...");
             } catch (Throwable t) {
                 // Catch assertion errors or any other exceptions during the test for this model
@@ -168,17 +168,17 @@ public class LlmTest {
 
                         var chatResponse = result.chatResponse();
                         assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                        assertNotNull(chatResponse.aiMessage(), "AI message should not be null for model: " + modelName);
+                        assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
 
                         // ASSERTION 1: Check if a tool execution was requested
-                        assertTrue(chatResponse.aiMessage().hasToolExecutionRequests(),
-                                   "Model " + modelName + " did not request tool execution. Response: " + chatResponse.aiMessage().text());
+                        assertTrue(result.originalMessage().hasToolExecutionRequests(),
+                                   "Model " + modelName + " did not request tool execution. Response: " + chatResponse.text());
                         System.out.println("Tool call requested successfully by " + modelName);
 
                         // check that we can send the result back
-                        var tr = chatResponse.aiMessage().toolExecutionRequests().getFirst();
+                        var tr = result.originalMessage().toolExecutionRequests().getFirst();
                         // NB: this is a quick hack that does not actually pass arguments from the tool call
-                        messages.add(chatResponse.aiMessage());
+                        messages.add(result.originalMessage());
                         var term = new ToolExecutionResultMessage(tr.id(), tr.name(), new WeatherTool().getWeather("London"));
                         messages.add(term);
                         messages.add(new UserMessage("Given what you know about London, is this unusual?"));
