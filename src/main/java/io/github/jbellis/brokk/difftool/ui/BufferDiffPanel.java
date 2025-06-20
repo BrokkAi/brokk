@@ -209,7 +209,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
-        var searchBarComponent = activateBarDialog();
+        var searchBarComponent = activateBarDialog(columns);
         
         // Add components directly to BorderLayout without vertical resize capability
         add(searchBarComponent, BorderLayout.NORTH);
@@ -229,10 +229,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     /**
      * Build the top row that holds search bars.
      */
-    public JPanel activateBarDialog()
+    public JPanel activateBarDialog(String columns)
     {
         // Use the same FormLayout structure as the file panels to align search bars with text areas
-        var columns = "3px, pref, 3px, left:pref, 5px, min, 60px, left:pref, fill:0:grow";
         var rows = "6px, pref";
         var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
         var cc = new com.jgoodies.forms.layout.CellConstraints();
@@ -247,11 +246,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         }
 
         // Add search bars aligned with the text areas below
+        // Left search bar spans the same columns as the left text area (columns 4-6)
         if (leftSearchBar != null) {
-            barContainer.add(leftSearchBar, cc.xy(4, 2)); // Column 4 aligns with left text area, row 2 for spacing
+            barContainer.add(leftSearchBar, cc.xyw(4, 2, 3)); // Same span as left text area
         }
+        // Right search bar spans the same columns as the right text area (columns 8-10)
         if (rightSearchBar != null) {
-            barContainer.add(rightSearchBar, cc.xy(8, 2)); // Column 8 aligns with right text area, row 2 for spacing
+            barContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
         }
 
         return barContainer;
