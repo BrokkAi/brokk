@@ -19,6 +19,8 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
+import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -118,7 +120,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }), e -> logger.error("Unexpected error", e));
     // Generation counter to identify the latest suggestion request
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
-    private JPanel overlayPanel; // Panel used to initially disable command input
+    private OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
@@ -428,30 +430,16 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         commandScrollPane.setPreferredSize(new Dimension(600, 80)); // Use preferred size for layout
         commandScrollPane.setMinimumSize(new Dimension(100, 80));
 
-        // Transparent input-overlay panel
-        this.overlayPanel = new JPanel(); // Initialize the member variable
-        overlayPanel.setOpaque(false); // Make it transparent
-        overlayPanel.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR)); // Hint text input
+        // Create transparent overlay for command input (original behavior)
+        commandInputOverlay = new OverlayPanel(
+                overlay -> activateCommandInput(),
+                "Click to enter your instructions"
+        );
+        commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
-        // Layered pane to stack command input and overlay
-        var layeredPane = new JLayeredPane();
-        // Set layout manager for layered pane to handle component bounds automatically
-        layeredPane.setLayout(new OverlayLayout(layeredPane)); // Or use custom layout if needed
-        layeredPane.setPreferredSize(commandScrollPane.getPreferredSize()); // Match size
-        layeredPane.setMinimumSize(commandScrollPane.getMinimumSize());
+        // Create layered pane with overlay
+        var layeredPane = commandInputOverlay.createLayeredPane(commandScrollPane);
         layeredPane.setBorder(new EmptyBorder(0, H_PAD, 0, H_PAD));
-
-        // Add components to layers
-        layeredPane.add(commandScrollPane, JLayeredPane.DEFAULT_LAYER); // Input field at the bottom
-        layeredPane.add(overlayPanel, JLayeredPane.PALETTE_LAYER); // Overlay on top
-
-        // Mouse listener for the overlay
-        overlayPanel.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                activateCommandInput();
-            }
-        });
 
         panel.add(layeredPane); // Add the layered pane instead of the scroll pane directly
 
@@ -652,7 +640,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     menuItem.setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
                     menuItem.addActionListener(event -> {
                         // Hide overlay and enable input field and deep scan button
-                        overlayPanel.setVisible(false);
+                        commandInputOverlay.hideOverlay();
                         setCommandInputAndDeepScanEnabled(true);
 
                         // Set text and request focus
@@ -1687,7 +1675,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * clears the placeholder text if present, and requests focus for the input field.
      */
     private void activateCommandInput() {
-        overlayPanel.setVisible(false); // Hide the overlay
+        commandInputOverlay.hideOverlay(); // Hide the overlay
         setCommandInputAndDeepScanEnabled(true); // Enable input and deep scan button
         // Clear placeholder only if it's still present
         if (instructionsArea.getText().equals(PLACEHOLDER_TEXT)) {
