@@ -9,7 +9,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -146,6 +145,7 @@ public class GitLogTab extends JPanel {
         remoteBranchTable = new JTable(remoteBranchTableModel);
         remoteBranchTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
         remoteBranchTable.setRowHeight(18);
+        remoteBranchTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         remoteBranchPanel.add(new JScrollPane(remoteBranchTable), BorderLayout.CENTER);
 
         branchTabbedPane.addTab("Local", localBranchPanel);
@@ -300,6 +300,49 @@ public class GitLogTab extends JPanel {
                 deleteBranch(branchName);
             }
         });
+
+        // Remote branch context menu
+        JPopupMenu remoteBranchContextMenu = new JPopupMenu();
+        SwingUtilities.invokeLater(() -> {
+            if (chrome.themeManager != null) {
+                chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
+            }
+        });
+        JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
+        JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
+        JMenuItem remoteDiffItem = new JMenuItem("Capture Diff vs Branch");
+
+        remoteBranchContextMenu.add(remoteCheckoutItem);
+        remoteBranchContextMenu.add(remoteNewBranchItem);
+        remoteBranchContextMenu.add(remoteDiffItem);
+
+        remoteBranchTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handleRemoteBranchPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handleRemoteBranchPopup(e);
+            }
+
+            private void handleRemoteBranchPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = remoteBranchTable.rowAtPoint(e.getPoint());
+                    if (row >= 0 && !remoteBranchTable.isRowSelected(row)) {
+                        remoteBranchTable.setRowSelectionInterval(row, row);
+                    }
+                    SwingUtilities.invokeLater(() -> {
+                        remoteBranchContextMenu.show(remoteBranchTable, e.getX(), e.getY());
+                    });
+                }
+            }
+        });
+
+        remoteCheckoutItem.addActionListener(e -> performRemoteBranchAction(this::checkoutBranch));
+        remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
+        remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
     }
 
     // Methods getFilePathFromTreePath, isFileNode, hasFileNodesSelected, getSelectedFilePaths
@@ -426,7 +469,6 @@ public class GitLogTab extends JPanel {
                     gitCommitBrowserPanel.clearCommitView();
                 });
             }
-            return null;
         });
     }
 
@@ -489,7 +531,6 @@ public class GitLogTab extends JPanel {
                     gitCommitBrowserPanel.setCommits(errorCommit, Collections.emptySet(), false, false, branchName);
                 });
             }
-            return null;
         });
     }
 
@@ -770,6 +811,24 @@ public class GitLogTab extends JPanel {
      * Reloads the commits for the currently selected branch or context in the GitCommitBrowserPanel.
      * This is typically called when clearing a search to restore the previous view.
      */
+    private void performRemoteBranchAction(java.util.function.Consumer<String> action) {
+        int selectedRow = remoteBranchTable.getSelectedRow();
+        if (selectedRow != -1) {
+            String remoteBranchName = (String) remoteBranchTableModel.getValueAt(selectedRow, 0);
+            action.accept(remoteBranchName);
+        }
+    }
+
+    private void captureDiffVsRemoteBranch(String selectedRemoteBranch) {
+        try {
+            String currentActualBranch = getRepo().getCurrentBranch();
+            GitUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
+        } catch (Exception ex) {
+            logger.error("Could not get current branch for diff operation", ex);
+            chrome.toolError("Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
+        }
+    }
+
     private void reloadCurrentBranchOrContext() {
         SwingUtil.runOnEdt(() -> {
             int localSelectedRow = branchTable.getSelectedRow();
