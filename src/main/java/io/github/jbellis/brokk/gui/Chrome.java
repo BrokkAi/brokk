@@ -280,6 +280,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     content += "/.brokk/dependencies/\n";       // Ignore dependencies dir in main repo
                     content += "/.brokk/history.zip\n";         // Ignore legacy history zip
                     content += "!.brokk/style.md\n";          // DO track style.md (which lives in masterRoot/.brokk)
+                    content += "!.brokk/review.md\n";         // DO track review.md (which lives in masterRoot/.brokk)
                     content += "!.brokk/project.properties\n"; // DO track project.properties (masterRoot/.brokk)
 
                     Files.writeString(gitignorePath, content);
@@ -298,11 +299,15 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 // Add specific shared files to git
                 var styleMdPath = sharedBrokkDir.resolve("style.md");
+                var reviewMdPath = sharedBrokkDir.resolve("review.md");
                 var projectPropsPath = sharedBrokkDir.resolve("project.properties");
 
                 // Create shared files if they don't exist (empty files)
                 if (!Files.exists(styleMdPath)) {
                     Files.writeString(styleMdPath, "# Style Guide\n");
+                }
+                if (!Files.exists(reviewMdPath)) {
+                    Files.writeString(reviewMdPath, MainProject.DEFAULT_REVIEW_GUIDE);
                 }
                 if (!Files.exists(projectPropsPath)) {
                     Files.writeString(projectPropsPath, "# Brokk project configuration\n");
@@ -312,13 +317,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 // Here, paths are relative to gitTopLevel.
                 var filesToAdd = new ArrayList<ProjectFile>();
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/style.md"));
+                filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/review.md"));
                 filesToAdd.add(new ProjectFile(gitTopLevel, ".brokk/project.properties"));
 
                 // gitRepo.add takes ProjectFile instances, which resolve to absolute paths.
                 // The GitRepo instance is for the current project (which could be a worktree),
                 // but 'add' operations apply to the whole repository.
                 gitRepo.add(filesToAdd);
-                systemOutput("Added shared .brokk project files (style.md, project.properties) to git");
+                systemOutput("Added shared .brokk project files (style.md, review.md, project.properties) to git");
 
                 // Update commit message
                 gitPanel.setCommitMessageText("Update for Brokk project files");

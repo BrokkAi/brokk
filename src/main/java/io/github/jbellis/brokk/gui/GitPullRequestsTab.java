@@ -1126,6 +1126,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         GHPullRequest pr = displayedPrs.get(selectedRow);
         logger.info("Capturing diff for PR #{}", pr.getNumber());
 
+        // Check if instructions are empty and populate with PR title + review prompt if needed
+        SwingUtilities.invokeLater(() -> {
+            String currentInstructions = chrome.getInstructionsPanel().getInstructions();
+            if (currentInstructions == null || currentInstructions.trim().isEmpty()) {
+                String prTitle = pr.getTitle();
+                String reviewGuide = contextManager.getProject().getReviewGuide();
+                String reviewPrompt = String.format("Review PR: %s\n\n%s", prTitle, reviewGuide);
+                chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
+            }
+        });
+
         contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
             try {
                 var repo = getRepo();

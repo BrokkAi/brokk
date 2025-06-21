@@ -326,6 +326,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
+        ensureReviewGuide();
         ensureBuildDetailsAsync(); // Changed from ensureBuildCommand
         cleanupOldHistoryAsync(); // Clean up old LLM history logs
 
@@ -1766,6 +1767,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return null;
         });
+    }
+
+    /**
+     * Ensure review guide exists, generating if needed
+     */
+    private void ensureReviewGuide() {
+        if (!project.getReviewGuide().isEmpty()) {
+            return;
+        }
+        
+        project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
+        io.systemOutput("Review guide created at .brokk/review.md");
     }
 
     /**

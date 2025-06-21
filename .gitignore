@@ -52,4 +52,5 @@ project/project/
 ### BROKK'S CONFIGURATION ###
 .brokk/**
 !.brokk/style.md
+!.brokk/review.md
 !.brokk/project.properties
