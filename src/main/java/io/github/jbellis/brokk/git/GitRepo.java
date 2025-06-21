@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.NoHeadException;
 import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -29,6 +30,7 @@ import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
+import org.eclipse.jgit.treewalk.filter.TreeFilter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -258,7 +260,13 @@ public class GitRepo implements Closeable, IGitRepo {
         var trackedPaths = new HashSet<String>();
         try {
             // HEAD (unchanged) files
-            var headTreeId = resolve("HEAD^{tree}");
+            ObjectId headTreeId = null;
+            try {
+                headTreeId = resolve("HEAD^{tree}");
+            } catch (GitRepoException e) {
+                // HEAD^{tree} might not exist in empty repos - this is allowed
+                logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
+            }
             if (headTreeId != null) {
                 try (var revWalk = new RevWalk(repository);
                      var treeWalk = new TreeWalk(repository)) {
@@ -306,88 +314,75 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Produces a combined diff of staged + unstaged changes, restricted to the given files.
+     * Performs git diff operation with the given filter group, handling NoHeadException for empty repositories.
      */
-    @Override
-    public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+    private String performDiffWithFilter(TreeFilter filterGroup) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
-            var filters = files.stream()
-                    .map(file -> PathFilter.create(toRepoRelativePath(file)))
-                    .collect(Collectors.toCollection(ArrayList::new));
-            var filterGroup = PathFilterGroup.create(filters);
+            try {
+                // 1) staged changes
+                git.diff()
+                        .setCached(true)
+                        .setShowNameAndStatusOnly(false)
+                        .setPathFilter(filterGroup)
+                        .setOutputStream(out)
+                        .call();
+                var staged = out.toString(StandardCharsets.UTF_8);
+                out.reset();
 
-            // 1) staged changes
-            git.diff()
-                    .setCached(true)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var staged = out.toString(StandardCharsets.UTF_8);
-            out.reset();
+                // 2) unstaged changes
+                git.diff()
+                        .setCached(false)
+                        .setShowNameAndStatusOnly(false)
+                        .setPathFilter(filterGroup)
+                        .setOutputStream(out)
+                        .call();
+                var unstaged = out.toString(StandardCharsets.UTF_8);
 
-            // 2) unstaged changes
-            git.diff()
-                    .setCached(false)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var unstaged = out.toString(StandardCharsets.UTF_8);
-
-            return Stream.of(staged, unstaged)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.joining("\n"));
+                return Stream.of(staged, unstaged)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("\n"));
+            } catch (NoHeadException e) {
+                // Handle empty repository case - return empty diff for repositories with no commits
+                return "";
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
+    /**
+     * Produces a combined diff of staged + unstaged changes, restricted to the given files.
+     */
+    @Override
+    public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+        var filters = files.stream()
+                .map(file -> PathFilter.create(toRepoRelativePath(file)))
+                .collect(Collectors.toCollection(ArrayList::new));
+        var filterGroup = PathFilterGroup.create(filters);
+        
+        return performDiffWithFilter(filterGroup);
+    }
+
     @Override
     public synchronized String diff() throws GitAPIException {
-        try (var out = new ByteArrayOutputStream()) {
-            var status = git.status().call();
-            var trackedPaths = new HashSet<String>();
-            trackedPaths.addAll(status.getModified());
-            trackedPaths.addAll(status.getChanged());
-            trackedPaths.addAll(status.getAdded());
-            trackedPaths.addAll(status.getRemoved());
-            trackedPaths.addAll(status.getMissing());
+        var status = git.status().call();
+        var trackedPaths = new HashSet<String>();
+        trackedPaths.addAll(status.getModified());
+        trackedPaths.addAll(status.getChanged());
+        trackedPaths.addAll(status.getAdded());
+        trackedPaths.addAll(status.getRemoved());
+        trackedPaths.addAll(status.getMissing());
 
-            if (trackedPaths.isEmpty()) {
-                return "";
-            }
-
-            var filters = trackedPaths.stream()
-                    .map(PathFilter::create)
-                    .collect(Collectors.toCollection(ArrayList::new));
-            var filterGroup = PathFilterGroup.create(filters);
-
-            // 1) staged changes
-            git.diff()
-                    .setCached(true)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var staged = out.toString(StandardCharsets.UTF_8);
-            out.reset();
-
-            // 2) unstaged changes
-            git.diff()
-                    .setCached(false)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var unstaged = out.toString(StandardCharsets.UTF_8);
-
-            return Stream.of(staged, unstaged)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.joining("\n"));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        if (trackedPaths.isEmpty()) {
+            return "";
         }
+
+        var filters = trackedPaths.stream()
+                .map(PathFilter::create)
+                .collect(Collectors.toCollection(ArrayList::new));
+        var filterGroup = PathFilterGroup.create(filters);
+
+        return performDiffWithFilter(filterGroup);
     }
 
     /**
@@ -855,7 +850,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void revertCommit(String commitId) throws GitAPIException {
         try {
-            git.revert().include(repository.resolve(commitId)).call();
+            var resolvedCommit = repository.resolve(commitId);
+            if (resolvedCommit == null) {
+                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
+            }
+            git.revert().include(resolvedCommit).call();
         } catch (IOException e) {
             throw new GitRepoException("Unable to resolve" + commitId, e);
         }
