@@ -121,7 +121,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }), e -> logger.error("Unexpected error", e));
     // Generation counter to identify the latest suggestion request
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
-    private OverlayPanel commandInputOverlay; // Overlay to initially disable command input
+    private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
@@ -140,6 +140,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager(); // Store potentially null CM
         this.commandInputUndoManager = new UndoManager();
+        commandInputOverlay = new OverlayPanel(
+                overlay -> activateCommandInput(),
+                "Click to enter your instructions"
+        );
+        commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -272,11 +277,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 checkAndHandleSuggestions();
             }
         });
-        commandInputOverlay = new OverlayPanel(
-                overlay -> activateCommandInput(),
-                "Click to enter your instructions"
-        );
-        commandInputOverlay.setCursor(Cursor.getPredefinedCursor(Cursor.TEXT_CURSOR));
 
         SwingUtilities.invokeLater(() -> {
             if (chrome.getFrame() != null && chrome.getFrame().getRootPane() != null) {

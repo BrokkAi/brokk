@@ -133,6 +133,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.globalCopyAction = new GlobalCopyAction("Copy");
         this.globalPasteAction = new GlobalPasteAction("Paste");
 
+        initializeThemeManager();
+
         loadWindowSizeAndPosition();
         // Load saved theme, window size, and position
         frame.setTitle("Brokk: " + getProject().getRoot());
@@ -174,8 +176,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         bottomPanel.add(mainHorizontalSplitPane, BorderLayout.CENTER);
-
-        initializeThemeManager();
 
         // Force layout update for the bottom panel
         bottomPanel.revalidate();
