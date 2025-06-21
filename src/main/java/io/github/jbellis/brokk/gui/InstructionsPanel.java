@@ -520,12 +520,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // ----- create failure reason label ----------------------------------------------------
-        this.referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(new Object[]{"File References"}, 1) {
-            @Override
-            public boolean isCellEditable(int row, int column) { return false; }
-            @Override
-            public Class<?> getColumnClass(int columnIndex) { return List.class; }
-        });
         this.failureReasonLabel = new JLabel();
         this.suggestionCardLayout = new CardLayout();
         this.suggestionContentPanel = new JPanel(this.suggestionCardLayout);
