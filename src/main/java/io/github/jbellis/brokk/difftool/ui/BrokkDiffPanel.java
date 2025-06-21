@@ -7,6 +7,8 @@ import java.awt.*;
 
 import static javax.swing.SwingUtilities.invokeLater;
 
+import java.util.Objects;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -41,7 +43,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     // All file comparisons with lazy loading cache
     private final List<FileComparisonInfo> fileComparisons;
     private int currentFileIndex = 0;
-    private JLabel fileIndicatorLabel;
     private final boolean isMultipleCommitsContext;
 
     // LRU cache for loaded diff panels - keeps max 3 panels in memory
@@ -66,11 +67,12 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     static class FileComparisonInfo {
         final BufferSource leftSource;
         final BufferSource rightSource;
-        BufferDiffPanel diffPanel;
+        @Nullable BufferDiffPanel diffPanel;
 
         FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
             this.leftSource = leftSource;
             this.rightSource = rightSource;
+            this.diffPanel = null; // Initialize @Nullable field
         }
 
         String getDisplayName() {
@@ -104,6 +106,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
+        this.bufferDiffPanel = null; // Initialize @Nullable field
 
         // Make the container focusable, so it can handle key events
         setFocusable(true);
@@ -129,7 +132,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     // Builder Class
     public static class Builder {
+        @Nullable
         private BufferSource leftSource;
+        @Nullable
         private BufferSource rightSource;
         private final GuiTheme theme;
         private final ContextManager contextManager;
@@ -141,6 +146,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             assert contextManager != null;
             this.contextManager = contextManager;
             this.fileComparisons = new ArrayList<>();
+            this.leftSource = null; // Initialize @Nullable fields
+            this.rightSource = null;
         }
 
         public Builder leftSource(BufferSource source) {
@@ -151,7 +158,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         public Builder rightSource(BufferSource source) {
             this.rightSource = source;
             // Automatically add the comparison
-            addComparison(leftSource, rightSource);
+            if (this.leftSource != null && this.rightSource != null) {
+                addComparison(this.leftSource, this.rightSource);
+            }
             leftSource = null; // Clear to prevent duplicate additions
             rightSource = null;
             return this;
@@ -195,19 +204,22 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         return btnUndo;
     }
 
-    private JButton btnUndo;
-    private JButton btnRedo;
-    private JButton captureDiffButton;
-    private JButton btnNext;
-    private JButton btnPrevious;
-    private JButton btnPreviousFile;
-    private JButton btnNextFile;
+    private JButton btnUndo = new JButton("Undo"); // Initialize to prevent NullAway issues
+    private JButton btnRedo = new JButton("Redo");
+    private JButton captureDiffButton = new JButton("Capture Diff");
+    private JButton btnNext = new JButton("Next Change");
+    private JButton btnPrevious = new JButton("Previous Change");
+    private JButton btnPreviousFile = new JButton("Previous File");
+    private JButton btnNextFile = new JButton("Next File");
+    private JLabel fileIndicatorLabel = new JLabel(""); // Initialize
+    @Nullable
     private BufferDiffPanel bufferDiffPanel;
 
-    public void setBufferDiffPanel(BufferDiffPanel bufferDiffPanel) {
+    public void setBufferDiffPanel(@Nullable BufferDiffPanel bufferDiffPanel) {
         this.bufferDiffPanel = bufferDiffPanel;
     }
 
+    @Nullable
     private BufferDiffPanel getBufferDiffPanel() {
         return bufferDiffPanel;
     }
@@ -251,19 +263,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private JToolBar createToolbar() {
         // Create toolbar
-        JToolBar toolBar = new JToolBar();
+        var toolBar = new JToolBar();
 
-        // Create buttons
-        btnNext = new JButton("Next Change");
-        btnPrevious = new JButton("Previous Change");
-        btnUndo = new JButton("Undo");
-        btnRedo = new JButton("Redo");
-        captureDiffButton = new JButton("Capture Diff");
-
-        // Multi-file navigation buttons
-        btnPreviousFile = new JButton("Previous File");
-        btnNextFile = new JButton("Next File");
-        fileIndicatorLabel = new JLabel("");
+// Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
         btnNext.addActionListener(e -> navigateToNextChange());
@@ -276,11 +278,16 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnNextFile.addActionListener(e -> nextFile());
         captureDiffButton.addActionListener(e -> {
             var bufferPanel = getBufferDiffPanel();
-            assert bufferPanel != null;
+            if (bufferPanel == null) {
+                logger.warn("Capture diff called but bufferPanel is null");
+                return;
+            }
             var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
             var rightPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
-            assert leftPanel != null;
-            assert rightPanel != null;
+            if (leftPanel == null || rightPanel == null) {
+                logger.warn("Capture diff called but left or right panel is null");
+                return;
+            }
             var leftContent = leftPanel.getEditor().getText();
             var rightContent = rightPanel.getEditor().getText();
             var leftLines = Arrays.asList(leftContent.split("\\R"));
@@ -303,11 +310,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
             var detectedFilename = detectFilename(currentLeftSource, currentRightSource);
 
-            String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+            var syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
             if (detectedFilename != null) {
                 int dotIndex = detectedFilename.lastIndexOf('.');
                 if (dotIndex > 0 && dotIndex < detectedFilename.length() - 1) {
-                    String extension = detectedFilename.substring(dotIndex + 1);
+                    var extension = detectedFilename.substring(dotIndex + 1);
                     syntaxStyle = io.github.jbellis.brokk.util.SyntaxDetector.fromExtension(extension);
                 } else {
                     // If no extension or malformed, SyntaxDetector might still identify some common filenames
@@ -464,7 +471,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     @Nullable
     public AbstractContentPanel getCurrentContentPanel() {
-        Component selectedComponent = getTabbedPane().getSelectedComponent();
+        var selectedComponent = getTabbedPane().getSelectedComponent();
         if (selectedComponent instanceof AbstractContentPanel abstractContentPanel) {
             return abstractContentPanel;
         }
@@ -481,7 +488,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      * @param title The frame title
      */
     public void showInFrame(String title) {
-        JFrame frame = Chrome.newFrame(title);
+        var frame = Chrome.newFrame(title);
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
             frame.getContentPane().add(this);
 
@@ -540,18 +547,25 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (STATE_PROPERTY.equals(evt.getPropertyName()) && SwingWorker.StateValue.DONE.equals(evt.getNewValue())) {
             var compInfo = fileComparisons.get(fileIndex);
             try {
-                var result = (String) ((SwingWorker<?, ?>) evt.getSource()).get();
+                String result = (String) ((SwingWorker<?, ?>) evt.getSource()).get(); // Explicit type for clarity with cast
                 if (result == null) {
                     var comp = (FileComparison) evt.getSource();
                     var loadedPanel = comp.getPanel();
 
                     // Cache the loaded panel
-                    panelCache.put(fileIndex, loadedPanel);
-
-                    invokeLater(() -> {
-                        logger.debug("File loaded successfully and cached: {}", compInfo.getDisplayName());
-                        displayCachedFile(fileIndex, loadedPanel);
-                    });
+                    if (loadedPanel != null) {
+                        panelCache.put(fileIndex, loadedPanel);
+                        invokeLater(() -> {
+                            logger.debug("File loaded successfully and cached: {}", compInfo.getDisplayName());
+                            displayCachedFile(fileIndex, loadedPanel);
+                        });
+                    } else {
+                        // This case should ideally be handled by FileComparison returning an error string.
+                        // However, if getPanel() can return null without an error string, handle it.
+                        var errorMsg = "Failed to load panel for " + compInfo.getDisplayName() + " (panel is null).";
+                        logger.error(errorMsg);
+                        invokeLater(() -> showErrorForFile(fileIndex, errorMsg));
+                    }
                 } else {
                     invokeLater(() -> {
                         logger.error("Failed to load file: {} - {}", compInfo.getDisplayName(), result);
@@ -561,7 +575,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             } catch (InterruptedException | ExecutionException e) {
                 invokeLater(() -> {
                     logger.error("Exception loading file: {}", compInfo.getDisplayName(), e);
-                    showErrorForFile(fileIndex, e.getMessage());
+                    showErrorForFile(fileIndex, Objects.toString(e.getMessage(), "Unknown error"));
                 });
             }
         }

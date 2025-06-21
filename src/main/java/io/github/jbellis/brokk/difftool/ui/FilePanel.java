@@ -21,6 +21,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Objects;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -37,10 +38,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static java.util.Objects.requireNonNullElseGet;
+
 public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private static final Logger logger = LogManager.getLogger(FilePanel.class);
 
-    @NotNull
     private final BufferDiffPanel diffPanel;
     private final String name;
     private JPanel visualComponentContainer; // Main container for editor or "new file" label
@@ -51,14 +53,18 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private BufferDocumentIF bufferDocument;
 
     /* ------------- mirroring PlainDocument <-> RSyntaxDocument ------------- */
+    @Nullable
     private Document plainDocument;
+    @Nullable
     private DocumentListener plainToEditorListener;
+    @Nullable
     private DocumentListener editorToPlainListener;
     private Timer timer;
+    @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
 
-    public FilePanel(@NotNull BufferDiffPanel diffPanel, String name) {
+    public FilePanel(@NotNull BufferDiffPanel diffPanel, @NotNull String name) {
         this.diffPanel = diffPanel;
         this.name = name;
         init();
@@ -144,6 +150,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 }
             }
 
+            // Ensure any existing mirroring is cleared before setting up new or leaving none.
+            // installMirroring will call removeMirroring again, which is harmless.
+            removeMirroring();
+
             this.bufferDocument = bd;
             visualComponentContainer.removeAll(); // Clear previous content
 
@@ -171,12 +181,15 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                         var highlighter = editor.getHighlighter();
                         highlighter.install(editor);
                     }
+                } else {
+                    // BufferDocumentIF exists, but its underlying Document is null. Clear editor.
+                    editor.setText("");
                 }
                 editor.setEditable(!bd.isReadonly());
                 updateSyntaxStyle();            // pick syntax based on filename
             } else {
                 // If BufferDocumentIF is null, clear the editor and make it non-editable
-                removeMirroring();
+                // removeMirroring() was already called above.
                 editor.setText("");
                 editor.setEditable(false);
             }
@@ -218,8 +231,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private void paintRevisionHighlights()
     {
         assert SwingUtilities.isEventDispatchThread() : "NOT ON EDT";
-        var doc = bufferDocument;
-        if (doc == null) return;
+        if (bufferDocument == null) return;
 
         // Access the shared patch from the parent BufferDiffPanel
         var patch = diffPanel.getPatch();
@@ -256,8 +268,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
 
         public void highlight() {
+            if (bufferDocument == null) return;
             // Retrieve the chunk relevant to this side
             var chunk = getChunk(delta);
+            if (chunk == null) { // If the delta implies no chunk for this side (e.g. pure insert/delete)
+                return;
+            }
             var fromOffset = bufferDocument.getOffsetForLine(chunk.getPosition());
             if (fromOffset < 0) return;
             var toOffset = bufferDocument.getOffsetForLine(chunk.getPosition() + chunk.size());
@@ -298,6 +314,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Check if the last char is a newline *and* if offset is doc length
         private boolean isEndAndLastNewline(int toOffset) {
+            if (bufferDocument == null || bufferDocument.getDocument() == null) return false;
             try {
                 var docLen = bufferDocument.getDocument().getLength();
                 int endOffset = toOffset - 1;
@@ -353,7 +370,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     private void setHighlight(int offset, int size,
                               Highlighter.HighlightPainter highlight) {
-
         setHighlight(JMHighlighter.LAYER0, offset, size, highlight);
     }
 
@@ -425,7 +441,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // --------------------------- Heuristic 1 -----------------------------
         if (bufferDocument != null) {
             var fileName = bufferDocument.getName();
-            if (!fileName.isBlank()) {
+            if (fileName != null && !fileName.isBlank()) {
                 // Remove trailing '~'
                 var candidate = fileName.endsWith("~")
                                 ? fileName.substring(0, fileName.length() - 1)
@@ -447,7 +463,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                     style = SyntaxDetector.fromExtension(ext);
                 }
             }
-            logger.info("File type detection heuristic 1 type: {}, filename: {}, style {}", name, fileName, style);
+            logger.info("File type detection heuristic 1 type: {}, filename: {}, style {}", name, Objects.toString(fileName, "<null_filename>"), style);
         }
 
         // --------------------------- Heuristic 2 -----------------------------
@@ -479,9 +495,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         var patch = diffPanel.getPatch();
         if (patch != null && !patch.getDeltas().isEmpty()) {
             var firstDelta = patch.getDeltas().get(0);
-            int lineToShow = BufferDocumentIF.ORIGINAL.equals(name)
-                ? firstDelta.getSource().getPosition()
-                : firstDelta.getTarget().getPosition();
+            Chunk<String> relevantChunk = BufferDocumentIF.ORIGINAL.equals(name)
+                                          ? firstDelta.getSource()
+                                          : firstDelta.getTarget();
+
+            if (relevantChunk == null) { // If no relevant chunk for the first delta on this side
+                return;
+            }
+            int lineToShow = relevantChunk.getPosition();
 
             if (bufferDocument != null) {
                 int offset = bufferDocument.getOffsetForLine(lineToShow);
@@ -630,8 +651,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         SearchCommand searchCommand;
 
         searchCommand = getSearchCommand();
-        if (searchCommand == null) {
-            return null;
+        // If searchText is empty, return empty hits. getSearchCommand() always returns non-null.
+        if (searchCommand.searchText().isEmpty()) {
+            this.searchHits = new SearchHits(); // Ensure searchHits is non-null for getSearchHits()
+            reDisplay(); // Clear previous highlights
+            return this.searchHits;
         }
 
         searchText = searchCommand.searchText();
@@ -639,56 +663,57 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         doc = getBufferDocument();
         if (doc == null) { // Should not happen if isDisplayingEditor is true and doc set
-            searchHits = new SearchHits();
-            return searchHits;
+            this.searchHits = new SearchHits();
+            return this.searchHits;
         }
         numberOfLines = doc.getNumberOfLines();
 
-        searchHits = new SearchHits();
+        this.searchHits = new SearchHits();
+        for (int line = 0; line < numberOfLines; line++) {
+            text = doc.getLineText(line);
+            var nonNullText = Objects.requireNonNullElse(text, "");
 
-        if (!searchText.isEmpty()) {
-            for (int line = 0; line < numberOfLines; line++) {
-                text = doc.getLineText(line);
+            // Adjust case based on case-sensitive flag
+            if (!caseSensitive) {
+                textToSearch = nonNullText.toLowerCase(Locale.ROOT);
+                searchTextToCompare = searchText.toLowerCase(Locale.ROOT);
+            } else {
+                textToSearch = nonNullText;
+                searchTextToCompare = searchText;
+            }
 
-                // Adjust case based on case-sensitive flag
-                if (!caseSensitive) {
-                    textToSearch = text.toLowerCase(Locale.ROOT);
-                    searchTextToCompare = searchText.toLowerCase(Locale.ROOT);
-                } else {
-                    textToSearch = text;
-                    searchTextToCompare = searchText;
+            fromIndex = 0;
+            while ((index = textToSearch.indexOf(searchTextToCompare, fromIndex)) != -1) {
+                // Use the local 'doc' variable which is already null-checked for this search operation.
+                offset = doc.getOffsetForLine(line);
+                if (offset < 0) {
+                    // Can this actually happen?
+                    fromIndex = index + searchTextToCompare.length(); // Advance past this match to avoid infinite loop on bad offset
+                    continue;
                 }
 
-                fromIndex = 0;
-                while ((index = textToSearch.indexOf(searchTextToCompare, fromIndex)) != -1) {
-                    offset = bufferDocument.getOffsetForLine(line);
-                    if (offset < 0) {
-                        continue;
-                    }
+                searchHit = new SearchHit(line, offset + index, searchText.length());
+                this.searchHits.add(searchHit);
 
-                    searchHit = new SearchHit(line, offset + index, searchText.length());
-                    searchHits.add(searchHit);
-
-                    fromIndex = index + searchHit.getSize();
-                }
+                fromIndex = index + searchHit.getSize();
             }
         }
 
         reDisplay(); // This will also check isDisplayingEditor
-        scrollToSearch(this, searchHits);
+        scrollToSearch(this, this.searchHits);
         return getSearchHits();
     }
 
 
     SearchHits getSearchHits() {
-        return searchHits;
-        }
+        return requireNonNullElseGet(searchHits, SearchHits::new);
+    }
 
-        private void paintSearchHighlights() {
-            if (searchHits == null) {
-                return;
-            }
-            for (SearchHit sh : searchHits.getSearchHits()) {
+    private void paintSearchHighlights() {
+        if (searchHits == null) {
+            return;
+        }
+        for (SearchHit sh : searchHits.getSearchHits()) {
             setHighlight(JMHighlighter.LAYER2, sh.getFromOffset(),
                          sh.getToOffset(),
                          searchHits.isCurrent(sh)
@@ -699,19 +724,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     public void doPreviousSearch() {
         SearchHits sh = getSearchHits();
-        if (sh == null) {
-            return;
-        }
         sh.previous();
         reDisplay();
         scrollToSearch(this, sh);
     }
 
     private void scrollToSearch(FilePanel fp, SearchHits searchHitsToScroll) {
-        if (searchHitsToScroll == null) {
-            return;
-        }
-
         SearchHit currentHit = searchHitsToScroll.getCurrent();
         if (currentHit != null) {
             int line = currentHit.getLine();
@@ -722,9 +740,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     public void doNextSearch() {
         SearchHits sh = getSearchHits();
-        if (sh == null) {
-            return;
-        }
         sh.next();
         reDisplay();
         scrollToSearch(this, sh);

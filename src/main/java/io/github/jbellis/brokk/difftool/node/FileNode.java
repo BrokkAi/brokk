@@ -4,11 +4,14 @@ import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.lang.ref.SoftReference;
+import java.util.Objects;
+
+import static java.util.Objects.requireNonNull;
 
 public class FileNode implements Comparable<FileNode>, BufferNode {
     private final String name;
     private final File file;
-    private volatile @Nullable SoftReference<FileDocument> documentRef;
+    private volatile SoftReference<@Nullable FileDocument> documentRef; // documentRef itself is @NonNull
     private final Object lock = new Object(); // For synchronizing document creation
 
     public FileNode(String name, File file) {
@@ -19,7 +22,7 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
 
     @Override
     public FileDocument getDocument() {
-        var doc = documentRef.get();
+        FileDocument doc = documentRef.get();
         if (doc == null) {
             synchronized (lock) {
                 doc = documentRef.get(); // Double-check locking
@@ -29,7 +32,8 @@ public class FileNode implements Comparable<FileNode>, BufferNode {
                 }
             }
         }
-        return doc;
+        // doc is guaranteed non-null here by the double-checked locking pattern.
+        return requireNonNull(doc, "FileDocument should be initialized by double-checked locking pattern.");
     }
 
     public void unload() {
