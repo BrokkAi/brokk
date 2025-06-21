@@ -393,7 +393,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * Only updates the LLM text area and context panel display
      */
     public void setContext(Context ctx) {
-        assert ctx != null;
+        assert !ctx.containsDynamicFragments();
 
         logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away

@@ -53,7 +53,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+    default @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         throw new UnsupportedOperationException();
     }
 
@@ -65,6 +65,8 @@ public interface IProject extends AutoCloseable {
         return "";
     }
 
+    default Path getMasterRootPathForConfig() {
+        throw new UnsupportedOperationException();
     default String getReviewGuide() {
         throw new UnsupportedOperationException();
     }

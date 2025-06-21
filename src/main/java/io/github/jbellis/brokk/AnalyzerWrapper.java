@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import static java.util.Objects.requireNonNull;
 import java.util.stream.Collectors;
 
 public class AnalyzerWrapper implements AutoCloseable {
@@ -38,7 +39,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile boolean paused = false;
 
     private volatile Future<IAnalyzer> future;
-    private volatile IAnalyzer currentAnalyzer = null;
+    private volatile @Nullable IAnalyzer currentAnalyzer = null;
     private volatile boolean rebuildInProgress = false;
     private volatile boolean externalRebuildRequested = false;
     private volatile boolean rebuildPending = false;
@@ -145,7 +146,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // 1) Possibly refresh Git
         boolean needsGitRefresh = false;
         if (this.gitRepoRoot != null) {
-            Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+            Path actualGitMetaDir = this.gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
             needsGitRefresh = batch.stream().anyMatch(event ->
                 event.path.startsWith(actualGitMetaDir)
                     && (event.type == EventType.CREATE
@@ -155,7 +156,8 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         if (needsGitRefresh) {
-            logger.debug("Changes in git metadata directory ({}) detected", this.gitRepoRoot.resolve(".git"));
+            // this.gitRepoRoot is already confirmed non-null from the block above
+            logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(this.gitRepoRoot).resolve(".git"));
             if (listener != null) {
                 listener.onRepoChange();
                 listener.onTrackedFileChange(); // not 100% sure this is necessary
@@ -416,7 +418,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /** Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding. */
-    private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, Path analyzerPath) {
+    private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, @Nullable Path analyzerPath) {
         if (analyzerPath == null || !Files.exists(analyzerPath)) {
             return new CachedAnalyzerResult(null, false);
         }
@@ -716,6 +718,6 @@ public class AnalyzerWrapper implements AutoCloseable {
     private record FileChangeEvent(EventType type, Path path) {
     }
     
-    private record CachedAnalyzerResult(IAnalyzer analyzer, boolean needsRebuild) {
+    private record CachedAnalyzerResult(@Nullable IAnalyzer analyzer, boolean needsRebuild) {
     }
 }
