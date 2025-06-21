@@ -274,15 +274,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onTrackedFileChange() {
                 project.getRepo().refresh();
-                if (liveContext != null) {
-                    var fr = liveContext.freezeAndCleanup();
-                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                    if (!topContext().workspaceEquals(fr.frozenContext())) {
-                        pushContext(ctx -> fr.liveContext().withParsedOutput(null, "Loaded external changes"));
-                    }
-                    // analyzer refresh will call this too, but it will be delayed
-                    io.updateWorkspace();
+                var fr = liveContext.freezeAndCleanup();
+                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                if (!topContext().workspaceEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
                 }
+                // analyzer refresh will call this too, but it will be delayed
+                io.updateWorkspace();
                 io.updateCommitPanel();
             }
 
@@ -300,14 +298,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 if (successful) {
                     // possible for analyzer build to finish before context load does
-                    if (liveContext != null) {
-                        var fr = liveContext.freezeAndCleanup();
-                        // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                        if (!topContext().workspaceEquals(fr.frozenContext())) {
-                            pushContext(ctx -> fr.liveContext().withParsedOutput(null, "Code Intelligence changes"));
-                        }
-                        io.updateWorkspace();
+                    var fr = liveContext.freezeAndCleanup();
+                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                    if (!topContext().workspaceEquals(fr.frozenContext())) {
+                        processExternalFileChanges(fr);
                     }
+                    io.updateWorkspace();
                 }
                 if (externalRebuildRequested && io instanceof Chrome chrome) {
                     if (successful) {
@@ -1400,6 +1396,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .map(ContextFragment.PathFragment.class::cast)
                 .map(ContextFragment.PathFragment::file)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Processes external file changes by deciding whether to replace the top context or push a new one.
+     * If the current top context's action starts with "Loaded external changes", it updates the count and replaces it.
+     * Otherwise, it pushes a new context entry.
+     *
+     * @param fr The FreezeResult containing the updated live and frozen contexts reflecting the external changes.
+     */
+    private void processExternalFileChanges(Context.FreezeResult fr) {
+        var topCtx = topContext();
+        var previousAction = topCtx.getAction();
+        if (previousAction == null || !previousAction.startsWith("Loaded external changes")) {
+            // If the previous action is not about external changes, push a new context
+            pushContext(currentLiveCtx -> fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes")));
+            return;
+        }
+
+        // Parse the existing action to extract the count if present
+        var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
+        var matcher = pattern.matcher(previousAction);
+        int newCount;
+        if (matcher.matches() && matcher.group(1) != null) {
+            var countGroup = matcher.group(1);
+            try {
+                newCount = Integer.parseInt(countGroup) + 1;
+            } catch (NumberFormatException e) {
+                newCount = 2;
+            }
+        } else {
+            newCount = 2;
+        }
+
+        // Form the new action string with the updated count
+        var newAction = newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
+        var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+        var cleaned = newLiveContext.freezeAndCleanup();
+        liveContext = cleaned.liveContext();
+        contextHistory.replaceTopContext(cleaned.frozenContext());
+        SwingUtilities.invokeLater(() -> notifyContextListeners(cleaned.frozenContext()));
+        project.saveHistory(contextHistory, currentSessionId);
     }
 
     /**
