@@ -259,7 +259,7 @@ public class GitCommitBrowserPanel extends JPanel {
             public Component getTableCellRendererComponent(
                     JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                boolean isDark = chrome.themeManager != null && chrome.themeManager.isDarkTheme();
+                boolean isDark = chrome.themeManager.isDarkTheme();
                 boolean unpushed = (boolean) table.getModel().getValueAt(row, COL_UNPUSHED);
 
                 if (!isSelected) {
@@ -290,12 +290,6 @@ public class GitCommitBrowserPanel extends JPanel {
     private static Stream<ProjectFile> safeChangedFiles(ICommitInfo c) {
         try {
             List<ProjectFile> changedFilesList = c.changedFiles();
-            if (changedFilesList == null) {
-                String commitIdStr = "unknown";
-                try { commitIdStr = c.id(); } catch (Exception idEx) { /* ignore */ }
-                logger.warn("Commit {} returned null for changedFiles()", commitIdStr);
-                return Stream.empty();
-            }
             return changedFilesList.stream();
         } catch (GitAPIException ex) {
             String commitIdStr = "unknown";
@@ -420,7 +414,7 @@ public class GitCommitBrowserPanel extends JPanel {
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
-        revertCommitItem.setEnabled(selectedRows.length > 0 && !isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
+        revertCommitItem.setEnabled(!isStash); // Git revert doesn't directly do ranges. Enable if any non-stash selected.
 
         createBranchFromCommitItem.setVisible(!isStash);
         createBranchFromCommitItem.setEnabled(selectedRows.length == 1 && !isStash);
@@ -684,7 +678,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void updateChangesForCommits(List<ICommitInfo> commits) {
-        if (commits == null || commits.isEmpty()) {
+        if (commits.isEmpty()) {
             changesRootNode.removeAllChildren();
             changesTreeModel.reload();
             return;
@@ -792,7 +786,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void pullBranchInternal(String branchName) {
-        if (branchName == null || branchName.equals("stashes") || branchName.contains("/")) {
+        if (branchName.equals("stashes") || branchName.contains("/")) {
             logger.warn("Pull attempted on invalid context: {}", branchName);
             return;
         }
@@ -821,7 +815,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void pushBranchInternal(String branchName) {
-         if (branchName == null || branchName.equals("stashes")) {
+         if (branchName.equals("stashes")) {
             logger.warn("Push attempted on invalid context: {}", branchName);
             return;
         }
@@ -955,7 +949,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     public void clearSearchField() {
-        if (this.options.showSearch() && commitSearchTextField != null) {
+        if (this.options.showSearch()) {
             SwingUtil.runOnEdt(() -> commitSearchTextField.setText(""));
         }
     }
@@ -981,12 +975,11 @@ public class GitCommitBrowserPanel extends JPanel {
             changesTreeModel.reload();
 
             boolean isStashView = "stashes".equals(activeBranchOrContextName); // boolean preferred by style guide
-            boolean isSearchView = activeBranchOrContextName != null && activeBranchOrContextName.startsWith("Search:"); // boolean preferred by style guide
+            boolean isSearchView = activeBranchOrContextName.startsWith("Search:"); // boolean preferred by style guide
             boolean isRemoteBranchView;
             try {
                 // A branch is remote only if it actually appears in the repo’s remote-branch list
-                isRemoteBranchView = activeBranchOrContextName != null
-                                     && getRepo().listRemoteBranches().contains(activeBranchOrContextName);
+                isRemoteBranchView = getRepo().listRemoteBranches().contains(activeBranchOrContextName);
             } catch (org.eclipse.jgit.api.errors.GitAPIException ex) {
                 logger.warn("Could not determine if '{}' is a remote branch. Assuming local. Error: {}",
                             activeBranchOrContextName, ex.getMessage());
@@ -1014,7 +1007,7 @@ public class GitCommitBrowserPanel extends JPanel {
             }
 
             if (this.options.showCreatePrButton()) {
-                boolean createPrEnabled = !isStashView && !isSearchView && activeBranchOrContextName != null;
+                boolean createPrEnabled = !isStashView && !isSearchView;
                 String createPrTooltip = createPrEnabled
                                          ? "Create a pull request for branch " + activeBranchOrContextName
                                          : "Cannot create PR for stashes or search results";
@@ -1045,7 +1038,7 @@ public class GitCommitBrowserPanel extends JPanel {
 
     // Helper methods from GitLogTab (static or instance methods if they don't depend on GitLogTab's specific state)
     private String getShortId(String commitId) {
-        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+        return commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
     }
 
     private GitRepo getRepo() {
@@ -1063,10 +1056,9 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private boolean hasFileNodesSelected(TreePath[] paths) {
-        return paths != null &&
-               Arrays.stream(paths)
-                     .map(p -> TreeNodeInfo.fromPath(p, changesRootNode))
-                     .anyMatch(TreeNodeInfo::isFile);
+        return Arrays.stream(paths)
+              .map(p -> TreeNodeInfo.fromPath(p, changesRootNode))
+              .anyMatch(TreeNodeInfo::isFile);
     }
 
     private List<String> getSelectedFilePathsFromTree() {
@@ -1166,14 +1158,6 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void registerMenu(JPopupMenu menu) {
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(menu);
-        } else {
-            SwingUtil.runOnEdt(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(menu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(menu);
     }
 }

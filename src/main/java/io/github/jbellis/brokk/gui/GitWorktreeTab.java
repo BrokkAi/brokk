@@ -93,10 +93,10 @@ public class GitWorktreeTab extends JPanel {
         unsupportedLabel.setHorizontalAlignment(SwingConstants.CENTER);
         add(unsupportedLabel, new GridBagConstraints());
         // Ensure buttons (if they were somehow initialized) are disabled
-        if (addButton != null) addButton.setEnabled(false);
-        if (removeButton != null) removeButton.setEnabled(false);
-        if (openButton != null) openButton.setEnabled(false); // Ensure openButton is also handled
-        if (refreshButton != null) refreshButton.setEnabled(false); // Disable refresh button
+        addButton.setEnabled(false);
+        removeButton.setEnabled(false);
+        openButton.setEnabled(false); // Ensure openButton is also handled
+        refreshButton.setEnabled(false); // Disable refresh button
         revalidate();
         repaint();
     }
@@ -338,24 +338,16 @@ public class GitWorktreeTab extends JPanel {
         List<Path> selectedPaths = getSelectedWorktreePaths();
         boolean hasSelection = !selectedPaths.isEmpty();
 
-        if (openButton != null) {
-            openButton.setEnabled(hasSelection);
-        }
+        openButton.setEnabled(hasSelection);
 
         if (isWorktreeWindow) {
-            if (addButton != null) {
-                addButton.setEnabled(false);
-            }
-            if (removeButton != null) {
-                removeButton.setEnabled(false);
-            }
+            addButton.setEnabled(false);
+            removeButton.setEnabled(false);
             // mergeButton's state is not currently driven by selection in this method.
             // It is initialized as enabled.
         } else { // MainProject context
             // addButton in MainProject view is generally always enabled if worktrees are supported.
-            if (removeButton != null) {
-                removeButton.setEnabled(hasSelection);
-            }
+            removeButton.setEnabled(hasSelection);
         }
     }
 
@@ -389,7 +381,7 @@ public class GitWorktreeTab extends JPanel {
                      SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0);
                         addButton.setEnabled(false);
-                        if (openButton != null) openButton.setEnabled(false);
+                         openButton.setEnabled(false);
                         removeButton.setEnabled(false);
                         updateButtonStates(); // Update after loading
                      });
@@ -418,11 +410,10 @@ public class GitWorktreeTab extends JPanel {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
                     SwingUtilities.invokeLater(() -> {
-                        if (chrome != null && chrome.getFrame() != null) {
-                            chrome.getFrame().setState(Frame.NORMAL);
-                            chrome.getFrame().toFront();
-                            chrome.getFrame().requestFocus();
-                        }
+                        chrome.getFrame();
+                        chrome.getFrame().setState(Frame.NORMAL);
+                        chrome.getFrame().toFront();
+                        chrome.getFrame().requestFocus();
                     });
                     continue;
                 }
@@ -595,7 +586,7 @@ public class GitWorktreeTab extends JPanel {
                 boolean copyWorkspace = dialogResult.copyWorkspace();
 
                 if (isCreatingNewBranch) {
-                    if (branchForWorktree == null || branchForWorktree.isEmpty()) {
+                    if (branchForWorktree.isEmpty()) {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
@@ -605,15 +596,11 @@ public class GitWorktreeTab extends JPanel {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
-                    if (sourceBranchForNew == null || sourceBranchForNew.isEmpty()) {
+                    if (sourceBranchForNew.isEmpty()) {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
                 } else { // Using existing branch
-                    if (branchForWorktree == null) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "No branch selected to use for the worktree.", "Error", JOptionPane.ERROR_MESSAGE));
-                        return;
-                    }
                 }
 
                 chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
@@ -795,11 +782,6 @@ public class GitWorktreeTab extends JPanel {
         IGitRepo repo = contextManager.getProject().getRepo();
         if (repo.supportsWorktrees()) {
             // If UI was previously the unsupported one, rebuild the proper UI
-            if (worktreeTable == null) {
-                removeAll();
-                setLayout(new BorderLayout()); // Reset layout
-                buildWorktreeTabUI();
-            }
             loadWorktrees();
         } else {
             buildUnsupportedUI();
@@ -833,7 +815,6 @@ public class GitWorktreeTab extends JPanel {
         Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
 
         if (isCreatingNewBranch) {
-            assert sourceBranchForNew != null : "Source branch must be provided when creating a new branch";
             logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchForWorktree, sourceBranchForNew, newWorktreePath);
             gitRepo.createBranch(branchForWorktree, sourceBranchForNew);
         }
@@ -901,12 +882,9 @@ public class GitWorktreeTab extends JPanel {
                     targetBranchComboBox.addItem("Error loading branches");
                     targetBranchComboBox.setEnabled(false);
                 }
-            } else if (iParentRepo != null) {
+            } else {
                 logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
                 targetBranchComboBox.addItem("Unsupported parent repo type");
-                targetBranchComboBox.setEnabled(false);
-            } else {
-                targetBranchComboBox.addItem("Parent repo not available");
                 targetBranchComboBox.setEnabled(false);
             }
         } else {
@@ -1143,12 +1121,6 @@ public class GitWorktreeTab extends JPanel {
                     }
 
                     var resolvedBranch = parentGitRepo.resolve(worktreeBranchName);
-                    if (resolvedBranch == null) {
-                        String errorMessage = "Unable to resolve branch: " + worktreeBranchName;
-                        logger.error(errorMessage);
-                        chrome.toolError(errorMessage, "Branch Resolution Failed");
-                        return null;
-                    }
 
                     MergeResult squashResult = parentGitRepo.getGit().merge()
                         .setSquash(true)
@@ -1189,12 +1161,6 @@ public class GitWorktreeTab extends JPanel {
                         // 3. Rebase the current branch (tempRebaseBranchName) onto the target branch.
                         logger.info("Rebasing current branch ({}) onto {}", tempRebaseBranchName, targetBranch);
                         var resolvedTarget = parentGitRepo.resolve(targetBranch);
-                        if (resolvedTarget == null) {
-                            String errorMessage = "Unable to resolve target branch: " + targetBranch;
-                            logger.error(errorMessage);
-                            chrome.toolError(errorMessage, "Branch Resolution Failed");
-                            return null;
-                        }
 
                         RebaseResult rebaseResult = parentGitRepo.getGit().rebase()
                                 .setUpstream(resolvedTarget) // targetBranch is the new base

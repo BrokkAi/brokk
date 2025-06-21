@@ -139,11 +139,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     private void initComponents() {
         var project = chrome.getProject();
-        if (project == null) {
-            add(new JLabel("No project is open. Project settings are unavailable."), BorderLayout.CENTER);
-            this.setEnabled(false); // Disable the whole panel
-            return;
-        }
         this.setEnabled(true); // Ensure panel is enabled if project exists
 
         // General Tab (formerly Other)
@@ -608,7 +603,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Check if initial build details inference is running
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
-        boolean initialAgentRunning = detailsFuture != null && !detailsFuture.isDone();
+        boolean initialAgentRunning = !detailsFuture.isDone();
 
         // --- Progress Bar for Build Agent ---
         // Create a wrapper panel with fixed height to reserve space
@@ -686,10 +681,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var cm = chrome.getContextManager();
         var proj = chrome.getProject();
-        if (proj == null) {
-            chrome.toolError("No project is open.");
-            return;
-        }
 
         setBuildControlsEnabled(false); // Disable controls in this panel
         setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
@@ -702,7 +693,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                            cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
-                if (newBuildDetails == null || java.util.Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
+                if (java.util.Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
                     logger.warn("Build Agent returned null or empty details, considering it an error.");
                     // When cancel button is pressed, we need to show a different kind of message
                     boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
@@ -773,7 +764,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
-        if (details == null) return;
         SwingUtilities.invokeLater(() -> {
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
@@ -803,14 +793,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var languageCheckBoxMapLocal = new java.util.LinkedHashMap<io.github.jbellis.brokk.analyzer.Language, JCheckBox>();
         var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
-        if (project.getRoot() != null) {
-            Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-            for (var pf : filesToScan) {
-                String extension = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
-                if (!extension.isEmpty()) {
-                    var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
-                    if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) languagesInProject.add(lang);
-                }
+        project.getRoot();
+        Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        for (var pf : filesToScan) {
+            String extension = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+            if (!extension.isEmpty()) {
+                var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
+                if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) languagesInProject.add(lang);
             }
         }
 
@@ -843,7 +832,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public void loadSettings() {
         var project = chrome.getProject();
-        if (project == null) return; // Panel is disabled if no project
 
         // General Tab
         styleGuideArea.setText(project.getStyleGuide());
@@ -904,7 +892,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     private void loadBuildPanelSettings() {
         var project = chrome.getProject();
-        if (project == null) return; // Should not happen if panel is active
 
         BuildAgent.BuildDetails details;
         try {
@@ -942,7 +929,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public boolean applySettings() {
         var project = chrome.getProject();
-        if (project == null) return true; // No project, nothing to apply
 
         // General Tab
         project.saveStyleGuide(styleGuideArea.getText());

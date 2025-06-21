@@ -392,7 +392,6 @@ public class Brokk {
 
     private static CompletableFuture<Void> createAndShowGui(Path projectPath, ContextManager contextManager) {
         assert SwingUtilities.isEventDispatchThread();
-        assert contextManager != null : "ContextManager cannot be null when creating GUI";
 
         var contextFuture = contextManager.createGui();
         var io = (Chrome) contextManager.getIo();
@@ -467,23 +466,17 @@ public class Brokk {
         if (directMatch != null) {
             // Verify the project root just in case, though it should match if the key matches
             ContextManager cm = directMatch.getContextManager();
-            if (cm != null) {
-                var p = cm.getProject();
-                if (p != null && p.getRoot() != null &&
-                        p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return directMatch;
-                }
+            var p = cm.getProject();
+            if (p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return directMatch;
             }
         }
         // Fallback: Iterate if direct match is not conclusive or not found (e.g. path aliases)
         for (Map.Entry<Path, Chrome> entry : openProjectWindows.entrySet()) {
             ContextManager cm = entry.getValue().getContextManager();
-            if (cm != null) {
-                var p = cm.getProject();
-                if (p != null && p.getRoot() != null &&
-                        p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return entry.getValue();
-                }
+            var p = cm.getProject();
+            if (p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return entry.getValue();
             }
         }
         return null;
@@ -492,19 +485,17 @@ public class Brokk {
     public static @Nullable IProject findOpenProjectByPath(Path path) {
         Path normalizedPath = path.toAbsolutePath().normalize();
         Chrome chrome = openProjectWindows.get(normalizedPath); // Check direct path first
-        if (chrome != null && chrome.getContextManager() != null) {
+        if (chrome != null) {
             IProject project = chrome.getContextManager().getProject();
-            if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+            if (project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
                 return project;
             }
         }
         // Fallback if direct match is not conclusive or path is for parent of worktree
         for (Chrome openChrome : openProjectWindows.values()) {
-            if (openChrome.getContextManager() != null) {
-                IProject project = openChrome.getContextManager().getProject();
-                if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return project;
-                }
+            IProject project = openChrome.getContextManager().getProject();
+            if (project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return project;
             }
         }
         return null;
@@ -646,7 +637,7 @@ public class Brokk {
     private static void performWindowClose(Path projectPath) {
         Chrome ourChromeInstance = openProjectWindows.get(projectPath);
         IProject projectBeingClosed = null;
-        if (ourChromeInstance != null && ourChromeInstance.getContextManager() != null) {
+        if (ourChromeInstance != null) {
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
         }
 
@@ -661,9 +652,7 @@ public class Brokk {
                         // Standard way to close a window: dispatch event, then it will call performWindowClose for itself.
                         SwingUtilities.invokeLater(() -> {
                             JFrame frame = worktreeChrome.getFrame();
-                            if (frame != null) {
-                                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
-                            }
+                            frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
                         });
                         // DO NOT remove from openProjectWindows here; the worktree's own performWindowClose will handle that.
                     }

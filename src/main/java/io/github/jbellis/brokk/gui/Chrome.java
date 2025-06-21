@@ -106,7 +106,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     @SuppressWarnings("NullAway.Init") // For complex Swing initialization patterns
     public Chrome(ContextManager contextManager) {
-        assert contextManager != null;
         this.contextManager = contextManager;
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
@@ -192,15 +191,18 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
             Component newFocusOwner = (Component) evt.getNewValue();
             // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
-            if (newFocusOwner != null && instructionsPanel != null && historyOutputPanel.getLlmStreamArea() != null && historyOutputPanel.getHistoryTable() != null) {
-                if (newFocusOwner == instructionsPanel.getInstructionsArea()
-                        || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
-                        || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
-                        || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getLlmStreamArea())) // Check for LLM area
-                {
-                    this.lastRelevantFocusOwner = newFocusOwner;
+            if (newFocusOwner != null) {
+                historyOutputPanel.getLlmStreamArea();
+                if (historyOutputPanel.getHistoryTable() != null) {
+                    if (newFocusOwner == instructionsPanel.getInstructionsArea()
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getLlmStreamArea())) // Check for LLM area
+                    {
+                        this.lastRelevantFocusOwner = newFocusOwner;
+                    }
+                    // else: lastRelevantFocusOwner remains unchanged if focus moves to a menu or irrelevant component
                 }
-                // else: lastRelevantFocusOwner remains unchanged if focus moves to a menu or irrelevant component
             }
 
             globalUndoAction.updateEnabledState();
@@ -258,7 +260,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void notifyActionComplete(String notification) {
         SwingUtilities.invokeLater(() -> {
             // 'frame' is the JFrame member of Chrome
-            if (frame != null && frame.isShowing() && !frame.isActive()) {
+            if (frame.isShowing() && !frame.isActive()) {
                 Environment.instance.sendNotificationAsync(notification);
             }
         });
@@ -281,11 +283,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var project = getProject();
                 var gitRepo = (GitRepo) project.getRepo(); // This is the repo for the current project (worktree or main)
                 var gitTopLevel = project.getMasterRootPathForConfig(); // Shared .gitignore lives at the true top level
-                if (gitTopLevel == null) {
-                    logger.error("Cannot setup .gitignore: gitTopLevel is null for project {}", project.getRoot());
-                    toolError("Cannot determine Git top-level directory to setup .gitignore.", "Git Error");
-                    return;
-                }
 
                 // Update .gitignore (located at gitTopLevel)
                 var gitignorePath = gitTopLevel.resolve(".gitignore");
@@ -359,7 +356,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     private void initializeThemeManager() {
-        assert getProject() != null;
 
         logger.trace("Initializing theme manager");
         // JMHighlightPainter.initializePainters(); // Removed: Painters are now created dynamically with theme colors
@@ -418,7 +414,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void setContext(Context ctx) {
         assert !ctx.containsDynamicFragments();
 
-        logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
+        logger.debug("Loading context.  active={}, new={}", activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away
 
         final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
@@ -428,11 +424,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         SwingUtilities.invokeLater(() -> {
             workspacePanel.populateContextTable(ctx);
             // Determine if the current context (ctx) is the latest one in the history
-            boolean isEditable = false;
+            boolean isEditable;
             Context latestContext = contextManager.getContextHistory().topContext();
-            if (latestContext != null) {
-                isEditable = latestContext.equals(ctx);
-            }
+            isEditable = latestContext.equals(ctx);
             // workspacePanel is a final field initialized in the constructor, so it won't be null here.
             workspacePanel.setWorkspaceEditable(isEditable);
             if (updateOutput) {
@@ -642,7 +636,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void backgroundOutput(String message, @Nullable String tooltip) {
         SwingUtilities.invokeLater(() -> {
-            if (message == null || message.isEmpty()) {
+            if (message.isEmpty()) {
                 backgroundStatusLabel.setText(BGTASK_EMPTY);
                 backgroundStatusLabel.setToolTipText(null);
             } else {
@@ -655,12 +649,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void close() {
         logger.info("Closing Chrome UI");
-        if (contextManager != null) {
-            contextManager.close();
-        }
-        if (frame != null) {
-            frame.dispose();
-        }
+        contextManager.close();
+        frame.dispose();
     }
 
     @Override
@@ -669,10 +659,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // This method is called by ContextManager when its history might have changed
             // (e.g., after an undo/redo operation affecting context or any pushContext).
             // We need to ensure the global action states are updated even if focus didn't change.
-            if (globalUndoAction != null) globalUndoAction.updateEnabledState();
-            if (globalRedoAction != null) globalRedoAction.updateEnabledState();
-            if (globalCopyAction != null) globalCopyAction.updateEnabledState();
-            if (globalPasteAction != null) globalPasteAction.updateEnabledState();
+            globalUndoAction.updateEnabledState();
+            globalRedoAction.updateEnabledState();
+            globalCopyAction.updateEnabledState();
+            globalPasteAction.updateEnabledState();
 
             // Also update HistoryOutputPanel's local buttons
             historyOutputPanel.updateUndoRedoButtonStates();
@@ -768,14 +758,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
         JFrame previewFrame = newFrame(title);
         previewFrame.setContentPane(contentComponent);
-        previewFrame.setBackground(themeManager != null && themeManager.isDarkTheme()
+        previewFrame.setBackground(themeManager.isDarkTheme()
                                         ? UIManager.getColor("chat_background")
                                         : Color.WHITE);
 
         var project = contextManager.getProject();
-        assert project != null;
         var storedBounds = project.getPreviewWindowBounds(); // Use preview bounds
-        if (storedBounds != null && storedBounds.width > 0 && storedBounds.height > 0) {
+        if (storedBounds.width > 0 && storedBounds.height > 0) {
             previewFrame.setBounds(storedBounds);
             if (!isPositionOnScreen(storedBounds.x, storedBounds.y)) {
                 previewFrame.setLocationRelativeTo(frame); // Center if off-screen
@@ -829,7 +818,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @param pf The ProjectFile to preview.
      */
     public void previewFile(ProjectFile pf) {
-        assert pf != null;
         assert SwingUtilities.isEventDispatchThread() : "Preview must be initiated on EDT";
 
         try {
@@ -876,14 +864,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * the user a live editing experience for the active one.</p>
      */
     public void openFragmentPreview(ContextFragment fragment) {
-        assert fragment != null;
 
         try {
             // 1. Figure out whether this fragment belongs to the *current* (latest) context
             var latestCtx = contextManager.getContextHistory().topContext();
-            boolean isCurrentContext = latestCtx != null
-                    && latestCtx.allFragments()
-                    .anyMatch(f -> f.id().equals(fragment.id()));
+            boolean isCurrentContext = latestCtx.allFragments()
+            .anyMatch(f -> f.id().equals(fragment.id()));
 
             // If it is current *and* is a frozen PathFragment, unfreeze so we can work on
             // a true PathFragment instance (gives us access to BrokkFile, etc.).
@@ -906,7 +892,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var outputFragment = (ContextFragment.OutputFragment) workingFragment;
                 JPanel messagesContainer = new JPanel();
                 messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-                messagesContainer.setBackground(themeManager != null && themeManager.isDarkTheme()
+                messagesContainer.setBackground(themeManager.isDarkTheme()
                                                 ? UIManager.getColor("Panel.background")
                                                 : Color.WHITE);
 
@@ -920,7 +906,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
                 for (TaskEntry entry : outputFragment.entries()) {
                     var markdownPanel = new MarkdownOutputPanel(escapeHtml);
-                    markdownPanel.updateTheme(themeManager != null && themeManager.isDarkTheme());
+                    markdownPanel.updateTheme(themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
                     messagesContainer.add(markdownPanel);
@@ -1045,7 +1031,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void loadWindowSizeAndPosition() {
         var project = getProject();
 
-        var boundsOptional = project == null ? Optional.<Rectangle>empty() : project.getMainWindowBounds();
+        var boundsOptional = project.getMainWindowBounds();
         if (boundsOptional.isEmpty()) {
             // No valid saved bounds, apply default placement logic
             GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
@@ -1076,10 +1062,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 frame.setLocationRelativeTo(null);
                 logger.debug("Saved window position is off-screen, centering window.");
             }
-        }
-
-        if (project == null) {
-            return;
         }
 
         // Listener to save bounds on move/resize
@@ -1241,9 +1223,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     }
 
     public void showFileInProjectTree(ProjectFile projectFile) {
-        if (projectFilesPanel != null) {
-            projectFilesPanel.showFileInTree(projectFile);
-        }
+        projectFilesPanel.showFileInTree(projectFile);
     }
 
     @Override
@@ -1292,7 +1272,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (instructionsPanel != null && lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
                 if (instructionsPanel.getCommandInputUndoManager().canUndo()) {
                     instructionsPanel.getCommandInputUndoManager().undo();
                 }
@@ -1305,7 +1285,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canUndoNow = false;
-            if (instructionsPanel != null && lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
                 canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canUndoNow = contextManager.getContextHistory().hasUndoStates();
@@ -1321,7 +1301,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (instructionsPanel != null && lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
                 if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
                     instructionsPanel.getCommandInputUndoManager().redo();
                 }
@@ -1334,7 +1314,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         public void updateEnabledState() {
             boolean canRedoNow = false;
-            if (instructionsPanel != null && lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
                 canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canRedoNow = contextManager.getContextHistory().hasRedoStates();
@@ -1383,7 +1363,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
                 var llmArea = historyOutputPanel.getLlmStreamArea();
                 String selectedText = llmArea.getSelectedText();
-                canCopyNow = (selectedText != null && !selectedText.isEmpty()) || !llmArea.getDisplayedText().isEmpty();
+                canCopyNow = !selectedText.isEmpty() || !llmArea.getDisplayedText().isEmpty();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel) ||
                     SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getHistoryTable())) {
                 // Focus is in a context area, context copy is always available

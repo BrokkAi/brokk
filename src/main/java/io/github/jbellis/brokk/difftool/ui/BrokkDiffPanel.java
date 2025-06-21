@@ -99,7 +99,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
         this.theme = theme;
-        assert builder.contextManager != null;
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
 
@@ -143,7 +142,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
         public Builder(GuiTheme theme, ContextManager contextManager) {
             this.theme = theme;
-            assert contextManager != null;
             this.contextManager = contextManager;
             this.fileComparisons = new ArrayList<>();
             this.leftSource = null; // Initialize @Nullable fields
@@ -158,7 +156,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         public Builder rightSource(BufferSource source) {
             this.rightSource = source;
             // Automatically add the comparison
-            if (this.leftSource != null && this.rightSource != null) {
+            if (this.leftSource != null) {
                 addComparison(this.leftSource, this.rightSource);
             }
             leftSource = null; // Clear to prevent duplicate additions
@@ -167,7 +165,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
 
         public Builder addComparison(BufferSource leftSource, BufferSource rightSource) {
-            assert leftSource != null && rightSource != null : "Both left and right sources must be provided for comparison.";
             this.fileComparisons.add(new FileComparisonInfo(leftSource, rightSource));
             return this;
         }
@@ -252,12 +249,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         updateUndoRedoButtons();
 
-        if (btnPreviousFile != null) {
-            btnPreviousFile.setEnabled(canNavigateToPreviousFile());
-        }
-        if (btnNextFile != null) {
-            btnNextFile.setEnabled(canNavigateToNextFile());
-        }
+        btnPreviousFile.setEnabled(canNavigateToPreviousFile());
+        btnNextFile.setEnabled(canNavigateToNextFile());
     }
 
 
@@ -598,9 +591,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     }
 
     private void updateFileIndicatorLabel(String text) {
-        if (fileIndicatorLabel != null) {
-            fileIndicatorLabel.setText(text);
-        }
+        fileIndicatorLabel.setText(text);
     }
 
     private void performUndoRedo(java.util.function.Consumer<AbstractContentPanel> action) {
@@ -632,9 +623,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         
         // Apply theme to cached panels
         for (var panel : panelCache.values()) {
-            if (panel != null) {
-                panel.applyTheme(guiTheme);
-            }
+            panel.applyTheme(guiTheme);
         }
         
         // Update all child components including toolbar buttons and labels
