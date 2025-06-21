@@ -958,8 +958,8 @@ public class WorkspacePanel extends JPanel {
 
             private void handleScrollPanePopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
-                    // Get the scroll pane from the layered pane
-                    var scrollPane = (JScrollPane) workspaceLayeredPane.getComponent(0);
+                    // Use the scroll pane directly instead of getting it from the layered pane
+                    var scrollPane = tableScrollPane;
                     // Get the event point in view coordinates
                     var viewPoint = SwingUtilities.convertPoint(scrollPane, e.getPoint(),
                                                                   scrollPane.getViewport().getView());
