@@ -12,6 +12,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -191,7 +192,7 @@ public class ValidationAgent {
                 
                 Is this test file relevant to the instructions? Conclude your explanation with %s or %s.
                 """.formatted(instructions, file, fileContent, RELEVANT_MARKER, IRRELEVANT_MARKER).stripIndent();
-        var messages = List.of(new SystemMessage(systemMessage), new UserMessage(userMessage));
+        var messages = new java.util.ArrayList<>(List.of(new SystemMessage(systemMessage), new UserMessage(userMessage)));
 
         for (int attempt = 1; attempt <= MAX_RELEVANCE_TRIES; attempt++) {
             logger.trace("Invoking quickModel via Coder for relevance check of file: {} (Attempt {}/{})", file, attempt, MAX_RELEVANCE_TRIES);

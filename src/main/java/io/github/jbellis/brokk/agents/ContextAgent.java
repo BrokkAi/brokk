@@ -488,7 +488,7 @@ public class ContextAgent {
 
     private boolean isFileInWorkspace(ProjectFile file) {
         return contextManager.getEditableFiles().contains(file) ||
-                contextManager.getReadonlyFiles().contains(file);
+               contextManager.getReadonlyFiles().contains(file);
     }
 
     private boolean isClassInWorkspace(CodeUnit cls) {
