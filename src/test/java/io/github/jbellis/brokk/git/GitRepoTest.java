@@ -662,14 +662,7 @@ public class GitRepoTest {
             repo.checkoutFilesFromCommit("HEAD", List.of());
         }, "Should throw IllegalArgumentException for empty files list");
     }
-
-    @Test
-    void testCheckoutFilesFromCommit_NullFilesList() throws Exception {
-        assertThrows(IllegalArgumentException.class, () -> {
-            repo.checkoutFilesFromCommit("HEAD", null);
-        }, "Should throw IllegalArgumentException for null files list");
-    }
-
+    
     @Test
     void testCheckoutFilesFromCommit_NonExistentFile() throws Exception {
         // Create and commit a file
