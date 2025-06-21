@@ -1,19 +1,12 @@
 package io.github.jbellis.brokk.gui.components;
 
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionListener;
 
 public final class LoadingButton extends JButton {
-    private static final Logger logger = LogManager.getLogger(LoadingButton.class);
-
-    private static Icon spinnerDark;
-    private static Icon spinnerLight;
 
     private final Chrome chrome;
     private String idleText;
@@ -46,7 +39,7 @@ public final class LoadingButton extends JButton {
             // idleText, idleIcon, idleTooltip are already up-to-date via overridden setters
             // or from construction if no setters were called while enabled.
 
-            var spinnerIcon = getCachedSpinnerIcon();
+            var spinnerIcon = SpinnerIconUtil.getSpinner(chrome);
             super.setIcon(spinnerIcon);
             super.setDisabledIcon(spinnerIcon); // Show spinner even when disabled
             super.setText(busyText);
@@ -85,32 +78,5 @@ public final class LoadingButton extends JButton {
         if (isEnabled()) {
             this.idleTooltip = text;
         }
-    }
-
-    private Icon getCachedSpinnerIcon() {
-        assert SwingUtilities.isEventDispatchThread() : "getCachedSpinnerIcon must be called on the EDT";
-        boolean isDark = chrome.getTheme().isDarkTheme();
-        Icon cachedIcon = isDark ? spinnerDark : spinnerLight;
-
-        if (cachedIcon == null) {
-            String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
-            var url = getClass().getResource(path);
-
-            if (url == null) {
-                logger.warn("Spinner icon resource not found: {}", path);
-                return null; // Or a default placeholder icon
-            }
-
-            ImageIcon originalIcon = new ImageIcon(url);
-            // Create a new ImageIcon from the Image to ensure animation restarts
-            cachedIcon = new ImageIcon(originalIcon.getImage());
-
-            if (isDark) {
-                spinnerDark = cachedIcon;
-            } else {
-                spinnerLight = cachedIcon;
-            }
-        }
-        return cachedIcon;
     }
 }
