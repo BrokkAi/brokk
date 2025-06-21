@@ -92,8 +92,8 @@ public final class FilterBox extends JPanel implements ThemeAware {
     }
 
     // Colors will be set dynamically based on theme
-    private Color unselectedFgColor;
-    private Color selectedFgColor;
+    private Color unselectedFgColor = Color.BLACK; // Default initialization
+    private Color selectedFgColor = Color.BLUE; // Default initialization
     private final Chrome chrome;
 
     public FilterBox(Chrome chrome, String label, Supplier<List<String>> choices) {

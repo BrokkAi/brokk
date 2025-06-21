@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
@@ -35,26 +36,29 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog; // To access project for data retention refresh
 
     // UI Components managed by this panel
-    private JTextField brokkKeyField;
-    private JRadioButton brokkProxyRadio;
-    private JRadioButton localhostProxyRadio;
-    private JComboBox<String> architectModelComboBox;
-    private JComboBox<Service.ReasoningLevel> architectReasoningComboBox;
-    private JComboBox<String> codeModelComboBox;
-    private JComboBox<Service.ReasoningLevel> codeReasoningComboBox;
-    private JComboBox<String> askModelComboBox;
-    private JComboBox<Service.ReasoningLevel> askReasoningComboBox;
-    private JComboBox<String> searchModelComboBox;
-    private JComboBox<Service.ReasoningLevel> searchReasoningComboBox;
-    private JRadioButton lightThemeRadio;
-    private JRadioButton darkThemeRadio;
-    private JTable quickModelsTable;
-    private FavoriteModelsTableModel quickModelsTableModel;
-    private JTextField balanceField;
-    private BrowserLabel signupLabel;
-    private JTextField gitHubTokenField;
-    private JTabbedPane globalSubTabbedPane;
-    private JPanel defaultModelsPanel;
+    private JTextField brokkKeyField = new JTextField();
+    @Nullable
+    private JRadioButton brokkProxyRadio; // Can be null if STAGING
+    @Nullable
+    private JRadioButton localhostProxyRadio; // Can be null if STAGING
+    private JComboBox<String> architectModelComboBox = new JComboBox<>();
+    private JComboBox<Service.ReasoningLevel> architectReasoningComboBox = new JComboBox<>();
+    private JComboBox<String> codeModelComboBox = new JComboBox<>();
+    private JComboBox<Service.ReasoningLevel> codeReasoningComboBox = new JComboBox<>();
+    private JComboBox<String> askModelComboBox = new JComboBox<>();
+    private JComboBox<Service.ReasoningLevel> askReasoningComboBox = new JComboBox<>();
+    private JComboBox<String> searchModelComboBox = new JComboBox<>();
+    private JComboBox<Service.ReasoningLevel> searchReasoningComboBox = new JComboBox<>();
+    private JRadioButton lightThemeRadio = new JRadioButton("Light");
+    private JRadioButton darkThemeRadio = new JRadioButton("Dark");
+    private JTable quickModelsTable = new JTable();
+    private FavoriteModelsTableModel quickModelsTableModel = new FavoriteModelsTableModel(new ArrayList<>());
+    private JTextField balanceField = new JTextField();
+    private BrowserLabel signupLabel = new BrowserLabel("", ""); // Initialized with dummy values
+    @Nullable
+    private JTextField gitHubTokenField; // Null if GitHub tab not shown
+    private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+    private JPanel defaultModelsPanel = new JPanel(); // Initialized
     // Jira fields removed
 
 
@@ -62,12 +66,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         setLayout(new BorderLayout());
-        initComponents();
+        initComponents(); // This will fully initialize or conditionally initialize fields
         loadSettings();
     }
 
     private void initComponents() {
-        globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
+        // globalSubTabbedPane is already initialized
 
         // Service Tab
         var servicePanel = createServicePanel();
@@ -78,7 +82,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
         // Default Models Tab
-        defaultModelsPanel = createModelsPanel(); // Store reference
+        defaultModelsPanel = createModelsPanel(); // Store reference, createModelsPanel handles null project
         globalSubTabbedPane.addTab(MODELS_TAB_TITLE, null, defaultModelsPanel, "Default model selection and configuration");
 
         // Quick Models Tab
@@ -557,7 +561,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private String generateModelTooltipText(String modelName, Service service) {
+    private @Nullable String generateModelTooltipText(String modelName, Service service) {
         if (modelName == null || service == null) return null;
         var pricing = service.getModelPricing(modelName);
         if (pricing == null || pricing.bands().isEmpty()) return "Price information not available.";
@@ -855,7 +859,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             };
         }
         @Override public boolean isCellEditable(int rowIndex, int columnIndex) { return true; }
-        @Override public Object getValueAt(int rowIndex, int columnIndex) {
+        @Override public @Nullable Object getValueAt(int rowIndex, int columnIndex) {
             Service.FavoriteModel favorite = favorites.get(rowIndex);
             return switch (columnIndex) {
                 case 0 -> favorite.alias();

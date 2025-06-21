@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -30,7 +31,7 @@ public class ProjectTree extends JTree {
     private final IProject project;
     private final ContextManager contextManager;
     private final Chrome chrome;
-    private JPopupMenu currentContextMenu;
+    @Nullable private JPopupMenu currentContextMenu;
 
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
@@ -345,7 +346,7 @@ public class ProjectTree extends JTree {
         });
     }
 
-    private DefaultMutableTreeNode findAndExpandNode(DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
+   private @Nullable DefaultMutableTreeNode findAndExpandNode(DefaultMutableTreeNode currentNode, Path relativePath, int depth) {
         // Ensure current node's children are loaded if it's a directory and not yet loaded
         if (currentNode.getUserObject() instanceof ProjectTreeNode currentPtn && currentPtn.getFile().isDirectory()) {
             if (!currentPtn.isChildrenLoaded() && currentNode.getChildCount() > 0 &&
@@ -421,7 +422,7 @@ public class ProjectTree extends JTree {
         return List.copyOf(selectedFilesList); // Return immutable list
     }
 
-    private ProjectFile getProjectFileFromNode(DefaultMutableTreeNode node) {
+    private @Nullable ProjectFile getProjectFileFromNode(DefaultMutableTreeNode node) {
         if (!(node.getUserObject() instanceof ProjectTreeNode treeNode)) {
             return null;
         }

@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -307,7 +308,7 @@ public class FileSelectionTree extends JTree {
         }
 
         @Override
-        protected TreePath doInBackground() {
+        protected @Nullable TreePath doInBackground() {
             logger.trace("[ExpansionWorker] Starting expansion for {}", targetPath);
             var rootNode = (DefaultMutableTreeNode) model.getRoot();
 
@@ -378,7 +379,7 @@ public class FileSelectionTree extends JTree {
             }
         }
 
-        private DefaultMutableTreeNode findDriveNode(DefaultMutableTreeNode rootNode, Path target)
+        private @Nullable DefaultMutableTreeNode findDriveNode(DefaultMutableTreeNode rootNode, Path target)
         {
             for (int i = 0; i < rootNode.getChildCount(); i++) {
                 var child = (DefaultMutableTreeNode) rootNode.getChildAt(i);
@@ -396,7 +397,7 @@ public class FileSelectionTree extends JTree {
             return null;
         }
 
-        private DefaultMutableTreeNode findChildNode(DefaultMutableTreeNode parent, Path segment)
+        private @Nullable DefaultMutableTreeNode findChildNode(DefaultMutableTreeNode parent, Path segment)
         {
             var segmentName = segment.getFileName().toString();
             for (int i = 0; i < parent.getChildCount(); i++) {

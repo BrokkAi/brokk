@@ -30,12 +30,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.util.Objects.requireNonNull;
+
 public class UpgradeAgentProgressDialog extends JDialog {
 
     private static final Logger logger = LogManager.getLogger(UpgradeAgentProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea errorTextArea;
-    private JTextArea agentOutputTextArea; // Added for detailed agent output
+    private final JTextArea agentOutputTextArea; // Added for detailed agent output
     private final JButton cancelButton;
     private final SwingWorker<Void, ProgressData> worker;
     private final int totalFiles;
@@ -106,13 +108,11 @@ public class UpgradeAgentProgressDialog extends JDialog {
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0,10,10,10));
         add(buttonPanel, BorderLayout.SOUTH);
 
+        executorService = Executors.newFixedThreadPool(Math.min(200, Math.max(1, filesToProcess.size())));
         worker = new SwingWorker<>() {
-            // executorService is now a field of UpgradeAgentProgressDialog
-
             @Override
             protected Void doInBackground() {
                 // Initialize the class field executorService here
-                UpgradeAgentProgressDialog.this.executorService = Executors.newFixedThreadPool(200);
                 var contextManager = chrome.getContextManager();
                 var service = contextManager.getService();
 
@@ -130,7 +130,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                             }
                             dialogConsoleIO.systemOutput("Starting processing for file: " + file);
 
-                            var model = service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning());
+                            var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
                             var agent = new CodeAgent(contextManager, model, dialogConsoleIO);
 
                             List<ChatMessage> readOnlyMessages;
@@ -221,7 +221,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                             } else if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
                                 String failureMessage = "Processing failed: " + result.stopDetails().reason();
                                 String explanation = result.stopDetails().explanation();
-                                if (explanation != null && !explanation.isEmpty()) {
+                                if (!explanation.isEmpty()) {
                                     failureMessage += " - " + explanation;
                                 }
                                 publish(new ProgressData(file.toString(), failureMessage));
@@ -235,6 +235,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                         }
                     });
                 }
+
                 executorService.shutdown();
                 try {
                     // Wait for tasks to complete or for cancellation
@@ -265,7 +266,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
 
             @Override
             protected void done() {
-                if (executorService != null && !executorService.isTerminated()) {
+                if (!executorService.isTerminated()) {
                     executorService.shutdownNow();
                 }
                 cancelButton.setText("Close");
@@ -298,9 +299,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
         cancelButton.addActionListener(e -> {
             if (!worker.isDone()) {
                 worker.cancel(true);
-                if (UpgradeAgentProgressDialog.this.executorService != null) {
-                    UpgradeAgentProgressDialog.this.executorService.shutdownNow();
-                }
+                UpgradeAgentProgressDialog.this.executorService.shutdownNow();
             } else { // Worker is done, button is "Close"
                 setVisible(false);
             }
@@ -317,9 +316,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                         JOptionPane.QUESTION_MESSAGE);
                     if (choice == JOptionPane.YES_OPTION) {
                         worker.cancel(true);
-                        if (UpgradeAgentProgressDialog.this.executorService != null) {
-                            UpgradeAgentProgressDialog.this.executorService.shutdownNow();
-                        }
+                        UpgradeAgentProgressDialog.this.executorService.shutdownNow();
                     }
                 } else {
                     setVisible(false);
@@ -360,7 +357,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
         @Override
         public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean isNewMessage) {
             if (isNewMessage) {
-                String prefix = "[" + fileContext + "] [" + type.toString() + "] ";
+                String prefix = "[" + fileContext + "] [" + type + "] ";
                 if (dialog.agentOutputTextArea.getDocument().getLength() > 0) {
                     appendToAgentOutput("\n" + prefix, false); // Newline before new message block
                 } else {

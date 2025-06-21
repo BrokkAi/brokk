@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
 import io.github.jbellis.brokk.gui.mop.stream.blocks.ComponentData;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.List;
@@ -14,6 +15,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.*;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Handles parsing and rendering of streaming Markdown content in a background thread.
@@ -71,8 +74,8 @@ final class StreamingWorker {
         assert !SwingUtilities.isEventDispatchThread() : "StreamingWorker.flush() must not be called on EDT";
         // Make sure anything still in chunks becomes a task
         appendChunk("");
-        var future = inFlight.get();
-        
+        var future = castNonNull(inFlight.get());
+
         // Safe to block on a background thread
         try {
             future.join();
@@ -94,6 +97,7 @@ final class StreamingWorker {
      *
      * @return a CompletableFuture that will be completed on the EDT.
      */
+    @Nullable
     CompletableFuture<Void> flushAsync() {
         appendChunk(""); // Ensure any pending data is scheduled for processing
         return inFlight.get();
@@ -110,7 +114,8 @@ final class StreamingWorker {
             }
             // if no parse is running and no content added, nothing to do.
             // This prevents scheduling empty parses if appendChunk("") is called multiple times by flush when idle.
-            if (!inFlight.get().isDone()) { // If there's an active future (e.g. from a previous flush), let it complete.
+            var currentInFlight = castNonNull(inFlight.get());
+            if (!currentInFlight.isDone()) { // If there's an active future (e.g. from a previous flush), let it complete.
                 return;
             }
         }
@@ -198,7 +203,7 @@ final class StreamingWorker {
 
     void shutdown() {
         // Complete any waiting futures before shutting down
-        inFlight.get().completeExceptionally(new CancellationException("Worker shutdown"));
+        castNonNull(inFlight.get()).completeExceptionally(new CancellationException("Worker shutdown"));
         exec.shutdownNow();
         fullText.setLength(0);
         fullText.trimToSize(); // Release memory held by the StringBuilder

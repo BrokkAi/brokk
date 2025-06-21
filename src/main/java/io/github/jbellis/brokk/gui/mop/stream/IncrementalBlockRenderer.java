@@ -15,6 +15,7 @@ import io.github.jbellis.brokk.gui.mop.stream.flex.IdProvider;
 import io.github.jbellis.brokk.gui.search.SearchConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -30,6 +31,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static java.util.regex.Pattern.*;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Renders markdown content incrementally, reusing existing components when possible to minimize flickering
@@ -48,6 +50,7 @@ public final class IncrementalBlockRenderer {
     /** Callback fired on EDT after each successful rendering pass. */
     public interface RenderListener { void onRenderFinished(); }
 
+    @Nullable
     private volatile RenderListener renderListener = null;
 
     /**
@@ -335,13 +338,13 @@ public final class IncrementalBlockRenderer {
         }
         
         // Initialize the MiniParser
-        var miniParser = new MiniParser();
+        var miniParser = new MiniParser(idProvider);
         
         // Process each top-level node in the body (including TextNodes)
         for (Node child : body.childNodes()) {
             if (child instanceof Element element) {
                 // Parse the element tree to find nested custom tags
-                var parsedElements = miniParser.parse(element, markdownFactory, activeFactories, idProvider);
+                var parsedElements = miniParser.parse(element, markdownFactory, activeFactories);
                 
                 // For stability of IDs, ensure composites get a deterministic ID
                 // derived from the source element's position via IdProvider
@@ -394,7 +397,7 @@ public final class IncrementalBlockRenderer {
      * @return A list of {@link ComponentData} representing the compacted state,
      *         or {@code null} if compaction is not needed (e.g., already compacted or no content).
      */
-    public List<ComponentData> buildCompactedSnapshot(long roundId) {
+    public @Nullable List<ComponentData> buildCompactedSnapshot(long roundId) {
         // This check is a hint; the authoritative 'compacted' flag is checked on EDT in applyCompactedSnapshot.
         if (compacted) {
             return null;
@@ -462,9 +465,9 @@ public final class IncrementalBlockRenderer {
             if (cd instanceof MarkdownComponentData md) {
                 if (acc == null) {
                     acc = md;
-                    htmlBuf = new StringBuilder(md.html());
+                    htmlBuf = new StringBuilder(castNonNull(md.html()));
                 } else {
-                    htmlBuf.append('\n').append(md.html());
+                    castNonNull(htmlBuf).append('\n').append(castNonNull(md.html()));
                 }
             } else {
                 flush(out, acc, htmlBuf);
@@ -488,7 +491,7 @@ public final class IncrementalBlockRenderer {
      * @param acc The accumulated MarkdownComponentData
      * @param htmlBuf The StringBuilder containing the merged HTML content
      */
-    private void flush(List<ComponentData> out, MarkdownComponentData acc, StringBuilder htmlBuf) {
+    private void flush(List<ComponentData> out, @Nullable MarkdownComponentData acc, @Nullable StringBuilder htmlBuf) {
         if (acc == null || htmlBuf == null) return;
         var merged = markdownFactory.fromText(acc.id(), htmlBuf.toString());
         out.add(merged);
@@ -538,7 +541,7 @@ public final class IncrementalBlockRenderer {
     /**
      * Best-effort extraction of inner HTML/text from known Swing components.
      */
-    private static String extractHtmlFromComponent(JComponent jc) {
+    private static @Nullable String extractHtmlFromComponent(JComponent jc) {
         if (jc instanceof JEditorPane jp) {
             return jp.getText();
         } else if (jc instanceof JLabel lbl) {
@@ -578,7 +581,7 @@ public final class IncrementalBlockRenderer {
         }
         
         JComponent comp = component.get();
-        String html = extractHtmlFromComponent(comp);
+        @Nullable String html = extractHtmlFromComponent(comp); // html can be null
         if (html == null || html.isEmpty()) {
             return;
         }

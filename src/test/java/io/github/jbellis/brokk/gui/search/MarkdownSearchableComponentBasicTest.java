@@ -38,7 +38,7 @@ public class MarkdownSearchableComponentBasicTest {
         assertDoesNotThrow(() -> emptySearchComponent.findNext("test", false, true));
 
         assertEquals("", emptySearchComponent.getText());
-        assertNull(emptySearchComponent.getSelectedText());
+        assertEquals("", emptySearchComponent.getSelectedText());
     }
 
     @Test

@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -8,6 +9,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -311,7 +313,7 @@ public class GitLogTab extends JPanel {
      */
     public void update() {
         // Use invokeAndWait with a Runnable and an external holder for the result
-        String previouslySelectedBranch = SwingUtil.runOnEdt(() -> {
+        var previouslySelectedBranch = SwingUtil.runOnEdt(() -> {
             int selectedRow = branchTable.getSelectedRow();
             if (selectedRow != -1) {
                 // Ensure the row index is still valid before accessing model
@@ -319,8 +321,9 @@ public class GitLogTab extends JPanel {
                     return (String) branchTableModel.getValueAt(selectedRow, 1);
                 }
             }
-            return null;
-        }, null);
+            return "";
+        }, "");
+
 
         contextManager.submitBackgroundTask("Fetching git branches", () -> {
             try {
@@ -391,9 +394,6 @@ public class GitLogTab extends JPanel {
 
                 SwingUtilities.invokeLater(() -> {
                     // gitCommitBrowserPanel.clearCommitView(); // This will be handled by updateCommitsForBranch or if no branch selected
-                    if (gitCommitBrowserPanel != null) { // Ensure search field is cleared
-                        gitCommitBrowserPanel.clearSearchField();
-                    }
 
                     branchTableModel.setRowCount(0);
                     remoteBranchTableModel.setRowCount(0);
@@ -414,7 +414,7 @@ public class GitLogTab extends JPanel {
                         // This case might happen if the repo becomes empty or only has remote branches initially
                         logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
                                     previouslySelectedBranch, currentGitBranch);
-                        if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearCommitView();
+                        gitCommitBrowserPanel.clearCommitView();
                     }
                 });
             } catch (Exception e) {
@@ -483,12 +483,10 @@ public class GitLogTab extends JPanel {
                 logger.error("Error fetching commits for branch: " + branchName, e);
                 // Display error in the panel if possible, or clear it
                 SwingUtilities.invokeLater(() -> {
-                    List<ICommitInfo> errorCommit = List.of(
+                    var errorCommit = List.of(
                             new ICommitInfo.CommitInfoStub("Error fetching commits: " + e.getMessage())
                     );
-                    if (gitCommitBrowserPanel != null) {
-                        gitCommitBrowserPanel.setCommits(errorCommit, Collections.emptySet(), false, false, branchName);
-                    }
+                    gitCommitBrowserPanel.setCommits(errorCommit, Collections.emptySet(), false, false, branchName);
                 });
             }
             return null;
@@ -511,7 +509,7 @@ public class GitLogTab extends JPanel {
                 update();
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
-                chrome.toolError(e.getMessage());
+                chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
             }
         });
     }
@@ -537,15 +535,15 @@ public class GitLogTab extends JPanel {
                             .collect(Collectors.joining("\n"));
                     chrome.toolError("Merge conflicts detected for branch '" + branchName + "'.\n" +
                                         "Please resolve conflicts manually and then commit.\n" +
-                                        "Conflicting files:\n" + conflictingFiles);
+                                        "Conflicting files:\n" + conflictingFiles, "Merge Conflict");
                 } else {
                     // For other non-successful statuses like FAILED, ABORTED etc.
-                    chrome.toolError("Merge of branch '" + branchName + "' failed with error: " + status);
+                    chrome.toolError("Merge of branch '" + branchName + "' failed with error: " + status, "Merge Error");
                 }
                 update(); // Refresh UI to reflect new state (merged, conflicting, or failed)
             } catch (GitAPIException e) {
                 logger.error("Error merging branch: {}", branchName, e);
-                chrome.toolError("Error merging branch '" + branchName + "': " + e.getMessage());
+                chrome.toolError("Error merging branch '" + branchName + "': " + e.getMessage(), "Merge Error");
                 update(); // Refresh UI to show current state after error
             }
         });
@@ -555,7 +553,7 @@ public class GitLogTab extends JPanel {
      * Creates a new branch from an existing one and checks it out.
      */
     private void createNewBranchFrom(String sourceBranch) {
-        String newName = JOptionPane.showInputDialog(
+        var newName = JOptionPane.showInputDialog(
                 this,
                 "Enter name for new branch from '" + sourceBranch + "':",
                 "Create New Branch",
@@ -569,7 +567,7 @@ public class GitLogTab extends JPanel {
                     chrome.systemOutput("Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
                 } catch (GitAPIException e) {
                     logger.error("Error creating new branch from {}: {}", sourceBranch, e);
-                    chrome.toolError("Error creating new branch: " + e.getMessage());
+                    chrome.toolError("Error creating new branch: " + e.getMessage(), "Branch Error");
                 }
             });
         }
@@ -579,7 +577,7 @@ public class GitLogTab extends JPanel {
      * Rename a local branch.
      */
     private void renameBranch(String branchName) {
-        String newName = (String) JOptionPane.showInputDialog(
+        var newName = (String) JOptionPane.showInputDialog(
                 this,
                 "Enter new name for branch '" + branchName + "':",
                 "Rename Branch",
@@ -664,7 +662,7 @@ public class GitLogTab extends JPanel {
                 }
 
                 // Check if it's the current branch
-                String currentBranch = getRepo().getCurrentBranch();
+                var currentBranch = getRepo().getCurrentBranch();
                 if (branchName.equals(currentBranch)) {
                     logger.warn("Cannot delete branch '{}' - it is the currently checked out branch", branchName);
                     chrome.toolError("Cannot delete the current branch. Please checkout a different branch first.");
@@ -716,7 +714,7 @@ public class GitLogTab extends JPanel {
                 // If within the last week, show day of week
                 String dayName = commitDate.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault());
                 // Ensure proper capitalization (e.g., "Monday" not "MONDAY")
-                dayName = com.google.common.base.Ascii.toUpperCase(dayName.substring(0, 1)) + com.google.common.base.Ascii.toLowerCase(dayName.substring(1));
+                dayName = Ascii.toUpperCase(dayName.substring(0, 1)) + Ascii.toLowerCase(dayName.substring(1));
                 return dayName + " " + timeStr;
             }
 
@@ -743,16 +741,23 @@ public class GitLogTab extends JPanel {
         boolean isCurrentBranch = false;
         String selectedBranchName = null;
         if (isAnyItemSelected) {
-            String checkmark = (String) branchTableModel.getValueAt(selectedRow, 0);
-            isCurrentBranch = "✓".equals(checkmark);
-            selectedBranchName = (String) branchTableModel.getValueAt(selectedRow, 1);
+            // Ensure row is valid before accessing model
+            if (selectedRow < branchTableModel.getRowCount()) {
+                String checkmark = (String) branchTableModel.getValueAt(selectedRow, 0);
+                isCurrentBranch = "✓".equals(checkmark);
+                selectedBranchName = (String) branchTableModel.getValueAt(selectedRow, 1);
+            } else {
+                isAnyItemSelected = false; // Treat as no item selected if row is invalid
+            }
         }
 
-        menu.getComponent(4).setEnabled(isAnyItemSelected && !"stashes".equals(selectedBranchName)); // renameItem
-        menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !"stashes".equals(selectedBranchName)); // deleteItem
+        // renameItem and deleteItem checks
+        boolean isStashesSelected = "stashes".equals(selectedBranchName);
+        menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
+        menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 
 
-        if (isAnyItemSelected && selectedBranchName != null && !"stashes".equals(selectedBranchName)) {
+        if (isAnyItemSelected && selectedBranchName != null && !isStashesSelected) {
             captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
             captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
         } else {
@@ -783,7 +788,7 @@ public class GitLogTab extends JPanel {
 
             // If neither local nor remote branch is selected, clear the commit view.
             logger.warn("reloadCurrentBranchOrContext called but no branch selected. Clearing commit view.");
-            if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearCommitView();
+            gitCommitBrowserPanel.clearCommitView();
         });
     }
 
@@ -794,7 +799,7 @@ public class GitLogTab extends JPanel {
     public void selectCurrentBranch() {
         contextManager.submitBackgroundTask("Finding current branch", () -> {
             try {
-                String currentBranch = getRepo().getCurrentBranch();
+                var currentBranch = getRepo().getCurrentBranch();
                 SwingUtilities.invokeLater(() -> {
                     // Find and select the current branch in the branches table
                     for (int i = 0; i < branchTableModel.getRowCount(); i++) {
@@ -818,13 +823,7 @@ public class GitLogTab extends JPanel {
      * Selects a commit in the commits table by its ID.
      */
     public void selectCommitById(String commitId) {
-        if (gitCommitBrowserPanel != null) {
-            gitCommitBrowserPanel.selectCommitById(commitId);
-        } else {
-            // Fallback or error if panel not initialized, though it should be.
-            logger.warn("GitCommitBrowserPanel not initialized when trying to select commit {}", commitId);
-            chrome.systemOutput("Commit browser panel not available to select commit " + (commitId.length() > 7 ? commitId.substring(0, 7) : commitId));
-        }
+        gitCommitBrowserPanel.selectCommitById(commitId);
     }
 
     // The orphaned line "chrome.systemOutput(...)" and extra brace were removed from here.

@@ -31,6 +31,7 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import javax.swing.JCheckBox;
 import javax.swing.JOptionPane;
+import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -56,13 +57,14 @@ public class GitWorktreeTab extends JPanel {
     private final ContextManager contextManager;
     // private final GitPanel gitPanel; // Field is not read
 
-    private JTable worktreeTable;
-    private DefaultTableModel worktreeTableModel;
-    private JButton addButton;
-    private JButton removeButton;
-    private JButton openButton; // Added
-    private JButton refreshButton; // Added
-    private JButton mergeButton; // Added for worktree merge functionality
+    private JTable worktreeTable = new JTable();
+    private DefaultTableModel worktreeTableModel = new DefaultTableModel();
+    private JButton addButton = new JButton();
+    private JButton removeButton = new JButton();
+    private JButton openButton = new JButton(); // Added
+    private JButton refreshButton = new JButton(); // Added
+    @org.jetbrains.annotations.Nullable
+    private JButton mergeButton = null; // Added for worktree merge functionality
 
     private final boolean isWorktreeWindow;
 
@@ -576,7 +578,7 @@ public class GitWorktreeTab extends JPanel {
                             true
                     ));
                 } else {
-                    dialogFuture.complete(new AddWorktreeDialogResult(null, null, false, false, false));
+                    dialogFuture.complete(new AddWorktreeDialogResult("", "", false, false, false));
                 }
             });
 
@@ -1027,7 +1029,7 @@ public class GitWorktreeTab extends JPanel {
         }
     }
 
-    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, JButton okButton) {
+    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, @Nullable JButton okButton) {
         if (okButton != null) {
             okButton.setEnabled(false);
         }
@@ -1281,9 +1283,10 @@ public class GitWorktreeTab extends JPanel {
                         // After successfully removing the worktree, close any associated Brokk window.
                         SwingUtilities.invokeLater(() -> {
                             var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
-                            assert windowToClose != null;
-                            var closeEvent = new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING);
-                            windowToClose.getFrame().dispatchEvent(closeEvent);
+                            if (windowToClose != null) {
+                                var closeEvent = new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING);
+                                windowToClose.getFrame().dispatchEvent(closeEvent);
+                            }
                         });
                     } catch (GitAPIException e) {
                         String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName() + " during merge cleanup: " + e.getMessage();

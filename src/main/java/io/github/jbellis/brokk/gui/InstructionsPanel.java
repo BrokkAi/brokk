@@ -48,12 +48,13 @@ import javax.swing.text.DocumentFilter;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
+import java.util.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -62,6 +63,7 @@ import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 
 /**
@@ -99,9 +101,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton stopButton;
     private final JButton configureModelsButton;
     private final JLabel commandResultLabel;
-    private final ContextManager contextManager; // Can be null if Chrome is initialized without one
+    private final @Nullable ContextManager contextManager; // Can be null if Chrome is initialized without one
     private JTable referenceFileTable;
-    // private JScrollPane tableScrollPane; // This field is not read, made local in initializeReferenceFileTable
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
     private CardLayout suggestionCardLayout;
@@ -122,9 +123,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final UndoManager commandInputUndoManager;
     private boolean lowBalanceNotified = false;
     private boolean freeTierNotified = false;
-    private String lastCheckedInputText = null;
-    private float[][] lastCheckedEmbeddings = null;
-    private List<FileReferenceData> pendingQuickContext = null;
+    private @Nullable String lastCheckedInputText = null;
+    private @Nullable float[][] lastCheckedEmbeddings = null;
+    private @Nullable List<FileReferenceData> pendingQuickContext = null;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -137,6 +138,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.chrome = chrome;
         this.contextManager = chrome.getContextManager(); // Store potentially null CM
         this.commandInputUndoManager = new UndoManager();
+        this.overlayPanel = new JPanel();
+
 
         // Initialize components
         instructionsArea = buildCommandInputField(); // Build first to add listener
@@ -532,21 +535,27 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // ----- wrap table in a scroll-pane ----------------------------------------------------
-        JScrollPane localTableScrollPane = new JScrollPane(referenceFileTable); // Made local
-        localTableScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        localTableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
-
         // ----- create failure reason label ----------------------------------------------------
+        this.referenceFileTable = new JTable(new javax.swing.table.DefaultTableModel(new Object[]{"File References"}, 1) {
+            @Override
+            public boolean isCellEditable(int row, int column) { return false; }
+            @Override
+            public Class<?> getColumnClass(int columnIndex) { return List.class; }
+        });
         this.failureReasonLabel = new JLabel();
+        this.suggestionCardLayout = new CardLayout();
+        this.suggestionContentPanel = new JPanel(this.suggestionCardLayout);
+
+        // Configure failureReasonLabel
         failureReasonLabel.setFont(referenceFileTable.getFont()); // Use same font as table/badges
         failureReasonLabel.setBorder(BorderFactory.createEmptyBorder(0, H_PAD, 0, H_PAD));
         failureReasonLabel.setVisible(false); // Initially hidden
 
-        // ----- create content panel with CardLayout -------------------------------------------
-        this.suggestionCardLayout = new CardLayout();
-        this.suggestionContentPanel = new JPanel(suggestionCardLayout);
-        suggestionContentPanel.add(localTableScrollPane, "TABLE"); // Use local variable
+        // Configure suggestionContentPanel
+        JScrollPane localTableScrollPane = new JScrollPane(referenceFileTable);
+        localTableScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        localTableScrollPane.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        suggestionContentPanel.add(localTableScrollPane, "TABLE");
         suggestionContentPanel.add(failureReasonLabel, "LABEL");
 
         // ----- create container panel for button and content (table/label) -------------------
@@ -681,9 +690,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private boolean contextHasImages() {
         var contextManager = chrome.getContextManager();
-        return contextManager.topContext() != null &&
-                contextManager.topContext().allFragments()
-                        .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
+        return contextManager.topContext().allFragments()
+                .anyMatch(f -> !f.isText() && !f.getType().isOutputFragment());
     }
 
     /**
@@ -723,11 +731,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * it returns an empty string, otherwise it returns the actual text content.
      */
     public String getInstructions() {
-        return SwingUtil.runOnEdt(() -> {
+        var v = SwingUtil.runOnEdt(() -> {
             return instructionsArea.getText().equals(PLACEHOLDER_TEXT)
                    ? ""
                    : instructionsArea.getText();
         }, "");
+        return castNonNull(v);
     }
 
     /**
@@ -768,7 +777,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * to initiate a context suggestion task. It increments the generation counter
      * and submits the task to the sequential worker executor.
      */
-    private void triggerContextSuggestion(ActionEvent e) { // ActionEvent will be null for external triggers
+    private void triggerContextSuggestion(@Nullable ActionEvent e) { // ActionEvent will be null for external triggers
         var goal = getInstructions(); // Capture snapshot on EDT
 
         // Basic checks before submitting to worker

@@ -48,18 +48,18 @@ public class MultiFileSelectionDialog extends JDialog {
     private final AnalyzerWrapper analyzerWrapper;
 
     // UI Components - Files Tab
-    private FileSelectionPanel fileSelectionPanel; // Use the new panel
+    @Nullable private FileSelectionPanel fileSelectionPanel; // Use the new panel
 
     // UI Components - Classes Tab
-    private JTextArea classInput; // Keep for classes tab
-    private AutoCompletion classAutoCompletion; // Keep for classes tab
+    @Nullable private JTextArea classInput; // Keep for classes tab
+    @Nullable private AutoCompletion classAutoCompletion; // Keep for classes tab
 
     // Common UI Components
     private JTabbedPane tabbedPane;
     private final JButton okButton;
     private final JButton cancelButton;
 
-    private Selection selectionResult = null;
+    @Nullable private Selection selectionResult = null;
     private boolean confirmed = false;
     private final ExecutorService backgroundExecutor;
 
@@ -108,7 +108,7 @@ public class MultiFileSelectionDialog extends JDialog {
                     f -> true, // Default filter, can be customized if needed
                     autocompletePathsForPanel,
                     true, // multiSelect = true
-                    null,  // No single file confirmed action for multi-select panel
+                    bf -> {},  // No-op single file confirmed action for multi-select panel
                     true, // includeProjectFilesInAutocomplete
                     buildFilesTabHintText(allowExternalFiles)
             );
@@ -487,7 +487,9 @@ public class MultiFileSelectionDialog extends JDialog {
                                                         cu -> 0,
                                                         this::createClassCompletion);
 
-            AutoCompleteUtil.sizePopupWindows(classAutoCompletion, comp, matches);
+            if (classAutoCompletion != null) { // classAutoCompletion can be null if Classes tab is not created
+                AutoCompleteUtil.sizePopupWindows(classAutoCompletion, comp, matches);
+            }
             return matches.stream().map(c -> (Completion) c).toList();
         }
 

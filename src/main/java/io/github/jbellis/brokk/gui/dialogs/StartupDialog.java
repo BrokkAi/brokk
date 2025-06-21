@@ -16,6 +16,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 public class StartupDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(StartupDialog.class);
 
@@ -33,7 +35,7 @@ public class StartupDialog extends JDialog {
         REQUIRE_BOTH           // Neither valid key nor project exists
     }
 
-    private StartupDialog(Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
+    private StartupDialog(@Nullable Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         super(owner, "Welcome to Brokk", true);
         io.github.jbellis.brokk.gui.Chrome.applyIcon(this);
         this.initialKey = initialKey;
@@ -223,7 +225,7 @@ public class StartupDialog extends JDialog {
             finalKeyToUse = this.initialKey;
         }
 
-        MainProject.setBrokkKey(finalKeyToUse);
+        MainProject.setBrokkKey(castNonNull(finalKeyToUse));
 
         // --- Determine the Project Path ---
         Path finalProjectPathToUse;
