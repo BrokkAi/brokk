@@ -606,5 +606,65 @@ public final class GitUiUtil
                ? files.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "))
                : files.size() + " files";
     }
+
+    /**
+     * Captures the diff of a pull request (between its head and its effective base) and adds it to the context.
+     *
+     * @param cm           The ContextManager instance.
+     * @param chrome       The Chrome instance for UI feedback.
+     * @param prTitle      The title of the pull request.
+     * @param prNumber     The number of the pull request.
+     * @param prHeadSha    The SHA of the head commit of the pull request.
+     * @param prBaseSha    The SHA of the base commit of the pull request (as recorded by GitHub).
+     * @param repo         The GitRepo instance.
+     */
+    public static void capturePrDiffToContext
+    (
+            ContextManager cm,
+            Chrome chrome,
+            String prTitle,
+            int prNumber,
+            String prHeadSha,
+            String prBaseSha,
+            io.github.jbellis.brokk.git.GitRepo repo
+    ) {
+        cm.submitContextTask("Capturing diff for PR #" + prNumber, () -> {
+            try {
+                String effectiveBaseSha = repo.getMergeBase(prHeadSha, prBaseSha);
+                if (effectiveBaseSha == null) {
+                    logger.warn("Could not determine merge base for PR #{} (head: {}, base: {}). Falling back to PR base SHA for diff.",
+                                prNumber, shortenCommitId(prHeadSha), shortenCommitId(prBaseSha));
+                    effectiveBaseSha = prBaseSha;
+                }
+
+                String diff = repo.showDiff(prHeadSha, effectiveBaseSha);
+                if (diff.isEmpty()) {
+                    chrome.systemOutput(String.format("No differences found for PR #%d (head: %s, effective base: %s)",
+                                                      prNumber, shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha)));
+                    return;
+                }
+
+                List<ProjectFile> changedFiles = repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha);
+                String fileNamesSummary = formatFileList(changedFiles);
+
+                String description = String.format("Diff of PR #%d (%s): %s [HEAD: %s vs Base: %s]",
+                                                   prNumber, prTitle, fileNamesSummary,
+                                                   shortenCommitId(prHeadSha), shortenCommitId(effectiveBaseSha));
+
+                String syntaxStyle = SyntaxConstants.SYNTAX_STYLE_NONE;
+                if (!changedFiles.isEmpty()) {
+                    syntaxStyle = SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                }
+
+                var fragment = new ContextFragment.StringFragment(cm, diff, description, syntaxStyle);
+                cm.addVirtualFragment(fragment);
+                chrome.systemOutput(String.format("Added diff for PR #%d (%s) to context", prNumber, prTitle));
+
+            } catch (Exception ex) {
+                logger.warn("Error capturing diff for PR #{}: {}", prNumber, ex.getMessage(), ex);
+                chrome.toolError(String.format("Error capturing diff for PR #%d: %s", prNumber, ex.getMessage()));
+            }
+        });
+    }
 }
 
