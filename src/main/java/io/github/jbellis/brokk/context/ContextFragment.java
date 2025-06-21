@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.context;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerUtil;
 import io.github.jbellis.brokk.IContextManager;
+import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
@@ -24,6 +25,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * ContextFragment methods do not throw checked exceptions, which make it difficult to use in Streams
@@ -59,9 +63,17 @@ public interface ContextFragment {
             this.isOutput = isOutput;
         }
 
-        public boolean isPathFragment() { return isPath; }
-        public boolean isVirtualFragment() { return isVirtual; }
-        public boolean isOutputFragment() { return isOutput; }
+        public boolean isPathFragment() {
+            return isPath;
+        }
+
+        public boolean isVirtualFragment() {
+            return isVirtual;
+        }
+
+        public boolean isOutputFragment() {
+            return isOutput;
+        }
     }
 
     // Static counter for dynamic fragments
@@ -167,7 +179,7 @@ public interface ContextFragment {
      *
      * @return The context manager instance, or {@code null} if not applicable or available.
      */
-    IContextManager getContextManager();
+    @Nullable IContextManager getContextManager();
 
     /**
      * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
@@ -175,7 +187,9 @@ public interface ContextFragment {
      * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not available.
      */
     default IAnalyzer getAnalyzer() {
-        return getContextManager().getAnalyzerUninterrupted();
+        var cm = getContextManager();
+        requireNonNull(cm);
+        return cm.getAnalyzerUninterrupted();
     }
 
     static Set<ProjectFile> parseProjectFiles(String text, IProject project) {
@@ -220,61 +234,62 @@ public interface ContextFragment {
         }
 
         @Override
-    default String format() {
-        // PathFragments are dynamic, but their text() doesn't need the analyzer here
-        // as it reads directly from the file.
-        return """
-                <file path="%s" fragmentid="%s">
-                %s
-                </file>
-                """.stripIndent().formatted(file().toString(), id(), text());
-    }
-
-    @Override
-    default boolean isDynamic() {
-        return true; // File content can change
-    }
-
-    static String formatSummary(BrokkFile file) {
-        return "<file source=\"%s\" />".formatted(file);
-    }
-}
-
-record ProjectPathFragment(ProjectFile file, String id, IContextManager contextManager) implements PathFragment {
-    // Primary constructor for new dynamic fragments
-    public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-        this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
-    }
-
-    // Record canonical constructor - ensures `id` is properly set
-    public ProjectPathFragment {
-        Objects.requireNonNull(file);
-        Objects.requireNonNull(id); // id is now always String
-        // contextManager can be null for some test/serialization cases if handled by callers
-    }
-
-    @Override
-    public FragmentType getType() {
-        return FragmentType.PROJECT_PATH;
-    }
-
-    @Override
-    public IContextManager getContextManager() {
-        return contextManager;
-    }
-
-    public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
-        Objects.requireNonNull(existingId);
-        try {
-            int numericId = Integer.parseInt(existingId);
-            setMinimumId(numericId + 1);
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+        default String format() {
+            return """
+                   <file path="%s" fragmentid="%s">
+                   %s
+                   </file>
+                   """.stripIndent().formatted(file().toString(), id(), text());
         }
-        return new ProjectPathFragment(file, existingId, contextManager);
+
+        @Override
+        default boolean isDynamic() {
+            return true; // File content can change
+        }
+
+        static String formatSummary(BrokkFile file) {
+            return "<file source=\"%s\" />".formatted(file);
+        }
     }
 
-    @Override
+    record ProjectPathFragment(ProjectFile file,
+                               String id,
+                               IContextManager contextManager) implements PathFragment
+    {
+        // Primary constructor for new dynamic fragments
+        public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        // Record canonical constructor - ensures `id` is properly set
+        public ProjectPathFragment {
+            Objects.requireNonNull(file);
+            Objects.requireNonNull(id); // id is now always String
+            // contextManager can be null for some test/serialization cases if handled by callers
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.PROJECT_PATH;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
+            Objects.requireNonNull(existingId);
+            try {
+                int numericId = Integer.parseInt(existingId);
+                setMinimumId(numericId + 1);
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ProjectPathFragment(file, existingId, contextManager);
+        }
+
+        @Override
         public String shortDescription() {
             return file().getFileName();
         }
@@ -323,59 +338,59 @@ record ProjectPathFragment(ProjectFile file, String id, IContextManager contextM
 
         @Override
         public boolean isEligibleForAutoContext() {
-        return false;
+            return false;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ProjectPathFragment that)) return false;
+            return Objects.equals(id(), that.id());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id());
+        }
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ProjectPathFragment that)) return false;
-        return Objects.equals(id(), that.id());
-    }
+    /**
+     * Represents a specific revision of a ProjectFile from Git history. This is non-dynamic.
+     */
+    record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
+        public GitFileFragment(ProjectFile file, String revision, String content) {
+            this(file, revision, content, FragmentUtils.calculateContentHash(
+                    FragmentType.GIT_FILE,
+                    String.format("%s @%s", file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
+                    content, // text content for hash
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
+                    GitFileFragment.class.getName() // original class name for hash
+            ));
+        }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(id());
-    }
-}
+        // Record canonical constructor
+        public GitFileFragment {
+            Objects.requireNonNull(file);
+            Objects.requireNonNull(revision);
+            Objects.requireNonNull(content);
+            Objects.requireNonNull(id); // ID is content hash
+        }
 
-/**
- * Represents a specific revision of a ProjectFile from Git history. This is non-dynamic.
- */
-record GitFileFragment(ProjectFile file, String revision, String content, String id) implements PathFragment {
-    public GitFileFragment(ProjectFile file, String revision, String content) {
-        this(file, revision, content, FragmentUtils.calculateContentHash(
-                FragmentType.GIT_FILE,
-                String.format("%s @%s", file.getFileName(), GitUiUtil.shortenCommitId(revision)), // description for hash
-                content, // text content for hash
-                FileTypeUtil.get().guessContentType(file.absPath().toFile()), // syntax style for hash
-                GitFileFragment.class.getName() // original class name for hash
-        ));
-    }
+        @Override
+        public FragmentType getType() {
+            return FragmentType.GIT_FILE;
+        }
 
-    // Record canonical constructor
-    public GitFileFragment {
-        Objects.requireNonNull(file);
-        Objects.requireNonNull(revision);
-        Objects.requireNonNull(content);
-        Objects.requireNonNull(id); // ID is content hash
-    }
+        @Override
+        public @Nullable IContextManager getContextManager() {
+            return null; // GitFileFragment does not have a context manager
+        }
 
-    @Override
-    public FragmentType getType() {
-        return FragmentType.GIT_FILE;
-    }
-
-    @Override
-    public IContextManager getContextManager() {
-        return null; // GitFileFragment does not have a context manager
-    }
-
-    // Constructor for use with DTOs where ID is already known (expected to be a hash)
-    public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
-        // For GitFileFragment, existingId is expected to be the content hash.
-        // No need to update ContextFragment.nextId.
-        return new GitFileFragment(file, revision, content, existingId);
+        // Constructor for use with DTOs where ID is already known (expected to be a hash)
+        public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
+            // For GitFileFragment, existingId is expected to be the content hash.
+            // No need to update ContextFragment.nextId.
+            return new GitFileFragment(file, revision, content, existingId);
         }
 
         private String shortRevision() {
@@ -403,82 +418,82 @@ record GitFileFragment(ProjectFile file, String revision, String content, String
 
         @Override
         public String text() {
-        return content;
-    }
-
-    @Override
-    public String format() throws UncheckedIOException {
-        // Note: fragmentid attribute is not typically added to GitFileFragment in this specific format,
-        // but if it were, it should use %s for the ID.
-        // Keeping existing format which doesn't include fragmentid.
-        return """
-                <file path="%s" revision="%s">
-                %s
-                </file>
-                """.stripIndent().formatted(file().toString(), revision(), text());
-    }
-
-    @Override
-    public boolean isDynamic() {
-        return false; // Content is fixed to a revision
-    }
-
-    @Override
-    public String formatSummary() {
-        return PathFragment.formatSummary(file);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof GitFileFragment that)) return false;
-        return Objects.equals(id(), that.id());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id());
-    }
-
-    @Override
-    public String toString() {
-        return "GitFileFragment('%s' @%s)".formatted(file, shortRevision());
-    }
-}
-
-record ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) implements PathFragment {
-    // Primary constructor for new dynamic fragments
-    public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-        this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
-    }
-
-    // Record canonical constructor
-    public ExternalPathFragment {
-        Objects.requireNonNull(file);
-        Objects.requireNonNull(id);
-    }
-
-    @Override
-    public FragmentType getType() {
-        return FragmentType.EXTERNAL_PATH;
-    }
-
-    @Override
-    public IContextManager getContextManager() {
-        return contextManager;
-    }
-
-    public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager) {
-        Objects.requireNonNull(existingId);
-        try {
-            int numericId = Integer.parseInt(existingId);
-            if (numericId >= ContextFragment.nextId.get()) {
-                ContextFragment.nextId.set(numericId + 1);
-            }
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            return content;
         }
-        return new ExternalPathFragment(file, existingId, contextManager);
+
+        @Override
+        public String format() throws UncheckedIOException {
+            // Note: fragmentid attribute is not typically added to GitFileFragment in this specific format,
+            // but if it were, it should use %s for the ID.
+            // Keeping existing format which doesn't include fragmentid.
+            return """
+                   <file path="%s" revision="%s">
+                   %s
+                   </file>
+                   """.stripIndent().formatted(file().toString(), revision(), text());
+        }
+
+        @Override
+        public boolean isDynamic() {
+            return false; // Content is fixed to a revision
+        }
+
+        @Override
+        public String formatSummary() {
+            return PathFragment.formatSummary(file);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof GitFileFragment that)) return false;
+            return Objects.equals(id(), that.id());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id());
+        }
+
+        @Override
+        public String toString() {
+            return "GitFileFragment('%s' @%s)".formatted(file, shortRevision());
+        }
+    }
+
+    record ExternalPathFragment(ExternalFile file, String id, IContextManager contextManager) implements PathFragment {
+        // Primary constructor for new dynamic fragments
+        public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        // Record canonical constructor
+        public ExternalPathFragment {
+            Objects.requireNonNull(file);
+            Objects.requireNonNull(id);
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.EXTERNAL_PATH;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ExternalPathFragment withId(ExternalFile file, String existingId, IContextManager contextManager) {
+            Objects.requireNonNull(existingId);
+            try {
+                int numericId = Integer.parseInt(existingId);
+                if (numericId >= ContextFragment.nextId.get()) {
+                    ContextFragment.nextId.set(numericId + 1);
+                }
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ExternalPathFragment(file, existingId, contextManager);
         }
 
         @Override
@@ -498,60 +513,60 @@ record ExternalPathFragment(ExternalFile file, String id, IContextManager contex
 
         @Override
         public String formatSummary() {
-        return PathFragment.formatSummary(file);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ExternalPathFragment that)) return false;
-        return Objects.equals(id(), that.id());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id());
-    }
-}
-
-/**
- * Represents an image file, either from the project or external. This is dynamic.
- */
-record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
-    // Primary constructor for new dynamic fragments
-    public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
-        this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
-    }
-
-    // Record canonical constructor
-    public ImageFileFragment {
-        Objects.requireNonNull(file);
-        Objects.requireNonNull(id);
-        assert !file.isText() : "ImageFileFragment should only be used for non-text files";
-    }
-
-    @Override
-    public FragmentType getType() {
-        return FragmentType.IMAGE_FILE;
-    }
-
-    @Override
-    public IContextManager getContextManager() {
-        return contextManager;
-    }
-
-    public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
-        Objects.requireNonNull(existingId);
-        assert !file.isText() : "ImageFileFragment should only be used for non-text files";
-        try {
-            int numericId = Integer.parseInt(existingId);
-            if (numericId >= ContextFragment.nextId.get()) {
-                ContextFragment.nextId.set(numericId + 1);
-            }
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            return PathFragment.formatSummary(file);
         }
-        return new ImageFileFragment(file, existingId, contextManager);
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ExternalPathFragment that)) return false;
+            return Objects.equals(id(), that.id());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id());
+        }
+    }
+
+    /**
+     * Represents an image file, either from the project or external. This is dynamic.
+     */
+    record ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) implements PathFragment {
+        // Primary constructor for new dynamic fragments
+        public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
+            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+        }
+
+        // Record canonical constructor
+        public ImageFileFragment {
+            Objects.requireNonNull(file);
+            Objects.requireNonNull(id);
+            assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+        }
+
+        @Override
+        public FragmentType getType() {
+            return FragmentType.IMAGE_FILE;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
+            Objects.requireNonNull(existingId);
+            assert !file.isText() : "ImageFileFragment should only be used for non-text files";
+            try {
+                int numericId = Integer.parseInt(existingId);
+                if (numericId >= ContextFragment.nextId.get()) {
+                    ContextFragment.nextId.set(numericId + 1);
+                }
+            } catch (NumberFormatException e) {
+                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+            }
+            return new ImageFileFragment(file, existingId, contextManager);
         }
 
         @Override
@@ -599,101 +614,101 @@ record ImageFileFragment(BrokkFile file, String id, IContextManager contextManag
 
         @Override
         public String format() {
-        // Format for LLM, indicating image content (similar to PasteImageFragment)
-        return """
-                <file path="%s" fragmentid="%s">
-                [Image content provided out of band]
-                </file>
-                """.stripIndent().formatted(file().toString(), id());
-    }
+            // Format for LLM, indicating image content (similar to PasteImageFragment)
+            return """
+                   <file path="%s" fragmentid="%s">
+                   [Image content provided out of band]
+                   </file>
+                   """.stripIndent().formatted(file().toString(), id());
+        }
 
-    @Override
-    public boolean isDynamic() {
+        @Override
+        public boolean isDynamic() {
             return true; // Image file on disk could change
         }
 
         @Override
         public String formatSummary() {
-        return PathFragment.formatSummary(file);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ImageFileFragment that)) return false;
-        return Objects.equals(id(), that.id());
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(id());
-    }
-
-    @Override
-    public String toString() {
-        return "ImageFileFragment('%s')".formatted(file);
-    }
-}
-
-static PathFragment toPathFragment(BrokkFile bf, IContextManager contextManager) {
-    if (bf.isText()) {
-        if (bf instanceof ProjectFile pf) {
-            return new ProjectPathFragment(pf, contextManager); // Dynamic ID
-        } else if (bf instanceof ExternalFile ext) {
-            return new ExternalPathFragment(ext, contextManager); // Dynamic ID
+            return PathFragment.formatSummary(file);
         }
-    } else {
-        // If it's not text, treat it as an image
-        return new ImageFileFragment(bf, contextManager); // Dynamic ID
-    }
-    // Should not happen if bf is ProjectFile or ExternalFile
-    throw new IllegalArgumentException("Unsupported BrokkFile subtype: " + bf.getClass().getName());
-}
 
-abstract class VirtualFragment implements ContextFragment {
-    protected final String id; // Changed from int to String
-    protected final transient IContextManager contextManager;
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof ImageFileFragment that)) return false;
+            return Objects.equals(id(), that.id());
+        }
 
-    // Constructor for dynamic VirtualFragments that use nextId
-    public VirtualFragment(IContextManager contextManager) {
-        this.id = String.valueOf(ContextFragment.nextId.getAndIncrement());
-        this.contextManager = contextManager;
-    }
+        @Override
+        public int hashCode() {
+            return Objects.hash(id());
+        }
 
-    @Override
-    public IContextManager getContextManager() {
-        return contextManager;
+        @Override
+        public String toString() {
+            return "ImageFileFragment('%s')".formatted(file);
+        }
     }
 
-    // Constructor for VirtualFragments with a pre-determined ID (e.g., hash or from DTO)
-    protected VirtualFragment(String existingId, IContextManager contextManager) {
-        Objects.requireNonNull(existingId);
-        this.id = existingId;
-        this.contextManager = contextManager;
-        // If the existingId is numeric (from a dynamic fragment that was frozen/unfrozen or loaded),
-        // ensure nextId is updated for future dynamic fragments.
-        try {
-            int numericId = Integer.parseInt(existingId);
-            ContextFragment.setMinimumId(numericId);
-        } catch (NumberFormatException e) {
-            if (isDynamic()) {
-                throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+    static PathFragment toPathFragment(BrokkFile bf, IContextManager contextManager) {
+        if (bf.isText()) {
+            if (bf instanceof ProjectFile pf) {
+                return new ProjectPathFragment(pf, contextManager); // Dynamic ID
+            } else if (bf instanceof ExternalFile ext) {
+                return new ExternalPathFragment(ext, contextManager); // Dynamic ID
+            }
+        } else {
+            // If it's not text, treat it as an image
+            return new ImageFileFragment(bf, contextManager); // Dynamic ID
+        }
+        // Should not happen if bf is ProjectFile or ExternalFile
+        throw new IllegalArgumentException("Unsupported BrokkFile subtype: " + bf.getClass().getName());
+    }
+
+    abstract class VirtualFragment implements ContextFragment {
+        protected final String id; // Changed from int to String
+        protected final transient IContextManager contextManager;
+
+        // Constructor for dynamic VirtualFragments that use nextId
+        public VirtualFragment(IContextManager contextManager) {
+            this.id = String.valueOf(ContextFragment.nextId.getAndIncrement());
+            this.contextManager = contextManager;
+        }
+
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        // Constructor for VirtualFragments with a pre-determined ID (e.g., hash or from DTO)
+        protected VirtualFragment(String existingId, IContextManager contextManager) {
+            requireNonNull(existingId);
+            this.id = existingId;
+            this.contextManager = contextManager;
+            // If the existingId is numeric (from a dynamic fragment that was frozen/unfrozen or loaded),
+            // ensure nextId is updated for future dynamic fragments.
+            try {
+                int numericId = Integer.parseInt(existingId);
+                ContextFragment.setMinimumId(numericId);
+            } catch (NumberFormatException e) {
+                if (isDynamic()) {
+                    throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
+                }
             }
         }
-    }
 
-    @Override
-    public String id() {
-        return id;
-    }
+        @Override
+        public String id() {
+            return id;
+        }
 
-    @Override
-    public String format() {
-        return """
-                <fragment description="%s" fragmentid="%s">
-                %s
-                </fragment>
-                """.stripIndent().formatted(description(), id(), text());
+        @Override
+        public String format() {
+            return """
+                   <fragment description="%s" fragmentid="%s">
+                   %s
+                   </fragment>
+                   """.stripIndent().formatted(description(), id(), text());
         }
 
         @Override
@@ -722,48 +737,48 @@ abstract class VirtualFragment implements ContextFragment {
         public abstract String text();
 
         // Override equals and hashCode for proper comparison, especially for EMPTY
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof VirtualFragment that)) return false;
-        return Objects.equals(id(), that.id()); // Use String.equals
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof VirtualFragment that)) return false;
+            return Objects.equals(id(), that.id()); // Use String.equals
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(id()); // Use String's hashCode
+        }
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(id()); // Use String's hashCode
-    }
-}
+    class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
+        private final String text;
+        private final String description;
+        private final String syntaxStyle;
 
-class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
-    private final String text;
-    private final String description;
-    private final String syntaxStyle;
+        public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
+            super(FragmentUtils.calculateContentHash(
+                          FragmentType.STRING,
+                          description,
+                          text,
+                          syntaxStyle,
+                          StringFragment.class.getName()),
+                  contextManager);
+            this.syntaxStyle = syntaxStyle;
+            assert text != null;
+            assert description != null;
+            this.text = text;
+            this.description = description;
+        }
 
-    public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
-        super(FragmentUtils.calculateContentHash(
-                FragmentType.STRING,
-                description,
-                text,
-                syntaxStyle,
-                StringFragment.class.getName()),
-              contextManager);
-        this.syntaxStyle = syntaxStyle;
-        assert text != null;
-        assert description != null;
-        this.text = text;
-        this.description = description;
-    }
-
-    // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
-    public StringFragment(String existingHashId, IContextManager contextManager, String text, String description, String syntaxStyle) {
-        super(existingHashId, contextManager); // existingHashId is expected to be a content hash
-        this.syntaxStyle = syntaxStyle;
-        assert text != null;
-        assert description != null;
-        this.text = text;
-        this.description = description;
-        // No need to call ContextFragment.setNextId() as hash IDs are not numeric.
+        // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
+        public StringFragment(String existingHashId, IContextManager contextManager, String text, String description, String syntaxStyle) {
+            super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.syntaxStyle = syntaxStyle;
+            assert text != null;
+            assert description != null;
+            this.text = text;
+            this.description = description;
+            // No need to call ContextFragment.setNextId() as hash IDs are not numeric.
         }
 
         @Override
@@ -842,22 +857,14 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
     abstract class PasteFragment extends ContextFragment.VirtualFragment {
         protected transient Future<String> descriptionFuture;
 
-    // PasteFragments are non-dynamic (content-hashed)
-    // The hash will be based on the initial text/image data, not the future description.
-    public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
-        super(id, contextManager);
-        this.descriptionFuture = descriptionFuture;
-    }
+        // PasteFragments are non-dynamic (content-hashed)
+        // The hash will be based on the initial text/image data, not the future description.
+        public PasteFragment(String id, IContextManager contextManager, Future<String> descriptionFuture) {
+            super(id, contextManager);
+            this.descriptionFuture = descriptionFuture;
+        }
 
-    // This constructor is for subclasses to call after they've computed their ID (hash)
-    // The nextId based constructor from VirtualFragment is not suitable here.
-    // public PasteFragment(IContextManager contextManager, Future<String> descriptionFuture) {
-    //    super(contextManager); // This would assign a dynamic ID, which is not desired.
-    //    this.descriptionFuture = descriptionFuture;
-    // }
-
-
-    @Override
+        @Override
         public boolean isDynamic() {
             // technically is dynamic b/c of Future but it is simpler to treat as non-dynamic, we can live with the corner case
             // of the Future timing out in rare error scenarios
@@ -887,11 +894,11 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         public PasteTextFragment(IContextManager contextManager, String text, Future<String> descriptionFuture) {
             super(FragmentUtils.calculateContentHash(
-                    FragmentType.PASTE_TEXT,
-                    "(Pasting text)", // Initial description for hashing before future completes
-                    text,
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // Default syntax style for hashing
-                    PasteTextFragment.class.getName()),
+                          FragmentType.PASTE_TEXT,
+                          "(Pasting text)", // Initial description for hashing before future completes
+                          text,
+                          SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // Default syntax style for hashing
+                          PasteTextFragment.class.getName()),
                   contextManager, descriptionFuture);
             assert text != null;
             assert descriptionFuture != null;
@@ -925,11 +932,12 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
     class AnonymousImageFragment extends PasteFragment { // Non-dynamic, content-hashed
         private final Image image;
+
         // Helper to get bytes for hashing, might throw UncheckedIOException
         private static byte[] imageToBytesForHash(Image image) {
             try {
                 // Assuming FrozenFragment.imageToBytes will be made public
-                return FrozenFragment.imageToBytes(image); 
+                return FrozenFragment.imageToBytes(image);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
@@ -937,15 +945,15 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(FragmentUtils.calculateContentHash(
-                    FragmentType.PASTE_IMAGE,
-                    "(Pasting image)", // Initial description for hashing
-                    null, // No text content for image
-                    imageToBytesForHash(image), // image bytes for hashing
-                    false, // isTextFragment = false
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(), // No project files
-                    AnonymousImageFragment.class.getName(),
-                    Map.of()), // No specific meta for hashing
+                          FragmentType.PASTE_IMAGE,
+                          "(Pasting image)", // Initial description for hashing
+                          null, // No text content for image
+                          imageToBytesForHash(image), // image bytes for hashing
+                          false, // isTextFragment = false
+                          SyntaxConstants.SYNTAX_STYLE_NONE,
+                          Set.of(), // No project files
+                          AnonymousImageFragment.class.getName(),
+                          Map.of()), // No specific meta for hashing
                   contextManager, descriptionFuture);
             assert image != null;
             assert descriptionFuture != null;
@@ -989,10 +997,10 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         @Override
         public String format() {
             return """
-              <fragment description="%s" fragmentid="%s">
-              %s
-              </fragment>
-              """.stripIndent().formatted(description(), id(), text());
+                   <fragment description="%s" fragmentid="%s">
+                   %s
+                   </fragment>
+                   """.stripIndent().formatted(description(), id(), text());
         }
 
         @Override
@@ -1021,11 +1029,11 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         public StacktraceFragment(IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
             super(FragmentUtils.calculateContentHash(
-                    FragmentType.STACKTRACE,
-                    "stacktrace of " + exception,
-                    original + "\n\nStacktrace methods in this project:\n\n" + code, // Full text for hash
-                    sources.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : sources.iterator().next().source().getSyntaxStyle(),
-                    StacktraceFragment.class.getName()),
+                          FragmentType.STACKTRACE,
+                          "stacktrace of " + exception,
+                          original + "\n\nStacktrace methods in this project:\n\n" + code, // Full text for hash
+                          sources.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : sources.iterator().next().source().getSyntaxStyle(),
+                          StacktraceFragment.class.getName()),
                   contextManager);
             assert sources != null;
             assert original != null;
@@ -1139,7 +1147,7 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         @Override
         public String text() {
-            IAnalyzer analyzer = getAnalyzer();
+            var analyzer = getAnalyzer();
             if (!analyzer.isCpg()) {
                 return "Code intelligence is not ready. Cannot find usages for " + targetIdentifier + ".";
             }
@@ -1215,7 +1223,7 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         @Override
         public String text() {
-            IAnalyzer analyzer = getAnalyzer();
+            var analyzer = getAnalyzer();
             if (!analyzer.isCpg()) {
                 return "Code intelligence is not ready. Cannot generate call graph for " + methodName + ".";
             }
@@ -1241,9 +1249,9 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         public Set<CodeUnit> sources() {
             IAnalyzer analyzer = getAnalyzer();
             return analyzer.getDefinition(methodName)
-                           .flatMap(CodeUnit::classUnit) // Get the containing class CodeUnit
-                           .map(Set::of)
-                           .orElse(Set.of());
+                    .flatMap(CodeUnit::classUnit) // Get the containing class CodeUnit
+                    .map(Set::of)
+                    .orElse(Set.of());
         }
 
         @Override
@@ -1262,9 +1270,17 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
             return SyntaxConstants.SYNTAX_STYLE_NONE; // Call graph is textual, not specific code language
         }
 
-        public String getMethodName() { return methodName; }
-        public int getDepth() { return depth; }
-        public boolean isCalleeGraph() { return isCalleeGraph; }
+        public String getMethodName() {
+            return methodName;
+        }
+
+        public int getDepth() {
+            return depth;
+        }
+
+        public boolean isCalleeGraph() {
+            return isCalleeGraph;
+        }
     }
 
     enum SummaryType {
@@ -1348,7 +1364,7 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
                     })
                     .collect(Collectors.joining("\n\n"));
         }
-        
+
         @Override
         public boolean isDynamic() {
             return true;
@@ -1385,10 +1401,10 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         @Override
         public String format() {
             return """
-                    <summary targets="%s" type="%s" fragmentid="%s">
-                    %s
-                    </summary>
-                    """.stripIndent().formatted(
+                   <summary targets="%s" type="%s" fragmentid="%s">
+                   %s
+                   </summary>
+                   """.stripIndent().formatted(
                     String.join(", ", targetIdentifiers),
                     summaryType.name(),
                     id(),
@@ -1401,8 +1417,13 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
             return format();
         }
 
-        public List<String> getTargetIdentifiers() { return targetIdentifiers; }
-        public SummaryType getSummaryType() { return summaryType; }
+        public List<String> getTargetIdentifiers() {
+            return targetIdentifiers;
+        }
+
+        public SummaryType getSummaryType() {
+            return summaryType;
+        }
 
         @Override
         public String syntaxStyle() {
@@ -1420,7 +1441,9 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
     interface OutputFragment {
         List<TaskEntry> entries();
 
-        /** Should raw HTML inside markdown be escaped before rendering? */
+        /**
+         * Should raw HTML inside markdown be escaped before rendering?
+         */
         default boolean isEscapeHtml() {
             return true;
         }
@@ -1434,15 +1457,14 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         public HistoryFragment(IContextManager contextManager, List<TaskEntry> history) {
             super(FragmentUtils.calculateContentHash(
-                    FragmentType.HISTORY,
-                    "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
-                    TaskEntry.formatMessages(history.stream().flatMap(e -> e.isCompressed()
-                                                                          ? Stream.of(Messages.customSystem(e.summary()))
-                                                                          : e.log().messages().stream()).toList()),
-                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                    HistoryFragment.class.getName()),
+                          FragmentType.HISTORY,
+                          "Task History (" + history.size() + " task" + (history.size() > 1 ? "s" : "") + ")",
+                          TaskEntry.formatMessages(history.stream().flatMap(e -> e.isCompressed()
+                                                                                 ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                                                                 : castNonNull(e.log()).messages().stream()).toList()),
+                          SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                          HistoryFragment.class.getName()),
                   contextManager);
-            assert history != null;
             this.history = List.copyOf(history);
         }
 
@@ -1464,11 +1486,6 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         }
 
         @Override
-        public boolean isText() {
-            return true;
-        }
-
-        @Override
         public boolean isDynamic() {
             return false;
         }
@@ -1477,9 +1494,11 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         public String text() {
             // FIXME the right thing to do here is probably to throw UnsupportedOperationException,
             // but lots of stuff breaks without text(), so I am putting that off for another refactor
-            return TaskEntry.formatMessages(history.stream().flatMap(e -> e.isCompressed()
-                                                                          ? Stream.of(Messages.customSystem(e.summary()))
-                                                                          : e.log().messages().stream()).toList());
+            return TaskEntry.formatMessages(history.stream().flatMap(e ->
+                e.isCompressed()
+                    ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                    : castNonNull(e.log()).messages().stream()
+            ).toList());
         }
 
         @Override
@@ -1495,10 +1514,10 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
         @Override
         public String format() {
             return """
-                    <taskhistory fragmentid="%s">
-                    %s
-                    </taskhistory>
-                    """.stripIndent().formatted(id(), text()); // Analyzer not used by its text()
+                   <taskhistory fragmentid="%s">
+                   %s
+                   </taskhistory>
+                   """.stripIndent().formatted(id(), text()); // Analyzer not used by its text()
         }
 
         @Override
@@ -1528,11 +1547,11 @@ class StringFragment extends VirtualFragment { // Non-dynamic, uses content hash
 
         private static String calculateId(String sessionName, List<ChatMessage> messages) {
             return FragmentUtils.calculateContentHash(
-                FragmentType.TASK, // Or SEARCH if SearchFragment calls this path
-                sessionName,
-                TaskEntry.formatMessages(messages),
-                SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-                TaskFragment.class.getName() // Note: SearchFragment might want its own class name if it were hashing independently
+                    FragmentType.TASK, // Or SEARCH if SearchFragment calls this path
+                    sessionName,
+                    TaskEntry.formatMessages(messages),
+                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                    TaskFragment.class.getName() // Note: SearchFragment might want its own class name if it were hashing independently
             );
         }
 

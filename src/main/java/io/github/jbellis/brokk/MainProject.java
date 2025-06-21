@@ -2,7 +2,9 @@ package io.github.jbellis.brokk;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.Service.ModelConfig;
+import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -13,7 +15,6 @@ import io.github.jbellis.brokk.util.AtomicWrites;
 import io.github.jbellis.brokk.util.HistoryIo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -76,8 +77,8 @@ public final class MainProject extends AbstractProject {
                                                                The commit message should be structured as follows: <type>: <description>
                                                                Use these for <type>: debug, fix, feat, chore, config, docs, style, refactor, perf, test, enh
                                                                """.stripIndent();
-    private static volatile Boolean isDataShareAllowedCache = null;
-    private static Properties globalPropertiesCache = null; // protected by synchronized
+    @Nullable private static volatile Boolean isDataShareAllowedCache = null;
+    @Nullable private static Properties globalPropertiesCache = null; // protected by synchronized
 
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
@@ -284,7 +285,7 @@ public final class MainProject extends AbstractProject {
     private ModelConfig getModelConfigInternal(String modelTypeKey) {
         var props = loadGlobalProperties();
         var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        assert typeInfo != null : "Unknown modelTypeKey: " + modelTypeKey;
+        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
 
         String jsonString = props.getProperty(typeInfo.configKey());
         if (jsonString != null && !jsonString.isBlank()) {
@@ -302,7 +303,7 @@ public final class MainProject extends AbstractProject {
         assert config != null;
         var props = loadGlobalProperties();
         var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
-        assert typeInfo != null : "Unknown modelTypeKey: " + modelTypeKey;
+        Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
 
         try {
             String jsonString = objectMapper.writeValueAsString(config);
@@ -455,7 +456,7 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    private volatile io.github.jbellis.brokk.IssueProvider issuesProviderCache = null;
+    @Nullable private volatile io.github.jbellis.brokk.IssueProvider issuesProviderCache = null;
 
     @Override
     public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
@@ -698,12 +699,12 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+    public @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         try {
             var sessionHistoryPath = getSessionHistoryPath(sessionId);
             ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
-            if (ch.getHistory().isEmpty()) {
-                return ch;
+            if (ch == null) {
+                return null;
             }
             // Resetting nextId based on loaded fragments.
             // Only consider numeric IDs for dynamic fragments.
@@ -742,7 +743,7 @@ public final class MainProject extends AbstractProject {
             return ch;
         } catch (IOException e) {
             logger.error("Error loading context history for session {}: {}", sessionId, e.getMessage());
-            return new ContextHistory();
+            return null;
         }
     }
 
@@ -792,16 +793,16 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+    public ArchitectAgent.ArchitectOptions getArchitectOptions() {
         String json = projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
-                return objectMapper.readValue(json, io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.class);
+                return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize ArchitectOptions from JSON: {}. Returning defaults.", json, e);
             }
         }
-        return io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions.DEFAULTS;
+        return ArchitectAgent.ArchitectOptions.DEFAULTS;
     }
 
     @Override
@@ -810,7 +811,7 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+    public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         assert options != null;
         try {
             String json = objectMapper.writeValueAsString(options);
@@ -840,7 +841,6 @@ public final class MainProject extends AbstractProject {
         saveGlobalProperties(props);
     }
     
-    @NotNull
     public static String getBrokkKey() {
         var props = loadGlobalProperties();
         return props.getProperty("brokkApiKey", "");
@@ -983,7 +983,7 @@ public final class MainProject extends AbstractProject {
     }
 
     public static Map<Path, ProjectPersistentInfo> loadRecentProjects() {
-        var result = new HashMap<Path, ProjectPersistentInfo>();
+        var allLoadedEntries = new HashMap<Path, ProjectPersistentInfo>();
         var props = loadProjectsProperties();
         for (String key : props.stringPropertyNames()) {
             if (!key.contains(java.io.File.separator) || key.endsWith("_activeSession")) {
@@ -991,14 +991,16 @@ public final class MainProject extends AbstractProject {
             }
             String propertyValue = props.getProperty(key);
             try {
+                Path projectPath = Path.of(key); // Create path once
                 ProjectPersistentInfo persistentInfo = objectMapper.readValue(propertyValue, ProjectPersistentInfo.class);
-                result.put(Path.of(key), persistentInfo);
+                allLoadedEntries.put(projectPath, persistentInfo);
             } catch (JsonProcessingException e) {
                 // Likely old-format timestamp, try to parse as long
                 try {
+                    Path projectPath = Path.of(key); // Create path once
                     long parsedLongValue = Long.parseLong(propertyValue);
                     ProjectPersistentInfo persistentInfo = ProjectPersistentInfo.fromTimestamp(parsedLongValue);
-                    result.put(Path.of(key), persistentInfo);
+                    allLoadedEntries.put(projectPath, persistentInfo);
                 } catch (NumberFormatException nfe) {
                     logger.warn("Could not parse value for key '{}' in projects.properties as JSON or long: {}", key, propertyValue);
                 }
@@ -1006,7 +1008,26 @@ public final class MainProject extends AbstractProject {
                 logger.warn("Error processing recent project entry for key '{}': {}", key, e.getMessage());
             }
         }
-        return result;
+
+        var validEntries = new HashMap<Path, ProjectPersistentInfo>();
+        boolean entriesFiltered = false;
+
+        for (Map.Entry<Path, ProjectPersistentInfo> entry : allLoadedEntries.entrySet()) {
+            Path projectPath = entry.getKey();
+            ProjectPersistentInfo persistentInfo = entry.getValue();
+            if (Files.isDirectory(projectPath)) {
+                validEntries.put(projectPath, persistentInfo);
+            } else {
+                logger.warn("Recent project path '{}' no longer exists or is not a directory. Removing from recent projects list.", projectPath);
+                entriesFiltered = true;
+            }
+        }
+
+        if (entriesFiltered) {
+            saveRecentProjects(validEntries); // Persist the cleaned list
+        }
+
+        return validEntries;
     }
 
     public static void saveRecentProjects(Map<Path, ProjectPersistentInfo> projects) {
@@ -1336,8 +1357,8 @@ public final class MainProject extends AbstractProject {
         try {
             Files.createDirectories(sessionHistoryPath.getParent());
             // 1. Create the zip with empty history first. This ensures the zip file exists.
-            var emptyHistory = new ContextHistory();
-            HistoryIo.writeZip(emptyHistory, sessionHistoryPath); // Uses create="true"
+            var emptyHistory = new ContextHistory(Context.EMPTY);
+            HistoryIo.writeZip(emptyHistory, sessionHistoryPath);
 
             // 2. Now add/update manifest.json to the existing zip.
             writeSessionInfoToZip(sessionHistoryPath, newSessionInfo); // Should use create="false" as zip exists.

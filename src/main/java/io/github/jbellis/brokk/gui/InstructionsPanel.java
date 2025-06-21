@@ -1171,24 +1171,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var response = contextManager.getLlm(model, "Ask: " + question).sendRequest(messages, true);
             if (response.error() != null) {
                 chrome.toolError("Error during 'Ask': " + response.error().getMessage());
-            } else if (response.chatResponse() != null && response.chatResponse().aiMessage() != null) {
-                var aiResponse = response.chatResponse().aiMessage();
-                // Check if the response is valid before adding to history
-                if (aiResponse.text() != null && !aiResponse.text().isBlank()) {
-                    // Construct SessionResult for 'Ask'
-                    var sessionResult = new TaskResult(contextManager,
-                                                       "Ask: " + question,
-                                                       List.copyOf(chrome.getLlmRawMessages()),
-                                                       Map.of(), // No undo contents for Ask
-                                                       new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-                    chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-                    contextManager.addToHistory(sessionResult, false);
-                    chrome.systemOutput("Ask command complete!");
-                } else {
-                    chrome.systemOutput("Ask command completed with an empty response.");
-                }
+            } else if (response.isEmpty()) {
+                chrome.systemOutput("Ask command completed with no = data.");
             } else {
-                chrome.systemOutput("Ask command completed with no response data.");
+                // Construct SessionResult for 'Ask'
+                var sessionResult = new TaskResult(contextManager,
+                                                   "Ask: " + question,
+                                                   List.copyOf(chrome.getLlmRawMessages()),
+                                                   Map.of(), // No undo contents for Ask
+                                                   new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+                contextManager.addToHistory(sessionResult, false);
+                chrome.systemOutput("Ask command complete!");
             }
         } catch (InterruptedException e) {
             chrome.systemOutput("Ask command cancelled!");

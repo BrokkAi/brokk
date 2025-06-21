@@ -52,9 +52,11 @@ public abstract class AbstractContentPanel
     public class MyUndoManager
             extends UndoManager
             implements UndoableEditListener {
+        @org.jetbrains.annotations.Nullable
         CompoundEdit activeEdit;
 
         private MyUndoManager() {
+            this.activeEdit = null;
         }
 
         public void start(String text) {
@@ -66,10 +68,11 @@ public abstract class AbstractContentPanel
         }
 
         public void end(String text) {
-            activeEdit.end();
-            addEdit(activeEdit);
-            activeEdit = null;
-
+            if (activeEdit != null) {
+                activeEdit.end();
+                addEdit(activeEdit);
+                activeEdit = null;
+            }
             checkActions();
         }
 

@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.jbellis.brokk.util.SyntaxDetector;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -46,7 +45,7 @@ public interface BrokkFile extends Comparable<BrokkFile> {
     String toString();
 
     @Override
-    default int compareTo(@NotNull BrokkFile o) {
+    default int compareTo(BrokkFile o) {
         return absPath().compareTo(o.absPath());
     }
 

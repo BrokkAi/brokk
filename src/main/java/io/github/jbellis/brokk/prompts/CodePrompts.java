@@ -19,6 +19,8 @@ import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static java.util.Objects.requireNonNull;
+
 
 /**
  * Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks.
@@ -60,13 +62,10 @@ public abstract class CodePrompts {
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
                                                        UserMessage request,
-                                                       Collection<ProjectFile> changedFiles,
+                                                       Set<ProjectFile> changedFiles,
                                                        List<ChatMessage> originalWorkspaceEditableMessages)
     throws InterruptedException
     {
-        // TODO revisit cache-friendly message ordering with the next generation of models,
-        // as of early 2025 o4-mini in particular gets very confused when it sees (its own) edits in the history
-        // after the initial workspace contents
         var messages = new ArrayList<ChatMessage>();
         var reminder = reminderForModel(cm.getService(), model);
 
@@ -77,6 +76,37 @@ public abstract class CodePrompts {
         messages.addAll(cm.getHistoryMessages());
         messages.addAll(taskMessages);
         messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
+        messages.add(request);
+
+        return messages;
+    }
+
+    public final List<ChatMessage> getSingleFileMessages(String styleGuide,
+                                                         EditBlockParser parser,
+                                                         List<ChatMessage> readOnlyMessages,
+                                                         List<ChatMessage> taskMessages,
+                                                         UserMessage request,
+                                                         Set<ProjectFile> changedFiles,
+                                                         List<ChatMessage> originalWorkspaceEditableMessages)
+    throws InterruptedException
+    {
+        var messages = new ArrayList<ChatMessage>();
+
+        var systemPrompt = """
+          <instructions>
+          %s
+          </instructions>
+          <style_guide>
+          %s
+          </style_guide>
+          """.stripIndent().formatted(systemIntro(""), styleGuide).trim();
+        messages.add(new SystemMessage(systemPrompt));
+
+        messages.addAll(readOnlyMessages);
+        messages.addAll(originalWorkspaceEditableMessages);
+        messages.addAll(parser.exampleMessages());
+        messages.addAll(taskMessages);
+        messages.addAll(getSingleFileCurrentMessages(changedFiles));
         messages.add(request);
 
         return messages;
@@ -618,8 +648,7 @@ public abstract class CodePrompts {
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
     public final Collection<ChatMessage> getWorkspaceSummaryMessages(IContextManager cm) {
-        var c = cm.topContext();
-
+        var c = requireNonNull(cm.topContext());
         var summaries = Streams.concat(c.getReadOnlyFragments(), c.getEditableFragments())
                 .map(ContextFragment::formatSummary)
                 .filter(s -> !s.isBlank())
@@ -658,7 +687,7 @@ public abstract class CodePrompts {
                               This is *the only context in the Workspace to which you should make changes*.
                               This represents the ORIGINAL state before any modifications during this session.
                               
-                              Note: These files may be modified during the session. If they are changed, you will see 
+                              These files may be modified during the session! If they are changed, you will see
                               their CURRENT versions in a separate section later in this conversation.
                               
                               %s
@@ -666,21 +695,41 @@ public abstract class CodePrompts {
                               """.stripIndent().formatted(originalWorkspaceEditableContent);
 
         var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable workspace state."));
+        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+    }
+
+    public List<ChatMessage> getSingleFileEditableMessage(ProjectFile file) {
+        try {
+            String editableText = """
+                                  <workspace_editable_original>
+                                  You are editing A SINGLE FILE in this Workspace.
+                                  This represents the ORIGINAL state before any modifications during this session.
+                                  
+                                  This file may be modified during the session! If it is changed, you will see
+                                  its CURRENT versions in a separate section later in this conversation.
+                                  
+                                  <file path="%s">
+                                  %s
+                                  </file>
+                                  </workspace_editable_original>
+                                  """.stripIndent().formatted(file.toString(), file.read());
+            var editableUserMessage = new UserMessage(editableText);
+            return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
      * Returns messages containing the current state of files that have been changed during the task.
      */
-    public final Collection<ChatMessage> getCurrentChangedFilesMessages(IContextManager cm, Collection<ProjectFile> changedFiles) {
+    public final List<ChatMessage> getCurrentChangedFilesMessages(IContextManager cm, Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) {
             return List.of();
         }
 
-        var changedFilesSet = Set.copyOf(changedFiles);
         var changedFilesText = cm.liveContext().getEditableFragments()
-                .map(fragment -> (ContextFragment.ProjectPathFragment) fragment)
-                .filter(fragment -> changedFilesSet.contains(fragment.file()))
+                .filter(fragment -> changedFiles.contains(fragment.files().iterator().next()))
                 .map(ContextFragment::format)
                 .collect(Collectors.joining("\n\n"))
                 .trim();
@@ -696,5 +745,35 @@ public abstract class CodePrompts {
 
         var currentStateUserMessage = new UserMessage(currentStateText);
         return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of modified files."));
+    }
+
+    /**
+     * Returns messages containing the current state of files that have been changed during the task.
+     */
+    public final List<ChatMessage> getSingleFileCurrentMessages(Set<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) {
+            return List.of();
+        }
+        assert changedFiles.size() == 1 : changedFiles;
+        var file = changedFiles.iterator().next();
+
+        String currentStateText = null;
+        try {
+            currentStateText = """
+                                     <workspace_editable_changed>
+                                     Here is the CURRENT versions of the file that you are editing.
+                                     *Trust this as the true current contents of this file!*
+                                     
+                                     <file path="%s">
+                                     %s
+                                     </file>
+                                     </workspace_editable_changed>
+                                     """.stripIndent().formatted(file, file.read());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+
+        var currentStateUserMessage = new UserMessage(currentStateText);
+        return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of the file."));
     }
 }

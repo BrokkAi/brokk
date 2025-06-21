@@ -449,7 +449,6 @@ public final class Service {
                     logger.error("Failed to retrieve user balance: {}", e.getMessage());
                     // Decide how to handle failure - perhaps treat as low balance?
                     // For now, log and continue, assuming not low balance.
-                    // For now, log and continue, assuming not low balance.
                 }
                 isFreeTierOnly = balance < MINIMUM_PAID_BALANCE; // Set instance field
             }
@@ -632,8 +631,8 @@ public final class Service {
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, Double temperature) {
-        String location = modelLocations.get(modelName);
+    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
+        @Nullable String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
         if (location == null) {
@@ -655,8 +654,8 @@ public final class Service {
             if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
                 var kp = parseKey(MainProject.getBrokkKey());
                 builder = builder
-                        .apiKey(kp.token)
-                        .customHeaders(Map.of("Authorization", "Bearer " + kp.token))
+                        .apiKey(kp.token())
+                        .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                         .user(kp.userId().toString());
             } else {
                 // Non-Brokk proxy
@@ -975,16 +974,16 @@ public final class Service {
 
             // Supported formats may depend on the specific model/proxy endpoint
             return switch (extension) {
-                case "flac" -> MediaType.parse("audio/flac");
-                case "mp3" -> MediaType.parse("audio/mpeg");
-                case "mp4", "m4a" -> MediaType.parse("audio/mp4");
-                case "mpeg", "mpga" -> MediaType.parse("audio/mpeg");
-                case "oga", "ogg" -> MediaType.parse("audio/ogg");
-                case "wav" -> MediaType.parse("audio/wav");
-                case "webm" -> MediaType.parse("audio/webm");
+                case "flac" -> MediaType.get("audio/flac");
+                case "mp3" -> MediaType.get("audio/mpeg");
+                case "mp4", "m4a" -> MediaType.get("audio/mp4");
+                case "mpeg", "mpga" -> MediaType.get("audio/mpeg");
+                case "oga", "ogg" -> MediaType.get("audio/ogg");
+                case "wav" -> MediaType.get("audio/wav");
+                case "webm" -> MediaType.get("audio/webm");
                 default -> {
-                    logger.warn("Unsupported audio extension '{}', attempting audio/mpeg", extension);
-                    yield MediaType.parse("audio/mpeg"); // Default fallback
+                    logger.warn("Unsupported audio extension '{}', attempting application/octet-stream", extension);
+                    yield MediaType.get("application/octet-stream"); // Guaranteed non-null fallback
                 }
             };
         }

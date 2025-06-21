@@ -59,6 +59,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prCommitsTableModel;
     private JButton checkoutPrButton;
     private JButton diffPrButton;
+    private JButton viewPrDiffButton;
     private JButton openInBrowserButton;
 
     private FilterBox statusFilter;
@@ -72,41 +73,77 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private List<org.kohsuke.github.GHPullRequest> allPrsFromApi = new ArrayList<>();
     private List<org.kohsuke.github.GHPullRequest> displayedPrs = new ArrayList<>();
     private final Map<Integer, String> ciStatusCache = new ConcurrentHashMap<>();
-    private final Map<Integer, List<String>> prChangedFilesCache = new ConcurrentHashMap<>();
     private final Map<Integer, List<ICommitInfo>> prCommitsCache = new ConcurrentHashMap<>();
     private List<ICommitInfo> currentPrCommitDetailsList = new ArrayList<>();
+    private JTable prFilesTable;
+    private DefaultTableModel prFilesTableModel;
 
     private SwingWorker<Map<Integer, String>, Void> activeCiFetcher;
     private SwingWorker<Map<Integer, List<String>>, Void> activePrFilesFetcher;
 
     /**
-     * Ensure a commit SHA is available locally, fetching the specified refSpec from the remote if necessary.
+     * Checks if a commit's data is fully available and parsable in the local repository.
      *
-     * @param sha         The object id that must be present locally
-     * @param repo        GitRepo to operate on (non-null)
-     * @param refSpec     The refSpec to fetch if the SHA is missing (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head")
-     * @param remoteName  Which remote to fetch from (e.g. "origin")
-     * @return true if the SHA is now resolvable locally, false otherwise
+     * @param repo The GitRepo instance.
+     * @param sha  The commit SHA to check.
+     * @return true if the commit is resolvable and its object data is parsable, false otherwise.
+     */
+    private static boolean isCommitLocallyAvailable(GitRepo repo, String sha) {
+        if (sha == null) return false;
+        org.eclipse.jgit.lib.ObjectId objectId = null;
+        try {
+            objectId = repo.resolve(sha);
+            if (objectId == null) {
+                logger.debug("SHA {} cannot be resolved.", GitUiUtil.shortenCommitId(sha));
+                return false; // Cannot resolve, definitely not available
+            }
+            // Try to parse the commit to ensure its data is present
+            try (org.eclipse.jgit.revwalk.RevWalk revWalk = new org.eclipse.jgit.revwalk.RevWalk(repo.getGit().getRepository())) {
+                revWalk.parseCommit(objectId);
+                return true; // Resolvable and parsable
+            }
+        } catch (org.eclipse.jgit.errors.MissingObjectException e) {
+            logger.debug("Commit object for SHA {} (resolved to {}) is missing locally.", GitUiUtil.shortenCommitId(sha), objectId != null ? objectId.name() : "unresolved", e);
+            return false; // Resolvable but data is missing
+        } catch (IOException | GitAPIException e) { // GitAPIException from repo.resolve, IOException from parseCommit (other than MissingObjectException)
+            logger.warn("Error checking local availability of commit {}: {}", GitUiUtil.shortenCommitId(sha), e.getMessage(), e);
+            return false; // Error during check, assume not available
+        }
+    }
+
+
+    /**
+     * Ensure a commit SHA is available locally and is fully parsable, fetching the specified refSpec from the remote if necessary.
+     *
+     * @param sha         The commit SHA that must be present and parsable locally.
+     * @param repo        GitRepo to operate on (non-null).
+     * @param refSpec     The refSpec to fetch if the SHA is missing or not parsable (e.g. "+refs/pull/123/head:refs/remotes/origin/pr/123/head").
+     * @param remoteName  Which remote to fetch from (e.g. "origin").
+     * @return true if the SHA is now locally available and parsable, false otherwise.
      */
     private static boolean ensureShaIsLocal(GitRepo repo, String sha, String refSpec, String remoteName) {
+        if (isCommitLocallyAvailable(repo, sha)) {
+            return true;
+        }
+
+        // If not available or missing, try to fetch
+        logger.debug("SHA {} not fully available locally - fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
         try {
-            if (repo.resolve(sha) != null) {
-                return true; // already present
-            }
-            logger.debug("SHA {} not found locally - fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
             repo.getGit().fetch()
                     .setRemote(remoteName)
                     .setRefSpecs(new RefSpec(refSpec))
                     .call();
-            boolean resolved = repo.resolve(sha) != null;
-            if (!resolved) {
-                logger.warn("Failed to resolve SHA {} even after fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
+            // After fetch, verify again
+            if (isCommitLocallyAvailable(repo, sha)) {
+                logger.debug("Successfully fetched and verified SHA {}", GitUiUtil.shortenCommitId(sha));
+                return true;
             } else {
-                logger.debug("Successfully fetched SHA {}", GitUiUtil.shortenCommitId(sha));
+                logger.warn("Failed to make SHA {} fully available locally even after fetching {} from {}", GitUiUtil.shortenCommitId(sha), refSpec, remoteName);
+                return false;
             }
-            return resolved;
         } catch (Exception e) {
-            logger.warn("Error fetching ref '{}' for SHA {}: {}", refSpec, GitUiUtil.shortenCommitId(sha), e.getMessage());
+            // Includes GitAPIException, IOException, etc.
+            logger.warn("Error during fetch operation in ensureShaIsLocal for SHA {}: {}", GitUiUtil.shortenCommitId(sha), e.getMessage(), e);
             return false;
         }
     }
@@ -218,46 +255,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return String.class;
             }
         };
-        prTable = new JTable(prTableModel) {
-            @Override
-            public String getToolTipText(MouseEvent event) {
-                Point p = event.getPoint();
-                int viewRow = rowAtPoint(p);
-                if (viewRow >= 0 && viewRow < getRowCount()) {
-                    int modelRow = convertRowIndexToModel(viewRow);
-                    if (modelRow >= 0 && modelRow < prTableModel.getRowCount()) {
-                        Object prNumObj = prTableModel.getValueAt(modelRow, PR_COL_NUMBER);
-                        if (prNumObj instanceof String prNumStr && prNumStr.startsWith("#")) {
-                            try {
-                                int prNumber = Integer.parseInt(prNumStr.substring(1));
-                                List<String> files = prChangedFilesCache.get(prNumber);
-                                if (files != null) {
-                                    if (files.isEmpty()) {
-                                        return "No files changed in this PR.";
-                                    }
-                                    var tooltipBuilder = new StringBuilder("<html>Changed files:<br>");
-                                    List<String> filesToShow = files;
-                                    if (files.size() > MAX_TOOLTIP_FILES) {
-                                        filesToShow = files.subList(0, MAX_TOOLTIP_FILES);
-                                        tooltipBuilder.append(String.join("<br>", filesToShow));
-                                        tooltipBuilder.append("<br>...and ").append(files.size() - MAX_TOOLTIP_FILES).append(" more files.");
-                                    } else {
-                                        tooltipBuilder.append(String.join("<br>", filesToShow));
-                                    }
-                                    tooltipBuilder.append("</html>");
-                                    return tooltipBuilder.toString();
-                                } else {
-                                    return "Loading changed file list...";
-                                }
-                            } catch (NumberFormatException nfe) {
-                                logger.trace("Could not parse PR number from table for tooltip: {}", prNumObj, nfe);
-                            }
-                        }
-                    }
-                }
-                return super.getToolTipText(event); // Or null if no default tooltip behavior is desired
-            }
-        };
+        prTable = new JTable(prTableModel);
         prTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prTable.setRowHeight(18);
         prTable.getColumnModel().getColumn(PR_COL_NUMBER).setPreferredWidth(50);  // #
@@ -268,8 +266,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prTable.getColumnModel().getColumn(PR_COL_FORK).setPreferredWidth(120); // Fork
         prTable.getColumnModel().getColumn(PR_COL_STATUS).setPreferredWidth(70);  // Status
 
-        // Ensure tooltips are enabled for the table
-        ToolTipManager.sharedInstance().registerComponent(prTable);
 
         prTableAndButtonsPanel.add(new JScrollPane(prTable), BorderLayout.CENTER);
 
@@ -292,6 +288,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.add(diffPrButton);
         prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
 
+        viewPrDiffButton = new JButton("View Diff");
+        viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
+        viewPrDiffButton.setEnabled(false);
+        viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
+        prButtonPanel.add(viewPrDiffButton);
+        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+
         openInBrowserButton = new JButton("Open in Browser");
         openInBrowserButton.setToolTipText("Open the selected PR in your web browser");
         openInBrowserButton.setEnabled(false);
@@ -308,9 +311,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER); // Add to centerContentPanel
         mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
 
-        // Right side - Commits in the selected PR
+        // Right side - Commits and Files in the selected PR
+        JPanel prCommitsAndFilesPanel = new JPanel(new BorderLayout());
+        prCommitsAndFilesPanel.setBorder(BorderFactory.createTitledBorder("Pull Request Details"));
+
+        // Create vertical split pane for commits (top) and files (bottom)
+        JSplitPane rightSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        rightSplitPane.setResizeWeight(0.5); // 50% for commits, 50% for files
+
+        // Commits panel
         JPanel prCommitsPanel = new JPanel(new BorderLayout());
-        prCommitsPanel.setBorder(BorderFactory.createTitledBorder("Commits in Pull Request"));
+        prCommitsPanel.setBorder(BorderFactory.createTitledBorder("Commits"));
 
         prCommitsTableModel = new DefaultTableModel(new Object[]{"Message"}, 0) {
             @Override
@@ -377,6 +388,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return super.getToolTipText(event); // Or null
             }
         };
+        prCommitsTable.setTableHeader(null);
         prCommitsTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         prCommitsTable.setRowHeight(18);
 
@@ -388,9 +400,56 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prCommitsPanel.add(new JScrollPane(prCommitsTable), BorderLayout.CENTER);
 
+        // Files panel
+        JPanel prFilesPanel = new JPanel(new BorderLayout());
+        prFilesPanel.setBorder(BorderFactory.createTitledBorder("Changed Files"));
+
+        prFilesTableModel = new DefaultTableModel(new Object[]{"File"}, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                return String.class;
+            }
+        };
+        prFilesTable = new JTable(prFilesTableModel) {
+            @Override
+            public String getToolTipText(MouseEvent event) {
+                Point p = event.getPoint();
+                int viewRow = rowAtPoint(p);
+                if (viewRow >= 0 && viewRow < getRowCount()) {
+                    int modelRow = convertRowIndexToModel(viewRow);
+                    if (modelRow >= 0 && modelRow < prFilesTableModel.getRowCount()) {
+                        Object cellValue = prFilesTableModel.getValueAt(modelRow, 0);
+                        if (cellValue instanceof String s) {
+                            return s;
+                        }
+                    }
+                }
+                return super.getToolTipText(event);
+            }
+        };
+        prFilesTable.setTableHeader(null);
+        prFilesTable.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        prFilesTable.setRowHeight(18);
+        prFilesTable.getColumnModel().getColumn(0).setPreferredWidth(400); // File
+
+        ToolTipManager.sharedInstance().registerComponent(prFilesTable);
+
+        prFilesPanel.add(new JScrollPane(prFilesTable), BorderLayout.CENTER);
+
+        // Add panels to split pane
+        rightSplitPane.setTopComponent(prCommitsPanel);
+        rightSplitPane.setBottomComponent(prFilesPanel);
+
+        prCommitsAndFilesPanel.add(rightSplitPane, BorderLayout.CENTER);
+
         // Add the panels to the split pane
         splitPane.setLeftComponent(mainPrAreaPanel);
-        splitPane.setRightComponent(prCommitsPanel);
+        splitPane.setRightComponent(prCommitsAndFilesPanel);
 
         add(splitPane, BorderLayout.CENTER);
 
@@ -409,11 +468,13 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     GHPullRequest selectedPr = displayedPrs.get(modelRow);
                     int prNumber = selectedPr.getNumber();
                     updateCommitsForPullRequest(selectedPr);
+                    updateFilesForPullRequest(selectedPr);
 
                     // Temporarily set button state while loading
                     checkoutPrButton.setText("Loading...");
                     checkoutPrButton.setEnabled(false);
                     diffPrButton.setEnabled(true);
+                    viewPrDiffButton.setEnabled(true);
                     openInBrowserButton.setEnabled(true);
 
                     this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
@@ -461,12 +522,21 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     checkoutPrButton.setText("Check Out");
                     checkoutPrButton.setEnabled(false);
                     diffPrButton.setEnabled(false);
+                    viewPrDiffButton.setEnabled(false);
                     openInBrowserButton.setEnabled(false);
                     prCommitsTableModel.setRowCount(0); // Clear commits table
+                    prFilesTableModel.setRowCount(0); // Clear files table
                     currentPrCommitDetailsList.clear();
                 }
             } else if (prTable.getSelectedRow() == -1) { // if selection is explicitly cleared
                  disablePrButtonsAndClearCommits();
+            }
+        });
+
+        // Add commit selection listener to update files table
+        prCommitsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateFilesForSelectedCommits();
             }
         });
 
@@ -541,8 +611,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         checkoutPrButton.setText("Check Out");
         checkoutPrButton.setEnabled(false);
         diffPrButton.setEnabled(false);
+        viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
         prCommitsTableModel.setRowCount(0);
+        prFilesTableModel.setRowCount(0);
         currentPrCommitDetailsList.clear();
     }
 
@@ -600,7 +672,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 SwingUtilities.invokeLater(() -> {
                     allPrsFromApi.clear();
                     displayedPrs.clear();
-                    prChangedFilesCache.clear();
                     ciStatusCache.clear();
                     prCommitsCache.clear();
                     prTableModel.setRowCount(0);
@@ -615,19 +686,14 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return null;
             }
 
-            for (var pr: fetchedPrs) {
-                pr.isMerged(); // pre-fetch this before we go back to EDT
-            }
-
             // Process fetched PRs on EDT
             List<org.kohsuke.github.GHPullRequest> finalFetchedPrs = fetchedPrs;
             SwingUtilities.invokeLater(() -> {
                 allPrsFromApi = new ArrayList<>(finalFetchedPrs);
-                prChangedFilesCache.clear(); // Clear file cache for new PR list
                 prCommitsCache.clear(); // Clear commits cache for new PR list
                 // ciStatusCache is updated incrementally, not fully cleared here unless error
                 populateDynamicFilterChoices(allPrsFromApi);
-                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI and file fetching
+                filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
             });
             return null;
         });
@@ -780,17 +846,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     logger.warn("Could not get metadata for PR #{}", pr.getNumber(), ex);
                 }
 
-                String statusValue;
-                try {
-                    if (pr.isMerged()) {
-                        statusValue = "Merged";
-                    } else {
-                        statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "?");
-                    }
-                } catch (IOException ex) {
-                    logger.warn("Error checking if PR #{} is merged: {}", pr.getNumber(), ex.getMessage());
-                    statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "Err"); // Fallback
-                }
+                String statusValue = ciStatusCache.getOrDefault(pr.getNumber(), "?");
 
                 prTableModel.addRow(new Object[]{
                         "#" + pr.getNumber(), pr.getTitle(), author, formattedUpdated,
@@ -807,9 +863,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             prTable.getSelectionModel().setValueIsAdjusting(false);
         }
 
-        // Asynchronously fetch CI statuses and changed files for the displayed PRs
+        // Asynchronously fetch CI statuses for the displayed PRs
         fetchCiStatusesForDisplayedPrs();
-        fetchChangedFilesForDisplayedPrs();
     }
 
     private class CiStatusFetcherWorker extends SwingWorker<Map<Integer, String>, Void> {
@@ -827,11 +882,15 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     break;
                 }
                 try {
-                    String status = getCiStatus(prToFetch);
-                    fetchedStatuses.put(prToFetch.getNumber(), status);
+                    if (prToFetch.isMerged()) { // This can throw IOException
+                        fetchedStatuses.put(prToFetch.getNumber(), "Merged");
+                    } else {
+                        String status = getCiStatus(prToFetch); // This can throw IOException
+                        fetchedStatuses.put(prToFetch.getNumber(), status);
+                    }
                 } catch (IOException e) {
-                    logger.warn("Failed to get CI status for PR #{} during targeted fetch", prToFetch.getNumber(), e);
-                    // Store a generic error marker if needed, or let it be absent from results
+                    logger.warn("Failed to get status (merged/CI) for PR #{} due to IOException: {}", prToFetch.getNumber(), e);
+                    fetchedStatuses.put(prToFetch.getNumber(), "Err");
                 }
             }
             return fetchedStatuses;
@@ -879,15 +938,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         List<GHPullRequest> prsRequiringCiFetch = new ArrayList<>();
         for (GHPullRequest pr : displayedPrs) {
-            try {
-                if (pr.isMerged()) {
-                    continue;
-                }
-            } catch (IOException e) {
-                logger.warn("Could not determine if PR #{} is merged. Skipping status fetch. Error: {}", pr.getNumber(), e.getMessage());
-                continue;
-            }
-
             String currentStatusInCache = ciStatusCache.get(pr.getNumber());
             if (currentStatusInCache == null || "?".equals(currentStatusInCache) || "...".equals(currentStatusInCache) ||
                 "Error".equals(currentStatusInCache) || "Err".equals(currentStatusInCache)) {
@@ -929,10 +979,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     String headSha = pr.getHead().getSha();
                     String baseSha = pr.getBase().getSha();
                     int prNumber = pr.getNumber();
-
-                    // Ensure head SHA is available
-                    String headFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                    // Assuming 'origin' is the primary remote. Fork logic might be needed if this fails.
+                    boolean headLocallyAvailable;
+                    boolean baseLocallyAvailable;
 
                     GitHubAuth auth;
                     try {
@@ -942,39 +990,68 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         throw new RuntimeException("Failed to initialize GitHubAuth for PR #" + prNumber + ": " + e.getMessage(), e);
                     }
 
-                    if (!ensureShaIsLocal(repo, headSha, headFetchRef, "origin")) {
+                    // Ensure head SHA is available
+                    String headFetchRefSpec = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
+                    headLocallyAvailable = ensureShaIsLocal(repo, headSha, headFetchRefSpec, "origin");
+
+                    if (!headLocallyAvailable) {
                         // If direct PR head fetch fails, try fetching the source branch if it's from origin
                         if (pr.getHead().getRepository().getFullName().equals(auth.getOwner() + "/" + auth.getRepoName())) {
-                            String headBranchName = pr.getHead().getRef(); // e.g. "feature/my-branch" or "refs/heads/feature/my-branch"
+                            String headBranchName = pr.getHead().getRef(); // e.g., "feature/my-branch" or "refs/heads/feature/my-branch"
                             if (headBranchName.startsWith("refs/heads/")) headBranchName = headBranchName.substring("refs/heads/".length());
-                            String headBranchFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
-                            ensureShaIsLocal(repo, headSha, headBranchFetchRef, "origin");
+                            String headBranchFetchRefSpec = String.format("+refs/heads/%s:refs/remotes/origin/%s", headBranchName, headBranchName);
+                            headLocallyAvailable = ensureShaIsLocal(repo, headSha, headBranchFetchRefSpec, "origin");
                         } else {
-                             logger.warn("PR #{} head {} is from a fork, advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, GitUiUtil.shortenCommitId(headSha));
-                             // For simplicity, we are not handling complex fork remote setups here.
-                             // Checkout logic has more complete fork handling.
+                             logger.warn("PR #{} head {} is from a fork. Initial fetch failed and advanced fork fetching not yet implemented in PrFilesFetcherWorker.", prNumber, GitUiUtil.shortenCommitId(headSha));
+                             // headLocallyAvailable remains the result of the first ensureShaIsLocal attempt
                         }
                     }
 
-
                     // Ensure base SHA is available
                     String baseBranchName = pr.getBase().getRef(); // e.g. "main"
-                    String baseFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
-                    ensureShaIsLocal(repo, baseSha, baseFetchRef, "origin");
+                    String baseFetchRefSpec = String.format("+refs/heads/%s:refs/remotes/origin/%s", baseBranchName, baseBranchName);
+                    baseLocallyAvailable = ensureShaIsLocal(repo, baseSha, baseFetchRefSpec, "origin");
 
-
-                    if (repo.resolve(headSha) != null && repo.resolve(baseSha) != null) {
-                        List<String> changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
-                                .stream()
-                                .map(Object::toString) // ProjectFile::toString
-                                .collect(Collectors.toList());
+                    if (headLocallyAvailable && baseLocallyAvailable) {
+                        List<String> changedFiles;
+                        try {
+                            // Always use the PR's base SHA for diffing, which represents the exact
+                            // commit the PR was created from. This ensures we only show files that
+                            // actually changed in the PR, not additional changes in the target branch.
+                            String mergeBase = repo.getMergeBase(headSha, baseSha);
+                            
+                            if (mergeBase != null) {
+                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase)
+                                        .stream()
+                                        .map(projFile -> projFile.toString())
+                                        .collect(Collectors.toList());
+                            } else {
+                                // Fallback to direct diff if merge base calculation fails
+                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
+                                        .stream()
+                                        .map(projFile -> projFile.toString())
+                                        .collect(Collectors.toList());
+                            }
+                        } catch (Exception e) {
+                            logger.warn("Error calculating changed files for PR #{}, using fallback diff: {}", prNumber, e.getMessage());
+                            changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha)
+                                    .stream()
+                                    .map(projFile -> projFile.toString())
+                                    .collect(Collectors.toList());
+                        }
                         fetchedFilesMap.put(prNumber, changedFiles);
                     } else {
-                        logger.warn("Could not resolve head ({}) or base ({}) SHA for PR #{} to list files.", GitUiUtil.shortenCommitId(headSha), GitUiUtil.shortenCommitId(baseSha), prNumber);
-                        fetchedFilesMap.put(prNumber, List.of("Error: Could not resolve SHAs locally."));
+                        String missingShasMsg = "";
+                        if (!headLocallyAvailable) missingShasMsg += "head (" + GitUiUtil.shortenCommitId(headSha) + ")";
+                        if (!baseLocallyAvailable) {
+                            if (!missingShasMsg.isEmpty()) missingShasMsg += " and ";
+                            missingShasMsg += "base (" + GitUiUtil.shortenCommitId(baseSha) + ")";
+                        }
+                        logger.warn("Could not make {} SHA(s) for PR #{} fully available locally to list files.", missingShasMsg, prNumber);
+                        fetchedFilesMap.put(prNumber, List.of("Error: Could not make required SHAs locally available. Ensure refs are fetched."));
                     }
                 } catch (Exception e) {
-                    logger.error("Error fetching/processing files for PR #{}", pr.getNumber(), e);
+                    logger.error("Error fetching or processing files for PR #{}", pr.getNumber(), e);
                     fetchedFilesMap.put(pr.getNumber(), List.of("Error fetching files: " + e.getMessage()));
                 }
             }
@@ -988,9 +1065,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 return;
             }
             try {
-                Map<Integer, List<String>> newFilesData = get();
-                prChangedFilesCache.putAll(newFilesData);
-                // No table update needed here, tooltip listener will pick up changes.
+                get(); // Consume the result to complete the future properly
+                // Files are now loaded on demand, no caching
             } catch (InterruptedException e) {
                 logger.warn("PR files fetcher worker interrupted", e);
                 Thread.currentThread().interrupt();
@@ -1004,26 +1080,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
     }
 
-    private void fetchChangedFilesForDisplayedPrs() {
-        assert SwingUtilities.isEventDispatchThread();
-
-        // Fetch files for all displayed PRs where not already cached or cache has error markers
-        List<GHPullRequest> prsRequiringFileFetch = displayedPrs.stream()
-                .filter(pr -> !prChangedFilesCache.containsKey(pr.getNumber()) ||
-                               (prChangedFilesCache.get(pr.getNumber()) != null &&
-                                !prChangedFilesCache.get(pr.getNumber()).isEmpty() &&
-                                prChangedFilesCache.get(pr.getNumber()).getFirst().startsWith("Error:")))
-                .collect(Collectors.toList());
-
-
-        if (prsRequiringFileFetch.isEmpty()) return;
-
-        if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
-            activePrFilesFetcher.cancel(true);
-        }
-        activePrFilesFetcher = new PrFilesFetcherWorker(prsRequiringFileFetch, contextManager.getProject());
-        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
-    }
 
 
     private String getBaseFilterValue(String displayOptionWithCount) {
@@ -1046,7 +1102,77 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         checkoutPrButton.setText("Check Out");
         checkoutPrButton.setEnabled(false);
         diffPrButton.setEnabled(false);
+        viewPrDiffButton.setEnabled(false);
         openInBrowserButton.setEnabled(false);
+    }
+
+    private void viewFullPrDiff() {
+        int selectedRow = prTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
+            return;
+        }
+        GHPullRequest pr = displayedPrs.get(selectedRow);
+        logger.info("Opening full diff viewer for PR #{}", pr.getNumber());
+
+        contextManager.submitUserTask("Show PR Diff", () -> {
+            try {
+                var repo = getRepo();
+                if (repo == null) {
+                    chrome.toolError("Git repository not available.", "Diff Error");
+                    return null;
+                }
+
+                String prHeadSha = pr.getHead().getSha();
+                String prBaseSha = pr.getBase().getSha();
+                String prHeadFetchRef = String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", pr.getNumber(), pr.getNumber());
+                String prBaseBranchName = pr.getBase().getRef(); // e.g., "main"
+                String prBaseFetchRef = String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
+
+                if (!ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
+                    chrome.toolError("Could not make PR head commit " + GitUiUtil.shortenCommitId(prHeadSha) + " available locally.", "Diff Error");
+                    return null;
+                }
+                if (!ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin")) {
+                    // This is a warning because prBaseSha might be an old commit not on the current tip of the base branch.
+                    // listFilesChangedBetweenBranches might still work if it's an ancestor.
+                    logger.warn("PR base commit {} might not be available locally after fetching {}. Diff might be based on a different merge-base.", GitUiUtil.shortenCommitId(prBaseSha), prBaseFetchRef);
+                }
+
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+
+                if (modifiedFiles.isEmpty()) {
+                    chrome.systemNotify("No changes found in PR #" + pr.getNumber(), "Diff Info", JOptionPane.INFORMATION_MESSAGE);
+                    return null;
+                }
+
+                var builder = new io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
+                        .setMultipleCommitsContext(true); // Indicate this is a multiple commits context
+
+                for (var mf : modifiedFiles) {
+                    var projectFile = mf.file();
+                    var status = mf.status();
+                    io.github.jbellis.brokk.difftool.ui.BufferSource leftSource, rightSource;
+
+                    if ("deleted".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource("", prHeadSha + " (Deleted)", projectFile.getFileName());
+                    } else if ("new".equals(status)) {
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource("", prBaseSha + " (New)", projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                    } else { // modified
+                        leftSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prBaseSha, projectFile), prBaseSha, projectFile.getFileName());
+                        rightSource = new io.github.jbellis.brokk.difftool.ui.BufferSource.StringSource(repo.getFileContent(prHeadSha, projectFile), prHeadSha, projectFile.getFileName());
+                    }
+                    builder.addComparison(leftSource, rightSource);
+                }
+                SwingUtilities.invokeLater(() -> builder.build().showInFrame("PR #" + pr.getNumber() + " Diff: " + pr.getTitle()));
+
+            } catch (Exception ex) {
+                logger.error("Error opening PR diff viewer for PR #{}", pr.getNumber(), ex);
+                chrome.toolError("Unable to open diff for PR #" + pr.getNumber() + ": " + ex.getMessage(), "Diff Error");
+            }
+            return null;
+        });
     }
 
 
@@ -1109,6 +1235,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         }
 
+        // Show loading message immediately
+        currentPrCommitDetailsList.clear();
+        prCommitsTableModel.setRowCount(0);
+        prCommitsTableModel.addRow(new Object[]{"Loading commits..."});
+
         var future = contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
@@ -1141,16 +1272,18 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
                 prCommitsCache.put(prNumber, new ArrayList<>(newCommitList)); // Cache the successfully fetched commits (use a copy)
                 SwingUtilities.invokeLater(() -> {
-                    currentPrCommitDetailsList = newCommitList; // Assign the new list on EDT
-                    prCommitsTableModel.setRowCount(0);
-                    if (currentPrCommitDetailsList.isEmpty()) {
-                        prCommitsTableModel.addRow(new Object[]{"No commits found for PR #" + prNumber});
-                        return;
-                    }
-                    for (var commit : currentPrCommitDetailsList) {
-                        prCommitsTableModel.addRow(new Object[]{commit.message()});
-                    }
-                });
+                        currentPrCommitDetailsList = newCommitList; // Assign the new list on EDT
+                        prCommitsTableModel.setRowCount(0);
+                        if (currentPrCommitDetailsList.isEmpty()) {
+                            prCommitsTableModel.addRow(new Object[]{"No commits found for PR #" + prNumber});
+                            return;
+                        }
+                        for (var commit : currentPrCommitDetailsList) {
+                            prCommitsTableModel.addRow(new Object[]{commit.message()});
+                        }
+                        // Update files table since commits changed
+                        updateFilesForSelectedCommits();
+                    });
             } catch (Exception e) {
                 logger.error("Error fetching commits for PR #{}", prNumber, e);
                 // Cache the error indication
@@ -1162,6 +1295,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     currentPrCommitDetailsList.clear(); // Clear on EDT in case of error
                     prCommitsTableModel.setRowCount(0);
                     prCommitsTableModel.addRow(new Object[]{errorMsg});
+                    prFilesTableModel.setRowCount(0); // Clear files on error too
                 });
             }
             return null;
@@ -1389,5 +1523,127 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         org.kohsuke.github.GHPullRequest pr = displayedPrs.get(selectedRow);
         String url = pr.getHtmlUrl().toString();
         Environment.openInBrowser(url, SwingUtilities.getWindowAncestor(chrome.getFrame()));
+    }
+
+    /**
+     * Updates the files table for the currently selected PR.
+     */
+    private void updateFilesForPullRequest(GHPullRequest selectedPr) {
+        prFilesTableModel.setRowCount(0);
+        prFilesTableModel.addRow(new Object[]{"Loading changed files..."});
+        // Always fetch files on demand
+        fetchChangedFilesForSpecificPr(selectedPr);
+    }
+
+    /**
+     * Fetches changed files for a specific PR on demand.
+     */
+    private void fetchChangedFilesForSpecificPr(GHPullRequest pr) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (activePrFilesFetcher != null && !activePrFilesFetcher.isDone()) {
+            activePrFilesFetcher.cancel(true);
+        }
+        
+        activePrFilesFetcher = new PrFilesFetcherWorker(List.of(pr), contextManager.getProject()) {
+            @Override
+            protected void done() {
+                if (isCancelled()) {
+                    logger.debug("PR files fetcher worker cancelled.");
+                    return;
+                }
+                try {
+                    Map<Integer, List<String>> newFilesData = get();
+                    // Update the files table directly for the fetched PR
+                    List<String> files = newFilesData.get(pr.getNumber());
+                    SwingUtilities.invokeLater(() -> {
+                        // Only update if this PR is still selected
+                        int selectedRow = prTable.getSelectedRow();
+                        if (selectedRow >= 0 && selectedRow < displayedPrs.size() && 
+                            displayedPrs.get(selectedRow).getNumber() == pr.getNumber()) {
+                            prFilesTableModel.setRowCount(0);
+                            if (files == null || files.isEmpty()) {
+                                prFilesTableModel.addRow(new Object[]{"No files changed in this PR"});
+                            } else {
+                                for (String file : files) {
+                                    if (file.startsWith("Error:")) {
+                                        prFilesTableModel.addRow(new Object[]{file});
+                                    } else {
+                                        // Format as "<file name> - full file path"
+                                        String fileName = file.substring(file.lastIndexOf('/') + 1);
+                                        String displayText = fileName + " - " + file;
+                                        prFilesTableModel.addRow(new Object[]{displayText});
+                                    }
+                                }
+                            }
+                        }
+                    });
+                } catch (InterruptedException e) {
+                    logger.warn("PR files fetcher worker interrupted", e);
+                    Thread.currentThread().interrupt();
+                } catch (CancellationException e) {
+                     logger.debug("PR files fetcher worker task was cancelled.");
+                } catch (ExecutionException e) {
+                     reportBackgroundError("Error executing PR files fetcher worker task", (Exception) e.getCause());
+                } catch (Exception e) {
+                    reportBackgroundError("Error processing PR files fetcher results", e);
+                }
+            }
+        };
+        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
+    }
+
+    /**
+     * Updates the files table based on currently selected commits.
+     * If no commits are selected, shows all files in the PR.
+     * If commits are selected, shows only files changed in those commits.
+     */
+    private void updateFilesForSelectedCommits() {
+        int[] selectedCommitRows = prCommitsTable.getSelectedRows();
+        
+        prFilesTableModel.setRowCount(0);
+        
+        if (selectedCommitRows.length == 0) {
+            // No commits selected - show all PR files
+            int selectedPrRow = prTable.getSelectedRow();
+            if (selectedPrRow >= 0 && selectedPrRow < displayedPrs.size()) {
+                GHPullRequest selectedPr = displayedPrs.get(selectedPrRow);
+                updateFilesForPullRequest(selectedPr);
+            }
+        } else {
+            // Commits selected - show files from those commits
+            Set<String> allChangedFiles = new HashSet<>();
+            for (int row : selectedCommitRows) {
+                if (row < currentPrCommitDetailsList.size()) {
+                    ICommitInfo commitInfo = currentPrCommitDetailsList.get(row);
+                    try {
+                        var projectFiles = commitInfo.changedFiles();
+                        for (var file : projectFiles) {
+                            allChangedFiles.add(file.toString());
+                        }
+                    } catch (GitAPIException e) {
+                        logger.warn("Could not get changed files for commit {}: {}", commitInfo.id(), e.getMessage());
+                        allChangedFiles.add("Error loading files for commit " + commitInfo.id());
+                    }
+                }
+            }
+            
+            if (allChangedFiles.isEmpty()) {
+                prFilesTableModel.addRow(new Object[]{"No files changed in selected commits"});
+            } else {
+                var sortedFiles = new ArrayList<>(allChangedFiles);
+                Collections.sort(sortedFiles);
+                for (String file : sortedFiles) {
+                    if (file.startsWith("Error")) {
+                        prFilesTableModel.addRow(new Object[]{file});
+                    } else {
+                        // Format as "<file name> - full file path"
+                        String fileName = file.substring(file.lastIndexOf('/') + 1);
+                        String displayText = fileName + " - " + file;
+                        prFilesTableModel.addRow(new Object[]{displayText});
+                    }
+                }
+            }
+        }
     }
 }

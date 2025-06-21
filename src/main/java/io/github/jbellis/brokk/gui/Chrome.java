@@ -27,6 +27,9 @@ import java.awt.event.*;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -387,7 +390,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * Only updates the LLM text area and context panel display
      */
     public void setContext(Context ctx) {
-        assert ctx != null;
+        assert !ctx.containsDynamicFragments();
 
         logger.debug("Loading context.  active={}, new={}", activeContext == null ? "null" : activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away
@@ -566,9 +569,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Override
     public void toolError(String msg, String title) {
         logger.warn("%s: %s".formatted(msg, title));
-        SwingUtilities.invokeLater(() -> {
-            systemNotify(msg, title, JOptionPane.ERROR_MESSAGE);
-        });
+        SwingUtilities.invokeLater(() -> systemNotify(msg, title, JOptionPane.ERROR_MESSAGE));
     }
 
     @Override
@@ -580,7 +581,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private void systemOutputInternal(String message) {
         SwingUtilities.invokeLater(() -> {
             // Format timestamp as HH:MM
-            String timestamp = java.time.LocalTime.now(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+            String timestamp = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
             String timestampedMessage = timestamp + ": " + message;
 
             // Add to messages list

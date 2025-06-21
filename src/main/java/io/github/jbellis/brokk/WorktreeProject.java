@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.context.ContextHistory;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -71,7 +72,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
+    public @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
         return parent.loadHistory(sessionId, contextManager);
     }
 
@@ -213,5 +214,20 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
         parent.setIssuesProvider(provider);
+    }
+
+    @Override
+    public io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions getArchitectOptions() {
+        return parent.getArchitectOptions();
+    }
+
+    @Override
+    public boolean getArchitectRunInWorktree() {
+        return parent.getArchitectRunInWorktree();
+    }
+
+    @Override
+    public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
+        parent.setArchitectOptions(options, runInWorktree);
     }
 }

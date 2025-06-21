@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.context.ContextFragment.SkeletonFragment;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -30,14 +29,17 @@ import java.util.stream.Stream;
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
+    public static final Context EMPTY = new Context(new IContextManager() {}, null);
+
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Welcome to Brokk";
     public static final String SUMMARIZING = "(Summarizing)";
+    public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
-    private final transient IContextManager contextManager;
-    final List<ContextFragment> editableFiles; // Can hold PathFragment or FrozenFragment
-    final List<ContextFragment> readonlyFiles; // Can hold PathFragment or FrozenFragment
-    final List<ContextFragment.VirtualFragment> virtualFragments;
+    private final transient  IContextManager contextManager;
+    final  List<ContextFragment> editableFiles; // Can hold PathFragment or FrozenFragment
+    final  List<ContextFragment> readonlyFiles; // Can hold PathFragment or FrozenFragment
+    final  List<ContextFragment.VirtualFragment> virtualFragments;
 
     /** Task history list. Each entry represents a user request and the subsequent conversation */
     final List<TaskEntry> taskHistory;
@@ -52,22 +54,22 @@ public class Context {
     /**
      * Constructor for initial empty context
      */
-    public Context(@NotNull IContextManager contextManager, String initialOutputText) {
-        this(Objects.requireNonNull(contextManager, "contextManager cannot be null"),
+    public Context(IContextManager contextManager, @Nullable String initialOutputText) {
+        this(contextManager,
              List.of(),
              List.of(),
              List.of(),
              new ArrayList<>(),
-             getWelcomeOutput(contextManager, initialOutputText), // Pass contextManager here
+             getWelcomeOutput(contextManager, initialOutputText),
              CompletableFuture.completedFuture(WELCOME_ACTION));
     }
 
-    private static @NotNull ContextFragment.TaskFragment getWelcomeOutput(IContextManager contextManager, String initialOutputText) {
-        var messages = List.<ChatMessage>of(Messages.customSystem(initialOutputText));
+    private static ContextFragment.TaskFragment getWelcomeOutput(IContextManager contextManager, @Nullable String initialOutputText) {
+        var messages = initialOutputText == null ? List.<ChatMessage>of() : List.<ChatMessage>of(Messages.customSystem(initialOutputText));
         return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
     }
 
-    public Context(@NotNull IContextManager contextManager,
+    public Context(IContextManager contextManager,
             List<ContextFragment> editableFiles,
             List<ContextFragment> readonlyFiles,
             List<ContextFragment.VirtualFragment> virtualFragments,
@@ -75,19 +77,13 @@ public class Context {
             @Nullable ContextFragment.TaskFragment parsedOutput,
             Future<String> action)
     {
-        // contextManager is asserted non-null by the caller or public constructor
-        assert editableFiles != null;
-        assert readonlyFiles != null;
-        assert virtualFragments != null;
-        assert taskHistory != null;
-        assert action != null;
-        this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null in private constructor");
+        this.contextManager = contextManager;
         this.editableFiles = List.copyOf(editableFiles);
         this.readonlyFiles = List.copyOf(readonlyFiles);
         this.virtualFragments = List.copyOf(virtualFragments);
         this.taskHistory = List.copyOf(taskHistory); // Ensure immutability
-        this.parsedOutput = parsedOutput;
         this.action = action;
+        this.parsedOutput = parsedOutput;
     }
 
     /**
@@ -241,7 +237,6 @@ public class Context {
         return getWithFragments(editableFiles, readonlyFiles, newFragments, action);
     }
 
-    @NotNull
     private Context getWithFragments(List<ContextFragment> newEditableFiles,
                                      List<ContextFragment> newReadonlyFiles,
                                      List<ContextFragment.VirtualFragment> newVirtualFragments,
@@ -767,11 +762,7 @@ public class Context {
     public boolean workspaceEquals(Context other) {
         return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
     }
-
-    public boolean isFrozen() {
-        return allFragments().noneMatch(ContextFragment::isDynamic);
-    }
-
+    
     public boolean containsFrozenFragments() {
         return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }

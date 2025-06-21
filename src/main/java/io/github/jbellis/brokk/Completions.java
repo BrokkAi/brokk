@@ -12,6 +12,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 
+import static java.util.Objects.requireNonNull;
+
 public class Completions {
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String pattern = input.trim();
@@ -63,10 +65,11 @@ public class Completions {
 
         // Handle glob patterns [only in the last part of the path]
         if (pattern.contains("*") || pattern.contains("?")) {
-            Path parent = file.absPath().getParent();
-            while (parent.toString().contains("*") || parent.toString().contains("?")) {
+            var parent = file.absPath().getParent();
+            while (parent != null && (parent.getFileName().toString().contains("*") || parent.getFileName().toString().contains("?"))) {
                 parent = parent.getParent();
             }
+            requireNonNull(parent);
             var matcher = FileSystems.getDefault().getPathMatcher("glob:" + file.absPath());
             try (var stream = Files.walk(parent)) {
                 return stream

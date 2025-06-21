@@ -9,10 +9,7 @@ import org.treesitter.TreeSitterRust;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
@@ -85,15 +82,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
         // If the file is lib.rs or main.rs, and its parent directory is the effectiveModuleRoot,
         // it's considered the crate root module (empty package path).
-        if ((fileNameStr.equals("lib.rs") || fileNameStr.equals("main.rs")) && fileParentDir.equals(effectiveModuleRoot)) {
+        if ((fileNameStr.equals("lib.rs") || fileNameStr.equals("main.rs")) &&
+            (fileParentDir != null && fileParentDir.equals(effectiveModuleRoot))) {
             return "";
         }
 
         // Calculate the path of the file's directory relative to the effectiveModuleRoot.
         Path relativeDirFromModuleRoot;
-        if (fileParentDir.startsWith(effectiveModuleRoot)) {
+        if (fileParentDir != null && fileParentDir.startsWith(effectiveModuleRoot)) {
             relativeDirFromModuleRoot = effectiveModuleRoot.relativize(fileParentDir);
-        } else if (fileParentDir.startsWith(projectRoot)) {
+        } else if (fileParentDir != null && fileParentDir.startsWith(projectRoot)) {
             // Fallback: file is not under effectiveModuleRoot (e.g. src/) but is under projectRoot.
             // This can happen if usesSrcLayout was true but the file is in a sibling dir to src, e.g. project_root/examples/
             // Treat as relative to projectRoot in such cases.
@@ -140,10 +138,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         log.trace("RustAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
                   file.getFileName(), captureName, simpleName, packageName, classChain);
         return switch (captureName) {
@@ -167,7 +165,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             default -> {
                 log.warn("Unhandled capture name in RustAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
                          captureName, simpleName, file.getFileName());
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }

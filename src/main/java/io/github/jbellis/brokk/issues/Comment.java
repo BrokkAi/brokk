@@ -1,8 +1,10 @@
 package io.github.jbellis.brokk.issues;
 
+import org.jetbrains.annotations.Nullable;
+
 import java.util.Date;
 
 public record Comment(
         String author,
         String markdownBody,
-        Date created) {}
+        @Nullable Date created) {}

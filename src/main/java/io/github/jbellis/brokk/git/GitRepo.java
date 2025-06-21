@@ -5,6 +5,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.NoHeadException;
+import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -28,6 +30,7 @@ import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
+import org.eclipse.jgit.treewalk.filter.TreeFilter;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
@@ -40,6 +43,8 @@ import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * A Git repository abstraction using JGit.
@@ -56,7 +61,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Path gitTopLevel; // The actual top-level directory of the git repository
     private final Repository repository;
     private final Git git;
-    private Set<ProjectFile> trackedFilesCache = null;
+    private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     /**
      * Returns true if the directory has a .git folder or is within a Git worktree.
@@ -134,7 +139,8 @@ public class GitRepo implements Closeable, IGitRepo {
                 if (Files.exists(commondirFile)) {
                     String commonDirContent = Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
                     Path commonDir = gitDir.resolve(commonDirContent).normalize();
-                    this.gitTopLevel = commonDir.getParent().normalize();
+                    Path parentOfCommonDir = commonDir.getParent();
+                    this.gitTopLevel = requireNonNull(parentOfCommonDir, "Parent of git common-dir should not be null: " + commonDir).normalize();
                 } else {
                     // Fallback: try to parse the gitdir file in the working tree
                     Path gitFile = repository.getWorkTree().toPath().resolve(".git");
@@ -147,7 +153,8 @@ public class GitRepo implements Closeable, IGitRepo {
                             if (Files.exists(commondirFile2)) {
                                 String commonDirContent2 = Files.readString(commondirFile2, StandardCharsets.UTF_8).trim();
                                 Path commonDir2 = worktreeGitDir.resolve(commonDirContent2).normalize();
-                                this.gitTopLevel = commonDir2.getParent().normalize();
+                                Path parentOfCommonDir2 = commonDir2.getParent();
+                                this.gitTopLevel = requireNonNull(parentOfCommonDir2, "Parent of git common-dir (fallback) should not be null: " + commonDir2).normalize();
                             } else {
                                 // Ultimate fallback
                                 this.gitTopLevel = repository.getDirectory().getParentFile().toPath().normalize();
@@ -253,7 +260,13 @@ public class GitRepo implements Closeable, IGitRepo {
         var trackedPaths = new HashSet<String>();
         try {
             // HEAD (unchanged) files
-            var headTreeId = resolve("HEAD^{tree}");
+            ObjectId headTreeId = null;
+            try {
+                headTreeId = resolve("HEAD^{tree}");
+            } catch (GitRepoException e) {
+                // HEAD^{tree} might not exist in empty repos - this is allowed
+                logger.debug("HEAD^{{tree}} not resolvable: {}", e.getMessage());
+            }
             if (headTreeId != null) {
                 try (var revWalk = new RevWalk(repository);
                      var treeWalk = new TreeWalk(repository)) {
@@ -301,88 +314,75 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Produces a combined diff of staged + unstaged changes, restricted to the given files.
+     * Performs git diff operation with the given filter group, handling NoHeadException for empty repositories.
      */
-    @Override
-    public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+    private String performDiffWithFilter(TreeFilter filterGroup) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
-            var filters = files.stream()
-                    .map(file -> PathFilter.create(toRepoRelativePath(file)))
-                    .collect(Collectors.toCollection(ArrayList::new));
-            var filterGroup = PathFilterGroup.create(filters);
+            try {
+                // 1) staged changes
+                git.diff()
+                        .setCached(true)
+                        .setShowNameAndStatusOnly(false)
+                        .setPathFilter(filterGroup)
+                        .setOutputStream(out)
+                        .call();
+                var staged = out.toString(StandardCharsets.UTF_8);
+                out.reset();
 
-            // 1) staged changes
-            git.diff()
-                    .setCached(true)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var staged = out.toString(StandardCharsets.UTF_8);
-            out.reset();
+                // 2) unstaged changes
+                git.diff()
+                        .setCached(false)
+                        .setShowNameAndStatusOnly(false)
+                        .setPathFilter(filterGroup)
+                        .setOutputStream(out)
+                        .call();
+                var unstaged = out.toString(StandardCharsets.UTF_8);
 
-            // 2) unstaged changes
-            git.diff()
-                    .setCached(false)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var unstaged = out.toString(StandardCharsets.UTF_8);
-
-            return Stream.of(staged, unstaged)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.joining("\n"));
+                return Stream.of(staged, unstaged)
+                        .filter(s -> !s.isEmpty())
+                        .collect(Collectors.joining("\n"));
+            } catch (NoHeadException e) {
+                // Handle empty repository case - return empty diff for repositories with no commits
+                return "";
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
+    /**
+     * Produces a combined diff of staged + unstaged changes, restricted to the given files.
+     */
+    @Override
+    public synchronized String diffFiles(List<ProjectFile> files) throws GitAPIException {
+        var filters = files.stream()
+                .map(file -> PathFilter.create(toRepoRelativePath(file)))
+                .collect(Collectors.toCollection(ArrayList::new));
+        var filterGroup = PathFilterGroup.create(filters);
+        
+        return performDiffWithFilter(filterGroup);
+    }
+
     @Override
     public synchronized String diff() throws GitAPIException {
-        try (var out = new ByteArrayOutputStream()) {
-            var status = git.status().call();
-            var trackedPaths = new HashSet<String>();
-            trackedPaths.addAll(status.getModified());
-            trackedPaths.addAll(status.getChanged());
-            trackedPaths.addAll(status.getAdded());
-            trackedPaths.addAll(status.getRemoved());
-            trackedPaths.addAll(status.getMissing());
+        var status = git.status().call();
+        var trackedPaths = new HashSet<String>();
+        trackedPaths.addAll(status.getModified());
+        trackedPaths.addAll(status.getChanged());
+        trackedPaths.addAll(status.getAdded());
+        trackedPaths.addAll(status.getRemoved());
+        trackedPaths.addAll(status.getMissing());
 
-            if (trackedPaths.isEmpty()) {
-                return "";
-            }
-
-            var filters = trackedPaths.stream()
-                    .map(PathFilter::create)
-                    .collect(Collectors.toCollection(ArrayList::new));
-            var filterGroup = PathFilterGroup.create(filters);
-
-            // 1) staged changes
-            git.diff()
-                    .setCached(true)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var staged = out.toString(StandardCharsets.UTF_8);
-            out.reset();
-
-            // 2) unstaged changes
-            git.diff()
-                    .setCached(false)
-                    .setShowNameAndStatusOnly(false)
-                    .setPathFilter(filterGroup)
-                    .setOutputStream(out)
-                    .call();
-            var unstaged = out.toString(StandardCharsets.UTF_8);
-
-            return Stream.of(staged, unstaged)
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.joining("\n"));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
+        if (trackedPaths.isEmpty()) {
+            return "";
         }
+
+        var filters = trackedPaths.stream()
+                .map(PathFilter::create)
+                .collect(Collectors.toCollection(ArrayList::new));
+        var filterGroup = PathFilterGroup.create(filters);
+
+        return performDiffWithFilter(filterGroup);
     }
 
     /**
@@ -621,7 +621,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the tracking branch name for a local branch
      */
-    private String getTrackingBranch(String branchName) {
+    private @Nullable String getTrackingBranch(String branchName) {
         try {
             var config = repository.getConfig();
             var trackingBranch = config.getString("branch", branchName, "remote");
@@ -850,7 +850,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void revertCommit(String commitId) throws GitAPIException {
         try {
-            git.revert().include(repository.resolve(commitId)).call();
+            var resolvedCommit = repository.resolve(commitId);
+            if (resolvedCommit == null) {
+                throw new GitRepoException("Unable to resolve commit: " + commitId, new NoSuchElementException());
+            }
+            git.revert().include(resolvedCommit).call();
         } catch (IOException e) {
             throw new GitRepoException("Unable to resolve" + commitId, e);
         }
@@ -900,7 +904,11 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public String getCurrentBranch() throws GitAPIException {
         try {
-            return repository.getBranch();
+            var branch = repository.getBranch();
+            if (branch == null) {
+                throw new GitRepoException("Repository has no HEAD", new NullPointerException());
+            }
+            return branch;
         } catch (IOException e) {
             throw new GitWrappedIOException(e);
         }
@@ -1165,7 +1173,11 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public ObjectId resolve(String revstr) throws GitAPIException {
         try {
-            return repository.resolve(revstr);
+            var id = repository.resolve(revstr);
+            if (id == null) {
+                throw new GitRepoException("Unable to resolve " + revstr, new NoSuchElementException());
+            }
+            return id;
         } catch (IOException e) {
             throw new GitRepoException("Unable to resolve " + revstr, e);
         }
@@ -1202,7 +1214,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Prepares an AbstractTreeIterator for the given commit-ish string.
      */
-    private CanonicalTreeParser prepareTreeParser(String objectId) throws GitAPIException {
+    private @Nullable CanonicalTreeParser prepareTreeParser(String objectId) throws GitAPIException {
         if (objectId == null || objectId.isBlank()) {
             logger.warn("prepareTreeParser called with blank ref. Returning null iterator.");
             return null;
@@ -1455,10 +1467,10 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the URL of the specified remote (defaults to "origin")
      */
-    public String getRemoteUrl(String remoteName) {
+    public @Nullable String getRemoteUrl(String remoteName) {
         try {
             var config = repository.getConfig();
-            return config.getString("remote", remoteName, "url");
+            return config.getString("remote", remoteName, "url"); // getString can return null
         } catch (Exception e) {
             logger.warn("Failed to get remote URL: {}", e.getMessage());
             return null;
@@ -1468,7 +1480,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get the URL of the origin remote
      */
-    public String getRemoteUrl() {
+    public @Nullable String getRemoteUrl() {
         return getRemoteUrl("origin");
     }
 
@@ -1615,10 +1627,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Computes the merge base of two commits.
      */
-    private ObjectId computeMergeBase(ObjectId firstId, ObjectId secondId) throws GitAPIException {
-        if (firstId == null || secondId == null) {
-            return null;
-        }
+    private @Nullable ObjectId computeMergeBase(ObjectId firstId, ObjectId secondId) throws GitAPIException {
         try (RevWalk walk = new RevWalk(repository)) {
             RevCommit firstCommit = walk.parseCommit(firstId);
             RevCommit secondCommit = walk.parseCommit(secondId);
@@ -1638,7 +1647,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * Returns the SHA-1 of the merge base between the two rev-specs (or null
      * if none exists).  revA and revB may be branch names, tags, commit IDs, etc.
      */
-    public String getMergeBase(String revA, String revB) throws GitAPIException {
+    public @Nullable String getMergeBase(String revA, String revB) throws GitAPIException {
         var idA = resolve(revA);
         var idB = resolve(revB);
         var mb = computeMergeBase(idA, idB);
@@ -1664,10 +1673,13 @@ public class GitRepo implements Closeable, IGitRepo {
                 if (line.startsWith("worktree ")) {
                     // Finalize previous entry if data is present
                     if (currentPath != null) {
-                        worktrees.add(new WorktreeInfo(currentPath, currentBranch, currentHead));
+                        worktrees.add(new WorktreeInfo(currentPath,
+                                                       requireNonNull(currentBranch),
+                                                       requireNonNull(currentHead)));
                         currentHead = null;
                         currentBranch = null;
                     }
+
                     try {
                         currentPath = Path.of(line.substring("worktree ".length())).toRealPath();
                     } catch (IOException e) {
@@ -1688,7 +1700,9 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             // Add the last parsed worktree
             if (currentPath != null) {
-                worktrees.add(new WorktreeInfo(currentPath, currentBranch, currentHead));
+                worktrees.add(new WorktreeInfo(currentPath,
+                                               requireNonNull(currentBranch),
+                                               requireNonNull(currentHead)));
             }
             return worktrees;
         } catch (Environment.SubprocessException e) {
@@ -2051,9 +2065,9 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public String checkMergeConflicts(String worktreeBranchName, String targetBranchName, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
-        ObjectId worktreeBranchId = resolve(worktreeBranchName);
-        ObjectId targetBranchId = resolve(targetBranchName);
+    public @Nullable String checkMergeConflicts(String worktreeBranchName, String targetBranchName, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+        ObjectId worktreeBranchId = resolve(worktreeBranchName); // Can throw GitAPIException
+        ObjectId targetBranchId = resolve(targetBranchName); // Can throw GitAPIException
 
         if (worktreeBranchId == null) {
             return String.format("Error: Worktree branch '%s' could not be resolved.", worktreeBranchName);
@@ -2082,7 +2096,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
                     if (status == RebaseResult.Status.CONFLICTS || status == RebaseResult.Status.STOPPED) {
                         // Get conflicts before aborting, just in case abort clears them from the result object
-                        List<String> conflictingFiles = rebaseResult.getConflicts();
+                        List<String> conflictingFiles = rebaseResult.getConflicts() == null ? List.of() : rebaseResult.getConflicts();
                         try {
                             git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
                         } catch (GitAPIException e) {
@@ -2090,7 +2104,7 @@ public class GitRepo implements Closeable, IGitRepo {
                             logger.warn("Failed to abort rebase while reporting conflicts: {}", e.getMessage(), e);
                         }
 
-                        if (conflictingFiles != null && !conflictingFiles.isEmpty()) {
+                        if (!conflictingFiles.isEmpty()) {
                             return "Rebase conflicts detected in: " + String.join(", ", conflictingFiles);
                         } else {
                             // If status is CONFLICTS or STOPPED but getConflicts() is empty,
@@ -2148,7 +2162,8 @@ public class GitRepo implements Closeable, IGitRepo {
                     logger.debug("Merge simulation result: {}", status);
 
                     if (status == MergeResult.MergeStatus.CONFLICTING) {
-                        return "Merge conflicts detected in: " + String.join(", ", mergeResult.getConflicts().keySet());
+                        var conflicts = requireNonNull(mergeResult.getConflicts());
+                        return "Merge conflicts detected in: " + String.join(", ", conflicts.keySet());
                     } else if (status.isSuccessful()) {
                         return null; // MERGED, FAST_FORWARD, MERGED_SQUASHED, ALREADY_UP_TO_DATE
                     } else {

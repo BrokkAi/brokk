@@ -37,10 +37,7 @@ public class SearchTools {
     // This is necessary because LLMs may incorrectly include them, but the underlying
     // code analysis tools expect clean FQNs or symbol names without parameter lists.
 
-    private static @Nullable String stripParams(String sym) {
-        if (sym == null) {
-            return null;
-        }
+    private static String stripParams(String sym) {
         // Remove trailing (...) if it looks like a parameter list
         return sym.replaceAll("(?<=\\w)\\([^)]*\\)$", "");
     }

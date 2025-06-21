@@ -274,7 +274,7 @@ public class FragmentDtos {
                                     String originalType,
                                     String description,
                                     String shortDescription,
-                                    String textContent,
+                                    @Nullable String textContent,
                                     boolean isTextFragment,
                                     String syntaxStyle,
                                     Set<ProjectFileDto> files,

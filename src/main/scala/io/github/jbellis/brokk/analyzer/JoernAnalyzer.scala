@@ -52,6 +52,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   private var adjacency: Map[String, Map[String, Int]] = Map.empty
   private var reverseAdjacency: Map[String, Map[String, Int]] = Map.empty
   private var classesForPagerank: Set[String] = Set.empty
+
+  // Cache for directChildren to avoid expensive CPG queries
+  private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
+
   initializePageRank()
 
   /**
@@ -1166,52 +1170,71 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   override def close(): Unit = cpg.close()
 
-  override def getSymbols(sources: java.util.Set[CodeUnit]): java.util.Set[String] = {
+  /**
+   * Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
+   *
+   * This implementation queries the Code Property Graph (CPG) to find parent-child
+   * relationships between code elements. The relationships are determined by the
+   * semantic structure of the analyzed code.
+   *
+   * '''CPG-based Child Resolution:'''
+   *  - '''Classes:''' Children include methods and fields from the CPG TypeDecl
+   *    - Filters out constructors (`<init>`), static initializers (`<clinit>`), and operators
+   *    - Excludes synthetic fields like `outerClass`
+   *    - Uses `resolveMethodName` for proper method name resolution
+   *  - '''Modules:''' Children include all other declarations in the same source file
+   *    - Useful for languages with file-based module systems
+   *  - '''Functions/Fields:''' No children (return empty list)
+   */
+  override def directChildren(cu: CodeUnit): java.util.List[CodeUnit] =
     import scala.jdk.CollectionConverters.*
-    import scala.collection.parallel.CollectionConverters.*
 
-    val sourceUnits = sources.asScala
-    val sourceFiles = sourceUnits.map(_.source).toSet
-    val symbols = java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+    if cu == null then
+      return java.util.List.of()
 
-    // Add short names of the source units themselves
-    sourceUnits.par.foreach { cu =>
-      val shortName = cu.shortName()
-      if (shortName != null && shortName.nonEmpty) {
-        symbols.add(shortName)
-      }
-    }
+    // Check cache first to avoid expensive CPG queries
+    directChildrenCache.computeIfAbsent(cu, _ => computeDirectChildren(cu))
 
-    // Find TypeDecls within the specified source files
-    cpg.typeDecl.l.par
-      .filter(td => toFile(td).exists(sourceFiles.contains))
-      .foreach { td =>
-        val className = td.fullName.split('.').last
-        if (className.nonEmpty) {
-          symbols.add(className) // Add class short name
-        }
+  private def computeDirectChildren(cu: CodeUnit): java.util.List[CodeUnit] =
+    import scala.jdk.CollectionConverters.*
 
-        // Add method short names (resolved)
-        td.method
-          .nameNot("<init>", "<clinit>", "<lambda>.*") // Exclude constructors, static initializers, lambdas
-          .l.par
-          .foreach { m =>
-            val resolvedName = resolveMethodName(chopColon(m.fullName))
-            val methodShortName = resolvedName.split('.').last
-            if (methodShortName.nonEmpty) {
-              symbols.add(methodShortName) // Add method short name
+    cu match
+      // For classes: return methods and fields (short-circuit on synthetic ones)
+      case cls if cls.isClass =>
+        val children =
+          cpg.typeDecl
+            .fullNameExact(cls.fqName())
+            .headOption
+            .toList
+            .flatMap { td =>
+              toFile(td).toList.flatMap { file =>
+                val methods =
+                  td.method
+                    .filterNot(m => m.name == "<init>" || m.name == "<clinit>" || m.name.startsWith("<operator>"))
+                    .flatMap { m =>
+                      val fqn = resolveMethodName(chopColon(m.fullName))
+                      cuFunction(fqn, file)
+                    }
+                    .l
+
+                val fields =
+                  td.member
+                    .filterNot(_.name == "outerClass")
+                    .flatMap(f => cuField(s"${td.fullName}.${f.name}", file))
+                    .l
+
+                methods ++ fields
+              }
             }
-          }
+        // Use LinkedHashSet for efficient deduplication while preserving order
+        val uniqueChildren = collection.mutable.LinkedHashSet[CodeUnit]()
+        uniqueChildren ++= children
+        uniqueChildren.toList.asJava
 
-        // Add field short names
-        td.member.l.par.foreach { f =>
-          val fieldName = f.name
-          if (fieldName != null && fieldName.nonEmpty) {
-            symbols.add(fieldName) // Add just the field name
-          }
-        }
-      }
+      // For module CUs: treat every other declaration in the same file as a “child”
+      case mod if mod.isModule =>
+        getDeclarationsInFile(mod.source()).asScala.filterNot(_ == mod).toList.asJava
 
-    symbols
-  }
+      // Functions, fields, etc. have no children
+      case _ => java.util.List.of()
 }

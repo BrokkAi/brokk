@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.util.MarkdownImageParser;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import com.google.common.collect.ImmutableList;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHIssueComment;
@@ -127,7 +128,7 @@ public class GitHubIssueService implements IssueService {
     }
 
     @Override
-    public IssueDetails loadDetails(String issueId) throws IOException {
+    public @Nullable IssueDetails loadDetails(String issueId) throws IOException {
         if (issueId == null || issueId.isBlank()) {
             throw new IOException("Issue ID cannot be null or blank.");
         }
@@ -161,7 +162,7 @@ public class GitHubIssueService implements IssueService {
         return new IssueDetails(header, markdownBody, comments, attachmentUrls);
     }
 
-    private IssueHeader mapToIssueHeader(GHIssue ghIssue) {
+    private @Nullable IssueHeader mapToIssueHeader(GHIssue ghIssue) {
         if (ghIssue == null) return null;
         try {
             String id = "#" + ghIssue.getNumber();
@@ -251,7 +252,7 @@ public class GitHubIssueService implements IssueService {
                 .collect(Collectors.toList());
     }
 
-    private boolean matchesAuthor(GHIssue issue, String authorFilter) {
+    private boolean matchesAuthor(GHIssue issue, @Nullable String authorFilter) {
         if (authorFilter == null || authorFilter.isBlank()) {
             return true;
         }
@@ -263,7 +264,7 @@ public class GitHubIssueService implements IssueService {
         }
     }
 
-    private boolean matchesLabel(GHIssue issue, String labelFilter) {
+    private boolean matchesLabel(GHIssue issue, @Nullable String labelFilter) {
         if (labelFilter == null || labelFilter.isBlank()) {
             return true;
         }
@@ -271,7 +272,7 @@ public class GitHubIssueService implements IssueService {
         return issue.getLabels().stream().anyMatch(label -> labelFilter.equals(label.getName()));
     }
 
-    private boolean matchesAssignee(GHIssue issue, String assigneeFilter) {
+    private boolean matchesAssignee(GHIssue issue, @Nullable String assigneeFilter) {
         if (assigneeFilter == null || assigneeFilter.isBlank()) {
             return true;
         }

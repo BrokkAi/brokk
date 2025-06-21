@@ -10,7 +10,9 @@ import io.github.jbellis.brokk.util.Messages;
 import java.util.List;
 
 public interface IConsoleIO {
-    void actionOutput(String msg);
+    default void actionOutput(String msg) {
+        systemOutput(msg);
+    }
 
     default void actionComplete() {
     }

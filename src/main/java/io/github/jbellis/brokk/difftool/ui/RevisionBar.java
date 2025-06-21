@@ -13,6 +13,8 @@ import java.awt.event.MouseListener;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * RevisionBar is the thin vertical bar at the left or right side
@@ -21,6 +23,7 @@ import com.github.difflib.patch.Patch;
 public class RevisionBar extends JComponent
 {
     private static final long serialVersionUID = 1L;
+    private static final Logger logger = LogManager.getLogger(RevisionBar.class);
 
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanel;
@@ -185,18 +188,19 @@ public class RevisionBar extends JComponent
                 }
 
                 // If none found, just scroll to that line
+                FilePanel targetPanel;
                 if (original) {
                     // If this is the original side, we consider the left panel
-                    diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT),
-                            line
-                    );
+                    targetPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
                 } else {
                     // Otherwise, scroll the right panel
-                    diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT),
-                            line
-                    );
+                    targetPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                }
+
+                if (targetPanel != null) {
+                    diffPanel.getScrollSynchronizer().scrollToLine(targetPanel, line);
+                } else {
+                    logger.warn("Target panel for scroll is null. Original: {}", original);
                 }
             }
         };

@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.List;
@@ -85,10 +84,10 @@ public interface IContextManager {
      *
      * @param listener The listener to add. Must not be null.
      */
-    default void addContextListener(@NotNull ContextListener listener) {
+    default void addContextListener(ContextListener listener) {
     }
 
-    default void removeContextListener(@NotNull ContextListener listener) {
+    default void removeContextListener(ContextListener listener) {
     }
 
     default ProjectFile toFile(String relName) {

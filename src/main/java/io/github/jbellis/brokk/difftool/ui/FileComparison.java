@@ -25,33 +25,42 @@ import org.jetbrains.annotations.Nullable;
 public class FileComparison extends SwingWorker<String, Object> {
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
+    @Nullable
     private JMDiffNode diffNode;
+    @Nullable
     private BufferDiffPanel panel;
     private final BufferSource leftSource;
     private final BufferSource rightSource;
     private final GuiTheme theme;
+    private final boolean isMultipleCommitsContext;
 
     // Constructor
     private FileComparison(FileComparisonBuilder builder, GuiTheme theme, ContextManager contextManager) {
         this.mainPanel = builder.mainPanel;
-        this.leftSource = builder.leftSource;
-        this.rightSource = builder.rightSource;
+        this.leftSource = Objects.requireNonNull(builder.leftSource);
+        this.rightSource = Objects.requireNonNull(builder.rightSource);
         this.theme = theme;
         this.contextManager = contextManager;
+        this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
     }
 
     // Static Builder class
     public static class FileComparisonBuilder {
         private final BrokkDiffPanel mainPanel;
         private final ContextManager contextManager;
+        @Nullable
         private BufferSource leftSource;
+        @Nullable
         private BufferSource rightSource;
         private GuiTheme theme; // Default to light
+        private boolean isMultipleCommitsContext = false;
 
         public FileComparisonBuilder(BrokkDiffPanel mainPanel, GuiTheme theme, ContextManager contextManager) {
             this.mainPanel = mainPanel;
             this.theme = theme;
             this.contextManager = contextManager;
+            this.leftSource = null; // Initialize @Nullable fields
+            this.rightSource = null;
         }
 
         public FileComparisonBuilder withSources(BufferSource left, BufferSource right) {
@@ -65,6 +74,11 @@ public class FileComparison extends SwingWorker<String, Object> {
             return this;
         }
 
+        public FileComparisonBuilder setMultipleCommitsContext(boolean isMultipleCommitsContext) {
+            this.isMultipleCommitsContext = isMultipleCommitsContext;
+            return this;
+        }
+
         public FileComparison build() {
             if (leftSource == null || rightSource == null) {
                 throw new IllegalStateException("Both left and right sources must be provided for comparison.");
@@ -73,6 +87,7 @@ public class FileComparison extends SwingWorker<String, Object> {
         }
     }
 
+    @Nullable
     public BufferDiffPanel getPanel() {
         return panel;
     }
@@ -82,7 +97,11 @@ public class FileComparison extends SwingWorker<String, Object> {
         if (diffNode == null) {
             diffNode = createDiffNode(leftSource, rightSource);
         }
-        diffNode.diff();
+        if (diffNode != null) { // createDiffNode can return null if sources are problematic though current logic implies non-null
+            diffNode.diff();
+        } else {
+            return "Failed to create diff node from sources.";
+        }
         return null;
     }
 
@@ -132,11 +151,13 @@ public class FileComparison extends SwingWorker<String, Object> {
             rightDocSyntaxHint = fileSourceRight.file().getName();
         }
 
-        String leftDisplayTitle = getDisplayTitleForSource(left);
-
         String leftFileDisplay = leftDocSyntaxHint;
-
-        var nodeTitle = "%s (%s)".formatted(leftFileDisplay, leftDisplayTitle);
+        String nodeTitle;
+        if (this.isMultipleCommitsContext) {
+            nodeTitle = leftFileDisplay;
+        } else {
+            nodeTitle = "%s (%s)".formatted(leftFileDisplay, getDisplayTitleForSource(left));
+        }
         var node = new JMDiffNode(nodeTitle, true);
 
         if (left instanceof BufferSource.FileSource fileSourceLeft) {
@@ -177,9 +198,12 @@ public class FileComparison extends SwingWorker<String, Object> {
                 ImageIcon resizedIcon = getScaledIcon();
                 mainPanel.getTabbedPane().addTab(panel.getTitle(), resizedIcon, panel);
                 mainPanel.getTabbedPane().setSelectedComponent(panel);
-                
+
                 // Apply theme after the panel is added to the UI hierarchy
-                SwingUtilities.invokeLater(() -> panel.applyTheme(theme));
+                if (this.panel != null) {
+                    BufferDiffPanel panelRef = this.panel; // Assign to a local variable for lambda capture
+                    SwingUtilities.invokeLater(() -> panelRef.applyTheme(theme));
+                }
             }
         } catch (Exception ex) {
             // Handle exceptions during the 'done' phase, e.g., from get()

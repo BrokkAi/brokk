@@ -4,7 +4,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.Set;
@@ -58,7 +57,7 @@ public class SummarizerPrompts {
                        new UserMessage(request));
     }
 
-    private static @NotNull String getRequest(String actionTxt, int wordBudget) {
+    private static String getRequest(String actionTxt, int wordBudget) {
         return """
         <text>
         %s
@@ -94,7 +93,7 @@ public class SummarizerPrompts {
                 new SystemMessage("""
                     You are an expert software engineer writing clear pull-request descriptions.
                     Describe the intent, behaviour changes and key implementation ideas in human language.
-                    Use bullet points or short paragraphs. 75–150 words is ideal.
+                    Use bullet points or short paragraphs. 75–150 words is ideal. Just focus on the most important changes.
                     """.stripIndent()),
                 new UserMessage("<diff>\n" + diff + "\n</diff>")
         );

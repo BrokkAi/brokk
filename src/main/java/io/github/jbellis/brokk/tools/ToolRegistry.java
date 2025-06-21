@@ -8,7 +8,6 @@ import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager; // Added import
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -172,7 +171,7 @@ public class ToolRegistry {
      * @param target The resolved method and instance.
      * @return The execution result.
      */
-    private static @NotNull ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target) throws InterruptedException {
+    private static ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target) throws InterruptedException {
         Method method = target.method();
         Object instance = target.instance();
 

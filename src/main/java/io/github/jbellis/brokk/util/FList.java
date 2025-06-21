@@ -1,71 +1,102 @@
-// Copyright 2000-2024 JetBrains s.r.o. and contributors. Use of this source code is governed by the Apache 2.0 license.
 package io.github.jbellis.brokk.util;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.AbstractList;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 
+import static java.util.Objects.requireNonNull;
+
+/**
+ * A simple persistent (functional) singly-linked list.
+ */
 public final class FList<E> extends AbstractList<E> {
+    /**
+     * Shared empty-list sentinel
+     */
     private static final FList<?> EMPTY_LIST = new FList<>(null, null, 0);
-    @Nullable
-    private final E myHead;
-    private final FList<E> myTail;
+
+    /**
+     * First element (may itself be {@code null})
+     */
+    private final @Nullable E myHead;
+
+    /**
+     * Remaining elements; {@code null} only for the empty list
+     */
+    private final @Nullable FList<E> myTail;
+
+    /**
+     * Cached size for O(1) access
+     */
     private final int mySize;
 
-    private FList(@Nullable E head, FList<E> tail, int size) {
+    /**
+     * Internal constructor
+     */
+    private FList(@Nullable E head, @Nullable FList<E> tail, int size) {
         myHead = head;
         myTail = tail;
         mySize = size;
     }
 
     @Override
-    public E get(int index) {
+    public @Nullable E get(int index) {
         if (index < 0 || index >= mySize) {
             throw new IndexOutOfBoundsException("index = " + index + ", size = " + mySize);
         }
 
         FList<E> current = this;
         while (index > 0) {
-            current = current.myTail;
+            current = requireNonNull(current.myTail);
             index--;
         }
         return current.myHead;
     }
 
+    /**
+     * Returns the first element (which may be {@code null}).
+     */
     @Nullable
     public E getHead() {
         return myHead;
     }
 
-    public FList<E> prepend(E elem) {
+    /**
+     * Returns a new list with {@code elem} added in front.
+     */
+    public FList<E> prepend(@Nullable E elem) {
         return new FList<>(elem, this, mySize + 1);
     }
 
+    /**
+     * Returns a copy of this list with the first occurrence of {@code elem} removed.
+     * Comparison respects {@code null} elements.
+     */
     public FList<E> without(@Nullable E elem) {
         FList<E> front = emptyList();
-
         FList<E> current = this;
+
         while (!current.isEmpty()) {
-            if (elem == null ? current.myHead == null : current.myHead.equals(elem)) {
-                FList<E> result = current.myTail;
+            if (elem == null ? current.myHead == null : elem.equals(current.myHead)) {
+                FList<E> result = requireNonNull(current.myTail);
                 while (!front.isEmpty()) {
                     result = result.prepend(front.myHead);
-                    front = front.myTail;
+                    front = requireNonNull(front.myTail);
                 }
                 return result;
             }
 
             front = front.prepend(current.myHead);
-            current = current.myTail;
+            current = requireNonNull(current.myTail);
         }
         return this;
     }
 
     @Override
-    public @NotNull Iterator<E> iterator() {
+    public Iterator<E> iterator() {
         return new Iterator<E>() {
             private FList<E> list = FList.this;
 
@@ -75,13 +106,12 @@ public final class FList<E> extends AbstractList<E> {
             }
 
             @Override
-            public E next() {
-                if (list.size() == 0) throw new NoSuchElementException();
-
+            public @Nullable E next() {
+                if (list.size() == 0) {
+                    throw new NoSuchElementException();
+                }
                 E res = list.myHead;
-                list = list.getTail();
-                assert list != null;
-
+                list = requireNonNull(list.getTail());
                 return res;
             }
 
@@ -92,7 +122,10 @@ public final class FList<E> extends AbstractList<E> {
         };
     }
 
-    public FList<E> getTail() {
+    /**
+     * Returns the tail (which is {@code null} only for the empty list).
+     */
+    public @Nullable FList<E> getTail() {
         return myTail;
     }
 
@@ -106,17 +139,19 @@ public final class FList<E> extends AbstractList<E> {
         if (this == o) return true;
         if (o instanceof FList) {
             FList<?> list1 = this;
-                FList<?> list2 = (FList<?>)o;
-                if (mySize != list2.mySize) return false;
-                while (list1 != null && !list1.isEmpty() && list2 != null && !list2.isEmpty()) {
-                    if (!java.util.Objects.equals(list1.myHead, list2.myHead)) return false;
-                    list1 = list1.myTail;
-                    list2 = list2.myTail;
-                    // If both tails become null simultaneously, we've reached the end and all elements matched
-                    if (list1 == null && list2 == null) return true;
-                    // If sizes matched initially, tails should become null at the same time if elements are equal
-                    // If one becomes null before the other, something is wrong (shouldn't happen if sizes match)
-                    if (list1 == null || list2 == null) return false; // Should not happen if size check passed
+            FList<?> list2 = (FList<?>) o;
+            if (mySize != list2.mySize) return false;
+
+            while (list1 != null && !list1.isEmpty()
+                    && list2 != null && !list2.isEmpty()) {
+                if (!Objects.equals(list1.myHead, list2.myHead)) return false;
+                list1 = list1.myTail;
+                list2 = list2.myTail;
+                // If both tails become null simultaneously, we've reached the end and all elements matched
+                if (list1 == null && list2 == null) return true;
+                // If sizes matched initially, tails should become null at the same time if elements are equal
+                // If one becomes null before the other, something is wrong (shouldn't happen if sizes match)
+                if (list1 == null || list2 == null) return false; // Should not happen if size check passed
             }
             return true;
         }
@@ -126,7 +161,7 @@ public final class FList<E> extends AbstractList<E> {
     @Override
     public int hashCode() {
         int result = 1;
-        FList each = this;
+        FList<?> each = this;
         while (each != null) {
             result = result * 31 + (each.myHead != null ? each.myHead.hashCode() : 0);
             each = each.getTail();
@@ -136,11 +171,13 @@ public final class FList<E> extends AbstractList<E> {
 
     @SuppressWarnings("unchecked")
     public static <E> FList<E> emptyList() {
-        //noinspection unchecked
-        return (FList<E>)EMPTY_LIST;
+        return (FList<E>) EMPTY_LIST;
     }
 
-    public static <E> FList<E> singleton(@NotNull E elem) {
+    /**
+     * Convenience factory for a single-element list.
+     */
+    public static <E> FList<E> singleton(E elem) {
         return FList.<E>emptyList().prepend(elem);
     }
 }

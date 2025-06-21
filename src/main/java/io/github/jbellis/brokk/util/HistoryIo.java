@@ -8,13 +8,16 @@ import io.github.jbellis.brokk.context.*;
 import io.github.jbellis.brokk.context.FragmentDtos.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -33,10 +36,10 @@ public final class HistoryIo {
 
     private HistoryIo() {}
 
-    public static ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
+    public static @Nullable ContextHistory readZip(Path zip, IContextManager mgr) throws IOException {
         if (!Files.exists(zip)) {
             logger.warn("History zip file not found: {}. Returning empty history.", zip);
-            return new ContextHistory();
+            return null;
         }
 
         // Peek into the zip to determine V1 format
@@ -62,13 +65,13 @@ public final class HistoryIo {
         } else {
             logger.warn("History zip file {} does not contain V1 history marker ({}). Returning empty history.",
                         zip, V1_FRAGMENTS_FILENAME);
-            return new ContextHistory();
+            return null;
         }
     }
 
-    private static ContextHistory readHistoryV1(Path zip, IContextManager mgr) throws IOException {
+    private static @Nullable ContextHistory readHistoryV1(Path zip, IContextManager mgr) throws IOException {
         AllFragmentsDto allFragmentsDto = null;
-        java.util.List<String> compactContextDtoLines = new java.util.ArrayList<>();
+        java.util.List<String> compactContextDtoLines = new ArrayList<>();
         Map<String, byte[]> imageBytesMap = new HashMap<>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
@@ -80,7 +83,7 @@ public final class HistoryIo {
                     // zis.closeEntry(); // Removed as per original V1 read logic structure
                     if (allFragmentsDto.version() != V1_FORMAT_VERSION) {
                         logger.error("Unsupported V1 fragments version: {}. Expected {}. Cannot load history.", allFragmentsDto.version(), V1_FORMAT_VERSION);
-                        return new ContextHistory();
+                        return null;
                     }
                 } else if (entry.getName().equals(V1_CONTEXTS_FILENAME)) {
                     var reader = new java.io.BufferedReader(new java.io.InputStreamReader(zis, java.nio.charset.StandardCharsets.UTF_8));
@@ -99,7 +102,7 @@ public final class HistoryIo {
 
         if (allFragmentsDto == null) {
             logger.error("V1 history file {} is missing {}. Cannot load history.", zip, V1_FRAGMENTS_FILENAME);
-            return new ContextHistory();
+            return null;
         }
         // No warning if compactContextDtoLines is empty but fragments exist, it's a valid state (empty history).
 
@@ -123,8 +126,7 @@ public final class HistoryIo {
                                                   fragmentCache) // fragmentCache passed for recursive calls
             ));
 
-        ContextHistory ch = new ContextHistory();
-        java.util.List<Context> contexts = new java.util.ArrayList<>();
+        var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
             try {
                 CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);
@@ -137,19 +139,17 @@ public final class HistoryIo {
             }
         }
 
-        if (!contexts.isEmpty()) {
-            ch.setInitialContext(contexts.get(0));
-            for (int i = 1; i < contexts.size(); i++) {
-                ch.addFrozenContextAndClearRedo(contexts.get(i));
-            }
+        if (contexts.isEmpty()) {
+            return null;
         }
-        return ch;
+
+        return new ContextHistory(contexts);
     }
 
     private static String summarizeAction(Context ctx) {
         try {
             // Assuming ctx.action is Future<String>
-            String summary = ctx.action.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            String summary = ctx.action.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             return (summary == null || summary.isBlank()) ? "Context updated" : summary;
         } catch (java.util.concurrent.TimeoutException e) {
             return "(Summary Unavailable)";

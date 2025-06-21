@@ -51,12 +51,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    @Nullable
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         // The packageName parameter is now supplied by determinePackageName.
         // The classChain parameter is used for Joern-style short name generation.
 
@@ -66,42 +65,36 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             moduleName = moduleName.substring(0, moduleName.length() - 3); // e.g., "A"
         }
 
-        try {
-            return switch (captureName) {
-                case "class.definition" -> {
-                    String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
-                    yield CodeUnit.cls(file, packageName, finalShortName);
+        return switch (captureName) {
+            case "class.definition" -> {
+                String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
+                yield CodeUnit.cls(file, packageName, finalShortName);
+            }
+            case "function.definition" -> {
+                String finalShortName = classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
+                yield CodeUnit.fn(file, packageName, finalShortName);
+            }
+            case "field.definition" -> { // For class attributes or top-level variables
+                if (file.getFileName().equals("vars.py")) {
+                    log.trace("[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
+                              file.getFileName(), captureName, simpleName, packageName, classChain, moduleName);
                 }
-                case "function.definition" -> {
-                    String finalShortName = classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
-                    yield CodeUnit.fn(file, packageName, finalShortName);
+                String finalShortName;
+                if (classChain.isEmpty()) {
+                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of a "."
+                    // This also makes it consistent with how top-level functions are named (moduleName.funcName)
+                    finalShortName = moduleName + "." + simpleName;
+                } else {
+                    finalShortName = classChain + "." + simpleName;
                 }
-                case "field.definition" -> { // For class attributes or top-level variables
-                    if (file.getFileName().equals("vars.py")) {
-                        log.trace("[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
-                                 file.getFileName(), captureName, simpleName, packageName, classChain, moduleName);
-                    }
-                    String finalShortName;
-                    if (classChain.isEmpty()) {
-                        // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of a "."
-                        // This also makes it consistent with how top-level functions are named (moduleName.funcName)
-                        finalShortName = moduleName + "." + simpleName;
-                    } else {
-                        finalShortName = classChain + "." + simpleName;
-                    }
-                    yield CodeUnit.field(file, packageName, finalShortName);
-                }
-                default -> {
-                    // Log or handle unexpected captures if necessary
-                    log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                    yield null; // Returning null ignores the capture
-                }
-            };
-        } catch (IllegalArgumentException e) {
-            log.warn("Failed to create CodeUnit for capture '{}', name '{}', file '{}': {}",
-                     captureName, simpleName, file, e.getMessage());
-            return null; // Return null on error to avoid breaking the analysis stream
-        }
+                yield CodeUnit.field(file, packageName, finalShortName);
+            }
+            default -> {
+                // Log or handle unexpected captures if necessary
+                log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
+                yield null; // Returning null ignores the capture
+            }
+        };
     }
 
     @Override
