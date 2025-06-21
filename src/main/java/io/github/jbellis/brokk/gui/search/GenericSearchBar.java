@@ -9,6 +9,7 @@ import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.border.EmptyBorder;
 
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
@@ -19,6 +20,8 @@ import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
  */
 public class GenericSearchBar extends JPanel {
     private final JTextField searchField;
+    private final JButton clearButton;
+    private final JPanel searchFieldPanel;
     private final JToggleButton caseSensitiveButton;
     private final JButton nextButton;
     private final JButton previousButton;
@@ -38,6 +41,53 @@ public class GenericSearchBar extends JPanel {
 
         // Initialize components
         searchField = new JTextField(20);
+        searchField.setBorder(new EmptyBorder(4, 4, 4, 4));
+
+        // Create clear button as a small floating button
+        clearButton = new JButton("×");
+        clearButton.setMargin(new Insets(0, 4, 0, 4));
+        clearButton.setToolTipText("Clear search");
+        clearButton.setVisible(false); // Initially hidden
+        clearButton.setFocusable(false); // Prevent focus stealing
+        clearButton.setBorderPainted(false);
+        clearButton.setContentAreaFilled(false);
+        clearButton.setOpaque(false);
+        clearButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        clearButton.setFont(clearButton.getFont().deriveFont(Font.PLAIN, 14f)); // Make × symbol larger
+        clearButton.setForeground(Color.GRAY); // Make it visible
+
+        // Create a panel to hold the search field with the overlaid clear button
+        searchFieldPanel = new JPanel(null) {
+            @Override
+            public void doLayout() {
+                super.doLayout();
+                // Position the search field to fill the panel
+                searchField.setBounds(0, 0, getWidth(), getHeight());
+
+                // Only position the clear button if it's visible
+                if (clearButton.isVisible()) {
+                    // Position the clear button inside the text field on the right
+                    Insets insets = searchField.getInsets();
+
+                    int buttonWidth = 20; // Fixed width for consistency
+                    int buttonHeight = 20; // Fixed height for consistency
+                    int fieldHeight = searchField.getHeight();
+                    int buttonY = (fieldHeight - buttonHeight) / 2; // For vertical centering
+                    // Use a small fixed padding from the right inner border of the search field
+                    int horizontalPadding = 2; // pixels
+                    int buttonX = searchField.getWidth() - buttonWidth - insets.right - horizontalPadding;
+                    clearButton.setBounds(buttonX, buttonY, buttonWidth, buttonHeight);
+                }
+            }
+        };
+        searchFieldPanel.setOpaque(false);
+
+        // Add components to the panel (order matters for overlaying)
+        searchFieldPanel.add(clearButton); // Add button first so it appears on top
+        searchFieldPanel.add(searchField);
+
+        // Adjust text field right margin to make room for the clear button
+        searchField.setMargin(new Insets(2, 2, 2, 20));
         caseSensitiveButton = new JToggleButton("Cc");
         caseSensitiveButton.setToolTipText("Case sensitive search");
         caseSensitiveButton.setMargin(new Insets(2, 4, 2, 4));
@@ -52,11 +102,17 @@ public class GenericSearchBar extends JPanel {
 
         // Build UI
         add(new JLabel("Search:"));
-        add(searchField);
+        add(searchFieldPanel);
         add(caseSensitiveButton);
         add(previousButton);
         add(nextButton);
         add(matchCountLabel);
+
+        // Set preferred size for the search field panel based on the search field's size
+        Dimension fieldSize = searchField.getPreferredSize();
+        searchFieldPanel.setPreferredSize(new Dimension(fieldSize.width, fieldSize.height));
+        searchFieldPanel.setMinimumSize(new Dimension(100, fieldSize.height));
+        searchFieldPanel.setMaximumSize(new Dimension(Integer.MAX_VALUE, fieldSize.height));
 
         // Setup event handlers
         setupEventHandlers();
@@ -100,6 +156,9 @@ public class GenericSearchBar extends JPanel {
                 if (query == null || query.trim().isEmpty()) {
                     updateMatchCount(0, 0);
                 }
+
+                // Update clear button visibility
+                updateClearButtonVisibility();
             }
         });
 
@@ -107,6 +166,10 @@ public class GenericSearchBar extends JPanel {
         searchField.addActionListener(e -> findNext());
 
         // Button actions
+        clearButton.addActionListener(e -> {
+            clearSearch();
+            searchField.requestFocusInWindow();
+        });
         nextButton.addActionListener(e -> findNext());
         previousButton.addActionListener(e -> findPrevious());
         caseSensitiveButton.addActionListener(e -> {
@@ -177,6 +240,32 @@ public class GenericSearchBar extends JPanel {
      */
     public void clearHighlights() {
         targetComponent.clearHighlights();
+    }
+
+    /**
+     * Updates the visibility of the clear button based on search field content.
+     */
+    private void updateClearButtonVisibility() {
+        var text = searchField.getText();
+        boolean hasText = text != null && !text.isEmpty();
+        clearButton.setVisible(hasText);
+
+        // Adjust text field margin based on clear button visibility
+        if (hasText) {
+            searchField.setMargin(new Insets(2, 2, 2, 26)); // Increased margin for button space
+        } else {
+            searchField.setMargin(new Insets(2, 2, 2, 2));
+        }
+
+        // Force layout update and ensure button is on top
+        SwingUtilities.invokeLater(() -> {
+            searchFieldPanel.doLayout();
+            searchFieldPanel.revalidate();
+            searchFieldPanel.repaint();
+            if (hasText) {
+                clearButton.repaint(); // Ensure button is painted
+            }
+        });
     }
 
     /**
@@ -258,12 +347,14 @@ public class GenericSearchBar extends JPanel {
 
     public void setSearchText(String text) {
         searchField.setText(text);
+        updateClearButtonVisibility();
     }
 
     public void clearSearch() {
         searchField.setText("");
         clearHighlights();
         updateMatchCount(0, 0);
+        updateClearButtonVisibility();
     }
 
     public boolean isCaseSensitive() {
