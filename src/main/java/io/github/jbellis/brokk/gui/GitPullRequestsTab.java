@@ -1130,9 +1130,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         SwingUtilities.invokeLater(() -> {
             String currentInstructions = chrome.getInstructionsPanel().getInstructions();
             if (currentInstructions == null || currentInstructions.trim().isEmpty()) {
-                String prTitle = pr.getTitle();
                 String reviewGuide = contextManager.getProject().getReviewGuide();
-                String reviewPrompt = String.format("Review PR: %s\n\n%s", prTitle, reviewGuide);
+                String reviewPrompt = String.format("Review PR #%d: %s\n\n%s", pr.getNumber(), pr.getTitle(), reviewGuide);
                 chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
             }
         });
