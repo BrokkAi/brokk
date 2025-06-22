@@ -1139,7 +1139,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                     contextManager.addToHistory(result, false);
                 }
-                repopulateInstructionsArea(input);
+                populateInstructionsArea(input);
             } else {
                 if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                     chrome.systemOutput("Code Agent complete!");
@@ -1199,7 +1199,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 chrome.getContextManager().addToHistory(sessionResult, false);
             }
-            repopulateInstructionsArea(input);
+            populateInstructionsArea(input);
         }
 
     /**
@@ -1247,7 +1247,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
             chrome.toolError("Search agent cancelled without answering");
-            repopulateInstructionsArea(query);
+            populateInstructionsArea(query);
         }
     }
 
@@ -1278,7 +1278,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // It's tricky to know if llmOutput for closing ``` is safe or needed here.
             // For now, just log and return, consistent with previous behavior for interruption.
             chrome.systemOutput("Cancelled!");
-            repopulateInstructionsArea(input);
+            populateInstructionsArea(input);
             // No action needed for context history on cancellation here
             return;
         } finally {
@@ -1369,7 +1369,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 if (!currentProject.hasGit() || !currentProject.getRepo().supportsWorktrees()) {
                     chrome.hideOutputSpinner();
                     chrome.toolError("Cannot create worktree: Project is not a Git repository or worktrees are not supported.");
-                    repopulateInstructionsArea(originalInstructions); // Restore instructions if setup fails
+                    populateInstructionsArea(originalInstructions); // Restore instructions if setup fails
                     return;
                 }
 
@@ -1414,20 +1414,20 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         chrome.systemOutput("New worktree opened for Architect");
                     } else {
                         chrome.toolError("Failed to open the new worktree project for Architect.");
-                        repopulateInstructionsArea(originalInstructions);
+                        populateInstructionsArea(originalInstructions);
                     }
                 }).exceptionally(ex -> {
                     chrome.toolError("Error opening new worktree project: " + ex.getMessage());
-                    repopulateInstructionsArea(originalInstructions);
+                    populateInstructionsArea(originalInstructions);
                     return null;
                 });
             } catch (InterruptedException e) {
                 logger.warn("Architect worktree setup interrupted.", e);
                 chrome.systemOutput("Architect worktree setup was cancelled.");
-                repopulateInstructionsArea(originalInstructions);
+                populateInstructionsArea(originalInstructions);
             } catch (GitAPIException | IOException | ExecutionException ex) {
                 chrome.toolError("Error setting up worktree: " + ex.getMessage());
-                repopulateInstructionsArea(originalInstructions);
+                populateInstructionsArea(originalInstructions);
             } finally {
                 chrome.hideOutputSpinner();
             }
@@ -1656,16 +1656,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.notifyActionComplete("Action '" + actionName + "' completed.");
     }
 
-    private void repopulateInstructionsArea(String originalText) {
+    public void populateInstructionsArea(String text) {
         SwingUtilities.invokeLater(() -> {
             // If placeholder is active or area is disabled, activate input first
             if (instructionsArea.getText().equals(PLACEHOLDER_TEXT) || !instructionsArea.isEnabled()) {
                 activateCommandInput(); // This enables, clears placeholder, requests focus
             }
-            instructionsArea.setText(originalText);
-            commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
-            instructionsArea.requestFocusInWindow(); // Ensure focus after text set
-            instructionsArea.setCaretPosition(originalText.length()); // Move caret to end
+            SwingUtilities.invokeLater(() -> {
+                instructionsArea.setText(text);
+                commandInputUndoManager.discardAllEdits(); // Reset undo history for the repopulated content
+                instructionsArea.requestFocusInWindow(); // Ensure focus after text set
+                instructionsArea.setCaretPosition(text.length()); // Move caret to end
+            });
         });
     }
 

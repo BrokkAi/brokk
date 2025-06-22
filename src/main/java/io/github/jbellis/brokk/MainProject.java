@@ -38,6 +38,7 @@ public final class MainProject extends AbstractProject {
     private final Path propertiesFile;
     private final Properties projectProps;
     private final Path styleGuidePath;
+    private final Path reviewGuidePath;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -97,6 +98,14 @@ public final class MainProject extends AbstractProject {
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
     private static final String FAVORITE_MODELS_KEY = "favoriteModelsJson";
 
+    public static final String DEFAULT_REVIEW_GUIDE = """
+            When reviewing the pull request, please address the following points:
+            - explain your understanding of what this PR is intended to do
+            - does it accomplish its goals
+            - does it conform to the style guidelines
+            - what parts are the trickiest and how could they be simplified
+            """.stripIndent();
+
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {
         }
@@ -111,6 +120,7 @@ public final class MainProject extends AbstractProject {
 
         this.propertiesFile = this.masterRootPathForConfig.resolve(".brokk").resolve("project.properties");
         this.styleGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("style.md");
+        this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
         this.sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
         this.legacySessionsIndexPath = this.sessionsDir.resolve("sessions.jsonl");
 
@@ -604,6 +614,28 @@ public final class MainProject extends AbstractProject {
             AtomicWrites.atomicOverwrite(styleGuidePath, styleGuide);
         } catch (IOException e) {
             logger.error("Error saving style guide: {}", e.getMessage());
+        }
+    }
+
+    @Override
+    public String getReviewGuide() {
+        try {
+            if (Files.exists(reviewGuidePath)) {
+                return Files.readString(reviewGuidePath);
+            }
+        } catch (IOException e) {
+            logger.error("Error reading review guide: {}", e.getMessage());
+        }
+        return ""; // Return empty string if not found or error
+    }
+
+    @Override
+    public void saveReviewGuide(String reviewGuide) {
+        try {
+            Files.createDirectories(reviewGuidePath.getParent());
+            AtomicWrites.atomicOverwrite(reviewGuidePath, reviewGuide);
+        } catch (IOException e) {
+            logger.error("Error saving review guide: {}", e.getMessage());
         }
     }
 

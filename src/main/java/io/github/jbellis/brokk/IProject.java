@@ -65,6 +65,14 @@ public interface IProject extends AutoCloseable {
         return "";
     }
 
+    default String getReviewGuide() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void saveReviewGuide(String reviewGuide) {
+        throw new UnsupportedOperationException();
+    }
+
     default Path getMasterRootPathForConfig() {
         throw new UnsupportedOperationException();
     }
