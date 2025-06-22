@@ -40,20 +40,19 @@ public class FileSelectionDialog extends JDialog {
      * @param fileFilter             Optional predicate to filter files in the tree (external mode only).
      * @param autocompleteCandidates Optional collection of external file paths for autocompletion.
      */
-    public FileSelectionDialog(Frame parent, @Nullable IProject project, String title, boolean allowExternalFiles,
+    public FileSelectionDialog(Frame parent, IProject project, String title, boolean allowExternalFiles,
                                @Nullable Predicate<File> fileFilter, Future<List<Path>> autocompleteCandidates) {
         super(parent, title, true); // modal dialog
-        assert autocompleteCandidates != null;
 
         // Configure the FileSelectionPanel
         var panelConfig = new FileSelectionPanel.Config(project,
                                                         allowExternalFiles,
-                                                        fileFilter,
+                                                        fileFilter != null ? fileFilter : f -> true,
                                                         autocompleteCandidates,
                                                         false, // multiSelect = false
                                                         this::handlePanelSingleFileConfirmed,
-                                                        true, // includeProjectFilesInAutocomplete
-                                                        null);
+                                                        true, // includeProjectFilesInAutocomplete only if project is not null
+                                                        ""); // Provide empty string for help text instead of null
         fileSelectionPanel = new FileSelectionPanel(panelConfig);
 
         JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
@@ -104,13 +103,11 @@ public class FileSelectionDialog extends JDialog {
     }
 
     private void handlePanelSingleFileConfirmed(BrokkFile file) {
-        if (file != null) {
-            this.selectedFile = file;
-            this.confirmed = true;
-            // Update text in panel's input, though panel might do this itself
-            fileSelectionPanel.setInputText(file.absPath().toString());
-            dispose();
-        }
+        this.selectedFile = file;
+        this.confirmed = true;
+        // Update text in panel's input, though panel might do this itself
+        fileSelectionPanel.setInputText(file.absPath().toString());
+        dispose();
     }
 
     private void doOk() {

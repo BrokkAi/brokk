@@ -101,6 +101,9 @@ public class JMHighlighter implements Highlighter, ThemeAware {
      * Adds a highlight to a specific layer.
      */
     public Object addHighlight(int layer, int p0, int p1, HighlightPainter painter) throws BadLocationException {
+        if (component == null) {
+            throw new IllegalStateException("Highlighter not installed in a JTextComponent.");
+        }
         Document doc = component.getDocument();
         HighlightInfo hli = new HighlightInfo(doc.createPosition(p0), doc.createPosition(p1), painter);
 
@@ -148,7 +151,9 @@ public class JMHighlighter implements Highlighter, ThemeAware {
     @Override
     public void changeHighlight(Object highlight, int p0, int p1) throws BadLocationException {
         if (!(highlight instanceof HighlightInfo hli)) return;
-
+        if (component == null) {
+            throw new IllegalStateException("Highlighter not installed in a JTextComponent.");
+        }
         Document doc = component.getDocument();
         hli.p0 = doc.createPosition(p0);
         hli.p1 = doc.createPosition(p1);

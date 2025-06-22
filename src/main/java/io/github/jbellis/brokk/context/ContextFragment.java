@@ -764,8 +764,6 @@ public interface ContextFragment {
                           StringFragment.class.getName()),
                   contextManager);
             this.syntaxStyle = syntaxStyle;
-            assert text != null;
-            assert description != null;
             this.text = text;
             this.description = description;
         }
@@ -774,8 +772,6 @@ public interface ContextFragment {
         public StringFragment(String existingHashId, IContextManager contextManager, String text, String description, String syntaxStyle) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
             this.syntaxStyle = syntaxStyle;
-            assert text != null;
-            assert description != null;
             this.text = text;
             this.description = description;
             // No need to call ContextFragment.setNextId() as hash IDs are not numeric.
@@ -821,14 +817,12 @@ public interface ContextFragment {
         public SearchFragment(IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
             // The ID (hash) is calculated by the TaskFragment constructor based on sessionName and messages.
             super(contextManager, messages, sessionName);
-            assert sources != null;
             this.sources = sources;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public SearchFragment(String existingHashId, IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
             super(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName); // existingHashId is expected to be a content hash
-            assert sources != null;
             this.sources = sources;
         }
 
@@ -900,16 +894,12 @@ public interface ContextFragment {
                           SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // Default syntax style for hashing
                           PasteTextFragment.class.getName()),
                   contextManager, descriptionFuture);
-            assert text != null;
-            assert descriptionFuture != null;
             this.text = text;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public PasteTextFragment(String existingHashId, IContextManager contextManager, String text, Future<String> descriptionFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
-            assert text != null;
-            assert descriptionFuture != null;
             this.text = text;
         }
 
@@ -955,16 +945,12 @@ public interface ContextFragment {
                           AnonymousImageFragment.class.getName(),
                           Map.of()), // No specific meta for hashing
                   contextManager, descriptionFuture);
-            assert image != null;
-            assert descriptionFuture != null;
             this.image = image;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public AnonymousImageFragment(String existingHashId, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
             super(existingHashId, contextManager, descriptionFuture); // existingHashId is expected to be a content hash
-            assert image != null;
-            assert descriptionFuture != null;
             this.image = image;
         }
 
@@ -1035,10 +1021,6 @@ public interface ContextFragment {
                           sources.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : sources.iterator().next().source().getSyntaxStyle(),
                           StacktraceFragment.class.getName()),
                   contextManager);
-            assert sources != null;
-            assert original != null;
-            assert exception != null;
-            assert code != null;
             this.sources = sources;
             this.original = original;
             this.exception = exception;
@@ -1048,10 +1030,6 @@ public interface ContextFragment {
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public StacktraceFragment(String existingHashId, IContextManager contextManager, Set<CodeUnit> sources, String original, String exception, String code) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
-            assert sources != null;
-            assert original != null;
-            assert exception != null;
-            assert code != null;
             this.sources = sources;
             this.original = original;
             this.exception = exception;
@@ -1129,14 +1107,14 @@ public interface ContextFragment {
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             super(contextManager); // Assigns dynamic numeric String ID
-            assert targetIdentifier != null && !targetIdentifier.isBlank();
+            assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
         }
 
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public UsageFragment(String existingId, IContextManager contextManager, String targetIdentifier) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
-            assert targetIdentifier != null && !targetIdentifier.isBlank();
+            assert !targetIdentifier.isBlank();
             this.targetIdentifier = targetIdentifier;
         }
 
@@ -1199,7 +1177,7 @@ public interface ContextFragment {
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(contextManager); // Assigns dynamic numeric String ID
-            assert methodName != null && !methodName.isBlank();
+            assert !methodName.isBlank();
             assert depth > 0;
             this.methodName = methodName;
             this.depth = depth;
@@ -1209,7 +1187,7 @@ public interface ContextFragment {
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public CallGraphFragment(String existingId, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
-            assert methodName != null && !methodName.isBlank();
+            assert !methodName.isBlank();
             assert depth > 0;
             this.methodName = methodName;
             this.depth = depth;
@@ -1294,8 +1272,6 @@ public interface ContextFragment {
 
         public SkeletonFragment(IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
             super(contextManager); // Assigns dynamic numeric String ID
-            assert targetIdentifiers != null;
-            assert summaryType != null;
             this.targetIdentifiers = List.copyOf(targetIdentifiers);
             this.summaryType = summaryType;
         }
@@ -1303,8 +1279,7 @@ public interface ContextFragment {
         // Constructor for DTOs/unfreezing where ID might be a numeric string or hash (if frozen)
         public SkeletonFragment(String existingId, IContextManager contextManager, List<String> targetIdentifiers, SummaryType summaryType) {
             super(existingId, contextManager); // Handles numeric ID parsing for nextId
-            assert targetIdentifiers != null && !targetIdentifiers.isEmpty();
-            assert summaryType != null;
+            assert !targetIdentifiers.isEmpty();
             this.targetIdentifiers = List.copyOf(targetIdentifiers);
             this.summaryType = summaryType;
         }
@@ -1331,10 +1306,8 @@ public interface ContextFragment {
                     // This assumes targetIdentifiers are file paths. Expansion of globs should happen before fragment creation.
                     for (String filePath : targetIdentifiers) {
                         IContextManager cm = getContextManager();
-                        if (cm != null) {
-                            ProjectFile projectFile = cm.toFile(filePath);
-                            skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
-                        }
+                        ProjectFile projectFile = cm.toFile(filePath);
+                        skeletonsMap.putAll(analyzer.getSkeletons(projectFile));
                     }
                 }
             }
@@ -1471,7 +1444,6 @@ public interface ContextFragment {
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public HistoryFragment(String existingHashId, IContextManager contextManager, List<TaskEntry> history) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
-            assert history != null;
             this.history = List.copyOf(history);
         }
 

@@ -579,7 +579,10 @@ public final class GitUiUtil
                             files.size(), shortCommitId
                     ));
                     // Refresh Git panels to show the changed files
-                    chrome.getGitPanel().updateCommitPanel();
+                    var gitPanel = chrome.getGitPanel();
+                    if (gitPanel != null) {
+                        gitPanel.updateCommitPanel();
+                    }
                 });
             } catch (Exception e) {
                 logger.error("Error rolling back files", e);

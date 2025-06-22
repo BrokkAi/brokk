@@ -9,18 +9,16 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.gui.dialogs.CreatePullRequestDialog;
-import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
 import java.io.IOException;
@@ -44,12 +42,13 @@ public class GitCommitTab extends JPanel {
     private final GitPanel gitPanel; // Reference to parent GitPanel
 
     // Commit tab UI
-    private JTable uncommittedFilesTable;
+    private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
     private JButton suggestMessageButton;
     private JTextArea commitMessageArea;
     private JButton commitButton;
     private JButton stashButton;
+    @Nullable
     private ProjectFile rightClickedFile = null; // Store the file that was right-clicked
 
     public GitCommitTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel) {
@@ -137,6 +136,8 @@ public class GitCommitTab extends JPanel {
 
             @Override
             public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {
+                 // Reset rightClickedFile if menu is cancelled
+                rightClickedFile = null;
             }
         });
 
@@ -144,6 +145,7 @@ public class GitCommitTab extends JPanel {
         viewDiffItem.addActionListener(e -> {
             // Use the stored right-clicked file as priority
             openDiffForAllUncommittedFiles(rightClickedFile);
+            rightClickedFile = null; // Clear after use
         });
 
         captureDiffItem.addActionListener(e -> {
@@ -155,15 +157,22 @@ public class GitCommitTab extends JPanel {
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
             GitUiUtil.editFiles(contextManager, selectedProjectFiles);
+            rightClickedFile = null; // Clear after use
         });
 
         // Add action listener for the view history item
         viewHistoryItem.addActionListener(e -> {
-            int row = uncommittedFilesTable.getSelectedRow();
-            if (row >= 0) {
-                var projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
-                gitPanel.addFileHistoryTab(projectFile);
+            // int row = uncommittedFilesTable.getSelectedRow(); // Using rightClickedFile instead
+            if (rightClickedFile != null) {
+                gitPanel.addFileHistoryTab(rightClickedFile);
+            } else { // Fallback to selection if rightClickedFile is somehow null
+                int row = uncommittedFilesTable.getSelectedRow();
+                if (row >= 0) {
+                    var projectFile = (ProjectFile) uncommittedFilesTable.getModel().getValueAt(row, 2);
+                    gitPanel.addFileHistoryTab(projectFile);
+                }
             }
+            rightClickedFile = null; // Clear after use
         });
 
         // Add action listener for the rollback changes item
@@ -212,10 +221,8 @@ public class GitCommitTab extends JPanel {
                             // Handle exceptions, e.g., log them or show an error to the user
                             logger.error("Error suggesting commit message:", throwable);
                             // Optionally inform the user via chrome.toolError or similar
-                            if (chrome != null) { // Ensure chrome is available
-                                String rootCauseMessage = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
-                                chrome.toolError("Failed to suggest commit message: " + rootCauseMessage, "Suggestion Error");
-                            }
+                            String rootCauseMessage = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
+                            chrome.toolError("Failed to suggest commit message: " + rootCauseMessage, "Suggestion Error");
                         }
                     } finally {
                         suggestMessageButton.setEnabled(true); // Re-enable button in all cases
@@ -238,7 +245,7 @@ public class GitCommitTab extends JPanel {
                     try {
                         Future<String> suggestionFuture = suggestMessageAsync(selectedFiles);
                         String suggestedMessage = suggestionFuture.get(); // Wait for suggestion
-                        if (suggestedMessage == null || suggestedMessage.isBlank()) {
+                        if (suggestedMessage.isBlank()) {
                             logger.warn("No suggested commit message found");
                             suggestedMessage = "Stash created by Brokk"; // Fallback
                         }
@@ -556,7 +563,7 @@ public class GitCommitTab extends JPanel {
      * Opens a diff view for all uncommitted files in the table.
      * @param priorityFile File to show first (e.g., the double-clicked file), or null for default ordering
      */
-    private void openDiffForAllUncommittedFiles(ProjectFile priorityFile) {
+    private void openDiffForAllUncommittedFiles(@Nullable ProjectFile priorityFile) {
         var allFiles = getAllFilesFromTable();
         if (allFiles.isEmpty()) {
             return; // nothing to diff
@@ -718,7 +725,7 @@ public class GitCommitTab extends JPanel {
      * Asynchronously suggests a commit message based on selected files or all changes.
      *
      * @param selectedFiles List of files to diff, or empty to diff all changes.
-     * @return A Future containing the suggested message, or null if no changes or error.
+     * @return A Future containing the suggested message, or an empty string if no changes or an error occurred.
      */
     private CompletableFuture<String> suggestMessageAsync(List<ProjectFile> selectedFiles) {
         // Submit the Callable to a background task executor managed by ContextManager
@@ -736,7 +743,7 @@ public class GitCommitTab extends JPanel {
 
             if (diff.isEmpty()) {
                 SwingUtilities.invokeLater(() -> chrome.systemOutput("No changes detected"));
-                return null; // Indicate no changes
+                return ""; // Return empty string instead of null
             }
             // Call the LLM logic
             return inferCommitMessage(contextManager.getProject(), diff);
@@ -749,13 +756,13 @@ public class GitCommitTab extends JPanel {
      *
      * @param project  The current project, used to get configuration like commit format.
      * @param diffText The text difference to analyze for the commit message.
-     * @return The inferred commit message string, or null if no message could be generated or an error occurred.
+     * @return The inferred commit message string, or an empty string if no message could be generated or an error occurred.
      */
     private String inferCommitMessage(IProject project, String diffText) {
         var messages = CommitPrompts.instance.collectMessages(project, diffText);
         if (messages.isEmpty()) {
             SwingUtilities.invokeLater(() -> chrome.systemOutput("Nothing to commit for suggestion"));
-            return null;
+            return ""; // Return empty string instead of null
         }
 
         Llm.StreamingResult result;
@@ -767,7 +774,7 @@ public class GitCommitTab extends JPanel {
 
         if (result.error() != null || result.isEmpty()) {
             SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM did not provide a commit message."));
-            return null;
+            return "";
         }
 
         return result.text();

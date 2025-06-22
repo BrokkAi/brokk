@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -34,6 +35,7 @@ public class ArchitectOptionsDialog {
      * @param chrome         The main application window reference for positioning and theme.
      * @return The selected ArchitectChoices (options + worktree preference), or null if the dialog was cancelled.
      */
+    @Nullable
     public static ArchitectChoices showDialogAndWait(Chrome chrome) {
         var contextManager = chrome.getContextManager();
         // Use AtomicReference to capture the result from the EDT lambda

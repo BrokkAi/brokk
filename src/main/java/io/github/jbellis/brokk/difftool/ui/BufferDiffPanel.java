@@ -10,19 +10,21 @@ import io.github.jbellis.brokk.difftool.node.BufferNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.scroll.DiffScrollComponent;
 import io.github.jbellis.brokk.difftool.scroll.ScrollSynchronizer;
-import io.github.jbellis.brokk.gui.search.GenericSearchBar;
-
-import java.awt.*;
-import java.util.ArrayList;
-import java.util.EnumMap;
-import javax.swing.*;
-import javax.swing.text.BadLocationException;
-
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import javax.swing.text.BadLocationException;
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.EnumMap;
+
+import static java.util.Objects.requireNonNull;
+
 
 /**
  * This panel shows the side-by-side file panels, the diff curves, plus search bars.
@@ -56,10 +58,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         }
     }
 
-
-    @NotNull
     private final BrokkDiffPanel mainPanel;
-    @NotNull
     private GuiTheme guiTheme;
 
     // Instead of JMRevision:
@@ -69,7 +68,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private AbstractDelta<String> selectedDelta;
 
     private int selectedLine;
+    @Nullable
     private GenericSearchBar leftSearchBar;
+    @Nullable
     private GenericSearchBar rightSearchBar;
 
     // The left & right "file panels" using type-safe enum map
@@ -79,14 +80,15 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
     private ScrollSynchronizer scrollSynchronizer;
-    private JSplitPane splitPane;
 
-    public BufferDiffPanel(BrokkDiffPanel mainPanel, @NotNull GuiTheme theme)
+    public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme)
     {
         this.mainPanel = mainPanel;
         this.guiTheme = theme;
+
         // Let the mainPanel keep a reference to us for toolbar/undo/redo interplay
         mainPanel.setBufferDiffPanel(this);
+
         init();
         setFocusable(true);
     }
@@ -210,9 +212,11 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
-        var searchBarComponent = activateBarDialog();
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, true, searchBarComponent, filePanelComponent);
-        add(splitPane);
+        var searchBarComponent = activateBarDialog(columns);
+        
+        // Add components directly to BorderLayout without vertical resize capability
+        add(searchBarComponent, BorderLayout.NORTH);
+        add(filePanelComponent, BorderLayout.CENTER);
 
         // Create the scroll synchronizer for the left & right panels
         scrollSynchronizer = new ScrollSynchronizer(this, requireFilePanel(PanelSide.LEFT), requireFilePanel(PanelSide.RIGHT));
@@ -224,33 +228,33 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         registerSearchKeyBindings();
     }
 
-
     /**
      * Build the top row that holds search bars.
      */
-    public JPanel activateBarDialog()
+    public JPanel activateBarDialog(String columns)
     {
         // Use the same FormLayout structure as the file panels to align search bars with text areas
-        var columns = "3px, pref, 3px, left:pref, 5px, min, 60px, left:pref, fill:0:grow";
         var rows = "6px, pref";
         var layout = new com.jgoodies.forms.layout.FormLayout(columns, rows);
         var cc = new com.jgoodies.forms.layout.CellConstraints();
         var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
-        var leftPanel = getFilePanel(PanelSide.LEFT);
-        var rightPanel = getFilePanel(PanelSide.RIGHT);
-        if (leftPanel != null && rightPanel != null) {
-            leftSearchBar = new GenericSearchBar(leftPanel.createSearchableComponent());
-            rightSearchBar = new GenericSearchBar(rightPanel.createSearchableComponent());
+        var leftFilePanel = getFilePanel(PanelSide.LEFT);
+        var rightFilePanel = getFilePanel(PanelSide.RIGHT);
+        if (leftFilePanel != null && rightFilePanel != null) {
+            leftSearchBar = new GenericSearchBar(leftFilePanel.createSearchableComponent());
+            rightSearchBar = new GenericSearchBar(rightFilePanel.createSearchableComponent());
         }
 
         // Add search bars aligned with the text areas below
+        // Left search bar spans the same columns as the left text area (columns 4-6)
         if (leftSearchBar != null) {
-            barContainer.add(leftSearchBar, cc.xy(4, 2)); // Column 4 aligns with left text area, row 2 for spacing
+            barContainer.add(leftSearchBar, cc.xyw(4, 2, 3)); // Same span as left text area
         }
+        // Right search bar spans the same columns as the right text area (columns 8-10)
         if (rightSearchBar != null) {
-            barContainer.add(rightSearchBar, cc.xy(8, 2)); // Column 8 aligns with right text area, row 2 for spacing
+            barContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
         }
 
         return barContainer;
@@ -295,7 +299,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return scrollSynchronizer;
     }
 
-    public @NotNull BrokkDiffPanel getMainPanel()
+    public BrokkDiffPanel getMainPanel()
     {
         return mainPanel;
     }
@@ -511,7 +515,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             }
 
             // Remove this delta so we can't click it again
-            patch.getDeltas().remove(delta);
+            if (patch != null) {
+                patch.getDeltas().remove(delta);
+            }
 
             setSelectedDelta(null);
             setSelectedLine(sourceChunk.getPosition());
@@ -553,7 +559,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         toEditor.replaceSelection("");
 
         // Remove the just-used delta
-        patch.getDeltas().remove(delta);
+        if (patch != null) {
+            patch.getDeltas().remove(delta);
+        }
 
         setSelectedDelta(null);
         setSelectedLine(chunk.getPosition());
@@ -571,7 +579,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         for (var fp : filePanels.values()) {
             if (fp == null) continue;
             if (!fp.isDocumentChanged()) continue;
-            var doc = fp.getBufferDocument();
+            var doc = requireNonNull(fp.getBufferDocument());
             try {
                 doc.write();
             } catch (Exception ex) {
@@ -695,7 +703,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Note: We only register Esc, not Cmd+F, to avoid conflicts with our custom handler
         if (leftSearchBar != null) {
             KeyboardShortcutUtil.registerSearchEscapeShortcut(leftSearchBar.getSearchField(), () -> {
-                leftSearchBar.clearHighlights();
+                if (leftSearchBar != null) { // Double check for safety within lambda
+                    leftSearchBar.clearHighlights();
+                }
                 var leftPanel = getFilePanel(PanelSide.LEFT);
                 if (leftPanel != null) {
                     leftPanel.getEditor().requestFocusInWindow();
@@ -704,7 +714,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         }
         if (rightSearchBar != null) {
             KeyboardShortcutUtil.registerSearchEscapeShortcut(rightSearchBar.getSearchField(), () -> {
-                rightSearchBar.clearHighlights();
+                if (rightSearchBar != null) { // Double check for safety within lambda
+                    rightSearchBar.clearHighlights();
+                }
                 var rightPanel = getFilePanel(PanelSide.RIGHT);
                 if (rightPanel != null) {
                     rightPanel.getEditor().requestFocusInWindow();

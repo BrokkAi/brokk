@@ -63,7 +63,10 @@ public final class Reconciler {
         registry.keySet().removeIf(id -> {
             if (!seen.contains(id)) {
                 // logger.debug("Removing component with id {}", id);
-                container.remove(registry.get(id).comp);
+                var entry = registry.get(id);
+                if (entry != null) {
+                    container.remove(entry.comp);
+                }
                 return true;
             }
             return false;

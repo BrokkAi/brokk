@@ -99,6 +99,19 @@ public class ContextHistory {
         selected = frozen;
     }
 
+    /**
+     * Replaces the most recent context in history with the provided frozen context.
+     * This is useful for coalescing rapid changes into a single history entry.
+     */
+    public synchronized void replaceTopContext(Context newFrozenContext) {
+        assert !newFrozenContext.containsDynamicFragments();
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newFrozenContext);
+        redo.clear();
+        selected = newFrozenContext;
+    }
+
     /* ─────────────── undo / redo  ────────────── */
 
     public record UndoResult(boolean wasUndone, int steps) {

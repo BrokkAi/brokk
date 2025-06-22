@@ -20,6 +20,7 @@ import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * SearchableComponent adapter for MarkdownOutputPanel(s).
@@ -41,6 +42,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
 
     private final List<SearchMatch> allMatches = new ArrayList<>();
     private int currentMatchIndex = -1;
+    @Nullable
     private SearchMatch previousMatch = null;
     private final List<RTextAreaSearchableComponent> codeSearchComponents = new ArrayList<>();
 
@@ -59,18 +61,19 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
 
     @Override
     public String getText() {
-        return panels.stream()
-                .map(MarkdownOutputPanel::getText)
+        String result = panels.stream()
+                .map(p -> p.getText() != null ? p.getText() : "")
                 .reduce("", (a, b) -> a.isEmpty() ? b : a + "\n\n" + b);
+        return result != null ? result : "";
     }
 
     @Override
     public String getSelectedText() {
         return panels.stream()
                 .map(MarkdownOutputPanel::getSelectedText)
-                .filter(text -> text != null && !text.isEmpty())
+                .filter(text -> !text.isEmpty())
                 .findFirst()
-                .orElse(null);
+                .orElse("");
     }
 
     @Override
@@ -499,7 +502,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
                     // Temporarily set a null callback to prevent RTextAreaSearchableComponent from calling back to GenericSearchBar
                     // as we will consolidate results in handleSearchComplete.
                     SearchableComponent.SearchCompleteCallback originalCallback = rsc.getSearchCompleteCallback();
-                    rsc.setSearchCompleteCallback(null);
+                    rsc.setSearchCompleteCallback(SearchableComponent.SearchCompleteCallback.NONE);
                     rsc.highlightAll(currentSearchTerm, currentCaseSensitive);
                     rsc.setSearchCompleteCallback(originalCallback); // Restore original if any
                 }
@@ -654,6 +657,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     /**
      * Finds the currently focused JTextComponent within any of the panels.
      */
+    @Nullable
     private JTextComponent findFocusedTextComponent() {
         for (MarkdownOutputPanel panel : panels) {
             var focused = findFocusedTextComponentIn(panel);
@@ -667,6 +671,7 @@ public class MarkdownSearchableComponent extends BaseSearchableComponent {
     /**
      * Helper method to find a focused JTextComponent within a given component hierarchy.
      */
+    @Nullable
     private JTextComponent findFocusedTextComponentIn(Component comp) {
         if (comp instanceof JTextComponent tc && tc.isFocusOwner()) {
             return tc;

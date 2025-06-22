@@ -8,11 +8,12 @@ import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.util.function.Supplier;
 
+import org.jetbrains.annotations.Nullable;
 import static io.github.jbellis.brokk.gui.components.SplitButton.SplitButtonUI.ARROW_WIDTH;
 
 public class SplitButton extends JButton {
-    private Supplier<JPopupMenu> menuSupplier;
-    private JPopupMenu popupMenu; // Cache the menu
+    private @Nullable Supplier<JPopupMenu> menuSupplier;
+    private @Nullable JPopupMenu popupMenu; // Cache the menu
 
     public SplitButton(String text) {
         super(text);
@@ -215,22 +216,16 @@ public class SplitButton extends JButton {
         @Override
         public Dimension getPreferredSize(JComponent c) {
             Dimension d = super.getPreferredSize(c);
-            if (d == null) {
-                return null;
-            }
             if (c.isPreferredSizeSet()) {
                 return d;
             }
             d.width += ARROW_WIDTH;
             return d;
         }
-    
+
         @Override
         public Dimension getMinimumSize(JComponent c) {
             Dimension d = super.getMinimumSize(c);
-            if (d == null) {
-                return null;
-            }
             // If minimum size is explicitly set, or if preferred size is set, use the superclass's calculation.
             // Otherwise, add arrow width.
             if (c.isMinimumSizeSet() || c.isPreferredSizeSet()) {
@@ -239,13 +234,10 @@ public class SplitButton extends JButton {
             d.width += ARROW_WIDTH;
             return d;
         }
-    
+
         @Override
         public Dimension getMaximumSize(JComponent c) {
             Dimension d = super.getMaximumSize(c);
-            if (d == null) {
-                return null;
-            }
             // If maximum size is explicitly set, or if preferred size is set, use the superclass's calculation.
             // Otherwise, add arrow width.
             if (c.isMaximumSizeSet() || c.isPreferredSizeSet()) {

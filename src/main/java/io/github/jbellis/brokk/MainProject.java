@@ -108,9 +108,6 @@ public final class MainProject extends AbstractProject {
 
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {
-            if (openWorktrees == null) {
-                openWorktrees = List.of();
-            }
         }
 
         public static ProjectPersistentInfo fromTimestamp(long lastOpened) {
@@ -204,9 +201,7 @@ public final class MainProject extends AbstractProject {
                     String jsonString = objectMapper.writeValueAsString(migratedConfig);
                     props.setProperty(typeInfo.configKey(), jsonString);
                     props.remove(typeInfo.oldModelNameKey());
-                    if (typeInfo.oldReasoningKey() != null) {
-                        props.remove(typeInfo.oldReasoningKey());
-                    }
+                    props.remove(typeInfo.oldReasoningKey());
                     changed = true;
                     logger.info("Migrated model config for {} from old keys ('{}', '{}') to new key '{}'.",
                             modelType, typeInfo.oldModelNameKey(), typeInfo.oldReasoningKey(), typeInfo.configKey());
@@ -257,7 +252,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        assert details != null;
         if (!details.equals(BuildAgent.BuildDetails.EMPTY)) {
             try {
                 String json = objectMapper.writeValueAsString(details);
@@ -310,7 +304,6 @@ public final class MainProject extends AbstractProject {
     }
 
     private void setModelConfigInternal(String modelTypeKey, ModelConfig config) {
-        assert config != null;
         var props = loadGlobalProperties();
         var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
         Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
@@ -372,7 +365,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setCommitMessageFormat(String format) {
-        if (format == null || format.isBlank() || format.trim().equals(DEFAULT_COMMIT_MESSAGE_FORMAT)) {
+        if (format.isBlank() || format.trim().equals(DEFAULT_COMMIT_MESSAGE_FORMAT)) {
             if (projectProps.containsKey(COMMIT_MESSAGE_FORMAT_KEY)) {
                 projectProps.remove(COMMIT_MESSAGE_FORMAT_KEY);
                 saveProjectProperties();
@@ -442,7 +435,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
-        if (languages == null || languages.isEmpty() || (languages.size() == 1 && languages.contains(Language.NONE))) {
+        if (languages.isEmpty() || ((languages.size() == 1) && languages.contains(Language.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
             String langsString = languages.stream()
@@ -461,7 +454,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setCodeAgentTestScope(CodeAgentTestScope scope) {
-        assert scope != null;
         projectProps.setProperty(CODE_AGENT_TEST_SCOPE_KEY, scope.name());
         saveProjectProperties();
     }
@@ -519,9 +511,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
-        if (provider == null) {
-            provider = io.github.jbellis.brokk.IssueProvider.none(); // Default to NONE if null is passed
-        }
         try {
             String json = objectMapper.writeValueAsString(provider);
             projectProps.setProperty(ISSUES_PROVIDER_JSON_KEY, json);
@@ -602,7 +591,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setAnalyzerRefresh(CpgRefresh value) {
-        assert value != null;
         projectProps.setProperty("code_intelligence_refresh", value.name());
         saveProjectProperties();
     }
@@ -805,7 +793,7 @@ public final class MainProject extends AbstractProject {
 
     public static void setGitHubToken(String token) {
         var props = loadGlobalProperties();
-        if (token == null || token.isBlank()) {
+        if (token.isBlank()) {
             props.remove(GITHUB_TOKEN_KEY);
         } else {
             props.setProperty(GITHUB_TOKEN_KEY, token.trim());
@@ -844,7 +832,6 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
-        assert options != null;
         try {
             String json = objectMapper.writeValueAsString(options);
             projectProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
@@ -880,7 +867,7 @@ public final class MainProject extends AbstractProject {
 
     public static void setBrokkKey(String key) {
         var props = loadGlobalProperties();
-        if (key == null || key.isBlank()) {
+        if (key.isBlank()) {
             props.remove("brokkApiKey");
         } else {
             props.setProperty("brokkApiKey", key.trim());
@@ -923,7 +910,6 @@ public final class MainProject extends AbstractProject {
         public String getDisplayName() { return displayName; }
         @Override public String toString() { return displayName; }
         public static DataRetentionPolicy fromString(String value) {
-            if (value == null) return UNSET;
             for (DataRetentionPolicy policy : values()) {
                 if (policy.name().equalsIgnoreCase(value)) return policy;
             }
@@ -942,7 +928,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setDataRetentionPolicy(DataRetentionPolicy policy) {
-        assert policy != null && policy != DataRetentionPolicy.UNSET : "Cannot set policy to UNSET or null";
+        assert policy != DataRetentionPolicy.UNSET : "Cannot set policy to UNSET or null";
         projectProps.setProperty(DATA_RETENTION_POLICY_KEY, policy.name());
         saveProjectProperties();
         logger.info("Set Data Retention Policy to {} for project {}", policy, root.getFileName());
@@ -974,7 +960,6 @@ public final class MainProject extends AbstractProject {
     }
 
     public static void saveFavoriteModels(List<Service.FavoriteModel> favorites) {
-        assert favorites != null;
         var props = loadGlobalProperties();
         String newJson;
         try {
@@ -1232,7 +1217,7 @@ public final class MainProject extends AbstractProject {
             var persistentInfo = entry.getValue();
             if (validPathsFromOpenList.contains(mainProjectPathKey)) {
                 for (String worktreePathStr : persistentInfo.openWorktrees()) {
-                    if (worktreePathStr != null && !worktreePathStr.isBlank()) {
+                    if (!worktreePathStr.isBlank()) {
                         try {
                             var worktreePath = Path.of(worktreePathStr);
                             if (Files.isDirectory(worktreePath)) {

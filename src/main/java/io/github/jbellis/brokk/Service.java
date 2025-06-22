@@ -857,7 +857,7 @@ public final class Service {
     public void sendFeedback(String category,
                              String feedbackText,
                              boolean includeDebugLog,
-                             File screenshotFile) throws IOException
+                             @Nullable File screenshotFile) throws IOException
     {
         Objects.requireNonNull(category, "category must not be null");
         Objects.requireNonNull(feedbackText, "feedbackText must not be null");

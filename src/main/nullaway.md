@@ -14,3 +14,16 @@ The warnings are generally self-explanatory, but it's worth being explicit about
   respected by Null Away, so you should avoid that option.
 
 Style: put @Nullable in front of the type, after modifiers. E.g. `public static final @Nullable Foo foo`.
+
+Maintenance: add @org.jspecify.annotations.NullMarked to package-info.java for any new packages.
+
+# What's still missing
+
+Null Away only cares about making sure we don't dereference nulls. It does NOT care about eliminating
+redundant null checks. 
+
+Error Prone has an UnnecessaryCheckNotNull check that should do what we want but I can't get it to work:
+https://github.com/google/error-prone/issues/5107
+
+For now it looks like we're stuck periodically manually cleaning up unnecessary null checks using 
+IntelliJ's Constant Values inspection. (Analyze -> Run Inspection By Name.)

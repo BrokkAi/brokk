@@ -205,14 +205,8 @@ public class JiraIssueService implements IssueService {
     }
 
     @Override
-    public @Nullable IssueDetails loadDetails(String issueId) throws IOException {
+    public IssueDetails loadDetails(String issueId) throws IOException {
         logger.debug("Attempting to load Jira issue details for issueId: {}", issueId);
-
-        if (project == null) {
-            String errorMessage = "Project is null, cannot load Jira issue details.";
-            logger.error(errorMessage);
-            throw new IOException(errorMessage);
-        }
 
         IssueProvider provider = project.getIssuesProvider();
         if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {

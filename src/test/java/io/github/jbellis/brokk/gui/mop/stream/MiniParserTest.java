@@ -27,12 +27,12 @@ public class MiniParserTest {
     
     @BeforeEach
     void setUp() {
-        parser = new MiniParser();
+        idProvider = new IdProvider();
+        parser = new MiniParser(idProvider);
         mdFactory = new MarkdownFactory();
         factories = new HashMap<>();
         factories.put("code-fence", new TestCodeBlockFactory());
         factories.put("edit-block", new EditBlockFactory());
-        idProvider = new IdProvider();
     }
     
     /**
@@ -67,7 +67,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <p> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single MarkdownComponentData
         assertEquals(1, components.size());
@@ -84,7 +84,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <ul> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single CompositeComponentData
         assertEquals(1, components.size());
@@ -121,7 +121,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <div> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single CompositeComponentData
         assertEquals(1, components.size());
@@ -153,7 +153,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <blockquote> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single CompositeComponentData
         assertEquals(1, components.size());
@@ -185,7 +185,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <blockquote> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single CompositeComponentData
         assertEquals(1, components.size());
@@ -224,7 +224,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0); // <div> element
 
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         
         // Should produce a single CompositeComponentData
         assertEquals(1, components.size());
@@ -254,7 +254,7 @@ public class MiniParserTest {
         var doc = Jsoup.parse(html);
         var element = doc.body().child(0);
         
-        var components = parser.parse(element, mdFactory, factories, idProvider);
+        var components = parser.parse(element, mdFactory, factories);
         assertEquals(1, components.size());
         
         // Test component creation with light theme
@@ -350,7 +350,7 @@ public class MiniParserTest {
 
         for (Node child : body.childNodes()) {
             if (child instanceof Element element) {
-                var comps = parser.parse(element, mdFactory, factories, idProvider);
+                var comps = parser.parse(element, mdFactory, factories);
                 for (var cd : flatten(comps)) {
                     if (cd instanceof MarkdownComponentData md) {
                         list.add(md.id());

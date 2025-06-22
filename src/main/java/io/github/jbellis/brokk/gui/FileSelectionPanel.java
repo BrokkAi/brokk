@@ -12,6 +12,7 @@ import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -32,30 +33,24 @@ import java.util.concurrent.Future;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import org.jetbrains.annotations.Nullable;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 public class FileSelectionPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(FileSelectionPanel.class);
 
-    public record Config(io.github.jbellis.brokk.IProject project,
+    public record Config(IProject project,
                          boolean allowExternalFiles,
                          Predicate<File> fileFilter,
-                         Future<List<Path>> autocompleteCandidates, // Generalize to List<Path>
+                         Future<List<Path>> autocompleteCandidates,
                          boolean multiSelect,
-                         Consumer<BrokkFile> onSingleFileConfirmed,// Optional: action for single file confirmation (e.g., double-click)
+                         Consumer<BrokkFile> onSingleFileConfirmed,
                          boolean includeProjectFilesInAutocomplete,
-                         String customHintText
-                         ) {
-        public Config {
-            Objects.requireNonNull(project);
-            Objects.requireNonNull(fileFilter, "fileFilter cannot be null");
-            Objects.requireNonNull(autocompleteCandidates, "autocompleteCandidates cannot be null");
-        }
-    }
+                         String customHintText)
+    { }
 
     private final Config config;
-    private final IProject project; // Initialized from config, which requires it
-    private final @Nullable Path rootPath;  // May be null if project.getRoot() returns null
+    private final IProject project;
+    private final Path rootPath;
     private final FileSelectionTree tree;
     private final JTextComponent fileInputComponent; // JTextField or JTextArea
 
@@ -98,31 +93,31 @@ public class FileSelectionPanel extends JPanel {
         inputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0)); // Space below input
         if (config.multiSelect()) {
             inputPanel.add(new JScrollPane(fileInputComponent), BorderLayout.CENTER);
-    } else {
-        inputPanel.add(fileInputComponent, BorderLayout.CENTER);
-    }
-
-    // Hints below input
-    JPanel labelsPanel = new JPanel();
-    labelsPanel.setLayout(new BoxLayout(labelsPanel, BoxLayout.PAGE_AXIS));
-
-    if (config.customHintText() != null && !config.customHintText().isBlank()) {
-        for (String line : Splitter.on('\n').splitToList(config.customHintText())) {
-            labelsPanel.add(new JLabel(line));
+        } else {
+            inputPanel.add(fileInputComponent, BorderLayout.CENTER);
         }
-    }
 
-    if (config.multiSelect() && config.includeProjectFilesInAutocomplete()) {
-        labelsPanel.add(new JLabel("*/? to glob (project files only); ** to glob recursively"));
-    }
+        // Hints below input
+        JPanel labelsPanel = new JPanel();
+        labelsPanel.setLayout(new BoxLayout(labelsPanel, BoxLayout.PAGE_AXIS));
 
-    if (labelsPanel.getComponentCount() > 0) {
-        labelsPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // Small top padding
-        inputPanel.add(labelsPanel, BorderLayout.SOUTH);
-    }
-    add(inputPanel, BorderLayout.NORTH);
+        if (config.customHintText() != null && !config.customHintText().isBlank()) {
+            for (String line : Splitter.on('\n').splitToList(config.customHintText())) {
+                labelsPanel.add(new JLabel(line));
+            }
+        }
 
-    JScrollPane treeScrollPane = new JScrollPane(tree);
+        if (config.multiSelect() && config.includeProjectFilesInAutocomplete()) {
+            labelsPanel.add(new JLabel("*/? to glob (project files only); ** to glob recursively"));
+        }
+
+        if (labelsPanel.getComponentCount() > 0) {
+            labelsPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 0, 0)); // Small top padding
+            inputPanel.add(labelsPanel, BorderLayout.SOUTH);
+        }
+        add(inputPanel, BorderLayout.NORTH);
+
+        JScrollPane treeScrollPane = new JScrollPane(tree);
         treeScrollPane.setPreferredSize(new Dimension(450, 300)); // Default size, can be overridden
         add(treeScrollPane, BorderLayout.CENTER);
 
@@ -267,9 +262,8 @@ public class FileSelectionPanel extends JPanel {
                         logger.warn("Absolute path provided is outside the project and external files are not allowed: {}", filenameToken);
                     }
                 } else if (config.allowExternalFiles() && Files.exists(potentialPath)) {
-                     logger.warn("Absolute path provided is not a regular file (e.g. a directory): {}", filenameToken);
-                }
-                 else {
+                    logger.warn("Absolute path provided is not a regular file (e.g. a directory): {}", filenameToken);
+                } else {
                     logger.warn("Absolute path provided is not a regular file or does not exist: {}", filenameToken);
                 }
             } else { // Relative path, assume project relative or glob
@@ -353,7 +347,7 @@ public class FileSelectionPanel extends JPanel {
      * Handles project files, external paths, and different input component types.
      */
     private static class FilePanelCompletionProvider extends DefaultCompletionProvider {
-        private final @Nullable IProject project; // Can be null
+        private final IProject project;
         private final Future<List<Path>> autocompleteCandidatesFuture;
         private final boolean allowExternalFiles;
         private final boolean multiSelectMode; // To determine how to get_already_entered_text
@@ -388,24 +382,26 @@ public class FileSelectionPanel extends JPanel {
         public List<Completion> getCompletions(JTextComponent tc) {
             String pattern = getAlreadyEnteredText(tc); // This will be either full line or current token
             if (pattern.isEmpty() && !multiSelectMode) return List.of(); // For single, empty pattern = no completions
-            if (pattern.trim().isEmpty() && multiSelectMode) return List.of(); // For multi, empty token = no completions
+            if (pattern.trim().isEmpty() && multiSelectMode)
+                return List.of(); // For multi, empty token = no completions
 
 
             Path potentialPath = null;
             boolean isAbsolutePattern = false;
             if (!pattern.trim().isEmpty()) { // Only try to parse if pattern is not just whitespace
                 try {
-                    potentialPath = Path.of(pattern);
+                    potentialPath = Path.of(pattern); // Can throw InvalidPathException
                     isAbsolutePattern = potentialPath.isAbsolute();
                 } catch (java.nio.file.InvalidPathException e) {
-                    // Invalid syntax, treat as non-absolute
+                    // Invalid syntax, treat as non-absolute. potentialPath remains null.
+                    isAbsolutePattern = false;
                 }
             }
 
 
             // 1. External file completions if pattern is absolute and external files allowed
-            if (allowExternalFiles && isAbsolutePattern) {
-                return getAbsolutePathCompletions(potentialPath, pattern);
+            if (allowExternalFiles && isAbsolutePattern) { // check potentialPath not null
+                return getAbsolutePathCompletions(castNonNull(potentialPath), pattern);
             }
 
             // 2. Project file and pre-defined candidate completions
@@ -468,8 +464,8 @@ public class FileSelectionPanel extends JPanel {
             String displayFileName = Objects.requireNonNull(absolutePath.getFileName()).toString();
 
             String replacementText = multiSelectMode
-                    ? quotePathIfNecessary(pathForReplacement) + " "
-                    : pathForReplacement;
+                                     ? quotePathIfNecessary(pathForReplacement) + " "
+                                     : pathForReplacement;
 
             return new ShorthandCompletion(this, displayFileName, replacementText, summaryPathString);
         }
@@ -534,15 +530,15 @@ public class FileSelectionPanel extends JPanel {
             int caretPos = comp.getCaretPosition();
             if (caretPos == 0) return "";
 
-            int tokenStart = caretPos -1;
+            int tokenStart = caretPos - 1;
             boolean inQuotes;
 
             // Look backwards from caret to find start of token
             // A token is delimited by whitespace, unless it's quoted.
             char[] chars = text.toCharArray();
             int quoteCountBeforeCaret = 0;
-            for(int i=0; i < caretPos; i++) {
-                if(chars[i] == '"') quoteCountBeforeCaret++;
+            for (int i = 0; i < caretPos; i++) {
+                if (chars[i] == '"') quoteCountBeforeCaret++;
             }
             inQuotes = (quoteCountBeforeCaret % 2) != 0;
 
@@ -566,11 +562,11 @@ public class FileSelectionPanel extends JPanel {
                 if (tokenStart == 0) break; // Reached beginning of text
                 tokenStart--;
             }
-            if(tokenStart < 0) tokenStart = 0; // Ensure not negative
+            if (tokenStart < 0) tokenStart = 0; // Ensure not negative
 
             // If token starts with a quote, and caret is effectively inside, pattern is from after quote
             String currentToken = text.substring(tokenStart, caretPos);
-            if (currentToken.startsWith("\"") && ! (text.substring(tokenStart,caretPos).chars().filter(ch -> ch == '"').count() % 2 == 0) ) {
+            if (currentToken.startsWith("\"") && !(text.substring(tokenStart, caretPos).chars().filter(ch -> ch == '"').count() % 2 == 0)) {
                 // if token starts with quote and we are "in" that quote block for completion
                 return currentToken.substring(1);
             }
