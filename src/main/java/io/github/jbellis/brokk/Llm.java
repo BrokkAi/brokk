@@ -1038,6 +1038,9 @@ public class Llm {
      * if the LLM hangs up abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result
      * and also include the error that we got from the HTTP layer. In this case chatResponse and error will both be non-null,
      * but chatResponse.originalResponse will be null.
+     *
+     * Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually
+     * inspecting the contents of chatResponse.
      */
     public record StreamingResult(@Nullable NullSafeResponse chatResponse,
                                   @Nullable Throwable error)
@@ -1063,7 +1066,7 @@ public class Llm {
         }
 
         public boolean isEmpty() {
-            return text().isEmpty();
+            return chatResponse != null && !chatResponse.isEmpty();
         }
 
         public @Nullable ChatResponse originalResponse() {
@@ -1075,10 +1078,11 @@ public class Llm {
         }
         
         /** 
-         * it is caller's responsibility to only call this when no error is present,
+         * It is only valid to call this when no error is present,
          * so we are guaranteed that chatResponse and cR.originalResponse are non-null
          */
         public AiMessage originalMessage() {
+            assert error == null : error;
             return requireNonNull(requireNonNull(chatResponse).originalResponse).aiMessage();
         }
 
