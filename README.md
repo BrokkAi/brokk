@@ -28,6 +28,8 @@ startup overhead so using the repl or `sbtn` is recommended.)
 
 If you change the build definition, run `reload` to start using the changes.
 
+There are documents on specific aspects of the code in [src/main](https://github.com/BrokkAi/brokk/tree/master/src/main).
+
 ## Icon Browser
 
 To explore available Look and Feel icons for UI development:
