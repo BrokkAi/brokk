@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ScalaCompilerConfiguration">
-    <profile name="sbt 1" modules="brokk,brokk_7161" />
-    <profile name="sbt 2" modules="brokk.main,brokk.test">
+      <profile name="sbt 1" modules="brokk_7161" />
+      <profile name="sbt 2" modules="brokk">
       <option name="reflectiveCalls" value="true" />
       <option name="featureWarnings" value="true" />
       <parameters>
