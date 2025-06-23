@@ -137,10 +137,8 @@ public class CodeAgent {
         boolean continueToApplyPhase = true;
         if (messageForRetry != null) {
             nextRequest = messageForRetry;
-            logger.debug(consoleLogForRetry);
-            if (consoleLogForRetry != null) { // Guard against potential null if logic paths change
-                io.llmOutput(consoleLogForRetry, ChatMessageType.CUSTOM);
-            }
+            logger.debug(requireNonNull(consoleLogForRetry));
+            io.llmOutput(consoleLogForRetry, ChatMessageType.CUSTOM);
             continueToApplyPhase = false; // Signal to loop in runTask for retry
         }
 
@@ -194,8 +192,9 @@ public class CodeAgent {
         try {
             editResult = EditBlock.applyEditBlocks(contextManager, io, blocks);
         } catch (IOException e) {
-            io.toolError(Objects.toString(e.getMessage(), "IO error during edit application"));
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, Objects.toString(e.getMessage(), "IO error during edit application")));
+            var msg = Objects.toString(e.getMessage(), "IO error during edit application");
+            io.toolError(msg);
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, msg));
         }
 
         if (editResult.hadSuccessfulEdits()) {
@@ -272,8 +271,8 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult runTask(String userInput, boolean forArchitect) {
-        var io = contextManager.getIo();
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
+        coder.setOutput(io);
         var parser = contextManager.getParserForWorkspace();
 
         var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
@@ -353,6 +352,7 @@ public class CodeAgent {
                                         List<ChatMessage> readOnlyMessages)
     {
         var coder = contextManager.getLlm(model, "Code: " + instructions, true);
+        coder.setOutput(io);
 
         String text;
         try {
@@ -420,7 +420,6 @@ public class CodeAgent {
      */
     @VisibleForTesting
     public List<ProjectFile> preCreateNewFiles(Collection<EditBlock.SearchReplaceBlock> blocks) {
-        var io = contextManager.getIo();
         List<ProjectFile> newFiles = new ArrayList<>();
         for (EditBlock.SearchReplaceBlock block : blocks) {
             // Skip blocks that aren't for new files (new files have empty beforeText)
@@ -515,9 +514,8 @@ public class CodeAgent {
                  // Prepare request
                  var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
                  var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
-                 // Use a model known to be available and suitable for this type of task, like quickModel
-                 var modelToUse = contextManager.getService().quickModel();
-                 var coder = contextManager.getLlm(modelToUse, "Full File Replacement: " + file.getFileName());
+                 var model = requireNonNull(contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT));
+                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
 
                  return executeReplace(file, coder, messages);
              } catch (InterruptedException e) {
@@ -608,7 +606,7 @@ public class CodeAgent {
 
         // Extract and apply
         var newContent = EditBlock.extractCodeFromTripleBackticks(result.text());
-        if (newContent == null || newContent.isBlank()) {
+        if (newContent.isBlank()) {
             // Allow empty if response wasn't just ``` ```
             if (result.text().strip().equals("```\n```") || result.text().strip().equals("``` ```")) {
                 // Treat explicitly empty fenced block as success
@@ -692,6 +690,7 @@ public class CodeAgent {
                                    String instructions) throws InterruptedException
     {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        coder.setOutput(io);
 
         // Use up to 5 related classes as context
         // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment directly

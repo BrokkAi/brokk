@@ -68,7 +68,7 @@ public class Llm {
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
-    private final IConsoleIO io;
+    private IConsoleIO io;
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
@@ -88,15 +88,24 @@ public class Llm {
         var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
 
-        var taskDirName = String.format("%s %s", timestamp, taskDesc);
-        this.taskHistoryDir = historyBaseDir.resolve(taskDirName);
+        // Create the specific directory for this task with uniqueness check
+        var baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
+        synchronized (Llm.class) {
+            int suffix = 1;
+            var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
+            while (Files.exists(mutableDirName)) {
+                var newDirName = baseTaskDirName + "-" + suffix;
+                mutableDirName = historyBaseDir.resolve(newDirName);
+                suffix++;
+            }
 
-        // Create the specific directory for this task
-        try {
-            Files.createDirectories(this.taskHistoryDir);
-        } catch (IOException e) {
-            logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
-            // taskHistoryDir might be null or unusable, logRequest checks for null
+            this.taskHistoryDir = mutableDirName;
+            try {
+                Files.createDirectories(this.taskHistoryDir);
+            } catch (IOException e) {
+                logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
+                // taskHistoryDir might be null or unusable, logRequest checks for null
+            }
         }
     }
 
@@ -137,8 +146,8 @@ public class Llm {
 
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
-        var completedChatResponse = new AtomicReference<ChatResponse>();
-        var errorRef = new AtomicReference<Throwable>();
+        var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
+        var errorRef = new AtomicReference<@Nullable Throwable>();
 
         Consumer<Runnable> ifNotCancelled = (r) -> {
             lock.lock();
@@ -146,6 +155,11 @@ public class Llm {
                 if (!cancelled.get()) {
                     r.run();
                 }
+            } catch (RuntimeException e) {
+                // litellm is fucking us over again, try to recover
+                logger.error(e);
+                errorRef.set(e);
+                latch.countDown(); // Ensure we release the lock if an exception occurs
             } finally {
                 lock.unlock();
             }
@@ -163,7 +177,7 @@ public class Llm {
             }
 
             @Override
-            public void onCompleteResponse(ChatResponse response) {
+            public void onCompleteResponse(@Nullable ChatResponse response) {
                 ifNotCancelled.accept(() -> {
                     if (response == null) {
                         if (completedChatResponse.get() != null) {
@@ -188,7 +202,6 @@ public class Llm {
                 ifNotCancelled.accept(() -> {
                     io.toolError("LLM error: " + th.getMessage()); // Immediate feedback for user
                     errorRef.set(th);
-                    
                     latch.countDown();
                 });
             }
@@ -242,10 +255,12 @@ public class Llm {
     private static String formatTokensUsage(ChatResponse response) {
         var tu = (OpenAiTokenUsage) response.tokenUsage();
         var template = "token usage: %,d input (%s cached), %,d output (%s reasoning)";
+        var inputDetails = tu.inputTokensDetails();
+        var outputDetails = tu.outputTokensDetails();
         return template.formatted(tu.inputTokenCount(),
-                                  (tu.inputTokensDetails() == null) ? "?" : "%,d".formatted(tu.inputTokensDetails().cachedTokens()),
+                                  (inputDetails == null || inputDetails.cachedTokens() == null) ? "?" : "%,d".formatted(inputDetails.cachedTokens()),
                                   tu.outputTokenCount(),
-                                  (tu.outputTokensDetails() == null) ? "?" : "%,d".formatted(tu.outputTokensDetails().reasoningTokens()));
+                                  (outputDetails == null || outputDetails.reasoningTokens() == null) ? "?" : "%,d".formatted(outputDetails.reasoningTokens()));
     }
 
     /**
@@ -312,7 +327,7 @@ public class Llm {
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
 
-        StreamingResult response = null;
+        StreamingResult response;
         while (attempt++ < maxAttempts) {
             String description = Messages.getText(messages.getLast());
             logger.debug("Sending request to {} attempt {}: {}",
@@ -326,8 +341,8 @@ public class Llm {
             }
 
             // don't retry on bad request errors
-            if (lastError != null && Objects.toString(lastError.getMessage(), "").contains("BadRequestError")) {
-                logger.debug("Stopping on BadRequestError", lastError);
+            if (lastError != null && requireNonNull(lastError.getMessage()).contains("BadRequestError")) {
+                // logged by doSingleStreamingCallInternal, don't be redundant
                 break;
             }
 
@@ -484,17 +499,16 @@ public class Llm {
             try {
                 var parseResult = parseJsonToToolRequests(rawResult, objectMapper);
 
-            if (toolChoice == ToolChoice.REQUIRED && parseResult.toolRequests().isEmpty()) {
+                if (toolChoice == ToolChoice.REQUIRED && parseResult.toolRequests().isEmpty()) {
                     // REQUIRED but none produced – force retry
                     throw new IllegalArgumentException("No 'tool_calls' found in JSON");
                 }
 
                 if (echo) {
-                    // output the thinking tool's contents
-                    // parsedChatResponse and its aiMessage are guaranteed non-null here by the preceding check
+                    // output the LLM's thinking
                     String textToOutput = parseResult.text();
                     if (!textToOutput.isBlank()) {
-                        contextManager.getIo().llmOutput(textToOutput, ChatMessageType.AI);
+                        io.llmOutput(textToOutput, ChatMessageType.AI);
                     }
                 }
 
@@ -1033,6 +1047,11 @@ public class Llm {
         }
     }
 
+    public void setOutput(IConsoleIO io) {
+        // TODO this should be final but disentanglihg from ContextManager is difficult
+        this.io = io;
+    }
+
     /**
      * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS
      * if the LLM hangs up abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result
@@ -1076,8 +1095,8 @@ public class Llm {
         public List<ToolExecutionRequest> toolRequests() {
             return chatResponse == null ? List.of() : chatResponse.toolRequests;
         }
-        
-        /** 
+
+        /**
          * It is only valid to call this when no error is present,
          * so we are guaranteed that chatResponse and cR.originalResponse are non-null
          */
