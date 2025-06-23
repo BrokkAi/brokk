@@ -25,6 +25,7 @@ import javax.swing.Timer;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.URI;
 import java.time.LocalDate;
 import java.util.*;
@@ -667,17 +668,29 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 }
 
             } catch (Exception e) {
+                if (!wasCancellation(e)) {
                     logger.error("Failed to load/render details for issue {}: {}", header.id(), e.getMessage(), e);
                     SwingUtilities.invokeLater(() -> {
                         issueBodyTextPane.setContentType("text/plain");
                         issueBodyTextPane.setText("Failed to load/render description for " + header.id() + ":\n" + e.getMessage());
                         issueBodyTextPane.setCaretPosition(0);
                     });
+                }
             }
             return null;
         });
         trackCancellableFuture(future);
         return future;
+    }
+
+    private static boolean wasCancellation(Throwable t) {
+        while (t != null) {
+            if (t instanceof InterruptedException || t instanceof InterruptedIOException) {
+                return true;
+            }
+            t = t.getCause();
+        }
+        return false;
     }
 
     /**
@@ -718,21 +731,28 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 fetchedIssueHeaders = this.issueService.listIssues(apiFilterOptions);
                 logger.debug("Fetched {} issue headers via IssueService.", fetchedIssueHeaders.size());
             } catch (Exception ex) {
-                logger.error("Failed to fetch issues via IssueService", ex);
-                SwingUtilities.invokeLater(() -> {
-                    allIssuesFromApi.clear();
-                    displayedIssues.clear();
-                    issueTableModel.setRowCount(0);
-                    issueTableModel.addRow(new Object[]{
-                            "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
+                if (wasCancellation(ex)) {
+                    // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
+                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
+                } else {
+                    logger.error("Failed to fetch issues via IssueService", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        allIssuesFromApi.clear();
+                        displayedIssues.clear();
+                        issueTableModel.setRowCount(0);
+                        issueTableModel.addRow(new Object[]{
+                                "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
+                        });
+                        disableIssueActionsAndClearDetails();
+                        searchBox.setLoading(false, null); // Stop loading on error
                     });
-                    disableIssueActionsAndClearDetails();
-                    searchBox.setLoading(false, null); // Stop loading on error
-                });
+                }
                 return null;
             }
 
             if (Thread.currentThread().isInterrupted()) {
+                // If interrupted after successful fetch but before processing, ensure loading is stopped.
+                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
                 return null;
             }
             // Perform filtering and display processing in the background
@@ -762,7 +782,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
     private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
         if (Thread.currentThread().isInterrupted()) {
-            searchBox.setLoading(false, null);
+            // Ensure searchBox loading state is reset correctly on the EDT.
+            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
             return;
         }
         // This method runs on a background thread.
