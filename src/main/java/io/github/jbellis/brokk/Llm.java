@@ -1066,7 +1066,7 @@ public class Llm {
         }
 
         public boolean isEmpty() {
-            return chatResponse != null && !chatResponse.isEmpty();
+            return chatResponse == null || chatResponse.isEmpty();
         }
 
         public @Nullable ChatResponse originalResponse() {
