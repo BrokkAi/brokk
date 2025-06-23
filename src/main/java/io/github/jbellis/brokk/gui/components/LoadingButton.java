@@ -106,7 +106,7 @@ public final class LoadingButton extends JButton {
         Icon cachedIcon = isDark ? spinnerDark : spinnerLight;
 
         if (cachedIcon == null) {
-            String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
+            String path = "/icons/" + (isDark ? "spinner_dark_sm.gif" : "spinner_white_sm.gif");
             var url = getClass().getResource(path);
 
             if (url == null) {
