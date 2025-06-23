@@ -36,6 +36,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import io.github.jbellis.brokk.util.Environment;
+import org.jetbrains.annotations.Nullable;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final Logger logger = LogManager.getLogger(GitIssuesTab.class);
@@ -61,7 +62,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private JButton captureButton;
 
     private FilterBox statusFilter;
-    private FilterBox resolutionFilter;
+    @Nullable
+    private FilterBox resolutionFilter; // Initialized conditionally
     private FilterBox authorFilter;
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
@@ -586,17 +588,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         OkHttpClient client;
         try {
             // Attempt to get the client from the already initialized issueService
-            if (this.issueService == null) {
-                // This case should ideally not happen if constructor order is correct,
-                // but as a safeguard:
-                logger.error("IssueService is null during httpClient initialization. Falling back to unauthenticated client.");
-                throw new IOException("IssueService not available for HTTP client setup.");
-            }
             client = this.issueService.httpClient(); // This can throw IOException
             logger.info("Successfully initialized HTTP client from IssueService: {}", this.issueService.getClass().getSimpleName());
         } catch (IOException e) {
             logger.error("Failed to initialize authenticated client from IssueService ({}) for GitIssuesTab, falling back to unauthenticated client. Error: {}",
-                         (this.issueService != null ? this.issueService.getClass().getSimpleName() : "null"), e.getMessage(), e);
+                         this.issueService.getClass().getSimpleName(), e.getMessage(), e);
             client = new OkHttpClient.Builder()
                     .connectTimeout(5, TimeUnit.SECONDS)
                     .readTimeout(10, TimeUnit.SECONDS)
@@ -612,23 +608,15 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void disableIssueActionsAndClearDetails() {
-        if (copyDescriptionAction != null) {
-            copyDescriptionAction.setEnabled(false);
-            openInBrowserAction.setEnabled(false);
-            captureAction.setEnabled(false);
-        }
+        copyDescriptionAction.setEnabled(false);
+        openInBrowserAction.setEnabled(false);
+        captureAction.setEnabled(false);
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
     }
 
     private Future<?> loadAndRenderIssueBodyFromHeader(IssueHeader header) {
         assert SwingUtilities.isEventDispatchThread();
-
-        if (header == null) {
-            issueBodyTextPane.setContentType("text/html");
-            issueBodyTextPane.setText("");
-            return CompletableFuture.completedFuture(null); // Return a completed future
-        }
 
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
@@ -927,7 +915,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return options;
     }
 
-    private String getBaseFilterValue(String displayOptionWithCount) {
+    @Nullable
+    private String getBaseFilterValue(@Nullable String displayOptionWithCount) {
         if (displayOptionWithCount == null) {
             return null; // This is the "All" case (FilterBox name shown)
         }
@@ -1017,7 +1006,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                                        header.title(),
                                        header.author(),
                                        header.status(),
-                                       header.htmlUrl().toString(),
+                                       header.htmlUrl(),
                                        header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
                                        header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
                                        bodyForCapture

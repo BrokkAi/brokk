@@ -16,6 +16,8 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 public class StartupDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(StartupDialog.class);
 
@@ -33,7 +35,7 @@ public class StartupDialog extends JDialog {
         REQUIRE_BOTH           // Neither valid key nor project exists
     }
 
-    private StartupDialog(Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
+    private StartupDialog(@Nullable Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         super(owner, "Welcome to Brokk", true);
         io.github.jbellis.brokk.gui.Chrome.applyIcon(this);
         this.initialKey = initialKey;
@@ -223,8 +225,7 @@ public class StartupDialog extends JDialog {
             finalKeyToUse = this.initialKey;
         }
 
-        assert finalKeyToUse != null : "finalKeyToUse should have been set if no errors occurred.";
-        MainProject.setBrokkKey(finalKeyToUse);
+        MainProject.setBrokkKey(castNonNull(finalKeyToUse));
 
         // --- Determine the Project Path ---
         Path finalProjectPathToUse;
@@ -243,11 +244,6 @@ public class StartupDialog extends JDialog {
             finalProjectPathToUse = selectedFile.toPath();
         } else { // dialogMode == DialogMode.REQUIRE_KEY_ONLY
             assert this.initialProjectPath != null : "Invalid state for REQUIRE_KEY_ONLY mode: initialProjectPath must be set.";
-            if (this.initialProjectPath == null) { // Defensive check, should be caught by assert
-                logger.error("StartupDialog in REQUIRE_KEY_ONLY mode but initialProjectPath is null. This should not happen.");
-                JOptionPane.showMessageDialog(this, "Internal error: Project path missing. Please restart.", "Error", JOptionPane.ERROR_MESSAGE);
-                return; // Critical error
-            }
             finalProjectPathToUse = this.initialProjectPath;
         }
 
@@ -261,7 +257,7 @@ public class StartupDialog extends JDialog {
         dispose();
     }
 
-    public static @Nullable Path showDialog(Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
+    public static @Nullable Path showDialog(@Nullable Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         var dialog = new StartupDialog(owner, initialKey, keyInitiallyValid, initialProjectPath, mode);
         dialog.setVisible(true); // Blocks until dispose() is called
         return dialog.selectedProjectPath;

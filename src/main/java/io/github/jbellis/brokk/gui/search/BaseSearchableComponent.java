@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.search;
 
 import javax.swing.*;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Base implementation of SearchableComponent with common functionality.
@@ -9,14 +10,16 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
 
     protected String currentSearchTerm = "";
     protected boolean currentCaseSensitive = false;
+    @Nullable
     protected SearchCompleteCallback searchCompleteCallback = null;
 
     @Override
-    public void setSearchCompleteCallback(SearchCompleteCallback callback) {
+    public void setSearchCompleteCallback(@Nullable SearchCompleteCallback callback) {
         this.searchCompleteCallback = callback;
     }
 
     @Override
+    @Nullable
     public SearchCompleteCallback getSearchCompleteCallback() {
         return searchCompleteCallback;
     }

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -34,12 +35,15 @@ public class GitPanel extends JPanel
     private final GitLogTab gitLogTab;
 
     // The "Pull Requests" tab - conditionally added
+    @Nullable
     private GitPullRequestsTab pullRequestsTab; // Keep if you still want PRs
 
     // The "Issues" tab - conditionally added
+    @Nullable
     private GitIssuesTab issuesTab;
 
     // Worktrees tab
+    @Nullable
     private GitWorktreeTab gitWorktreeTab;
 
     // Tracks open file-history tabs by file path

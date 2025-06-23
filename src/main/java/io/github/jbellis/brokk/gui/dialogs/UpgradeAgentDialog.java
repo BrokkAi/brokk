@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.context.Context;
 
 import javax.swing.*;
 import java.awt.*;
@@ -246,7 +247,8 @@ public class UpgradeAgentDialog extends JDialog {
                 });
             }
         } else { // Workspace Files
-            var workspaceFiles = chrome.getContextManager().topContext().allFragments()
+            Context topCtx = chrome.getContextManager().topContext();
+            var workspaceFiles = topCtx.allFragments()
                     .filter(f -> f.getType().isPathFragment() && "PROJECT_PATH".equals(f.getType().toString()))
                     .flatMap(f -> f.files().stream())
                     .collect(Collectors.toSet());

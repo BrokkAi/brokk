@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.search;
 import io.github.jbellis.brokk.difftool.ui.JMHighlightPainter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Highlighter;
@@ -14,10 +15,9 @@ import java.util.List;
  * Manages search highlights in text components.
  */
 public class HighlightManager {
-    private static final Logger logger = LogManager.getLogger(HighlightManager.class);
-
     private final JTextComponent textComponent;
     private final List<Highlighter.Highlight> searchHighlights = new ArrayList<>();
+    @Nullable
     private Highlighter.Highlight currentHighlight = null;
 
     public HighlightManager(JTextComponent textComponent) {
@@ -41,7 +41,7 @@ public class HighlightManager {
     public Highlighter.Highlight addHighlight(int start, int end, boolean isCurrent) {
         Highlighter highlighter = textComponent.getHighlighter();
         if (highlighter == null) {
-            return null;
+            throw new IllegalStateException("No highlighter available");
         }
 
         try {
@@ -56,8 +56,7 @@ public class HighlightManager {
             }
             return highlight;
         } catch (BadLocationException e) {
-            logger.warn("Failed to add highlight at {}-{}", start, end, e);
-            return null;
+            throw new IllegalArgumentException("Invalid highlight location: " + e.getMessage(), e);
         }
     }
 
@@ -105,6 +104,7 @@ public class HighlightManager {
         return new ArrayList<>(searchHighlights);
     }
 
+    @Nullable
     public Highlighter.Highlight getCurrentHighlight() {
         return currentHighlight;
     }

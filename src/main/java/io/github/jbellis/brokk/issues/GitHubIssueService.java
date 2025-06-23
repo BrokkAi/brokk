@@ -128,8 +128,8 @@ public class GitHubIssueService implements IssueService {
     }
 
     @Override
-    public @Nullable IssueDetails loadDetails(String issueId) throws IOException {
-        if (issueId == null || issueId.isBlank()) {
+    public IssueDetails loadDetails(String issueId) throws IOException {
+        if (issueId.isBlank()) {
             throw new IOException("Issue ID cannot be null or blank.");
         }
         String numericIdStr = issueId.startsWith("#") ? issueId.substring(1) : issueId;

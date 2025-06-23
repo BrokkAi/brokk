@@ -44,7 +44,7 @@ public class JMDiffNode implements TreeNode
         nodeLeft = bufferNode;
     }
 
-    public BufferNode getBufferNodeLeft() {
+    public @Nullable BufferNode getBufferNodeLeft() {
         return nodeLeft;
     }
 
@@ -52,7 +52,7 @@ public class JMDiffNode implements TreeNode
         nodeRight = bufferNode;
     }
 
-    public BufferNode getBufferNodeRight() {
+    public @Nullable BufferNode getBufferNodeRight() {
         return nodeRight;
     }
 
@@ -123,7 +123,7 @@ public class JMDiffNode implements TreeNode
     }
 
     @Override
-    public TreeNode getParent() {
+    public @Nullable TreeNode getParent() {
         return null;
     }
 
@@ -143,6 +143,6 @@ public class JMDiffNode implements TreeNode
     @Override
     public String toString() {
         // Return shortName if available and not empty, otherwise the full name.
-        return !shortName.isEmpty() ? shortName : name;
+        return (shortName != null && !shortName.isEmpty()) ? shortName : name;
     }
 }

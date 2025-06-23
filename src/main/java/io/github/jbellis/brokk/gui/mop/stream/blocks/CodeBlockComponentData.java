@@ -16,8 +16,10 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 import java.io.IOException;
-import java.util.Locale; // Added import
+import java.util.Locale;
 import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Represents a code fence block with syntax highlighting.
@@ -143,7 +145,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
                        fenceInfo.substring(0, 1).toUpperCase(Locale.ROOT) + fenceInfo.substring(1);
 
         // Use code icon
-        var icon = SwingUtil.uiIcon("FileChooser.listViewIcon");
+        var icon = requireNonNull(SwingUtil.uiIcon("FileChooser.listViewIcon"));
 
         // Create the panel using BaseChatMessagePanel
         return new MessageBubble(

@@ -35,7 +35,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
         super(owner, "Settings", true);
         this.chrome = chrome;
         setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        setSize(620, 480); // Adjusted size slightly for better layout with tabs on left
+        setSize(620, 600);
         setLocationRelativeTo(owner);
 
         tabbedPane = new JTabbedPane(JTabbedPane.LEFT);
@@ -246,8 +246,7 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
         // Create a temporary SettingsProjectPanel just for its DataRetentionPanel inner class logic
         // This is a bit of a workaround to reuse the panel logic.
-        // We pass null for buttons as they are not used by this standalone dialog's retention panel.
-        var tempProjectPanelForRetention = new SettingsProjectPanel.DataRetentionPanel(project, null);
+        var tempProjectPanelForRetention = new SettingsProjectPanel.DataRetentionPanel(project, null); // Pass null for parentProjectPanel
 
         var contentPanel = new JPanel(new BorderLayout(10, 10));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));

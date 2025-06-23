@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.AnalyzerWrapper;
@@ -17,6 +18,7 @@ import io.github.jbellis.brokk.gui.dialogs.MultiFileSelectionDialog.SelectionMod
 import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -26,7 +28,6 @@ import io.github.jbellis.brokk.util.StackTrace;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.Arrays;
@@ -51,6 +52,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 public class WorkspacePanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(WorkspacePanel.class);
@@ -100,23 +104,23 @@ public class WorkspacePanel extends JPanel {
         @Override
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
-            
+
             if (fileRef.getRepoFile() != null) {
                 actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, fileRef.getRepoFile()));
                 actions.add(WorkspaceAction.VIEW_FILE.createFileAction(panel, fileRef.getRepoFile()));
-                
+
                 if (panel.hasGit()) {
                     actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, fileRef.getRepoFile()));
                 } else {
                     actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
                 }
-                
+
                 actions.add(null); // Separator
                 actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
             }
-            
+
             return actions;
         }
     }
@@ -131,21 +135,21 @@ public class WorkspacePanel extends JPanel {
         @Override
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
-            
+
             // Show in Project (for PROJECT_PATH fragments)
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
                 fragment.files().stream()
                     .findFirst()
                     .ifPresent(projectFile -> actions.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(panel, projectFile)));
             }
-            
+
             // View File/Contents
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
                 actions.add(WorkspaceAction.VIEW_FILE.createFragmentAction(panel, fragment));
             } else {
                 actions.add(WorkspaceAction.SHOW_CONTENTS.createFragmentAction(panel, fragment));
             }
-            
+
             // View History/Compress History
             if (panel.hasGit() && fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
                 fragment.files().stream()
@@ -162,9 +166,9 @@ public class WorkspacePanel extends JPanel {
             } else {
                 actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("View History is available only for single project files."));
             }
-            
+
             actions.add(null); // Separator
-            
+
             // Edit/Read/Summarize
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
                 fragment.files().stream()
@@ -185,17 +189,18 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, selectedFragments));
                 actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, selectedFragments));
             }
-            
+
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
-            
+
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
-            if (!panel.workspaceCurrentlyEditable) {
+            if (!panel.workspaceCurrentlyEditable ||
+                !java.util.Objects.equals(panel.contextManager.selectedContext(), panel.contextManager.topContext())) {
                 dropAction.setEnabled(false);
                 dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
-            
+
             return actions;
         }
     }
@@ -210,26 +215,27 @@ public class WorkspacePanel extends JPanel {
         @Override
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
-            
+
             actions.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction("Cannot view contents of multiple items at once."));
             actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
-            
+
             actions.add(null); // Separator
-            
+
             actions.add(WorkspaceAction.EDIT_ALL_REFS.createFragmentsAction(panel, fragments));
             actions.add(WorkspaceAction.READ_ALL_REFS.createFragmentsAction(panel, fragments));
             actions.add(WorkspaceAction.SUMMARIZE_ALL_REFS.createFragmentsAction(panel, fragments));
-            
+
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
-            
+
             var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
-            if (!panel.workspaceCurrentlyEditable) {
+            if (!panel.workspaceCurrentlyEditable ||
+                !java.util.Objects.equals(panel.contextManager.selectedContext(), panel.contextManager.topContext())) {
                 dropAction.setEnabled(false);
                 dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
             }
             actions.add(dropAction);
-            
+
             return actions;
         }
     }
@@ -265,47 +271,47 @@ public class WorkspacePanel extends JPanel {
             return new AbstractAction(label) {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    switch (WorkspaceAction.this) {
-                        case DROP_ALL -> panel.performContextActionAsync(ContextAction.DROP, List.of());
-                        case COPY_ALL -> panel.performContextActionAsync(ContextAction.COPY, List.of());
-                        case PASTE -> panel.performContextActionAsync(ContextAction.PASTE, List.of());
-                        case COMPRESS_HISTORY -> panel.contextManager.compressHistoryAsync();
-                        default -> throw new UnsupportedOperationException("Action not implemented: " + WorkspaceAction.this);
+                switch (WorkspaceAction.this) {
+                    case DROP_ALL -> panel.performContextActionAsync(ContextAction.DROP, List.of());
+                    case COPY_ALL -> panel.performContextActionAsync(ContextAction.COPY, List.of());
+                    case PASTE -> panel.performContextActionAsync(ContextAction.PASTE, List.of());
+                    case COMPRESS_HISTORY -> panel.contextManager.compressHistoryAsync();
+                    default -> throw new UnsupportedOperationException("Action not implemented: " + WorkspaceAction.this);
+                }
+            }
+        };
+    }
+
+    public AbstractAction createDisabledAction(String tooltip) {
+        var action = new AbstractAction(label) {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                // Disabled actions do nothing
+            }
+        };
+        action.setEnabled(false);
+        action.putValue(Action.SHORT_DESCRIPTION, tooltip);
+        return action;
+    }
+
+    public AbstractAction createFileAction(WorkspacePanel panel, ProjectFile file) {
+        return new AbstractAction(label) {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                switch (WorkspaceAction.this) {
+                    case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
+                    case VIEW_FILE -> {
+                        var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
+                        panel.showFragmentPreview(fragment);
                     }
+                    case VIEW_HISTORY -> requireNonNull(panel.chrome.getGitPanel()).addFileHistoryTab(file);
+                    default -> throw new UnsupportedOperationException("File action not implemented: " + WorkspaceAction.this);
                 }
-            };
-        }
+            }
+        };
+    }
 
-        public AbstractAction createDisabledAction(String tooltip) {
-            var action = new AbstractAction(label) {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    // Disabled actions do nothing
-                }
-            };
-            action.setEnabled(false);
-            action.putValue(Action.SHORT_DESCRIPTION, tooltip);
-            return action;
-        }
-
-        public AbstractAction createFileAction(WorkspacePanel panel, ProjectFile file) {
-            return new AbstractAction(label) {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    switch (WorkspaceAction.this) {
-                        case SHOW_IN_PROJECT -> panel.chrome.showFileInProjectTree(file);
-                        case VIEW_FILE -> {
-                            var fragment = new ContextFragment.ProjectPathFragment(file, panel.contextManager);
-                            panel.showFragmentPreview(fragment);
-                        }
-                        case VIEW_HISTORY -> panel.chrome.getGitPanel().addFileHistoryTab(file);
-                        default -> throw new UnsupportedOperationException("File action not implemented: " + WorkspaceAction.this);
-                    }
-                }
-            };
-        }
-
-        public AbstractAction createFileRefAction(WorkspacePanel panel, TableUtils.FileReferenceList.FileReferenceData fileRef) {
+    public AbstractAction createFileRefAction(WorkspacePanel panel, TableUtils.FileReferenceList.FileReferenceData fileRef) {
             var baseName = this == EDIT_FILE ? "Edit " : this == READ_FILE ? "Read " : "Summarize ";
             return new AbstractAction(baseName + fileRef.getFullPath()) {
                 @Override
@@ -322,7 +328,7 @@ public class WorkspacePanel extends JPanel {
                     } else {
                         panel.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": " + fileRef.getFullPath() + " - no ProjectFile available");
                     }
-                    
+
                     // Apply edit restrictions
                     if (WorkspaceAction.this == EDIT_FILE) {
                         var project = panel.contextManager.getProject();
@@ -367,7 +373,7 @@ public class WorkspacePanel extends JPanel {
                         default -> throw new UnsupportedOperationException("Fragments action not implemented: " + WorkspaceAction.this);
                     };
                     panel.performContextActionAsync(contextAction, fragments);
-                    
+
                     // Apply enable/disable logic for specific actions
                     if (WorkspaceAction.this == EDIT_ALL_REFS) {
                         if (!panel.allTrackedProjectFiles(fragments)) {
@@ -403,7 +409,7 @@ public class WorkspacePanel extends JPanel {
             // Defensive copy for immutability
             fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
         }
-        
+
         @Override
         public String toString() {
             return description; // For backward compatibility with existing code that expects String
@@ -423,7 +429,7 @@ public class WorkspacePanel extends JPanel {
             JPanel panel = new JPanel();
             panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
             panel.setOpaque(true);
-            
+
             // Set colors based on selection
             if (isSelected) {
                 panel.setBackground(table.getSelectionBackground());
@@ -432,57 +438,57 @@ public class WorkspacePanel extends JPanel {
                 panel.setBackground(table.getBackground());
                 panel.setForeground(table.getForeground());
             }
-            
+
             // Extract data from the DescriptionWithReferences record
             DescriptionWithReferences data = (DescriptionWithReferences) value;
             if (data == null) {
                 return panel; // Return empty panel if no data
             }
-            
+
             String description = data.description();
             List<TableUtils.FileReferenceList.FileReferenceData> fileReferences = data.fileReferences();
-            
+
             // Create description label
             JLabel descLabel = new JLabel(description);
             descLabel.setOpaque(false);
             descLabel.setForeground(panel.getForeground());
             descLabel.setVerticalAlignment(SwingConstants.TOP); // Ensure baseline alignment with LOC column
-            
+
             // Add description to panel
             descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
             panel.add(descLabel);
-            
+
             // Add file badges if there are any
             if (!fileReferences.isEmpty()) {
                 // Add small vertical gap
                 panel.add(Box.createVerticalStrut(3));
-                
+
                 // Calculate available width for badges (table column width minus padding)
                 int availableWidth = table.getColumnModel().getColumn(column).getWidth() - 20; // Leave some padding
-                
+
                 // Create adaptive file reference list
                 var badgeList = new TableUtils.FileReferenceList.AdaptiveFileReferenceList(
                         fileReferences, availableWidth, 4);
                 badgeList.setOpaque(false);
                 badgeList.setAlignmentX(Component.LEFT_ALIGNMENT);
-                
+
                 // Set badge colors based on selection
                 badgeList.setSelected(isSelected);
-                
+
                 panel.add(badgeList);
             }
-            
+
             // Calculate preferred height
             int preferredHeight = calculatePreferredHeight(panel);
-            
+
             // Set row height if different from current
             if (table.getRowHeight(row) != preferredHeight) {
                 SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
             }
-            
+
             return panel;
         }
-        
+
         private int calculatePreferredHeight(JPanel panel) {
             // Force layout to get accurate measurements
             panel.doLayout();
@@ -534,7 +540,7 @@ public class WorkspacePanel extends JPanel {
     public static final int LOC_COLUMN = 0;
     public static final int DESCRIPTION_COLUMN = 1;
     private final int FRAGMENT_COLUMN = 2;
-    
+
     // Column dimensions
     private static final int LOC_COLUMN_WIDTH = 55;
     private static final int LOC_COLUMN_RIGHT_PADDING = 6;
@@ -550,9 +556,10 @@ public class WorkspacePanel extends JPanel {
     private JPanel locSummaryPanel;
     private JPanel warningPanel; // Panel for warning messages
     private JPanel analyzerRebuildPanel;
-    private JLabel analyzerRebuildSpinner;
+    private @Nullable JLabel analyzerRebuildSpinner;
     private boolean workspaceCurrentlyEditable = true;
-    private Context currentContext;
+    private OverlayPanel workspaceOverlay;
+    private JLayeredPane workspaceLayeredPane;
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -568,8 +575,6 @@ public class WorkspacePanel extends JPanel {
                           ContextManager contextManager,
                           PopupMenuMode popupMenuMode) {
         super(new BorderLayout());
-        assert chrome != null;
-        assert contextManager != null;
 
         this.chrome = chrome;
         this.contextManager = contextManager;
@@ -628,7 +633,7 @@ public class WorkspacePanel extends JPanel {
 
         // Add custom cell renderer for the "Description" column that includes badges
         contextTable.getColumnModel().getColumn(DESCRIPTION_COLUMN).setCellRenderer(new DescriptionWithBadgesRenderer());
-        
+
         // Set right alignment for LOC column numbers with font metrics-based baseline alignment
         var locRenderer = new javax.swing.table.DefaultTableCellRenderer() {
             @Override
@@ -636,14 +641,14 @@ public class WorkspacePanel extends JPanel {
                                                           boolean isSelected, boolean hasFocus,
                                                           int row, int column) {
                 Component c = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                
+
                 // Calculate baseline-aligned padding using font metrics - match TableUtils calculation
                 var tableFont = table.getFont();
                 var fontMetrics = table.getFontMetrics(tableFont);
-                
+
                 // Use a small offset to align with description text baseline (similar to TableUtils approach)
                 int baselineOffset = fontMetrics.getLeading() / 2; // Half the leading for better alignment
-                
+
                 setBorder(BorderFactory.createEmptyBorder(baselineOffset, 0, 0, LOC_COLUMN_RIGHT_PADDING));
                 return c;
             }
@@ -690,7 +695,7 @@ public class WorkspacePanel extends JPanel {
                             if (descriptionData != null && !descriptionData.fileReferences().isEmpty()) {
                                 // Check if the click actually hit a badge (not just anywhere in the cell)
                                 var clickedRef = TableUtils.findClickedReference(e.getPoint(), row, DESCRIPTION_COLUMN, contextTable, descriptionData.fileReferences());
-                                
+
                                 if (clickedRef != null) {
                                     // Use ContextMenuUtils directly now that we have the proper data structure
                                     ContextMenuUtils.handleFileReferenceClick(
@@ -772,20 +777,21 @@ public class WorkspacePanel extends JPanel {
                 if (!e.isPopupTrigger()) return;
 
                 int row = contextTable.rowAtPoint(e.getPoint());
-                
+
                 // Handle COPY_ONLY mode
                 if (popupMenuMode == PopupMenuMode.COPY_ONLY) {
                     if (row >= 0) {
-                        if (contextTable.getSelectedRowCount() == 0
+                if (contextTable.getSelectedRowCount() == 0
                                 || !Arrays.stream(contextTable.getSelectedRows()).anyMatch(r -> r == row)) {
-                            contextTable.setRowSelectionInterval(row, row);
-                        }
-                        JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
-                        copyItem.addActionListener(ev -> {
-                            var fragsToCopy = getSelectedFragments();
-                            contextManager.addFilteredToContextAsync(currentContext, fragsToCopy);
-                        });
-                        contextMenu.removeAll();
+                    contextTable.setRowSelectionInterval(row, row);
+                }
+                JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
+                copyItem.addActionListener(ev -> {
+                    var fragsToCopy = getSelectedFragments();
+                    Context sourceCtx = requireNonNull(contextManager.selectedContext());
+                    contextManager.addFilteredToContextAsync(sourceCtx, fragsToCopy);
+                });
+                contextMenu.removeAll();
                         contextMenu.add(copyItem);
                         if (chrome.themeManager != null) {
                             chrome.themeManager.registerPopupMenu(contextMenu);
@@ -817,11 +823,11 @@ public class WorkspacePanel extends JPanel {
                 // Classify scenario and build menu
                 PopupScenario scenario = classifyScenario(e, selectedFragments);
                 List<Action> actions = scenario.getActions(WorkspacePanel.this);
-                
+
                 PopupBuilder.create(chrome)
                     .add(actions)
                     .show(contextTable, e.getX(), e.getY());
-                
+
                 e.consume();
             }
         });
@@ -837,6 +843,7 @@ public class WorkspacePanel extends JPanel {
             }
 
             @Override
+            @Nullable
             protected Transferable createTransferable(JComponent c) {
                 String contentToCopy = getSelectedContent(getSelectedFragments());
                 if (!contentToCopy.isEmpty()) {
@@ -919,12 +926,23 @@ public class WorkspacePanel extends JPanel {
         analyzerRebuildPanel.setVisible(false);
         contextSummaryPanel.add(analyzerRebuildPanel, BorderLayout.SOUTH);
 
-        // Table panel
+        // Table panel with overlay support
         var tablePanel = new JPanel(new BorderLayout());
         var tableScrollPane = new JScrollPane(contextTable, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         tableScrollPane.setPreferredSize(new Dimension(600, 150));
 
         BorderUtils.addFocusBorder(tableScrollPane, contextTable);
+
+        // Create gray semi-transparent overlay for history viewing
+        workspaceOverlay = OverlayPanel.createGrayOverlay(
+                overlay -> {}, // No action on click - this overlay is not meant to be dismissed by user
+                READ_ONLY_TIP,
+                60 // Light transparency (80/255 ≈ 31%) - visible but not too heavy
+        );
+        workspaceOverlay.setVisible(false); // Start hidden
+
+        // Create layered pane to support overlay
+        workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
 
         // Add a mouse listener to the scroll pane for right-clicks on empty areas
         tableScrollPane.addMouseListener(new MouseAdapter() {
@@ -940,9 +958,11 @@ public class WorkspacePanel extends JPanel {
 
             private void handleScrollPanePopup(MouseEvent e) {
                 if (e.isPopupTrigger()) {
+                    // Use the scroll pane directly instead of getting it from the layered pane
+                    var scrollPane = tableScrollPane;
                     // Get the event point in view coordinates
-                    Point viewPoint = SwingUtilities.convertPoint(tableScrollPane, e.getPoint(),
-                                                                  tableScrollPane.getViewport().getView());
+                    var viewPoint = SwingUtilities.convertPoint(scrollPane, e.getPoint(),
+                                                                  scrollPane.getViewport().getView());
 
                     // If the click is in the table and on a row, let the table's listener handle it
                     if (contextTable.getRowCount() > 0) {
@@ -953,12 +973,12 @@ public class WorkspacePanel extends JPanel {
                     }
 
                     // Otherwise show the table popup menu
-                    tablePopupMenu.show(tableScrollPane, e.getX(), e.getY());
+                    tablePopupMenu.show(scrollPane, e.getX(), e.getY());
                 }
             }
         });
 
-        tablePanel.add(tableScrollPane, BorderLayout.CENTER);
+        tablePanel.add(workspaceLayeredPane, BorderLayout.CENTER);
 
         setLayout(new BorderLayout());
 
@@ -966,12 +986,11 @@ public class WorkspacePanel extends JPanel {
 
         add(contextSummaryPanel, BorderLayout.SOUTH);
 
-        // Listener for table scroll pane (focus on click, specific popup for empty area)
-        tableScrollPane.addMouseListener(new MouseAdapter() {
+        // Listener for layered pane (focus on click, specific popup for empty area)
+        workspaceLayeredPane.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                // Retain existing specific behavior for scroll pane clicks (focus table)
-                // Popup is handled by handleScrollPanePopup
+                // Focus table when clicking on the layered pane
                 if (!e.isPopupTrigger() && SwingUtilities.isLeftMouseButton(e)) {
                     contextTable.requestFocusInWindow();
                 }
@@ -1014,20 +1033,20 @@ public class WorkspacePanel extends JPanel {
      * Gets the list of selected fragments
      */
     public List<ContextFragment> getSelectedFragments() {
-        return SwingUtil.runOnEdt(() -> {
+        List<ContextFragment> v = SwingUtil.runOnEdt(() -> {
             var tableModel = (DefaultTableModel) contextTable.getModel();
             return Arrays.stream(contextTable.getSelectedRows())
                     .mapToObj(row -> (ContextFragment) tableModel.getValueAt(row, FRAGMENT_COLUMN))
                     .collect(Collectors.toList());
         }, List.of());
+        return castNonNull(v);
     }
 
     /**
      * Populates the context table from a Context object.
      */
-    public void populateContextTable(Context ctx) {
+    public void populateContextTable(@Nullable Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
-        this.currentContext = ctx;
         var tableModel = (DefaultTableModel) contextTable.getModel();
         tableModel.setRowCount(0);
 
@@ -1109,14 +1128,14 @@ public class WorkspacePanel extends JPanel {
                 continue;
             }
             try {
-                var model = models.getModel(config.name(), config.reasoning());
+                var modelInstance = models.getModel(config.name(), config.reasoning());
                 // Skip if model is unavailable or a placeholder
-                if (model instanceof Service.UnavailableStreamingModel) {
+                if (modelInstance == null || modelInstance instanceof Service.UnavailableStreamingModel) {
                     logger.debug("Skipping unavailable model for context warning: {}", config.name());
                     continue;
                 }
 
-                int maxInputTokens = models.getMaxInputTokens(model);
+                int maxInputTokens = models.getMaxInputTokens(modelInstance);
                 if (maxInputTokens <= 0) {
                     logger.warn("Model {} has invalid maxInputTokens: {}. Skipping for context warning.", config.name(), maxInputTokens);
                     continue;
@@ -1162,7 +1181,7 @@ public class WorkspacePanel extends JPanel {
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
             String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than 90%% of the context window for the following models: %s. Performance will be degraded.", approxTokens, modelListStr);
-            
+
             JTextArea warningArea = createWarningTextArea(warningText, Color.RED, warningTooltip);
             warningPanel.add(warningArea, BorderLayout.CENTER);
 
@@ -1171,11 +1190,11 @@ public class WorkspacePanel extends JPanel {
                     .map(entry -> String.format("%s (%,d)", entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining(", "));
             String warningText = String.format("Warning! Your Workspace (~%,d tokens) fills more than half of the context window for the following models: %s. Performance may be degraded.", approxTokens, modelListStr);
-            
+
             JTextArea warningArea = createWarningTextArea(warningText, Color.YELLOW, warningTooltip); // Standard yellow might be hard to see on some themes
             warningPanel.add(warningArea, BorderLayout.CENTER);
         }
-        
+
         warningPanel.revalidate();
         warningPanel.repaint();
 
@@ -1187,7 +1206,7 @@ public class WorkspacePanel extends JPanel {
      * Called by Chrome to refresh the table if context changes
      */
     public void updateContextTable() {
-        SwingUtilities.invokeLater(() -> populateContextTable(contextManager.selectedContext()));
+        SwingUtilities.invokeLater(() -> populateContextTable(requireNonNull(contextManager.selectedContext())));
     }
 
     private JTextArea createWarningTextArea(String text, Color foregroundColor, String tooltip) {
@@ -1259,7 +1278,7 @@ public class WorkspacePanel extends JPanel {
                 .flatMap(frag -> frag.files().stream())
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        
+
         return !allFiles.isEmpty() && allFiles.stream()
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
@@ -1283,18 +1302,18 @@ public class WorkspacePanel extends JPanel {
                         .distinct()
                         .sorted(Comparator.comparing(TableUtils.FileReferenceList.FileReferenceData::getFileName))
                         .collect(Collectors.toList());
-                
+
                 if (!fileReferences.isEmpty()) {
                     // We need to determine if the click was specifically on a badge
                     Rectangle cellRect = contextTable.getCellRect(row, col, false);
                     int yInCell = e.getPoint().y - cellRect.y;
-                    
+
                     // Estimate if click is in lower half of cell (where badges are)
                     if (yInCell > cellRect.height / 2) {
                         // Try to find which specific badge was clicked
                         TableUtils.FileReferenceList.FileReferenceData clickedFileRef =
                                 TableUtils.findClickedReference(e.getPoint(), row, col, contextTable, fileReferences);
-                        
+
                         if (clickedFileRef != null && clickedFileRef.getRepoFile() != null) {
                             return new FileBadge(clickedFileRef);
                         }
@@ -1362,8 +1381,13 @@ public class WorkspacePanel extends JPanel {
                 if (dialog == null || !dialog.isConfirmed()) { // Check confirmed state
                     chrome.systemOutput("No method selected.");
                 } else {
-
-                    contextManager.addCallersForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
+                    var selectedMethod = dialog.getSelectedMethod();
+                    var callGraph = dialog.getCallGraph();
+                    if (selectedMethod != null && callGraph != null) {
+                        contextManager.addCallersForMethod(selectedMethod, dialog.getDepth(), callGraph);
+                    } else {
+                        chrome.systemOutput("Method selection incomplete or cancelled.");
+                    }
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput("Method selection canceled.");
@@ -1389,11 +1413,16 @@ public class WorkspacePanel extends JPanel {
                 }
 
                 var dialog = showCallGraphDialog("Select Method for Callees", false);
-                if (dialog == null || !dialog.isConfirmed() || dialog.getSelectedMethod() == null || dialog.getSelectedMethod().isBlank()) {
+                if (dialog == null || !dialog.isConfirmed()) {
                     chrome.systemOutput("No method selected.");
                 } else {
-
-                    contextManager.calleesForMethod(dialog.getSelectedMethod(), dialog.getDepth(), dialog.getCallGraph());
+                    var selectedMethod = dialog.getSelectedMethod();
+                    var callGraph = dialog.getCallGraph();
+                    if (selectedMethod != null && callGraph != null) {
+                        contextManager.calleesForMethod(selectedMethod, dialog.getDepth(), callGraph);
+                    } else {
+                        chrome.systemOutput("Method selection incomplete or cancelled.");
+                    }
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput("Method selection canceled.");
@@ -1405,7 +1434,7 @@ public class WorkspacePanel extends JPanel {
     /**
      * Show the symbol selection dialog with a type filter
      */
-    private String showSymbolSelectionDialog(String title, Set<CodeUnitType> typeFilter) {
+    private @Nullable String showSymbolSelectionDialog(String title, Set<CodeUnitType> typeFilter) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
         var dialogRef = new AtomicReference<SymbolSelectionDialog>();
         SwingUtil.runOnEdt(() -> {
@@ -1416,8 +1445,8 @@ public class WorkspacePanel extends JPanel {
             dialogRef.set(dialog);
         });
         try {
-            var dialog = dialogRef.get();
-            if (dialog != null && dialog.isConfirmed()) {
+            var dialog = castNonNull(dialogRef.get());
+            if (dialog.isConfirmed()) {
                 return dialog.getSelectedSymbol();
             }
             return null;
@@ -1429,7 +1458,7 @@ public class WorkspacePanel extends JPanel {
     /**
      * Show the call graph dialog for configuring method and depth
      */
-    private CallGraphDialog showCallGraphDialog(String title, boolean isCallerGraph) {
+    private @Nullable CallGraphDialog showCallGraphDialog(String title, boolean isCallerGraph) {
         var analyzer = contextManager.getAnalyzerUninterrupted();
         var dialogRef = new AtomicReference<CallGraphDialog>();
         SwingUtil.runOnEdt(() -> {
@@ -1457,7 +1486,7 @@ public class WorkspacePanel extends JPanel {
     public Future<?> performContextActionAsync(ContextAction action, List<? extends ContextFragment> selectedFragments) // Use wildcard
     {
         // Use submitContextTask from ContextManager to run the action on the appropriate executor
-        return contextManager.submitContextTask(action + " action", () -> { 
+        return contextManager.submitContextTask(action + " action", () -> {
             try {
                 switch (action) {
                     case EDIT -> doEditAction(selectedFragments);
@@ -1468,7 +1497,7 @@ public class WorkspacePanel extends JPanel {
                     case PASTE -> doPasteAction();
                 }
             } catch (CancellationException cex) {
-                chrome.systemOutput(action + " canceled."); 
+                chrome.systemOutput(action + " canceled.");
             }
             // No finally block needed here as submitContextTask handles enabling buttons
         });
@@ -1477,7 +1506,7 @@ public class WorkspacePanel extends JPanel {
 
     /** Edit Action: Only allows selecting Project Files */
     private void doEditAction(List<? extends ContextFragment> selectedFragments) { // Use wildcard
-        var project = contextManager.getProject(); 
+        var project = contextManager.getProject();
         if (selectedFragments.isEmpty()) {
             // Show dialog allowing ONLY file selection (no external)
             var selection = showMultiSourceSelectionDialog("Edit Files",
@@ -1488,7 +1517,7 @@ public class WorkspacePanel extends JPanel {
             if (selection != null && selection.files() != null && !selection.files().isEmpty()) {
                 // We disallowed external files, so this cast should be safe
                 var projectFiles = toProjectFilesUnsafe(selection.files());
-                contextManager.editFiles(projectFiles); 
+                contextManager.editFiles(projectFiles);
             }
         } else {
             // Edit files from selected fragments
@@ -1496,7 +1525,7 @@ public class WorkspacePanel extends JPanel {
                                         .flatMap(fragment -> fragment.files().stream())
                                         .filter(Objects::nonNull)
                                         .collect(Collectors.toSet());
-            contextManager.editFiles(files); 
+            contextManager.editFiles(files);
         }
     }
 
@@ -1530,10 +1559,10 @@ public class WorkspacePanel extends JPanel {
         var sel = new java.awt.datatransfer.StringSelection(content);
         var cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
         cb.setContents(sel, sel);
-        chrome.systemOutput("Content copied to clipboard"); 
+        chrome.systemOutput("Content copied to clipboard");
     }
 
-    private @NotNull String getSelectedContent(List<? extends ContextFragment> selectedFragments) {
+    private String getSelectedContent(List<? extends ContextFragment> selectedFragments) {
         String content;
         if (selectedFragments.isEmpty()) {
             // gather entire context
@@ -1711,11 +1740,11 @@ public class WorkspacePanel extends JPanel {
 
     private void doDropAction(List<? extends ContextFragment> selectedFragments) {
         if (selectedFragments.isEmpty()) {
-            if (contextManager.topContext().isEmpty()) { 
+            if (contextManager.topContext().isEmpty()) {
                 chrome.systemOutput("No context to drop");
                 return;
             }
-            contextManager.dropAll(); 
+            contextManager.dropAll();
         } else {
             for (var frag : selectedFragments) {
                 if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
@@ -1756,11 +1785,11 @@ public class WorkspacePanel extends JPanel {
             }
 
             // Add selected files (must be ProjectFile for summarization)
-            if (selection.files() != null) {
+            if (selection.files() != null && !selection.files().isEmpty()) {
                 selectedFiles.addAll(toProjectFilesUnsafe(selection.files()));
             }
             // Add selected classes/symbols
-            if (selection.classes() != null) {
+            if (selection.classes() != null && !selection.classes().isEmpty()) {
                 selectedClasses.addAll(selection.classes());
             }
         } else {
@@ -1807,7 +1836,7 @@ public class WorkspacePanel extends JPanel {
      * @param modes              Set of selection modes (FILES, CLASSES) to enable.
      * @return The Selection record containing lists of files and/or classes, or null if cancelled.
      */
-    private MultiFileSelectionDialog.Selection showMultiSourceSelectionDialog(String title, boolean allowExternalFiles, Future<Set<ProjectFile>> projectCompletionsFuture, Set<SelectionMode> modes) {
+    private @Nullable MultiFileSelectionDialog.Selection showMultiSourceSelectionDialog(String title, boolean allowExternalFiles, Future<Set<ProjectFile>> projectCompletionsFuture, Set<SelectionMode> modes) {
         var dialogRef = new AtomicReference<MultiFileSelectionDialog>();
         SwingUtil.runOnEdt(() -> {
             var dialog = new MultiFileSelectionDialog(chrome.getFrame(), contextManager, title, allowExternalFiles, projectCompletionsFuture, modes);
@@ -1849,48 +1878,48 @@ public class WorkspacePanel extends JPanel {
     private List<String> calculateCostEstimates(int inputTokens, Service models) {
         var costEstimates = new ArrayList<String>();
         var seenModels = new HashSet<String>();
-        
+
         var project = contextManager.getProject();
-        
+
         // Get the three configured models in order: code, ask, architect
         List<Service.ModelConfig> configsToCheck = List.of(
-                project.getCodeModelConfig(), 
+                project.getCodeModelConfig(),
                 project.getAskModelConfig(),
                 project.getArchitectModelConfig()
         );
-        
+
         for (var config : configsToCheck) {
             if (config.name() == null || config.name().isBlank() || seenModels.contains(config.name())) {
                 continue; // Skip if model name is empty or already processed
             }
-            
+
             try {
                 var model = models.getModel(config.name(), config.reasoning());
                 if (model instanceof Service.UnavailableStreamingModel) {
                     continue; // Skip unavailable models
                 }
-                
+
                 var pricing = models.getModelPricing(config.name());
                 if (pricing.bands().isEmpty()) {
                     continue; // Skip if no pricing info available
                 }
-                
+
                 // Calculate estimated cost: input tokens * input price + min(4k, input/2) * output price
                 long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
                 if (models.isReasoning(config)) {
                     estimatedOutputTokens += 1000;
                 }
                 double estimatedCost = pricing.estimateCost(inputTokens, 0, estimatedOutputTokens);
-                
+
                 costEstimates.add(String.format("%s: $%.2f", config.name(), estimatedCost));
                 seenModels.add(config.name());
-                
+
             } catch (Exception e) {
                 logger.debug("Error calculating cost estimate for model {}: {}", config.name(), e.getMessage());
                 // Continue to next model on error
             }
         }
-        
+
         return costEstimates;
     }
 
@@ -1903,9 +1932,14 @@ public class WorkspacePanel extends JPanel {
     public void setWorkspaceEditable(boolean editable) {
         SwingUtilities.invokeLater(() -> {
             this.workspaceCurrentlyEditable = editable;
-            if (contextTable != null) {
-                contextTable.repaint();
+
+            // Show/hide overlay based on editable state
+            if (editable) {
+                workspaceOverlay.hideOverlay();
+            } else {
+                workspaceOverlay.showOverlay();
             }
+
             refreshMenuState();
         });
     }
@@ -1921,7 +1955,7 @@ public class WorkspacePanel extends JPanel {
                 if (spinnerIcon != null) {
                     analyzerRebuildSpinner.setIcon(spinnerIcon);
                 }
-                
+
                 // Create notification text that supports wrapping
                 JTextArea notificationText = new JTextArea("Rebuilding Code Intelligence. Workspace will automatically update");
                 notificationText.setWrapStyleWord(true);
@@ -1932,21 +1966,21 @@ public class WorkspacePanel extends JPanel {
                 notificationText.setFont(UIManager.getFont("Label.font"));
                 notificationText.setForeground(UIManager.getColor("Label.foreground"));
                 notificationText.setBorder(null);
-                
+
                 // Layout: spinner on left (aligned to top), text on right
                 JPanel spinnerWrapper = new JPanel(new BorderLayout());
                 spinnerWrapper.setOpaque(false);
                 spinnerWrapper.add(analyzerRebuildSpinner, BorderLayout.NORTH);
-                
+
                 JPanel contentPanel = new JPanel(new BorderLayout(5, 0));
                 contentPanel.setOpaque(false);
                 contentPanel.add(spinnerWrapper, BorderLayout.WEST);
                 contentPanel.add(notificationText, BorderLayout.CENTER);
-                
+
                 analyzerRebuildPanel.removeAll();
                 analyzerRebuildPanel.add(contentPanel, BorderLayout.CENTER);
             }
-            
+
             analyzerRebuildPanel.setVisible(true);
             analyzerRebuildPanel.revalidate();
             analyzerRebuildPanel.repaint();
@@ -1966,9 +2000,9 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    private Icon getCachedSpinnerIcon() {
-        boolean isDark = chrome.getTheme() != null && chrome.getTheme().isDarkTheme();
-        String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
+    private @Nullable Icon getCachedSpinnerIcon() {
+        boolean isDark = chrome.getTheme().isDarkTheme();
+        String path = "/icons/" + (isDark ? "spinner_dark_sm.gif" : "spinner_white_sm.gif");
         var url = getClass().getResource(path);
 
         if (url == null) {

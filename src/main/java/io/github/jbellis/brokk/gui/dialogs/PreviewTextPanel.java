@@ -1,54 +1,53 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import com.github.difflib.DiffUtils;
+import com.github.difflib.UnifiedDiffUtils;
+import com.github.difflib.patch.Patch;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.agents.CodeAgent;
-import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.agents.CodeAgent;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.VoiceInputButton;
+import io.github.jbellis.brokk.gui.search.GenericSearchBar;
+import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import com.github.difflib.DiffUtils;
-import com.github.difflib.UnifiedDiffUtils;
-import com.github.difflib.patch.Patch;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rtextarea.RTextScrollPane;
-import org.fife.ui.rtextarea.SearchContext;
-import org.fife.ui.rtextarea.SearchEngine;
-import org.fife.ui.rtextarea.SearchResult;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.Collections;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.gui.ThemeAware;
-import io.github.jbellis.brokk.gui.search.GenericSearchBar;
-import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
-import org.jetbrains.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Displays text (typically code) using an {@link org.fife.ui.rsyntaxtextarea.RSyntaxTextArea}
@@ -60,16 +59,16 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
-    private JButton editButton;
-    private JButton captureButton;
-    private JButton saveButton;
+    @Nullable private JButton editButton;
+    @Nullable private JButton captureButton;
+    @Nullable private JButton saveButton;
     private final ContextManager contextManager;
 
     // Nullable
     @Nullable private final ProjectFile file;
     private final String contentBeforeSave;
     private List<ChatMessage> quickEditMessages = new ArrayList<>();
-    @Nullable private Future<Set<CodeUnit>> fileDeclarations;
+    @Nullable private final Future<Set<CodeUnit>> fileDeclarations;
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     public PreviewTextPanel(ContextManager contextManager,
@@ -89,7 +88,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
-        textArea = new PreviewTextArea(content, syntaxStyle, file != null);
+        textArea = new PreviewTextArea(content, syntaxStyle, file != null); // syntaxStyle can be null here
 
         // === Top search/action bar ===
         var topPanel = new JPanel(new BorderLayout(8, 4));
@@ -99,9 +98,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Button panel for actions on the right
         JPanel actionButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0)); // Use FlowLayout, add some spacing
 
+        // Initialize buttons that might not be created
+        this.saveButton = null;
+        this.captureButton = null;
+        this.editButton = null;
+
         // Save button (conditionally added for ProjectFile)
-        // Initialize the field saveButton
-        saveButton = null;
         if (file != null) {
             // Use the field saveButton directly
             saveButton = new JButton("Save");
@@ -113,33 +115,39 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Capture button (conditionally added for GitHistoryFragment)
-        captureButton = null;
         if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
             var ghf = (ContextFragment.GitFileFragment) fragment;
             captureButton = new JButton("Capture this Revision");
+            var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
                 contextManager.addReadOnlyFragment(ghf); // Use the new method
-                captureButton.setEnabled(false); // Disable after capture
-                captureButton.setToolTipText("Revision captured");
+                if (finalCaptureButton != null) {
+                    finalCaptureButton.setEnabled(false); // Disable after capture
+                    finalCaptureButton.setToolTipText("Revision captured");
+                }
             });
             actionButtonPanel.add(captureButton); // Add capture button
         }
 
         // Edit button (conditionally added for ProjectFile)
-        editButton = null; // Initialize to null
         if (file != null) {
             var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) ? "Edit Current Version" : "Edit File";
             editButton = new JButton(text);
+            var finalEditButton = editButton; // Final reference for lambda
             if (contextManager.getEditableFiles().contains(file)) {
-                editButton.setEnabled(false);
-                editButton.setToolTipText("File is in Edit context");
+                if (finalEditButton != null) {
+                    finalEditButton.setEnabled(false);
+                    finalEditButton.setToolTipText("File is in Edit context");
+                }
             } else {
-                editButton.addActionListener(e -> {
-                    contextManager.editFiles(java.util.List.of(this.file));
-                    editButton.setEnabled(false);
-                    editButton.setToolTipText("File is in Edit context");
-                });
+                if (finalEditButton != null) {
+                    finalEditButton.addActionListener(e -> {
+                        contextManager.editFiles(List.of(this.file));
+                        finalEditButton.setEnabled(false);
+                        finalEditButton.setToolTipText("File is in Edit context");
+                    });
+                }
             }
             actionButtonPanel.add(editButton); // Add edit button to the action panel
         }
@@ -172,7 +180,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         }
 
         // Put the text area in a scroll pane
-        RTextScrollPane scrollPane = new RTextScrollPane(textArea);
+        var scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
         // Apply the current theme to the text area
@@ -201,9 +209,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Fetch declarations in the background if it's a project file
         if (file != null) {
             fileDeclarations = contextManager.submitBackgroundTask("Fetch Declarations", () -> {
-                IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+                var analyzer = contextManager.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarationsInFile(file);
             });
+        } else {
+            fileDeclarations = null; // Ensure @Nullable field is explicitly null if file is null
         }
     }
 
@@ -221,7 +231,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * Custom RSyntaxTextArea implementation for preview panels with custom popup menu
      */
     public class PreviewTextArea extends RSyntaxTextArea {
-        public PreviewTextArea(String content, String syntaxStyle, boolean isEditable) {
+        public PreviewTextArea(String content, @Nullable String syntaxStyle, boolean isEditable) {
             setSyntaxEditingStyle(syntaxStyle != null ? syntaxStyle : SyntaxConstants.SYNTAX_STYLE_NONE);
             setCodeFoldingEnabled(true);
             setAntiAliasingEnabled(true);
@@ -232,10 +242,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         @Override
         protected JPopupMenu createPopupMenu() {
-            JPopupMenu menu = new JPopupMenu();
+            var menu = new JPopupMenu();
 
             // Add Copy option
-            Action copyAction = new AbstractAction("Copy") {
+            var copyAction = new AbstractAction("Copy") {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     copy();
@@ -244,7 +254,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             menu.add(copyAction);
 
             // Add Quick Edit option (disabled by default, will be enabled when text is selected and file != null)
-            Action quickEditAction = new AbstractAction("Quick Edit") {
+            var quickEditAction = new AbstractAction("Quick Edit") {
                 @Override
                 public void actionPerformed(ActionEvent e) {
                     PreviewTextPanel.this.showQuickEditDialog(getSelectedText());
@@ -257,7 +267,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
                 @Override
                 public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
-                    boolean textSelected = getSelectedText() != null;
+                    var textSelected = getSelectedText() != null;
 
                     // Enable Quick Edit only if text is selected and it's a project file
                     quickEditAction.setEnabled(textSelected && file != null);
@@ -279,6 +289,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     if (file == null) {
                         return;
                     }
+                    if (fileDeclarations == null) { // Guard against null fileDeclarations
+                        logger.warn("fileDeclarations is null when populating dynamic menu items. This should not happen if file is not null.");
+                        return;
+                    }
 
                     if (!fileDeclarations.isDone()) {
                         var item = new JMenuItem("Waiting for Code Intelligence...");
@@ -288,7 +302,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                     }
 
                     int offset = -1;
-                    Point mousePos = getMousePosition(); // Position relative to this text area
+                    var mousePos = getMousePosition(); // Position relative to this text area
 
                     if (mousePos != null) {
                         offset = viewToModel2D(mousePos); // Get document offset from mouse coordinates
@@ -313,14 +327,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                         int lastLine = getLineCount() - 1;
                         int lineStartOffset = getLineStartOffset(lineNum > 0 ? lineNum - 1 : lineNum);
                         int lineEndOffset = getLineEndOffset(lineNum < lastLine ? lineNum + 1 : lineNum);
-                        String lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
+                        var lineText = getText(lineStartOffset, lineEndOffset - lineStartOffset);
 
                         if (lineText != null && !lineText.trim().isEmpty()) {
                             for (CodeUnit unit : codeUnits) {
-                                String identifier = unit.identifier();
+                                var identifier = unit.identifier();
                                 var p = Pattern.compile("\\b" + Pattern.quote(identifier) + "\\b");
                                 if (p.matcher(lineText).find()) {
-                                    JMenuItem item = new JMenuItem("Capture usages of " + unit.shortName());
+                                    var item = new JMenuItem("Capture usages of " + unit.shortName());
                                     // Use a local variable for the action listener lambda
                                     item.addActionListener(action -> {
                                         contextManager.submitBackgroundTask("Capture Usages", () -> contextManager.usageForIdentifier(unit.fqName()));
@@ -378,7 +392,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         textArea.setEditable(false);
 
         // Create quick edit dialog
-        Window ancestor = SwingUtilities.getWindowAncestor(this);
+        var ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog quickEditDialog;
         if (ancestor instanceof Frame frame) {
             quickEditDialog = new JDialog(frame, "Quick Edit", true);
@@ -390,7 +404,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         quickEditDialog.setLayout(new BorderLayout());
 
         // Create main panel for quick edit dialog (without system messages pane)
-        JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
+        var mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createTitledBorder(
                         BorderFactory.createEtchedBorder(),
@@ -403,7 +417,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         ));
 
         // Create edit area with the same styling as the command input in Chrome
-        RSyntaxTextArea editArea = new RSyntaxTextArea(3, 40);
+        var editArea = new RSyntaxTextArea(3, 40);
         editArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
         editArea.setHighlightCurrentLine(false);
         editArea.setBorder(BorderFactory.createCompoundBorder(
@@ -417,11 +431,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         editArea.setAutoIndentEnabled(false);
 
         // Scroll pane for edit area
-        JScrollPane scrollPane = new JScrollPane(editArea);
+        var scrollPane = new JScrollPane(editArea);
         scrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
         // Informational label below the input area
-        JLabel infoLabel = new JLabel("Quick Edit will apply to the selected lines only");
+        var infoLabel = new JLabel("Quick Edit will apply to the selected lines only");
         infoLabel.setFont(new Font(Font.DIALOG, Font.ITALIC, 11));
         infoLabel.setForeground(Color.DARK_GRAY);
         infoLabel.setBorder(new EmptyBorder(5, 5, 0, 5));
@@ -436,16 +450,17 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (file != null) {
             // Submit the task to fetch symbols in the background
             symbolsFuture = contextManager.submitBackgroundTask("Fetch File Symbols", () -> {
-                IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+                var analyzer = contextManager.getAnalyzerUninterrupted();
                 return analyzer.getSymbols(analyzer.getDeclarationsInFile(file));
             });
         }
 
         // Voice input button setup, passing the Future for file-specific symbols
-        VoiceInputButton micButton = new VoiceInputButton(editArea,
-                                                                  contextManager,
-                                                                  () -> { /* no action on record start */ },
-                                                                  symbolsFuture, error -> { /* no special error handling */ });
+        var micButton = new VoiceInputButton(editArea,
+                                             contextManager,
+                                             () -> { /* no action on record start */ },
+                                             symbolsFuture,
+                                             error -> { /* no special error handling */ });
 
         // infoLabel at row=0
         gbc.gridx = 1;
@@ -474,9 +489,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         inputPanel.add(scrollPane, gbc);
 
         // Bottom panel with buttons
-        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton codeButton = new JButton("Code");
-        JButton cancelButton = new JButton("Cancel");
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var codeButton = new JButton("Code");
+        var cancelButton = new JButton("Cancel");
 
         cancelButton.addActionListener(e -> {
             quickEditDialog.dispose();
@@ -506,7 +521,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         quickEditDialog.getRootPane().setDefaultButton(codeButton);
 
         // Register Ctrl+Enter to submit dialog
-        KeyStroke ctrlEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        var ctrlEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         editArea.getInputMap().put(ctrlEnter, "submitQuickEdit");
         editArea.getActionMap().put("submitQuickEdit", new AbstractAction() {
             @Override
@@ -525,7 +540,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 // Instead of silently closing, show a simple message and cancel.
                 JOptionPane.showMessageDialog(quickEditDialog,
                                               "No instructions provided. Quick edit cancelled.",
-                                              "Quick Edit", JOptionPane.INFORMATION_MESSAGE);
+                                              "Quick Edit",
+                                              JOptionPane.INFORMATION_MESSAGE);
                 quickEditDialog.dispose();
                 textArea.setEditable(true);
                 return;
@@ -544,7 +560,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * @param instructions The instructions provided by the user.
      */
     private void openQuickResultsDialog(String selectedText, String instructions) {
-        Window ancestor = SwingUtilities.getWindowAncestor(this);
+        requireNonNull(file);
+
+        var ancestor = SwingUtilities.getWindowAncestor(this);
         JDialog resultsDialog;
         if (ancestor instanceof Frame frame) {
             resultsDialog = new JDialog(frame, "Quick Edit", false);
@@ -556,12 +574,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         resultsDialog.setLayout(new BorderLayout());
 
         // System messages pane
-        JTextArea systemArea = new JTextArea();
+        var systemArea = new JTextArea();
         systemArea.setEditable(false);
         systemArea.setLineWrap(true);
         systemArea.setWrapStyleWord(true);
         systemArea.setRows(5);
-        JScrollPane systemScrollPane = new JScrollPane(systemArea);
+        var systemScrollPane = new JScrollPane(systemArea);
         systemScrollPane.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
                 "System Messages",
@@ -573,9 +591,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         systemScrollPane.setPreferredSize(new Dimension(400, 200));
 
         // Bottom panel with Okay and Stop buttons
-        JPanel bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton okayButton = new JButton("Okay");
-        JButton stopButton = new JButton("Stop");
+        var bottomPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        var okayButton = new JButton("Okay");
+        var stopButton = new JButton("Stop");
         okayButton.setEnabled(false);
         bottomPanel.add(okayButton);
         bottomPanel.add(stopButton);
@@ -628,9 +646,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Submit the quick-edit session to a background future
         var future = contextManager.submitUserTask("Quick Edit", () -> {
             var agent = new CodeAgent(contextManager, contextManager.getService().quickModel());
+            if (file == null) {
+                // This should ideally not be reached if Quick Edit is only enabled for project files.
+                // However, as a safeguard:
+                throw new IllegalStateException("Quick Edit attempted on a non-project file or null file context.");
+            }
             return agent.runQuickTask(file,
-                                      selectedText,
-                                      instructions);
+                                       selectedText,
+                                       instructions);
         });
 
         // Stop button cancels the task and closes the dialog.
@@ -707,7 +730,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * A small holder for quick edit outcome, containing either the generated snippet
      * or an error message detailing the failure. Exactly one field will be non-null.
      */
-    private record QuickEditResult(String snippet, String error) {
+    private record QuickEditResult(@Nullable String snippet, @Nullable String error) {
         public QuickEditResult {
             assert (snippet == null) != (error == null) : "Exactly one of snippet or error must be non-null";
         }
@@ -731,7 +754,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {
             var explanation = stopDetails.explanation() != null ? stopDetails.explanation() : "LLM task failed with " + stopDetails.reason();
             logger.debug("Quick Edit LLM task failed: {}", explanation);
-            return new QuickEditResult(null, explanation);
+            return new QuickEditResult(null, Objects.toString(explanation, "LLM task failed without specific explanation."));
         }
 
         // LLM call succeeded; try to parse a snippet
@@ -748,7 +771,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             try {
                 // Find position of the selected text
-                String currentText = textArea.getText();
+                var currentText = textArea.getText();
                 int startPos = currentText.indexOf(selectedText.stripLeading());
 
                 // Use beginAtomicEdit and endAtomicEdit to group operations as a single undo unit
@@ -787,7 +810,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      */
     private void setupWindowCloseHandler() {
         SwingUtilities.invokeLater(() -> {
-            Window ancestor = SwingUtilities.getWindowAncestor(this);
+            var ancestor = SwingUtilities.getWindowAncestor(this);
             // Set default close operation to DO_NOTHING_ON_CLOSE so we can handle it
             if (ancestor instanceof JFrame frame) {
                 frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
@@ -850,27 +873,28 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * @param buttonToDisable The save button instance to disable after a successful save.
      * @return true if the save was successful, false otherwise.
      */
-    private boolean performSave(JButton buttonToDisable) {
+    private boolean performSave(@Nullable JButton buttonToDisable) {
         assert file != null : "Attempted to save but no ProjectFile is associated with this panel.";
-        String newContent = textArea.getText();
+        var newContent = textArea.getText();
 
-        boolean contentChangedFromInitial = !newContent.equals(contentBeforeSave);
+        var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
 
         if (contentChangedFromInitial) {
             try {
                 // Generate a unified diff from the initial state to the current state
-                List<String> originalLines = contentBeforeSave.lines().collect(Collectors.toList());
-                List<String> newLines = newContent.lines().collect(Collectors.toList());
-                Patch<String> patch = DiffUtils.diff(originalLines, newLines);
-                List<String> unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(file.toString(),
-                                                                                file.toString(),
-                                                                                originalLines,
-                                                                                patch,
-                                                                                3);
+                var originalLines = contentBeforeSave.lines().collect(Collectors.toList());
+                var newLines = newContent.lines().collect(Collectors.toList());
+                var patch = DiffUtils.diff(originalLines, newLines);
+                var fileNameForDiff = file != null ? file.toString() : "untitled";
+                var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(fileNameForDiff,
+                                                                              fileNameForDiff,
+                                                                              originalLines,
+                                                                              patch,
+                                                                              3);
                 // Create the SessionResult representing the net change
-                String actionDescription = "Edited " + file;
+                var actionDescription = "Edited " + fileNameForDiff;
                 // Include quick edit messages accumulated since last save + the current diff
-                List<ChatMessage> messagesForHistory = new ArrayList<>(quickEditMessages);
+                var messagesForHistory = new ArrayList<>(quickEditMessages);
                 messagesForHistory.add(Messages.customSystem("# Diff of changes\n\n```%s```".formatted(unifiedDiff)));
                 var saveResult = new TaskResult(contextManager,
                                                 actionDescription,
@@ -887,14 +911,26 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         try {
             // Write the new content to the file, regardless of whether it matched initial content,
             // because saveButton being enabled implies it's different from last saved state.
-            file.write(newContent);
-            buttonToDisable.setEnabled(false); // Disable after successful save
-            quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
-            logger.debug("File saved: " + file);
-            return true; // Save successful
+            if (file != null) {
+                file.write(newContent);
+                if (buttonToDisable != null) {
+                    buttonToDisable.setEnabled(false); // Disable after successful save
+                }
+                quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+                logger.debug("File saved: " + file);
+                return true; // Save successful
+            } else {
+                // Should not happen if save button is only enabled for project files
+                logger.error("Attempted to save but no ProjectFile is associated with this panel.");
+                JOptionPane.showMessageDialog(this,
+                                              "Cannot save: No file context.",
+                                              "Save Error",
+                                              JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
         } catch (IOException ex) {
             // If save fails, button remains enabled and messages are not cleared.
-            logger.error("Error saving file {}", file, ex);
+            logger.error("Error saving file {}", file != null ? file : "null", ex);
             JOptionPane.showMessageDialog(this,
                                           "Error saving file: " + ex.getMessage(),
                                           "Save Error",

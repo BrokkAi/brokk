@@ -1,6 +1,7 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import io.github.jbellis.brokk.difftool.utils.ColorUtil;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 
@@ -16,6 +17,7 @@ import java.awt.*;
  * of the text editor while maintaining proper alignment and spacing.
  */
 public class LineNumberBorder extends EmptyBorder {
+    private static final Logger logger = LogManager.getLogger(LineNumberBorder.class);
     // Margin space between the line numbers and the text editor
     private static final int MARGIN = 4;
 
@@ -58,6 +60,9 @@ public class LineNumberBorder extends EmptyBorder {
 
         // Initialize the colours once; they will be refreshed on every paint call
         updateColors();
+        // Ensure background and lineColor are initialized even if updateColors() doesn't set them due to some theme issue
+        if (this.background == null) this.background = Color.LIGHT_GRAY;
+        if (this.lineColor == null) this.lineColor = Color.DARK_GRAY;
     }
 
     /**
@@ -117,6 +122,11 @@ public class LineNumberBorder extends EmptyBorder {
 
             // Get the pixel coordinates of the first visible line (modern API)
             r1 = SwingUtil.modelToView(textArea, startOffset);
+            if (r1 == null) {
+                 // This can happen if the text area is not yet displayable or has no content
+                logger.warn("modelToView returned null for startOffset {}, cannot paint line numbers.", startOffset);
+                return;
+            }
             y = r1.y;
             lineHeight = r1.height;
             heightCorrection = (lineHeight - fontHeight) / 2;

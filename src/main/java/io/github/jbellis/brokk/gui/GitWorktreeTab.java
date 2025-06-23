@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.RebaseCommand;
 import org.eclipse.jgit.api.RebaseResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -30,7 +31,7 @@ import java.awt.GridBagLayout;
 import java.awt.Insets;
 import javax.swing.JCheckBox;
 import javax.swing.JOptionPane;
-
+import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -56,13 +57,14 @@ public class GitWorktreeTab extends JPanel {
     private final ContextManager contextManager;
     // private final GitPanel gitPanel; // Field is not read
 
-    private JTable worktreeTable;
-    private DefaultTableModel worktreeTableModel;
-    private JButton addButton;
-    private JButton removeButton;
-    private JButton openButton; // Added
-    private JButton refreshButton; // Added
-    private JButton mergeButton; // Added for worktree merge functionality
+    private JTable worktreeTable = new JTable();
+    private DefaultTableModel worktreeTableModel = new DefaultTableModel();
+    private JButton addButton = new JButton();
+    private JButton removeButton = new JButton();
+    private JButton openButton = new JButton(); // Added
+    private JButton refreshButton = new JButton(); // Added
+    @org.jetbrains.annotations.Nullable
+    private JButton mergeButton = null; // Added for worktree merge functionality
 
     private final boolean isWorktreeWindow;
 
@@ -91,10 +93,10 @@ public class GitWorktreeTab extends JPanel {
         unsupportedLabel.setHorizontalAlignment(SwingConstants.CENTER);
         add(unsupportedLabel, new GridBagConstraints());
         // Ensure buttons (if they were somehow initialized) are disabled
-        if (addButton != null) addButton.setEnabled(false);
-        if (removeButton != null) removeButton.setEnabled(false);
-        if (openButton != null) openButton.setEnabled(false); // Ensure openButton is also handled
-        if (refreshButton != null) refreshButton.setEnabled(false); // Disable refresh button
+        addButton.setEnabled(false);
+        removeButton.setEnabled(false);
+        openButton.setEnabled(false); // Ensure openButton is also handled
+        refreshButton.setEnabled(false); // Disable refresh button
         revalidate();
         repaint();
     }
@@ -336,24 +338,16 @@ public class GitWorktreeTab extends JPanel {
         List<Path> selectedPaths = getSelectedWorktreePaths();
         boolean hasSelection = !selectedPaths.isEmpty();
 
-        if (openButton != null) {
-            openButton.setEnabled(hasSelection);
-        }
+        openButton.setEnabled(hasSelection);
 
         if (isWorktreeWindow) {
-            if (addButton != null) {
-                addButton.setEnabled(false);
-            }
-            if (removeButton != null) {
-                removeButton.setEnabled(false);
-            }
+            addButton.setEnabled(false);
+            removeButton.setEnabled(false);
             // mergeButton's state is not currently driven by selection in this method.
             // It is initialized as enabled.
         } else { // MainProject context
             // addButton in MainProject view is generally always enabled if worktrees are supported.
-            if (removeButton != null) {
-                removeButton.setEnabled(hasSelection);
-            }
+            removeButton.setEnabled(hasSelection);
         }
     }
 
@@ -387,7 +381,7 @@ public class GitWorktreeTab extends JPanel {
                      SwingUtilities.invokeLater(() -> {
                         worktreeTableModel.setRowCount(0);
                         addButton.setEnabled(false);
-                        if (openButton != null) openButton.setEnabled(false);
+                         openButton.setEnabled(false);
                         removeButton.setEnabled(false);
                         updateButtonStates(); // Update after loading
                      });
@@ -416,11 +410,10 @@ public class GitWorktreeTab extends JPanel {
                 if (worktreePath.equals(parentProject.getRoot())) {
                     logger.debug("Attempted to open/focus main project from worktree tab, focusing current window.");
                     SwingUtilities.invokeLater(() -> {
-                        if (chrome != null && chrome.getFrame() != null) {
-                            chrome.getFrame().setState(Frame.NORMAL);
-                            chrome.getFrame().toFront();
-                            chrome.getFrame().requestFocus();
-                        }
+                        chrome.getFrame();
+                        chrome.getFrame().setState(Frame.NORMAL);
+                        chrome.getFrame().toFront();
+                        chrome.getFrame().requestFocus();
                     });
                     continue;
                 }
@@ -576,7 +569,7 @@ public class GitWorktreeTab extends JPanel {
                             true
                     ));
                 } else {
-                    dialogFuture.complete(new AddWorktreeDialogResult(null, null, false, false, false));
+                    dialogFuture.complete(new AddWorktreeDialogResult("", "", false, false, false));
                 }
             });
 
@@ -593,7 +586,7 @@ public class GitWorktreeTab extends JPanel {
                 boolean copyWorkspace = dialogResult.copyWorkspace();
 
                 if (isCreatingNewBranch) {
-                    if (branchForWorktree == null || branchForWorktree.isEmpty()) {
+                    if (branchForWorktree.isEmpty()) {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "New branch name cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
@@ -603,17 +596,13 @@ public class GitWorktreeTab extends JPanel {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "Error sanitizing branch name: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
-                    if (sourceBranchForNew == null || sourceBranchForNew.isEmpty()) {
+                    if (sourceBranchForNew.isEmpty()) {
                         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "A source branch must be selected to create a new branch.", "Error", JOptionPane.ERROR_MESSAGE));
                         return;
                     }
                 } else { // Using existing branch
-                    if (branchForWorktree == null) {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, "No branch selected to use for the worktree.", "Error", JOptionPane.ERROR_MESSAGE));
-                        return;
-                    }
                 }
-                
+
                 chrome.systemOutput("Adding worktree for branch: " + branchForWorktree);
 
                 WorktreeSetupResult setupResult = setupNewGitWorktree(project, gitRepo, branchForWorktree, isCreatingNewBranch, sourceBranchForNew);
@@ -793,11 +782,6 @@ public class GitWorktreeTab extends JPanel {
         IGitRepo repo = contextManager.getProject().getRepo();
         if (repo.supportsWorktrees()) {
             // If UI was previously the unsupported one, rebuild the proper UI
-            if (worktreeTable == null) {
-                removeAll();
-                setLayout(new BorderLayout()); // Reset layout
-                buildWorktreeTabUI();
-            }
             loadWorktrees();
         } else {
             buildUnsupportedUI();
@@ -831,7 +815,6 @@ public class GitWorktreeTab extends JPanel {
         Path newWorktreePath = gitRepo.getNextWorktreePath(worktreeStorageDir);
 
         if (isCreatingNewBranch) {
-            assert sourceBranchForNew != null : "Source branch must be provided when creating a new branch";
             logger.debug("Creating new branch '{}' from '{}' for worktree at {}", branchForWorktree, sourceBranchForNew, newWorktreePath);
             gitRepo.createBranch(branchForWorktree, sourceBranchForNew);
         }
@@ -899,12 +882,9 @@ public class GitWorktreeTab extends JPanel {
                     targetBranchComboBox.addItem("Error loading branches");
                     targetBranchComboBox.setEnabled(false);
                 }
-            } else if (iParentRepo != null) {
+            } else {
                 logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
                 targetBranchComboBox.addItem("Unsupported parent repo type");
-                targetBranchComboBox.setEnabled(false);
-            } else {
-                targetBranchComboBox.addItem("Parent repo not available");
                 targetBranchComboBox.setEnabled(false);
             }
         } else {
@@ -1027,7 +1007,7 @@ public class GitWorktreeTab extends JPanel {
         }
     }
 
-    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, JButton okButton) {
+    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, @Nullable JButton okButton) {
         if (okButton != null) {
             okButton.setEnabled(false);
         }
@@ -1140,9 +1120,11 @@ public class GitWorktreeTab extends JPanel {
                         }
                     }
 
-                    org.eclipse.jgit.api.MergeResult squashResult = parentGitRepo.getGit().merge()
+                    var resolvedBranch = parentGitRepo.resolve(worktreeBranchName);
+
+                    MergeResult squashResult = parentGitRepo.getGit().merge()
                         .setSquash(true)
-                        .include(parentGitRepo.resolve(worktreeBranchName))
+                        .include(resolvedBranch)
                         .call();
 
                     if (!squashResult.getMergeStatus().isSuccessful()) {
@@ -1178,8 +1160,10 @@ public class GitWorktreeTab extends JPanel {
 
                         // 3. Rebase the current branch (tempRebaseBranchName) onto the target branch.
                         logger.info("Rebasing current branch ({}) onto {}", tempRebaseBranchName, targetBranch);
+                        var resolvedTarget = parentGitRepo.resolve(targetBranch);
+
                         RebaseResult rebaseResult = parentGitRepo.getGit().rebase()
-                                .setUpstream(parentGitRepo.resolve(targetBranch)) // targetBranch is the new base
+                                .setUpstream(resolvedTarget) // targetBranch is the new base
                                 .call(); // Rebase acts on the current branch (tempRebaseBranchName)
 
                         if (!rebaseResult.getStatus().isSuccessful()) {
@@ -1265,9 +1249,10 @@ public class GitWorktreeTab extends JPanel {
                         // After successfully removing the worktree, close any associated Brokk window.
                         SwingUtilities.invokeLater(() -> {
                             var windowToClose = Brokk.findOpenProjectWindow(worktreePath);
-                            assert windowToClose != null;
-                            var closeEvent = new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING);
-                            windowToClose.getFrame().dispatchEvent(closeEvent);
+                            if (windowToClose != null) {
+                                var closeEvent = new WindowEvent(windowToClose.getFrame(), WindowEvent.WINDOW_CLOSING);
+                                windowToClose.getFrame().dispatchEvent(closeEvent);
+                            }
                         });
                     } catch (GitAPIException e) {
                         String wtDeleteError = "Failed to delete worktree " + worktreePath.getFileName() + " during merge cleanup: " + e.getMessage();

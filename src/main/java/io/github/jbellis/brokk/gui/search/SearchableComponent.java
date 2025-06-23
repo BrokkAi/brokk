@@ -70,6 +70,11 @@ public interface SearchableComponent {
         default void onSearchStart() {
             // Default implementation does nothing - components can override for start notifications
         }
+
+        /**
+         * A no-op callback that can be used when a callback is required but no notification is desired.
+         */
+        SearchCompleteCallback NONE = (totalMatches, currentMatchIndex) -> {};
     }
 
     /**
@@ -79,7 +84,7 @@ public interface SearchableComponent {
      *
      * @param callback the callback to notify when operations complete
      */
-    void setSearchCompleteCallback(SearchCompleteCallback callback);
+    void setSearchCompleteCallback(@Nullable SearchCompleteCallback callback);
 
     /**
      * Convenience method to notify immediate feedback when starting a search.
@@ -101,8 +106,9 @@ public interface SearchableComponent {
      *
      * @return the current callback, or null if none is set
      */
+    @Nullable
     default SearchCompleteCallback getSearchCompleteCallback() {
-        return null; // Default implementation - components should override if they store the callback
+        return SearchCompleteCallback.NONE; // Default implementation that never returns null
     }
 
     /**

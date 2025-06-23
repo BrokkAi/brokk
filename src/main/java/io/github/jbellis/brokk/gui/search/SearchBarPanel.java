@@ -9,6 +9,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import org.jetbrains.annotations.Nullable;
+
 import java.util.Objects;
 
 /**
@@ -23,6 +25,7 @@ public class SearchBarPanel extends JPanel {
     private final SearchCallback searchCallback;
     private final boolean showCaseSensitive;
     private final boolean showNavigation;
+    @Nullable
     private JCheckBox caseSensitiveCheckBox;
     private final int minimumSearchChars; // Default minimum characters to trigger search
     private boolean validSearchActive = false; // Track if a valid search is currently active
@@ -48,6 +51,7 @@ public class SearchBarPanel extends JPanel {
         this.searchCallback = searchCallback;
         this.showCaseSensitive = showCaseSensitive;
         this.showNavigation = showNavigation;
+        this.caseSensitiveCheckBox = null; // Explicitly initialize @Nullable field
         this.minimumSearchChars = Math.max(1, minimumSearchChars); // Ensure at least 1 character
         init();
     }
@@ -228,15 +232,16 @@ public class SearchBarPanel extends JPanel {
                 validSearchActive = false;
             }
             searchResult.setText("");
+            updateSearchResults(null); // Clear previous results display
         }
     }
     
-    public void updateSearchResults(SearchResults results) {
+    public void updateSearchResults(@Nullable SearchResults results) {
         assert SwingUtilities.isEventDispatchThread();
         boolean notFound = results == null || results.isEmpty();
         String searchText = searchField.getText();
         
-        if (notFound && !searchText.isEmpty()) {
+        if (notFound && !searchText.isEmpty() && validSearchActive) { // Only show "not found" if a search was actually active
             // Set error state
             if (!Objects.equals(searchField.getForeground(), Color.red)) {
                 searchField.putClientProperty(CP_FOREGROUND, searchField.getForeground());

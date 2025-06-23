@@ -10,13 +10,13 @@ import org.jetbrains.annotations.Nullable;
  * These blocks have the format: &lt;<<<< SEARCH foo ===== REPLACE bar >>>>>.
  */
 public class EditBlockNode extends Block {
-    private BasedSequence openingMarker;
-    private BasedSequence searchKeyword;
-    private BasedSequence searchText;
-    private BasedSequence divider;
-    private BasedSequence replaceKeyword;
-    private BasedSequence replaceText;
-    private BasedSequence closingMarker;
+    private BasedSequence openingMarker = BasedSequence.NULL;
+    private BasedSequence searchKeyword = BasedSequence.NULL;
+    private BasedSequence searchText = BasedSequence.NULL;
+    private BasedSequence divider = BasedSequence.NULL;
+    private BasedSequence replaceKeyword = BasedSequence.NULL;
+    private BasedSequence replaceText = BasedSequence.NULL;
+    private BasedSequence closingMarker = BasedSequence.NULL;
     private @Nullable String filename;
     private GitStatus status = GitStatus.UNKNOWN;
     

@@ -33,6 +33,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.jetbrains.annotations.Nullable;
 
 
 public class CreatePullRequestDialog extends JDialog {
@@ -51,6 +52,7 @@ public class CreatePullRequestDialog extends JDialog {
     private LoadingButton createPrButton; // Field for the Create PR button
     private Runnable flowUpdater;
     private List<CommitInfo> currentCommits = Collections.emptyList();
+    @Nullable
     private String mergeBaseCommit = null;
     private boolean sourceBranchNeedsPush = false;
 
@@ -58,10 +60,27 @@ public class CreatePullRequestDialog extends JDialog {
      * Optional branch name that should be pre-selected as the source branch
      * when the dialog opens.  May be {@code null}.
      */
+    @Nullable
     private final String preselectedSourceBranch;
 
+    @SuppressWarnings("NullAway.Init")
+    public CreatePullRequestDialog(@Nullable Frame owner, Chrome chrome, ContextManager contextManager, @Nullable String preselectedSourceBranch) {
+        super(owner, "Create a Pull Request", false);
+        this.chrome = chrome;
+        this.contextManager = contextManager;
+        this.preselectedSourceBranch = preselectedSourceBranch;
+
+        initializeDialog();
+        buildLayout();
+    }
+
+    @Nullable
     private PrDescriptionWorker currentDescriptionWorker;
+    @Nullable
     private ContextManager.SummarizeWorker currentTitleWorker;
+
+    @Nullable
+    private ScheduledFuture<?> pendingDebounceTask;
 
     private final ScheduledExecutorService debounceExec = Executors.newSingleThreadScheduledExecutor(new java.util.concurrent.ThreadFactory() {
         private final AtomicInteger threadNumber = new AtomicInteger(1);
@@ -73,28 +92,11 @@ public class CreatePullRequestDialog extends JDialog {
             return t;
         }
     });
-    private ScheduledFuture<?> pendingDebounceTask;
+    // private ScheduledFuture<?> pendingDebounceTask; // Removed duplicate
     private static final long DEBOUNCE_MS = 400;
 
     public CreatePullRequestDialog(Frame owner, Chrome chrome, ContextManager contextManager) {
         this(owner, chrome, contextManager, null); // delegate
-    }
-
-    /**
-     * Full constructor allowing the caller to specify which branch should be
-     * selected as the source branch when the dialog opens.
-     */
-    public CreatePullRequestDialog(Frame owner,
-                                   Chrome chrome,
-                                   ContextManager contextManager,
-                                   String preselectedSourceBranch) {
-        super(owner, "Create a Pull Request", false);
-        this.chrome = chrome;
-        this.contextManager = contextManager;
-        this.preselectedSourceBranch = preselectedSourceBranch;
-
-        initializeDialog();
-        buildLayout();
     }
 
     private void initializeDialog() {
@@ -376,12 +378,22 @@ public class CreatePullRequestDialog extends JDialog {
                     // Nothing to describe; stop any ongoing generation and clear fields.
                     cancelGenerationWorkersAndClearFields();
                 } else {
-                    // Auto-generate title and description
-                    // This diff is for the LLM, not for display directly
-                    var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
-                    debounceGenerate(diffText);
+                    if (this.mergeBaseCommit != null) {
+                        // Auto-generate title and description
+                        // This diff is for the LLM, not for display directly
+                        var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
+                        debounceGenerate(diffText);
+                    } else {
+                        // No merge base, cannot generate diff for description.
+                        logger.warn("No merge base found between {} and {}, cannot generate PR description.", sourceBranch, targetBranch);
+                        cancelGenerationWorkersAndClearFields(); // Clear any pending/optimistic UI
+                        // Optionally, set a specific message in descriptionArea
+                        SwingUtilities.invokeLater(() -> {
+                            descriptionArea.setText("(Could not determine changes: no common merge base found)");
+                            titleField.setText(""); // Also clear title
+                        });
+                    }
                 }
-
 
                 SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiffData.commits(),
                                                                        branchDiffData.changedFiles(),
@@ -530,6 +542,7 @@ public class CreatePullRequestDialog extends JDialog {
         selectDefaultSourceBranch(gitRepo, sourceBranches, localBranches);
     }
     
+    @Nullable
     private String findDefaultTargetBranch(List<String> targetBranches) {
         if (targetBranches.contains("origin/main")) {
             return "origin/main";
@@ -559,10 +572,10 @@ public class CreatePullRequestDialog extends JDialog {
     /**
      * Convenience helper to open the dialog with a pre-selected source branch.
      */
-    public static void show(Frame owner,
+    public static void show(@Nullable Frame owner,
                             Chrome chrome,
                             ContextManager contextManager,
-                            String sourceBranch) {
+                            @Nullable String sourceBranch) {
         CreatePullRequestDialog dialog =
                 new CreatePullRequestDialog(owner, chrome, contextManager, sourceBranch);
         dialog.setVisible(true);
@@ -583,7 +596,7 @@ public class CreatePullRequestDialog extends JDialog {
         return new BufferSource.StringSource(content, commitSHA, f.getFileName());
     }
 
-    private List<ProjectFile> getOrderedFilesForDiff(ProjectFile priorityFile) {
+    private List<ProjectFile> getOrderedFilesForDiff(@Nullable ProjectFile priorityFile) {
         var allFilesInTable = getAllFilesFromFileStatusTable();
         var selectedFiles = fileStatusTable.getSelectedFiles();
         var orderedFiles = new ArrayList<ProjectFile>();
@@ -645,8 +658,8 @@ public class CreatePullRequestDialog extends JDialog {
         }
     }
 
-    private void openPrDiffViewer(ProjectFile priorityFile) {
-        var orderedFiles = getOrderedFilesForDiff(priorityFile);
+    private void openPrDiffViewer(@Nullable ProjectFile priorityFile) {
+        List<ProjectFile> orderedFiles = getOrderedFilesForDiff(priorityFile);
 
         final String currentMergeBase = this.mergeBaseCommit;
         final String currentSourceBranch = (String) sourceBranchComboBox.getSelectedItem();
@@ -691,11 +704,11 @@ public class CreatePullRequestDialog extends JDialog {
                 return "";
             }
 
-            if (result.error() != null || result.chatResponse() == null) {
+            if (result.error() != null || result.isEmpty()) {
                 logger.warn("PR description generation failed: {}", result.error());
                 return "(generation failed)";
             }
-            return result.chatResponse().aiMessage().text().trim();
+            return result.text().trim();
         }
 
         @Override
@@ -852,7 +865,7 @@ public class CreatePullRequestDialog extends JDialog {
                 } catch (Exception e) {
                     logger.warn("Title summarization worker failed to get result", e);
                 }
-                var finalTtl = ttl;
+                String finalTtl = ttl;
                 SwingUtilities.invokeLater(() -> setTextAndResetCaret(titleField, finalTtl));
             }
         };

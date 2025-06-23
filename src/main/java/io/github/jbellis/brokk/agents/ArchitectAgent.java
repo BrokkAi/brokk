@@ -30,6 +30,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
@@ -371,23 +373,23 @@ public class ArchitectAgent {
                 io.systemOutput("Error from LLM while deciding next action (see debug log for details)");
                 return llmErrorResult();
             }
-            if (result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+            if (result.isEmpty()) {
                 var msg = "Empty LLM response. Stopping project now";
                 io.systemOutput(msg);
                 return llmErrorResult();
             }
             // show thinking
-            if (result.chatResponse().aiMessage().text() != null && !result.chatResponse().aiMessage().text().isBlank()) {
-                io.llmOutput("\n" + result.chatResponse().aiMessage().text(), ChatMessageType.AI);
+            if (!result.text().isBlank()) {
+                io.llmOutput("\n" + result.text(), ChatMessageType.AI);
             }
 
-            totalUsage = TokenUsage.sum(totalUsage, result.chatResponse().tokenUsage());
+            totalUsage = TokenUsage.sum(totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.chatResponse().aiMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
             architectMessages.add(messages.getLast());
             architectMessages.add(aiMessage);
 
-            var deduplicatedRequests = new LinkedHashSet<>(aiMessage.toolExecutionRequests());
+            var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
             io.llmOutput("\nTool call(s): %s".formatted(deduplicatedRequests.stream().map(req -> "`" + req.name() + "`").collect(Collectors.joining(", "))), ChatMessageType.AI);
 
@@ -475,11 +477,11 @@ public class ArchitectAgent {
                 } catch (ExecutionException e) {
                     logger.warn("Error executing SearchAgent task '{}'", request.name(), e.getCause());
                     if (e.getCause() instanceof FatalLlmException) {
-                        var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(e.getCause().getMessage());
+                        var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(Objects.toString(e.getCause().getMessage(), "Unknown error"));
                         io.systemOutput(errorMessage);
                         break; 
                     }
-                    var errorMessage = "Error executing Search Agent: %s".formatted(e.getCause().getMessage());
+                    var errorMessage = "Error executing Search Agent: %s".formatted(Objects.toString(e.getCause() != null ? e.getCause().getMessage() : "Unknown error", "Unknown execution error"));
                     architectMessages.add(ToolExecutionResultMessage.from(request, errorMessage));
                 }
             }

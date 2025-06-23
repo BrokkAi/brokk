@@ -1,15 +1,19 @@
 package io.github.jbellis.brokk.difftool.doc;
 
+import org.jetbrains.annotations.Nullable;
+
 import javax.swing.event.DocumentEvent;
 
 public class JMDocumentEvent {
-    private AbstractBufferDocument document;
-    private DocumentEvent de;
+    private final AbstractBufferDocument document;
+    @Nullable
+    private DocumentEvent de; // Made nullable as it's not set in one constructor
     private int startLine;
     private int numberOfLines;
 
     public JMDocumentEvent(AbstractBufferDocument document) {
         this.document = document;
+        // this.de remains null
     }
 
     public JMDocumentEvent(AbstractBufferDocument document, DocumentEvent de) {
@@ -22,6 +26,7 @@ public class JMDocumentEvent {
         return document;
     }
 
+    @Nullable
     public DocumentEvent getDocumentEvent() {
         return de;
     }

@@ -11,10 +11,13 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
+import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.jetbrains.annotations.Nullable;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+import static java.util.Objects.requireNonNull;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -36,6 +39,7 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 
+
 public class Brokk {
     private static final Logger logger = LogManager.getLogger(Brokk.class);
 
@@ -44,7 +48,7 @@ public class Brokk {
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
     private static final Set<Path> reOpeningProjects = ConcurrentHashMap.newKeySet();
-    public static final CompletableFuture<AbstractModel> embeddingModelFuture;
+    public static final CompletableFuture<@Nullable AbstractModel> embeddingModelFuture;
 
     public static final String ICON_RESOURCE = "/brokk-icon.png";
 
@@ -64,6 +68,7 @@ public class Brokk {
         }
     }
 
+    // start loading embeddings model immediately
     static {
         embeddingModelFuture = CompletableFuture.supplyAsync(() -> {
             logger.info("Loading embedding model asynchronously...");
@@ -225,7 +230,9 @@ public class Brokk {
     private static boolean attemptOpenProjects(List<Path> projectsToAttemptOpen) {
         Map<Boolean, List<Path>> partitionedProjects = projectsToAttemptOpen.stream()
                 .filter(Brokk::isValidDirectory)
-                .peek(p -> { if (!isValidDirectory(p)) logger.warn("Skipping invalid path: {}", p); })
+                .peek(p -> {
+                    if (!isValidDirectory(p)) logger.warn("Skipping invalid path: {}", p);
+                })
                 .collect(Collectors.partitioningBy(p -> {
                     if (GitRepo.hasGitRepo(p)) {
                         try (GitRepo tempR = new GitRepo(p)) {
@@ -238,8 +245,8 @@ public class Brokk {
                     return false;
                 }));
 
-        List<Path> mainRepoPaths = partitionedProjects.get(false); // Paths that are not worktrees (or error)
-        List<Path> worktreePaths = partitionedProjects.get(true);  // Paths that are worktrees
+        List<Path> mainRepoPaths = castNonNull(partitionedProjects.get(false));
+        List<Path> worktreePaths = castNonNull(partitionedProjects.get(true));
 
         boolean successfulOpenOccurred = false;
 
@@ -292,6 +299,9 @@ public class Brokk {
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
 
+        // run this after we show the splash screen, it's expensive
+        Thread.ofPlatform().start(Messages::init);
+
         Path initialDialogPath = parsedArgs.projectPathArg != null ? Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize() : null;
         KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag, initialDialogPath);
 
@@ -308,7 +318,7 @@ public class Brokk {
             if (projectsToAttemptOpen.isEmpty()) {
                 SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Hide splash before project selection dialog
                 final Path dialogPathForLambda = currentDialogContextPath;
-                Path selectedPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(null, MainProject.getBrokkKey(), true, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_PROJECT_ONLY), null);
+                var selectedPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(new JFrame(), MainProject.getBrokkKey(), true, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_PROJECT_ONLY), null);
                 if (selectedPath == null) { // User quit dialog
                     logger.info("Startup dialog (project selection) was closed. Shutting down.");
                     System.exit(0);
@@ -382,7 +392,6 @@ public class Brokk {
 
     private static CompletableFuture<Void> createAndShowGui(Path projectPath, ContextManager contextManager) {
         assert SwingUtilities.isEventDispatchThread();
-        assert contextManager != null : "ContextManager cannot be null when creating GUI";
 
         var contextFuture = contextManager.createGui();
         var io = (Chrome) contextManager.getIo();
@@ -413,6 +422,7 @@ public class Brokk {
 
     /**
      * Checks if a project window is already open for the given path.
+     *
      * @param path The project path.
      * @return true if the project window is open, false otherwise.
      */
@@ -423,6 +433,7 @@ public class Brokk {
     /**
      * Brings the existing window for the given project path to the front and focuses it.
      * Does nothing if the project is not currently open.
+     *
      * @param path The project path.
      */
     public static void focusProjectWindow(Path path) {
@@ -445,8 +456,7 @@ public class Brokk {
      * @param projectPath The project path to search for
      * @return The Chrome window for the project, or null if not found
      */
-    @Nullable
-    public static Chrome findOpenProjectWindow(@Nullable Path projectPath) {
+    public static @Nullable Chrome findOpenProjectWindow(@Nullable Path projectPath) {
         if (projectPath == null) {
             return null;
         }
@@ -456,44 +466,36 @@ public class Brokk {
         if (directMatch != null) {
             // Verify the project root just in case, though it should match if the key matches
             ContextManager cm = directMatch.getContextManager();
-            if (cm != null) {
-                var p = cm.getProject();
-                if (p != null && p.getRoot() != null &&
-                    p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return directMatch;
-                }
+            var p = cm.getProject();
+            if (p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return directMatch;
             }
         }
         // Fallback: Iterate if direct match is not conclusive or not found (e.g. path aliases)
         for (Map.Entry<Path, Chrome> entry : openProjectWindows.entrySet()) {
             ContextManager cm = entry.getValue().getContextManager();
-            if (cm != null) {
-                var p = cm.getProject();
-                if (p != null && p.getRoot() != null &&
-                    p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return entry.getValue();
-                }
+            var p = cm.getProject();
+            if (p.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return entry.getValue();
             }
         }
         return null;
     }
 
-    public static IProject findOpenProjectByPath(Path path) {
+    public static @Nullable IProject findOpenProjectByPath(Path path) {
         Path normalizedPath = path.toAbsolutePath().normalize();
         Chrome chrome = openProjectWindows.get(normalizedPath); // Check direct path first
-        if (chrome != null && chrome.getContextManager() != null) {
+        if (chrome != null) {
             IProject project = chrome.getContextManager().getProject();
-            if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                 return project;
+            if (project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return project;
             }
         }
         // Fallback if direct match is not conclusive or path is for parent of worktree
         for (Chrome openChrome : openProjectWindows.values()) {
-            if (openChrome.getContextManager() != null) {
-                IProject project = openChrome.getContextManager().getProject();
-                if (project != null && project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
-                    return project;
-                }
+            IProject project = openChrome.getContextManager().getProject();
+            if (project.getRoot().toAbsolutePath().normalize().equals(normalizedPath)) {
+                return project;
             }
         }
         return null;
@@ -504,9 +506,9 @@ public class Brokk {
      */
     public static class OpenProjectBuilder {
         private final Path path;
-        private MainProject parent;
+        private @Nullable MainProject parent;
         private @Nullable Consumer<Chrome> initialTask;
-        private Context sourceContextForSession;
+        private @Nullable Context sourceContextForSession;
 
         public OpenProjectBuilder(Path path) {
             this.path = path;
@@ -550,7 +552,7 @@ public class Brokk {
         if (existingWindow != null) {
             focusProjectWindow(projectPath);
             if (builder.initialTask != null) {
-                 logger.warn("Initial task provided for already open project {}, task will not be run.", projectPath);
+                logger.warn("Initial task provided for already open project {}, task will not be run.", projectPath);
             }
             return CompletableFuture.completedFuture(true);
         }
@@ -558,76 +560,76 @@ public class Brokk {
         CompletableFuture<Boolean> openCompletionFuture = new CompletableFuture<>();
 
         initializeProjectAndContextManager(builder)
-            .thenAcceptAsync(contextManagerOpt -> {
-                if (contextManagerOpt.isEmpty()) {
-                    SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-                    openCompletionFuture.complete(false);
-                    return;
-                }
-
-                ContextManager contextManager = contextManagerOpt.get();
-                var project = contextManager.getProject();
-                Path actualProjectPath = project.getRoot();
-
-                if (project.getDataRetentionPolicy() == MainProject.DataRetentionPolicy.UNSET) {
-                    logger.debug("Project {} has no Data Retention Policy set. Showing dialog.", actualProjectPath.getFileName());
-                    boolean policySetAndConfirmed = SettingsDialog.showStandaloneDataRetentionDialog(project, null);
-                    if (!policySetAndConfirmed) {
-                        logger.info("Data retention dialog cancelled for project {}. Aborting open.", actualProjectPath.getFileName());
-                        hideSplashScreen();
+                .thenAcceptAsync(contextManagerOpt -> {
+                    if (contextManagerOpt.isEmpty()) {
+                        SwingUtil.runOnEdt(Brokk::hideSplashScreen);
                         openCompletionFuture.complete(false);
                         return;
                     }
-                    logger.info("Data Retention Policy set to: {} for project {}", project.getDataRetentionPolicy(), actualProjectPath.getFileName());
-                }
 
-                hideSplashScreen();
-                var guiFuture = createAndShowGui(actualProjectPath, contextManager);
-                Chrome chromeInstance = openProjectWindows.get(actualProjectPath);
-                assert chromeInstance != null : "Chrome instance should be available after createAndShowGui is called";
+                    ContextManager contextManager = contextManagerOpt.get();
+                    var project = contextManager.getProject();
+                    Path actualProjectPath = project.getRoot();
 
-                // Associate worktree windows. This can happen once chromeInstance is available.
-                if (project instanceof MainProject) {
-                    mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
-                    logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
-                } else {
-                    IProject actualParentProject = project.getParent();
-                    mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
-                    logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
-                }
-
-                // Chain initialTask execution to guiFuture's completion
-                guiFuture.whenCompleteAsync((result, guiEx) -> {
-                    if (guiEx != null) {
-                        // if we have a half-finished gui we're kind of screwed
-                        throw new RuntimeException(guiEx);
+                    if (project.getDataRetentionPolicy() == MainProject.DataRetentionPolicy.UNSET) {
+                        logger.debug("Project {} has no Data Retention Policy set. Showing dialog.", actualProjectPath.getFileName());
+                    boolean policySetAndConfirmed = SettingsDialog.showStandaloneDataRetentionDialog(project, new JFrame());
+                        if (!policySetAndConfirmed) {
+                            logger.info("Data retention dialog cancelled for project {}. Aborting open.", actualProjectPath.getFileName());
+                            hideSplashScreen();
+                            openCompletionFuture.complete(false);
+                            return;
+                        }
+                        logger.info("Data Retention Policy set to: {} for project {}", project.getDataRetentionPolicy(), actualProjectPath.getFileName());
                     }
 
-                    if (builder.initialTask != null) {
-                        logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());
-                        builder.initialTask.accept(chromeInstance);
-                    }
-                    openCompletionFuture.complete(true); // Project opened, GUI ready, initial task (if any) attempted.
-                }, SwingUtilities::invokeLater); // Ensure this block runs on EDT
-            }, SwingUtilities::invokeLater)
-            .exceptionally(ex -> {
-                logger.error("Exception during project opening pipeline for {}: {}", projectPath, ex.getMessage(), ex);
-                Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                String errorMessage = """
-                                      A critical error occurred while trying to open the project:
-                                      %s
+                    hideSplashScreen();
+                    var guiFuture = createAndShowGui(actualProjectPath, contextManager);
+                    Chrome chromeInstance = openProjectWindows.get(actualProjectPath);
+                    assert chromeInstance != null : "Chrome instance should be available after createAndShowGui is called";
 
-                                      Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
-                                      """.formatted(cause.getMessage()).stripIndent();
-                SwingUtil.runOnEdt(() -> {
-                    hideSplashScreen(); // Hide splash before showing error dialog
-                    JOptionPane.showMessageDialog(null,
-                                                  errorMessage,
-                                                  "Project Open Error", JOptionPane.ERROR_MESSAGE);
+                    // Associate worktree windows. This can happen once chromeInstance is available.
+                    if (project instanceof MainProject) {
+                        mainToWorktreeChromes.putIfAbsent(project, new CopyOnWriteArrayList<>());
+                        logger.debug("Registered main project {} for worktree tracking", actualProjectPath.getFileName());
+                    } else {
+                        IProject actualParentProject = project.getParent();
+                        mainToWorktreeChromes.computeIfAbsent(actualParentProject, k -> new CopyOnWriteArrayList<>()).add(chromeInstance);
+                        logger.debug("Associated worktree window {} with main project {}", actualProjectPath.getFileName(), actualParentProject.getRoot().getFileName());
+                    }
+
+                    // Chain initialTask execution to guiFuture's completion
+                    guiFuture.whenCompleteAsync((result, guiEx) -> {
+                        if (guiEx != null) {
+                            // if we have a half-finished gui we're kind of screwed
+                            throw new RuntimeException(guiEx);
+                        }
+
+                        if (builder.initialTask != null) {
+                            logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());
+                            builder.initialTask.accept(chromeInstance);
+                        }
+                        openCompletionFuture.complete(true); // Project opened, GUI ready, initial task (if any) attempted.
+                    }, SwingUtilities::invokeLater); // Ensure this block runs on EDT
+                }, SwingUtilities::invokeLater)
+                .exceptionally(ex -> {
+                    logger.error("Exception during project opening pipeline for {}: {}", projectPath, ex.getMessage(), ex);
+                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                    String errorMessage = """
+                                          A critical error occurred while trying to open the project:
+                                          %s
+                                          
+                                          Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
+                                          """.formatted(cause.getMessage()).stripIndent();
+                    SwingUtil.runOnEdt(() -> {
+                        hideSplashScreen(); // Hide splash before showing error dialog
+                        JOptionPane.showMessageDialog(null,
+                                                      errorMessage,
+                                                      "Project Open Error", JOptionPane.ERROR_MESSAGE);
+                    });
+                    openCompletionFuture.complete(false);
+                    return null;
                 });
-                openCompletionFuture.complete(false);
-                return null;
-            });
 
         return openCompletionFuture;
     }
@@ -635,7 +637,7 @@ public class Brokk {
     private static void performWindowClose(Path projectPath) {
         Chrome ourChromeInstance = openProjectWindows.get(projectPath);
         IProject projectBeingClosed = null;
-        if (ourChromeInstance != null && ourChromeInstance.getContextManager() != null) {
+        if (ourChromeInstance != null) {
             projectBeingClosed = ourChromeInstance.getContextManager().getProject();
         }
 
@@ -650,9 +652,7 @@ public class Brokk {
                         // Standard way to close a window: dispatch event, then it will call performWindowClose for itself.
                         SwingUtilities.invokeLater(() -> {
                             JFrame frame = worktreeChrome.getFrame();
-                            if (frame != null) {
-                                frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
-                            }
+                            frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
                         });
                         // DO NOT remove from openProjectWindows here; the worktree's own performWindowClose will handle that.
                     }
@@ -710,10 +710,10 @@ public class Brokk {
         }
 
         boolean noMainProjectsOpen = openProjectWindows.values().stream()
-            .noneMatch(chrome -> {
-                IProject p = chrome.getContextManager().getProject();
-                return p instanceof MainProject; // Check if it's a main project
-            });
+                .noneMatch(chrome -> {
+                    IProject p = chrome.getContextManager().getProject();
+                    return p instanceof MainProject; // Check if it's a main project
+                });
         boolean appIsExiting = noMainProjectsOpen && reOpeningProjects.isEmpty();
         if (appIsExiting) {
             // We are about to exit the application.
@@ -746,14 +746,14 @@ public class Brokk {
                 SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                         null,
                         "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n" +
-                        "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
+                                "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
                         "Cannot Open Worktree Directly",
                         JOptionPane.WARNING_MESSAGE));
                 return CompletableFuture.completedFuture(Optional.empty());
             }
 
             if (!project.hasGit()) {
-                int response = SwingUtil.runOnEdt(() -> JOptionPane.showConfirmDialog(
+                int response = castNonNull(SwingUtil.runOnEdt(() -> JOptionPane.showConfirmDialog(
                         null,
                         """
                         This project is not under Git version control. Would you like to initialize a new Git repository here?
@@ -761,7 +761,7 @@ public class Brokk {
                         Without Git, the project will be read-only, and some features may be limited.""",
                         "Initialize Git Repository?",
                         JOptionPane.YES_NO_OPTION,
-                        JOptionPane.QUESTION_MESSAGE), JOptionPane.NO_OPTION);
+                        JOptionPane.QUESTION_MESSAGE), JOptionPane.NO_OPTION));
 
                 if (response == JOptionPane.YES_OPTION) {
                     try {
@@ -775,7 +775,7 @@ public class Brokk {
                         SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                                 null,
                                 "Failed to initialize Git repository: " + errorMsg +
-                                "\nThe project will be opened as read-only.",
+                                        "\nThe project will be opened as read-only.",
                                 "Git Initialization Error",
                                 JOptionPane.ERROR_MESSAGE));
                     }
@@ -802,7 +802,7 @@ public class Brokk {
             SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                     null,
                     "Could not open project " + projectPath.getFileName() + ":\n" + errorMsg +
-                    "\nPlease check the logs for more details.",
+                            "\nPlease check the logs for more details.",
                     "Project Initialization Failed",
                     JOptionPane.ERROR_MESSAGE));
             return CompletableFuture.completedFuture(Optional.empty());
@@ -823,7 +823,8 @@ public class Brokk {
             // Mark as re-opening, the windowClosed listener will do the rest
             reOpeningProjects.add(projectPath);
             // Programatically close the window
-            var frame = openProjectWindows.get(projectPath).getFrame();
+            var chrome = requireNonNull(openProjectWindows.get(projectPath), "No Chrome found for project path");
+            var frame = chrome.getFrame();
             frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
         } else {
             // If not open, just open it directly.

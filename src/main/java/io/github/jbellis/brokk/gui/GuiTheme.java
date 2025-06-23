@@ -6,8 +6,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.Theme;
-import org.jetbrains.annotations.NotNull;
 
+import javax.annotation.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
@@ -27,6 +27,7 @@ public class GuiTheme {
     public static final String THEME_LIGHT = "light";
 
     private final JFrame frame;
+    @Nullable
     private final JScrollPane mainScrollPane;
     private final Chrome chrome;
 
@@ -37,10 +38,10 @@ public class GuiTheme {
      * Creates a new theme manager
      *
      * @param frame The main application frame
-     * @param mainScrollPane The main scroll pane for LLM output
+     * @param mainScrollPane The main scroll pane for LLM output (can be null)
      * @param chrome The Chrome instance for UI feedback
      */
-    public GuiTheme(JFrame frame, JScrollPane mainScrollPane, Chrome chrome) {
+    public GuiTheme(JFrame frame, @Nullable JScrollPane mainScrollPane, Chrome chrome) {
         this.frame = frame;
         this.mainScrollPane = mainScrollPane;
         this.chrome = chrome;
@@ -94,7 +95,6 @@ public class GuiTheme {
         }
     }
 
-    @NotNull
     private static String getThemeName(boolean isDark) {
         return isDark ? THEME_DARK : THEME_LIGHT;
     }
@@ -132,10 +132,17 @@ public class GuiTheme {
     public static Optional<Theme> loadRSyntaxTheme(boolean isDark) {
         String themeChoice = getThemeName(isDark);
         String themeResource = "/org/fife/ui/rsyntaxtextarea/themes/%s".formatted(isDark ? "dark.xml" : "default.xml");
+        var inputStream = GuiTheme.class.getResourceAsStream(themeResource);
+
+        if (inputStream == null) {
+            logger.error("RSyntaxTextArea theme resource not found: {}", themeResource);
+            return Optional.empty();
+        }
+
         try {
-            return Optional.of(Theme.load(GuiTheme.class.getResourceAsStream(themeResource)));
+            return Optional.of(Theme.load(inputStream));
         } catch (IOException e) {
-            logger.error("Could not load {} RSyntaxTextArea theme from {}", themeChoice, themeResource, e);
+            logger.error("Could not load {} RSyntaxTextArea theme from {}: {}", themeChoice, themeResource, e.getMessage());
             return Optional.empty();
         }
     }
@@ -153,7 +160,7 @@ public class GuiTheme {
      * Recursive depth-first traversal of the Swing component hierarchy that honours the
      * {@link io.github.jbellis.brokk.gui.ThemeAware} contract.
      */
-    private void applyThemeToComponent(Component component, Theme theme) {
+    private void applyThemeToComponent(@Nullable Component component, Theme theme) {
         assert SwingUtilities.isEventDispatchThread() : "applyThemeToComponent must be called on EDT";
         if (component == null) {
             return;
@@ -166,8 +173,11 @@ public class GuiTheme {
             case RSyntaxTextArea area -> theme.apply(area);
             // 3. Handle the common case of RSyntaxTextArea wrapped in a JScrollPane
             case JScrollPane scrollPane -> {
-                Component view = scrollPane.getViewport().getView();
-                applyThemeToComponent(view, theme);
+                var viewport = scrollPane.getViewport();
+                if (viewport != null) {
+                    @Nullable Component view = viewport.getView();
+                    applyThemeToComponent(view, theme);
+                }
             }
             default -> { }
         }
@@ -226,7 +236,8 @@ public class GuiTheme {
                 for (String iconFile : iconFiles) {
                     // Extract filename without extension for the key
                     String filename = iconFile.substring(iconFile.lastIndexOf('/') + 1);
-                    String keyName = filename.substring(0, filename.lastIndexOf('.'));
+                    int dotIndex = filename.lastIndexOf('.');
+                    String keyName = (dotIndex == -1) ? filename : filename.substring(0, dotIndex);
                     String iconKey = "Brokk." + keyName;
                     
                     registerIcon(iconKey, iconFile);
@@ -250,31 +261,45 @@ public class GuiTheme {
         var iconFiles = new ArrayList<String>();
         
         try {
-            if ("file".equals(directoryUrl.getProtocol())) {
+            String protocol = directoryUrl.getProtocol();
+            if (protocol == null) {
+                logger.warn("URL has no protocol: {}", directoryUrl);
+                return iconFiles;
+            }
+
+            if ("file".equals(protocol)) {
                 // Running from file system (development)
                 var dirPath = java.nio.file.Paths.get(directoryUrl.toURI());
                 try (var stream = java.nio.file.Files.list(dirPath)) {
                     stream.filter(path -> {
-                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
+                        var fileNamePath = path.getFileName();
+                        if (fileNamePath == null) {
+                            return false;
+                        }
+                        String name = fileNamePath.toString().toLowerCase(Locale.ROOT);
                         return name.endsWith(".png") || name.endsWith(".gif");
                     }).forEach(path -> {
                         String filename = path.getFileName().toString();
                         iconFiles.add(iconBase + filename);
                     });
                 }
-            } else if ("jar".equals(directoryUrl.getProtocol())) {
+            } else if ("jar".equals(protocol)) {
                 // Running from JAR file
-                var jarPath = directoryUrl.getPath();
+                String jarPath = directoryUrl.getPath();
+                if (jarPath == null) {
+                    logger.warn("JAR URL has no path: {}", directoryUrl);
+                    return iconFiles;
+                }
                 var exclamationIndex = jarPath.indexOf('!');
                 if (exclamationIndex >= 0) {
                     var jarFile = jarPath.substring(5, exclamationIndex); // Remove "file:"
                     var entryPath = jarPath.substring(exclamationIndex + 2); // Remove "!/"
-                    
+
                     try (var jar = new java.util.jar.JarFile(jarFile)) {
                         var entries = jar.entries();
                         while (entries.hasMoreElements()) {
                             var entry = entries.nextElement();
-                            var entryName = entry.getName();
+                            String entryName = entry.getName();
                             if (entryName.startsWith(entryPath) && !entry.isDirectory()) {
                                 var filename = entryName.substring(entryName.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
                                 if (filename.endsWith(".png") || filename.endsWith(".gif")) {

@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.issues.JiraFilterOptions;
+import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
@@ -27,6 +29,7 @@ import io.github.jbellis.brokk.issues.FilterOptions;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 import javax.swing.UIManager;
 import javax.swing.BorderFactory;
 
@@ -43,56 +46,65 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     private final SettingsDialog parentDialog;
 
     // UI Components managed by this panel
-    private JComboBox<MainProject.CpgRefresh> cpgRefreshComboBox;
-    private JTextField buildCleanCommandField;
-    private JTextField allTestsCommandField;
-    private JTextField someTestsCommandField; // Added for testSomeCommand
-    private DataRetentionPanel dataRetentionPanelInner; // Renamed to avoid conflict if outer is also named this
-    private JTextArea styleGuideArea;
-    private JTextArea commitFormatArea;
-    // buildInstructionsArea and instructionsScrollPane removed
-    private JList<String> excludedDirectoriesList;
-    private DefaultListModel<String> excludedDirectoriesListModel;
-    private JScrollPane excludedScrollPane;
-    private JButton addExcludedDirButton;
-    private JButton removeExcludedDirButton;
-    private JTextField languagesDisplayField;
-    private JButton editLanguagesButton;
-    private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog;
-    private JRadioButton runAllTestsRadio;
-    private JRadioButton runTestsInWorkspaceRadio;
-    private JProgressBar buildProgressBar;
-    private JButton inferBuildDetailsButton;
+    private JComboBox<MainProject.CpgRefresh> cpgRefreshComboBox = new JComboBox<>(new MainProject.CpgRefresh[]{IProject.CpgRefresh.AUTO, IProject.CpgRefresh.ON_RESTART, IProject.CpgRefresh.MANUAL});
+    private JTextField buildCleanCommandField = new JTextField();
+    private JTextField allTestsCommandField = new JTextField();
+    private JTextField someTestsCommandField = new JTextField();
+    @Nullable
+    private DataRetentionPanel dataRetentionPanelInner;
+    private JTextArea styleGuideArea = new JTextArea(5, 40);
+    private JTextArea commitFormatArea = new JTextArea(5, 40);
+    @Nullable
+    private JTextArea reviewGuideArea;
+    private DefaultListModel<String> excludedDirectoriesListModel = new DefaultListModel<>();
+    private JList<String> excludedDirectoriesList = new JList<>(excludedDirectoriesListModel);
+    private JScrollPane excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+    private JButton addExcludedDirButton = new JButton("Add");
+    private JButton removeExcludedDirButton = new JButton("Remove");
+    private JTextField languagesDisplayField = new JTextField(20);
+    private JButton editLanguagesButton = new JButton("Edit");
+    private Set<io.github.jbellis.brokk.analyzer.Language> currentAnalyzerLanguagesForDialog = new HashSet<>();
+    private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
+    private JRadioButton runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
+    private JProgressBar buildProgressBar = new JProgressBar();
+    private JButton inferBuildDetailsButton = new JButton("Infer Build Details");
+    @Nullable
     private Future<?> manualInferBuildTaskFuture;
     // Buttons from parent dialog that might need to be disabled/enabled by build agent
     private final JButton okButtonParent;
     private final JButton cancelButtonParent;
     private final JButton applyButtonParent;
-    private JTabbedPane projectSubTabbedPane;
+    private JTabbedPane projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
     // Issue Provider related UI
-    private JComboBox<io.github.jbellis.brokk.issues.IssueProviderType> issueProviderTypeComboBox;
-    private JPanel issueProviderConfigPanel; // Uses CardLayout
-    private CardLayout issueProviderCardLayout;
+    private JComboBox<io.github.jbellis.brokk.issues.IssueProviderType> issueProviderTypeComboBox = new JComboBox<>(io.github.jbellis.brokk.issues.IssueProviderType.values());
+    private CardLayout issueProviderCardLayout = new CardLayout();
+    private JPanel issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
 
     // GitHub specific fields (will be part of the GitHub card)
-    private JTextField githubOwnerField;
-    private JTextField githubRepoField;
-    private JTextField githubHostField; // New field for GHES host
-    private JCheckBox githubOverrideCheckbox;
+    private JTextField githubOwnerField = new JTextField(20);
+    private JTextField githubRepoField = new JTextField(20);
+    private JTextField githubHostField = new JTextField(20);
+    private JCheckBox githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
 
     private static final String NONE_CARD = "None";
     private static final String GITHUB_CARD = "GitHub";
     private static final String JIRA_CARD = "Jira";
 
     // Jira specific fields (will be part of the Jira card)
-    private JTextField jiraProjectKeyField;
-    private JTextField jiraBaseUrlField;
-    private JPasswordField jiraApiTokenField;
-    private JButton testJiraConnectionButton;
+    private JTextField jiraProjectKeyField = new JTextField();
+    private JTextField jiraBaseUrlField = new JTextField();
+    private JPasswordField jiraApiTokenField = new JPasswordField();
+    private JButton testJiraConnectionButton = new JButton("Test Jira Connection");
     private final JPanel bannerPanel;
 
-    public SettingsProjectPanel(Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
+
+    public SettingsProjectPanel(Chrome chrome,
+                                SettingsDialog parentDialog,
+                                JButton okButton,
+                                JButton cancelButton,
+                                JButton applyButton)
+    {
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -129,14 +141,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     private void initComponents() {
         var project = chrome.getProject();
-        if (project == null) {
-            add(new JLabel("No project is open. Project settings are unavailable."), BorderLayout.CENTER);
-            this.setEnabled(false); // Disable the whole panel
-            return;
-        }
         this.setEnabled(true); // Ensure panel is enabled if project exists
-
-        projectSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
 
         // General Tab (formerly Other)
         var generalPanel = createGeneralPanel();
@@ -161,22 +166,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Handle initial loading state for Build Details
         if (!project.hasBuildDetails()) {
             projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, false);
-            if (buildProgressBar != null) {
-                buildProgressBar.setVisible(true);
-            }
-            if (inferBuildDetailsButton != null) {
-                inferBuildDetailsButton.setEnabled(false);
-            }
+            buildProgressBar.setVisible(true);
+            inferBuildDetailsButton.setEnabled(false);
 
             project.getBuildDetailsFuture().whenCompleteAsync((detailsResult, ex) -> {
                 SwingUtilities.invokeLater(() -> {
                     projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, true);
-                    if (buildProgressBar != null) {
-                        buildProgressBar.setVisible(false);
-                    }
-                    if (inferBuildDetailsButton != null) {
-                        inferBuildDetailsButton.setEnabled(true);
-                    }
+                    buildProgressBar.setVisible(false);
+                    inferBuildDetailsButton.setEnabled(true);
 
                     if (ex != null) {
                         logger.error("Initial build details determination failed", ex);
@@ -194,12 +191,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 });
             }, ForkJoinPool.commonPool());
         } else { // Project exists and details are already available
-            if (buildProgressBar != null) {
-                buildProgressBar.setVisible(false);
-            }
-            if (inferBuildDetailsButton != null) {
-                inferBuildDetailsButton.setEnabled(true);
-            }
+            buildProgressBar.setVisible(false);
+            inferBuildDetailsButton.setEnabled(true);
         }
     }
 
@@ -218,7 +211,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST; gbc.fill = GridBagConstraints.NONE;
         generalPanel.add(new JLabel("Style Guide:"), gbc);
-        styleGuideArea = new JTextArea(5, 40);
         styleGuideArea.setWrapStyleWord(true); styleGuideArea.setLineWrap(true);
         var styleScrollPane = new JScrollPane(styleGuideArea);
         styleScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -237,7 +229,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.NORTHWEST; gbc.fill = GridBagConstraints.NONE;
         generalPanel.add(new JLabel("Commit Format:"), gbc);
-        commitFormatArea = new JTextArea(5, 40);
         commitFormatArea.setWrapStyleWord(true); commitFormatArea.setLineWrap(true);
         var commitFormatScrollPane = new JScrollPane(commitFormatArea);
         commitFormatScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
@@ -253,6 +244,31 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         commitFormatInfo.setFont(commitFormatInfo.getFont().deriveFont(Font.ITALIC, commitFormatInfo.getFont().getSize() * 0.9f));
         gbc.insets = new Insets(0, 2, 8, 2); // Increased bottom inset
         generalPanel.add(commitFormatInfo, gbc);
+
+        gbc.insets = new Insets(2, 2, 2, 2);
+
+        var project = chrome.getProject();
+        boolean showReviewGuide = project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab");
+
+        if (showReviewGuide) {
+            gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
+            gbc.anchor = GridBagConstraints.NORTHWEST; gbc.fill = GridBagConstraints.NONE;
+            generalPanel.add(new JLabel("Review Guide:"), gbc);
+            reviewGuideArea = new JTextArea(5, 40);
+            reviewGuideArea.setWrapStyleWord(true); reviewGuideArea.setLineWrap(true);
+            var reviewGuideScrollPane = new JScrollPane(reviewGuideArea);
+            reviewGuideScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+            reviewGuideScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+            gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH;
+            generalPanel.add(reviewGuideScrollPane, gbc);
+
+            gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0; gbc.weighty = 0.0;
+            gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.NORTHWEST;
+            var reviewGuideInfo = new JLabel("<html>The Review Guide is used to auto-populate the Instructions when capturing a pull request.</html>");
+            reviewGuideInfo.setFont(reviewGuideInfo.getFont().deriveFont(Font.ITALIC, reviewGuideInfo.getFont().getSize() * 0.9f));
+            gbc.insets = new Insets(0, 2, 8, 2);
+            generalPanel.add(reviewGuideInfo, gbc);
+        }
 
         gbc.weighty = 0.0; // Reset for any future components
         gbc.gridy = row; // Use current row for glue
@@ -271,12 +287,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Provider selection
         var providerSelectionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         providerSelectionPanel.add(new JLabel("Issue Provider:"));
-        issueProviderTypeComboBox = new JComboBox<>(io.github.jbellis.brokk.issues.IssueProviderType.values());
         // Custom renderer to use getDisplayName
         issueProviderTypeComboBox.setRenderer(new DefaultListCellRenderer() {
             @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            public Component getListCellRendererComponent(JList<?> list,
+                                                        Object value,
+                                                        int index,
+                                                        boolean isSelected,
+                                                        boolean cellHasFocus)
+            {
+                super.getListCellRendererComponent(list,
+                                                   value,
+                                                   index,
+                                                   isSelected,
+                                                   cellHasFocus);
                 if (value instanceof io.github.jbellis.brokk.issues.IssueProviderType type) {
                     setText(type.getDisplayName());
                 }
@@ -287,8 +311,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         issuesPanel.add(providerSelectionPanel, BorderLayout.NORTH);
 
         // Configuration area using CardLayout
-        issueProviderCardLayout = new CardLayout();
-        issueProviderConfigPanel = new JPanel(issueProviderCardLayout);
+        // issueProviderConfigPanel is initialized at field declaration with issueProviderCardLayout
 
         // --- None Card ---
         var noneCard = new JPanel(new BorderLayout());
@@ -306,7 +329,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         int githubRow = 0;
 
-        githubOverrideCheckbox = new JCheckBox("Fetch issues from a different GitHub repository");
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow++; gbcGitHub.gridwidth = 2; gbcGitHub.weightx = 0.0;
         gbcGitHub.anchor = GridBagConstraints.NORTHWEST;
         gitHubCard.add(githubOverrideCheckbox, gbcGitHub);
@@ -314,19 +336,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcGitHub.gridwidth = 1; // Reset gridwidth
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
         gitHubCard.add(new JLabel("Owner:"), gbcGitHub);
-        githubOwnerField = new JTextField(20);
         gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubOwnerField, gbcGitHub);
 
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
         gitHubCard.add(new JLabel("Repository:"), gbcGitHub);
-        githubRepoField = new JTextField(20);
         gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubRepoField, gbcGitHub);
 
         gbcGitHub.gridx = 0; gbcGitHub.gridy = githubRow; gbcGitHub.weightx = 0.0; gbcGitHub.fill = GridBagConstraints.NONE;
         gitHubCard.add(new JLabel("Host (optional):"), gbcGitHub);
-        githubHostField = new JTextField(20);
         githubHostField.setToolTipText("e.g., github.mycompany.com (leave blank for github.com)");
         gbcGitHub.gridx = 1; gbcGitHub.gridy = githubRow++; gbcGitHub.weightx = 1.0; gbcGitHub.fill = GridBagConstraints.HORIZONTAL;
         gitHubCard.add(githubHostField, gbcGitHub);
@@ -368,13 +387,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbcJira.insets = new Insets(2, 2, 2, 2);
         gbcJira.fill = GridBagConstraints.HORIZONTAL;
         int jiraRow = 0;
-
-        // Initialize Jira fields if they are null
-        jiraProjectKeyField = new JTextField();
-        jiraBaseUrlField = new JTextField();
-        jiraApiTokenField = new JPasswordField();
-        testJiraConnectionButton = new JButton("Test Jira Connection");
-
 
         // Jira Base URL
         gbcJira.gridx = 0; gbcJira.gridy = jiraRow; gbcJira.weightx = 0.0;
@@ -452,7 +464,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         if (baseUrl.isEmpty() || token.isEmpty()) {
             JOptionPane.showMessageDialog(SettingsProjectPanel.this,
                                           "Please fill in Jira Base URL and API Token.",
-                                          "Missing Information", JOptionPane.WARNING_MESSAGE);
+                                          "Missing Information",
+                                          JOptionPane.WARNING_MESSAGE);
             return;
         }
 
@@ -467,7 +480,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 JiraIssueService testService = new JiraIssueService(tempProject);
                 try {
                     // Use a concrete FilterOptions implementation, e.g., JiraFilterOptions with nulls for a basic check
-                    FilterOptions filterOptions = new io.github.jbellis.brokk.issues.JiraFilterOptions(null, null, null, null, null, null);
+                    FilterOptions filterOptions = new JiraFilterOptions(null, null, null, null, null, null);
                     testService.listIssues(filterOptions); // This might fetch issues, confirming connection and auth
                     return "Connection successful!";
                 } catch (IOException ioException) {
@@ -484,14 +497,23 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 try {
                     String result = get();
                     if (result.startsWith("Connection successful")) {
-                        JOptionPane.showMessageDialog(SettingsProjectPanel.this, result, "Jira Connection Test", JOptionPane.INFORMATION_MESSAGE);
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                                      result,
+                                                      "Jira Connection Test",
+                                                      JOptionPane.INFORMATION_MESSAGE);
                     } else {
-                        JOptionPane.showMessageDialog(SettingsProjectPanel.this, result, "Jira Connection Test Failed", JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                                      result,
+                                                      "Jira Connection Test Failed",
+                                                      JOptionPane.ERROR_MESSAGE);
                     }
                 } catch (Exception ex) {
                     String errorMessage = "An unexpected error occurred during the test: " + ex.getMessage();
                     logger.error(errorMessage, ex);
-                    JOptionPane.showMessageDialog(SettingsProjectPanel.this, errorMessage, "Jira Connection Test Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                                  errorMessage,
+                                                  "Jira Connection Test Error",
+                                                  JOptionPane.ERROR_MESSAGE);
                 } finally {
                     testJiraConnectionButton.setEnabled(true);
                 }
@@ -517,10 +539,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         buildPanel.add(bannerPanel, gbc);
         gbc.gridwidth = 1; // Reset gridwidth
 
-        buildCleanCommandField = new JTextField();
-        allTestsCommandField = new JTextField();
-        someTestsCommandField = new JTextField(); // Added for testSomeCommand
-
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         buildPanel.add(new JLabel("Build/Lint Command:"), gbc);
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
@@ -544,8 +562,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
         gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.NONE;
         buildPanel.add(new JLabel("Code Agent Tests:"), gbc);
-        runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
-        runTestsInWorkspaceRadio = new JRadioButton(IProject.CodeAgentTestScope.WORKSPACE.toString());
         var testScopeGroup = new ButtonGroup();
         testScopeGroup.add(runAllTestsRadio); testScopeGroup.add(runTestsInWorkspaceRadio);
         var radioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
@@ -558,15 +574,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.weighty = 0.0; // Ensure weighty is reset before this
         gbc.fill = GridBagConstraints.HORIZONTAL; gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(new JLabel("CI Refresh:"), gbc);
-        cpgRefreshComboBox = new JComboBox<>(new MainProject.CpgRefresh[]{IProject.CpgRefresh.AUTO, IProject.CpgRefresh.ON_RESTART, IProject.CpgRefresh.MANUAL});
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 1.0;
         buildPanel.add(cpgRefreshComboBox, gbc);
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.anchor = GridBagConstraints.WEST;
         buildPanel.add(new JLabel("CI Languages:"), gbc);
-        languagesDisplayField = new JTextField(20); languagesDisplayField.setEditable(false);
-        currentAnalyzerLanguagesForDialog = new HashSet<>(); // Initialized in loadSettings
-        this.editLanguagesButton = new JButton("Edit");
+        languagesDisplayField.setEditable(false);
+        // currentAnalyzerLanguagesForDialog is initialized at declaration and populated in loadBuildPanelSettings
         this.editLanguagesButton.addActionListener(e -> showLanguagesDialog(project));
         var languagesPanel = new JPanel(new BorderLayout(5, 0));
         languagesPanel.add(languagesDisplayField, BorderLayout.CENTER); languagesPanel.add(this.editLanguagesButton, BorderLayout.EAST);
@@ -575,14 +589,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0; gbc.anchor = GridBagConstraints.NORTHWEST;
         buildPanel.add(new JLabel("CI Exclusions:"), gbc);
-        excludedDirectoriesListModel = new DefaultListModel<>();
-        excludedDirectoriesList = new JList<>(excludedDirectoriesListModel); excludedDirectoriesList.setVisibleRowCount(3);
-        this.excludedScrollPane = new JScrollPane(excludedDirectoriesList);
+        excludedDirectoriesList.setVisibleRowCount(3);
+        // excludedScrollPane is initialized at declaration with excludedDirectoriesList
         gbc.gridx = 1; gbc.gridy = row; gbc.weightx = 1.0; gbc.weighty = 0.5; gbc.fill = GridBagConstraints.BOTH;
         buildPanel.add(this.excludedScrollPane, gbc);
 
         var excludedButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-        this.addExcludedDirButton = new JButton("Add"); this.removeExcludedDirButton = new JButton("Remove");
         excludedButtonsPanel.add(this.addExcludedDirButton); excludedButtonsPanel.add(this.removeExcludedDirButton);
         gbc.gridy = row + 1; gbc.weighty = 0.0; gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.NORTHWEST; gbc.insets = new Insets(2, 0, 2, 2);
@@ -590,15 +602,20 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         row += 2; gbc.insets = new Insets(2, 2, 2, 2);
 
         this.addExcludedDirButton.addActionListener(e -> {
-            String newDir = JOptionPane.showInputDialog(parentDialog, "Enter directory to exclude (e.g., target/, build/):", "Add Excluded Directory", JOptionPane.PLAIN_MESSAGE);
+            String newDir = JOptionPane.showInputDialog(parentDialog,
+                                                        "Enter directory to exclude (e.g., target/, build/):",
+                                                        "Add Excluded Directory",
+                                                        JOptionPane.PLAIN_MESSAGE);
             if (newDir != null && !newDir.trim().isEmpty()) {
                 String trimmedNewDir = newDir.trim();
-                excludedDirectoriesListModel.addElement(trimmedNewDir);
-                var elements = new ArrayList<String>();
-                for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) elements.add(excludedDirectoriesListModel.getElementAt(i));
-                elements.sort(String::compareToIgnoreCase);
+                List<String> currentElements = java.util.Collections.list(excludedDirectoriesListModel.elements());
+                if (!currentElements.contains(trimmedNewDir)) { // Avoid duplicates if user adds same dir again
+                    currentElements.add(trimmedNewDir);
+                }
+                currentElements.sort(String::compareToIgnoreCase);
+                
                 excludedDirectoriesListModel.clear();
-                for (String element : elements) excludedDirectoriesListModel.addElement(element);
+                currentElements.forEach(excludedDirectoriesListModel::addElement);
             }
         });
         this.removeExcludedDirButton.addActionListener(e -> {
@@ -608,17 +625,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         gbc.gridx = 1; gbc.gridy = row++; gbc.weightx = 0.0; gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.NONE; gbc.anchor = GridBagConstraints.EAST;
-        inferBuildDetailsButton = new JButton("Infer Build Details");
         inferBuildDetailsButton.setActionCommand(ACTION_INFER); // Default action is "infer"
         buildPanel.add(inferBuildDetailsButton, gbc);
 
         // Check if initial build details inference is running
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
-        boolean initialAgentRunning = detailsFuture != null && !detailsFuture.isDone();
+        boolean initialAgentRunning = !detailsFuture.isDone();
 
         // --- Progress Bar for Build Agent ---
-        buildProgressBar = new JProgressBar();
-
         // Create a wrapper panel with fixed height to reserve space
         JPanel progressWrapper = new JPanel(new BorderLayout());
         progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
@@ -638,7 +652,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             // Add a listener to reset the button when the initial agent completes
             detailsFuture.whenCompleteAsync((result, ex) -> {
                 SwingUtilities.invokeLater(() -> {
-                    if (inferBuildDetailsButton != null && manualInferBuildTaskFuture == null) {
+                    // inferBuildDetailsButton is non-null
+                    if (manualInferBuildTaskFuture == null) {
                         setButtonToReadyState();
                     }
                 });
@@ -693,10 +708,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var cm = chrome.getContextManager();
         var proj = chrome.getProject();
-        if (proj == null) {
-            chrome.toolError("No project is open.");
-            return;
-        }
 
         setBuildControlsEnabled(false); // Disable controls in this panel
         setButtonToInferenceInProgress(true); // true = set Cancel text (manual agent)
@@ -704,11 +715,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         manualInferBuildTaskFuture = cm.submitUserTask("Running Build Agent", () -> {
             try {
                 chrome.systemOutput("Starting Build Agent...");
-                var agent = new BuildAgent(proj, cm.getLlm(cm.getSearchModel(), "Infer build details"), cm.getToolRegistry());
+                var agent = new BuildAgent(proj,
+                                           cm.getLlm(cm.getSearchModel(), "Infer build details"),
+                                           cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
                 if (java.util.Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
-                    logger.warn("Build Agent returned empty details, considering it an error.");
+                    logger.warn("Build Agent returned null or empty details, considering it an error.");
                     // When cancel button is pressed, we need to show a different kind of message
                     boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
 
@@ -724,7 +737,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                             SwingUtilities.invokeLater(() -> {
                                 String errorMessage = "Build Agent failed to determine build details. Please check agent logs.";
                                 chrome.toolError(errorMessage);
-                                JOptionPane.showMessageDialog(SettingsProjectPanel.this, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                                JOptionPane.showMessageDialog(SettingsProjectPanel.this,
+                                                              errorMessage,
+                                                              "Build Agent Error",
+                                                              JOptionPane.ERROR_MESSAGE);
                                 // Do not save or update UI with empty details
                             });
                         }
@@ -741,7 +757,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage = "Build Agent failed: " + ex.getMessage();
                     chrome.toolError(errorMessage);
-                    JOptionPane.showMessageDialog(parentDialog, errorMessage, "Build Agent Error", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(parentDialog,
+                                                  errorMessage,
+                                                  "Build Agent Error",
+                                                  JOptionPane.ERROR_MESSAGE);
                 });
             } finally {
                 SwingUtilities.invokeLater(() -> {
@@ -755,33 +774,23 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
 
     private void setBuildControlsEnabled(boolean enabled) {
-        boolean effectiveEnabled = enabled; // Project must be open for this panel to be visible/active
-
+        // The 'enabled' state is determined by the caller;
+        // this panel's overall enabled state (due to project presence) is handled in initComponents.
         buildProgressBar.setVisible(!enabled);
 
-        List<Component> controlsToManage = new ArrayList<>(List.of(
-                buildCleanCommandField, allTestsCommandField, someTestsCommandField,
-                runAllTestsRadio, runTestsInWorkspaceRadio,
-                // instructionsScrollPane, buildInstructionsArea removed
-                cpgRefreshComboBox,
-                editLanguagesButton,
-                excludedScrollPane, excludedDirectoriesList,
-                addExcludedDirButton, removeExcludedDirButton
-                // Note: rerunBuildButton is handled separately by its action listener
-        ));
-        // Add parent dialog buttons if they were passed
-        if (okButtonParent != null) controlsToManage.add(okButtonParent);
-        if (cancelButtonParent != null) controlsToManage.add(cancelButtonParent);
-        if (applyButtonParent != null) controlsToManage.add(applyButtonParent);
-
-
-        for (Component control : controlsToManage) {
-            if (control != null) control.setEnabled(effectiveEnabled);
-        }
+        Stream.of(buildCleanCommandField, allTestsCommandField, someTestsCommandField,
+                  runAllTestsRadio, runTestsInWorkspaceRadio,
+                  cpgRefreshComboBox,
+                  editLanguagesButton,
+                  excludedScrollPane, excludedDirectoriesList,
+                  addExcludedDirButton, removeExcludedDirButton,
+                  // Parent dialog buttons
+                  okButtonParent, cancelButtonParent, applyButtonParent)
+              .filter(java.util.Objects::nonNull) // Filter out null components (e.g., optional parent buttons)
+              .forEach(control -> control.setEnabled(enabled));
     }
 
     private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
-        if (details == null) return;
         SwingUtilities.invokeLater(() -> {
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
@@ -794,7 +803,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private void updateLanguagesDisplayField() {
-        if (languagesDisplayField == null || currentAnalyzerLanguagesForDialog == null) return;
+        // languagesDisplayField and currentAnalyzerLanguagesForDialog are initialized at declaration and non-null.
         String cdl = currentAnalyzerLanguagesForDialog.stream()
                 .map(lang -> lang.name())
                 .sorted()
@@ -811,14 +820,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         var languageCheckBoxMapLocal = new java.util.LinkedHashMap<io.github.jbellis.brokk.analyzer.Language, JCheckBox>();
         var languagesInProject = new HashSet<io.github.jbellis.brokk.analyzer.Language>();
-        if (project.getRoot() != null) {
-            Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-            for (var pf : filesToScan) {
-                String extension = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
-                if (!extension.isEmpty()) {
-                    var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
-                    if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) languagesInProject.add(lang);
-                }
+        project.getRoot();
+        Set<io.github.jbellis.brokk.analyzer.ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        for (var pf : filesToScan) {
+            String extension = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+            if (!extension.isEmpty()) {
+                var lang = io.github.jbellis.brokk.analyzer.Language.fromExtension(extension);
+                if (lang != io.github.jbellis.brokk.analyzer.Language.NONE) languagesInProject.add(lang);
             }
         }
 
@@ -851,11 +859,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public void loadSettings() {
         var project = chrome.getProject();
-        if (project == null) return; // Panel is disabled if no project
 
         // General Tab
         styleGuideArea.setText(project.getStyleGuide());
         commitFormatArea.setText(project.getCommitMessageFormat());
+        if (reviewGuideArea != null) {
+            reviewGuideArea.setText(project.getReviewGuide());
+        }
 
         // Issues Tab
         io.github.jbellis.brokk.IssueProvider currentProvider = project.getIssuesProvider();
@@ -912,7 +922,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     private void loadBuildPanelSettings() {
         var project = chrome.getProject();
-        if (project == null) return; // Should not happen if panel is active
 
         BuildAgent.BuildDetails details;
         try {
@@ -950,11 +959,13 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
     public boolean applySettings() {
         var project = chrome.getProject();
-        if (project == null) return true; // No project, nothing to apply
 
         // General Tab
         project.saveStyleGuide(styleGuideArea.getText());
         project.setCommitMessageFormat(commitFormatArea.getText());
+        if (reviewGuideArea != null) {
+            project.saveReviewGuide(reviewGuideArea.getText());
+        }
 
         // Issues Tab
         io.github.jbellis.brokk.issues.IssueProviderType selectedType = (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
@@ -965,14 +976,18 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 String baseUrl = jiraBaseUrlField.getText().trim();
                 String apiToken = new String(jiraApiTokenField.getPassword()).trim();
                 String projectKey = jiraProjectKeyField.getText().trim();
-                newProviderToSet = io.github.jbellis.brokk.IssueProvider.jira(baseUrl, apiToken, projectKey);
+                newProviderToSet = io.github.jbellis.brokk.IssueProvider.jira(baseUrl,
+                                                                              apiToken,
+                                                                              projectKey);
                 break;
             case GITHUB:
                 if (githubOverrideCheckbox.isSelected()) {
                     String owner = githubOwnerField.getText().trim();
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
-                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(owner, repo, host);
+                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(owner,
+                                                                                    repo,
+                                                                                    host);
                 } else {
                     newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(); // Default GitHub (empty owner, repo, host)
                 }
@@ -994,7 +1009,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var newExcludedDirs = new HashSet<String>();
         for (int i = 0; i < excludedDirectoriesListModel.getSize(); i++) newExcludedDirs.add(excludedDirectoriesListModel.getElementAt(i));
 
-        var newDetails = new BuildAgent.BuildDetails(newBuildLint, newTestAll, newTestSome, newExcludedDirs);
+        var newDetails = new BuildAgent.BuildDetails(newBuildLint,
+                                                     newTestAll,
+                                                     newTestSome,
+                                                     newExcludedDirs);
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");
@@ -1048,7 +1066,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
     public static class DataRetentionPanel extends JPanel {
         private final IProject project;
-        private final SettingsProjectPanel parentProjectPanel; // For triggering model refresh
+        private final @Nullable SettingsProjectPanel parentProjectPanel; // For triggering model refresh
         private final ButtonGroup policyGroup;
         private final JRadioButton improveRadio;
         private final JLabel improveDescLabel;
@@ -1057,7 +1075,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         private final JLabel orgDisabledLabel;
         private final JLabel infoLabel;
 
-        public DataRetentionPanel(IProject project, SettingsProjectPanel parentProjectPanel) {
+        public DataRetentionPanel(IProject project, @Nullable SettingsProjectPanel parentProjectPanel) {
             super(new GridBagLayout());
             this.project = project;
             this.parentProjectPanel = parentProjectPanel;

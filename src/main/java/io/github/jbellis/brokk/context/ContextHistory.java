@@ -8,6 +8,8 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.util.*;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 /**
  * Thread-safe undo/redo stack for *frozen* {@link Context} snapshots.
  *
@@ -29,6 +31,14 @@ public class ContextHistory {
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
 
+    public ContextHistory(Context initialContext) {
+        history.add(initialContext.freeze());
+    }
+
+    public ContextHistory(List<Context> contexts) {
+        history.addAll(contexts);
+    }
+
     /* ───────────────────────── public API ─────────────────────────── */
 
     /** Immutable view (oldest → newest). */
@@ -37,8 +47,8 @@ public class ContextHistory {
     }
 
     /** Latest context or {@code null} when uninitialised. */
-    public synchronized @Nullable Context topContext() {
-        return history.peekLast();
+    public synchronized Context topContext() {
+        return castNonNull(history.peekLast());
     }
 
     public synchronized boolean hasUndoStates() { return history.size() > 1; }
@@ -87,6 +97,19 @@ public class ContextHistory {
         truncateHistory();
         redo.clear();
         selected = frozen;
+    }
+
+    /**
+     * Replaces the most recent context in history with the provided frozen context.
+     * This is useful for coalescing rapid changes into a single history entry.
+     */
+    public synchronized void replaceTopContext(Context newFrozenContext) {
+        assert !newFrozenContext.containsDynamicFragments();
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newFrozenContext);
+        redo.clear();
+        selected = newFrozenContext;
     }
 
     /* ─────────────── undo / redo  ────────────── */

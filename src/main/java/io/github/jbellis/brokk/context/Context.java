@@ -29,7 +29,7 @@ import java.util.stream.Stream;
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
-    public static final Context EMPTY = new Context(new IContextManager() {}, "");
+    public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
     private static final String WELCOME_ACTION = "Welcome to Brokk";
@@ -54,7 +54,7 @@ public class Context {
     /**
      * Constructor for initial empty context
      */
-    public Context(IContextManager contextManager, String initialOutputText) {
+    public Context(IContextManager contextManager, @Nullable String initialOutputText) {
         this(contextManager,
              List.of(),
              List.of(),
@@ -64,8 +64,8 @@ public class Context {
              CompletableFuture.completedFuture(WELCOME_ACTION));
     }
 
-    private static ContextFragment.TaskFragment getWelcomeOutput(IContextManager contextManager, String initialOutputText) {
-        var messages = List.<ChatMessage>of(Messages.customSystem(initialOutputText));
+    private static ContextFragment.TaskFragment getWelcomeOutput(IContextManager contextManager, @Nullable String initialOutputText) {
+        var messages = initialOutputText == null ? List.<ChatMessage>of() : List.<ChatMessage>of(Messages.customSystem(initialOutputText));
         return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
     }
 
@@ -762,11 +762,7 @@ public class Context {
     public boolean workspaceEquals(Context other) {
         return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
     }
-
-    public boolean isFrozen() {
-        return allFragments().noneMatch(ContextFragment::isDynamic);
-    }
-
+    
     public boolean containsFrozenFragments() {
         return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }

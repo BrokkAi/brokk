@@ -30,8 +30,12 @@ public class MiniParser {
     private static final Logger logger = LogManager.getLogger(MiniParser.class);
     private static final AtomicInteger snippetIdGen = new AtomicInteger(1000);
     
-    private IdProvider idProvider;
+    private final IdProvider idProvider;
     private Map<Integer, int[]> ordinalByAnchor = new HashMap<>();
+
+    public MiniParser(IdProvider idProvider) {
+        this.idProvider = idProvider;
+    }
 
     /**
      * Parses a top-level HTML element and extracts all custom tags within it.
@@ -39,16 +43,13 @@ public class MiniParser {
      * @param topLevel The top-level HTML element to parse
      * @param mdFactory The factory for creating markdown components
      * @param factories Map of tag names to their component factories
-     * @param idProvider Provider for generating stable IDs
      * @return A list of ComponentData objects (usually a single composite if nested tags are found)
      */
-    public List<ComponentData> parse(Element topLevel, 
+    public List<ComponentData> parse(Element topLevel,
                                     MarkdownFactory mdFactory,
-                                    Map<String, ComponentDataFactory> factories,
-                                    IdProvider idProvider) {
+                                    Map<String, ComponentDataFactory> factories) { // idProvider removed from parameters
         
-        this.idProvider = idProvider;
-        this.ordinalByAnchor = new HashMap<>();
+        this.ordinalByAnchor = new HashMap<>(); // Reset for each parse operation
         
         var childrenData = new ArrayList<ComponentData>();
         var sb = new StringBuilder();
@@ -155,13 +156,11 @@ public class MiniParser {
      * 
      * @param node The current node being processed
      * @param sb The StringBuilder containing accumulated HTML
-     * @return The anchor node (either current or previous)
      */
-    private Node ensureAnchor(Node node, StringBuilder sb) {
-        if (sb.length() == 0 && currentAnchor == null) {
+    private void ensureAnchor(Node node, StringBuilder sb) {
+        if (sb.isEmpty() && currentAnchor == null) {
             currentAnchor = node;
         }
-        return currentAnchor;
     }
     
     /**

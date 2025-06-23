@@ -3,12 +3,13 @@ package io.github.jbellis.brokk;
 import dev.langchain4j.data.message.ChatMessage;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Represents a single task interaction for the Task History, including the user request ("description") and the full LLM message log.
@@ -62,10 +63,10 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
               <task sequence=%s summarized=true>
               %s
               </task>
-              """.stripIndent().formatted(sequence, summary.indent(2).stripTrailing());
+              """.stripIndent().formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        var logText = formatMessages(log.messages());
+        var logText = formatMessages(castNonNull(log).messages());
         return """
           <task sequence=%s>
           %s
@@ -73,7 +74,7 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
           """.stripIndent().formatted(sequence, logText.indent(2).stripTrailing());
     }
 
-    public static @NotNull String formatMessages(List<ChatMessage> messages) {
+    public static String formatMessages(List<ChatMessage> messages) {
         return messages.stream()
                   .map(message -> {
                       var text = Messages.getRepr(message);

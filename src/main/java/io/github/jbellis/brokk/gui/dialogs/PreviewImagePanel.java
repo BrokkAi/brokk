@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.Chrome;
+import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -12,10 +13,11 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 
 public class PreviewImagePanel extends JPanel {
+    @Nullable
     private final BrokkFile file;
     private BufferedImage image;
 
-    public PreviewImagePanel(BrokkFile file) {
+    public PreviewImagePanel(@Nullable BrokkFile file) {
         super(new BorderLayout());
         this.file = file;
         loadImage();
