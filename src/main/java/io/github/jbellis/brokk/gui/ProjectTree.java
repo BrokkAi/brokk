@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -14,17 +13,25 @@ import javax.swing.event.TreeExpansionEvent;
 import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.*;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import io.github.jbellis.brokk.FileSystemEventListener;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 
 /**
  * A custom tree component for displaying project files with lazy loading,
  * git tracking status, and interactive features.
  */
-public class ProjectTree extends JTree {
+public class ProjectTree extends JTree implements FileSystemEventListener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
 
@@ -38,9 +45,16 @@ public class ProjectTree extends JTree {
         this.project = project;
         this.contextManager = contextManager;
         this.chrome = chrome;
+        this.contextManager.addFileSystemEventListener(this);
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
+    }
+
+    @Override
+    public void removeNotify() {
+        super.removeNotify();
+        this.contextManager.removeFileSystemEventListener(this);
     }
 
     private void initializeTree() {
@@ -328,6 +342,112 @@ public class ProjectTree extends JTree {
                 }
             }
         }
+    }
+
+    private void invalidateAllChildrenRecursively(DefaultMutableTreeNode node) {
+        if (node.getUserObject() instanceof ProjectTreeNode ptn && ptn.getFile().isDirectory()) {
+            ptn.setChildrenLoaded(false); // Mark as not loaded
+        }
+        Enumeration<?> children = node.children();
+        while (children.hasMoreElements()) {
+            DefaultMutableTreeNode childNode = (DefaultMutableTreeNode) children.nextElement();
+            invalidateAllChildrenRecursively(childNode);
+        }
+    }
+
+    private void collectExpandedDirectoryPathsRecursive(DefaultMutableTreeNode node, List<Path> expandedPaths) {
+        if (!(node.getUserObject() instanceof ProjectTreeNode ptn)) {
+            return;
+        }
+
+        if (ptn.getFile().isDirectory()) {
+            TreePath currentPath = new TreePath(node.getPath());
+            if (isExpanded(currentPath)) {
+                expandedPaths.add(project.getRoot().relativize(ptn.getFile().toPath()));
+            }
+        }
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            if (node.getChildAt(i) instanceof DefaultMutableTreeNode childDmtn) {
+                collectExpandedDirectoryPathsRecursive(childDmtn, expandedPaths);
+            }
+        }
+    }
+
+    @Override
+    public void onTrackedFilesChanged() {
+        SwingUtilities.invokeLater(() -> {
+            logger.trace("FileSystem change detected, refreshing ProjectTree.");
+
+            DefaultMutableTreeNode root = (DefaultMutableTreeNode) getModel().getRoot();
+
+            // Preserve current selection & expansion state
+            List<ProjectFile> previouslySelectedFiles = getSelectedProjectFiles();
+            List<Path> previouslyExpandedDirPaths = new ArrayList<>();
+            if (root != null) {
+                collectExpandedDirectoryPathsRecursive(root, previouslyExpandedDirPaths);
+            }
+
+            // Invalidate all loaded children data
+            if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
+                 ptn.setChildrenLoaded(false);
+            }
+            if (root != null) {
+                invalidateAllChildrenRecursively(root);
+                // Refresh the root node's children
+                root.removeAllChildren();
+                root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+                ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
+                loadChildrenForNode(root); // This starts the loading process and initial auto-expansion
+            }
+
+
+            // After initial load and auto-expansion, restore other expansions
+            for (Path expandedDirPath : previouslyExpandedDirPaths) {
+                // Skip trying to "expand" the root path itself if it's represented as an empty path,
+                // as its children are loaded by loadChildrenForNode(root).
+                if (expandedDirPath.getNameCount() == 0) continue;
+
+                DefaultMutableTreeNode nodeToExpand = findAndExpandNode(root, expandedDirPath, 0);
+                if (nodeToExpand != null) {
+                    TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
+                    if (!isExpanded(pathToExpand)) { // Check if findAndExpandNode already did it
+                        expandPath(pathToExpand);
+                    }
+                } else {
+                    logger.trace("Could not find previously expanded directory to re-expand: {}", expandedDirPath);
+                }
+            }
+
+            // Restore selections
+            if (!previouslySelectedFiles.isEmpty()) {
+                List<TreePath> pathsToSelect = new ArrayList<>();
+                for (ProjectFile pf : previouslySelectedFiles) {
+                    if (pf.exists()) { // Check if file still exists
+                        // findAndExpandNode will expand the path to the file if needed.
+                        DefaultMutableTreeNode nodeToSelect = findAndExpandNode(root, pf.getRelPath(), 0);
+                        if (nodeToSelect != null) {
+                            pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
+                        } else {
+                            logger.trace("Could not find previously selected file to re-select: {}", pf.getRelPath());
+                        }
+                    }
+                }
+
+                if (!pathsToSelect.isEmpty()) {
+                    setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
+                    // Try to scroll to the lead selection path if available, otherwise to the first selected path.
+                    TreePath leadPath = getLeadSelectionPath();
+                    if (leadPath != null) {
+                        scrollPathToVisible(leadPath);
+                    } else if (!pathsToSelect.isEmpty()) {
+                         scrollPathToVisible(pathsToSelect.get(0));
+                    }
+                    requestFocusInWindow(); // Ensure tree has focus to see selection
+                }
+            }
+            logger.trace("ProjectTree refresh complete.");
+        });
     }
 
     public void selectAndExpandToFile(ProjectFile targetFile) {
