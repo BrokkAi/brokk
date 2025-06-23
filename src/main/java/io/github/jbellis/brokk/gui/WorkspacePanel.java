@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.gui.dialogs.SymbolSelectionDialog;
 import io.github.jbellis.brokk.gui.util.AddMenuFactory;
 import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
+import io.github.jbellis.brokk.gui.components.SpinnerIconUtil;
 import io.github.jbellis.brokk.prompts.CopyExternalPrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.HtmlToMarkdown;
@@ -87,15 +88,15 @@ public class WorkspacePanel extends JPanel {
         @Override
         public List<Action> getActions(WorkspacePanel panel) {
             var actions = new ArrayList<Action>();
-            
+
             // Only add drop all action if workspace is editable and we're on the last history item
             if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
                 actions.add(WorkspaceAction.DROP_ALL.createAction(panel));
             }
-            
+
             actions.add(WorkspaceAction.COPY_ALL.createAction(panel));
             actions.add(WorkspaceAction.PASTE.createAction(panel));
-            
+
             return actions;
         }
     }
@@ -1974,7 +1975,7 @@ public class WorkspacePanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             if (analyzerRebuildSpinner == null) {
                 analyzerRebuildSpinner = new JLabel();
-                var spinnerIcon = getCachedSpinnerIcon();
+                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, /*small=*/ true);
                 if (spinnerIcon != null) {
                     analyzerRebuildSpinner.setIcon(spinnerIcon);
                 }
@@ -2023,22 +2024,6 @@ public class WorkspacePanel extends JPanel {
         });
     }
 
-    private @Nullable Icon getCachedSpinnerIcon() {
-        boolean isDark = chrome.getTheme().isDarkTheme();
-        String path = "/icons/" + (isDark ? "spinner_dark_sm.gif" : "spinner_white_sm.gif");
-        var url = getClass().getResource(path);
-
-        if (url == null) {
-            logger.warn("Spinner icon resource not found: {}", path);
-            return null;
-        }
-
-        ImageIcon originalIcon = new ImageIcon(url);
-        // Create a new ImageIcon from the Image to ensure animation restarts
-        return new ImageIcon(originalIcon.getImage());
-
-    }
-
     /**
      * Sets the drop all menu item reference for dynamic state updates.
      */
@@ -2049,12 +2034,12 @@ public class WorkspacePanel extends JPanel {
     private void refreshMenuState() {
         var editable = workspaceCurrentlyEditable;
         var onLastHistoryItem = isOnLatestContext();
-        
+
         for (var component : tablePopupMenu.getComponents()) {
             if (component instanceof JMenuItem mi) {
                 boolean copyAll = COPY_ALL_ACTION_CMD.equals(mi.getActionCommand());
                 boolean dropAll = DROP_ALL_ACTION_CMD.equals(mi.getActionCommand());
-                
+
                 if (dropAll) {
                     // "Drop All" is only visible and enabled when workspace is editable and on last history item
                     mi.setVisible(editable && onLastHistoryItem);

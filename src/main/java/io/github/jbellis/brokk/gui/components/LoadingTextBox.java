@@ -77,7 +77,7 @@ public final class LoadingTextBox extends JPanel {
                "LoadingTextBox.setLoading must be called on the EDT";
 
         if (loading) {
-            spinner.setIcon(SpinnerIconUtil.getSpinner(chrome));
+            spinner.setIcon(SpinnerIconUtil.getSpinner(chrome, false));
             spinner.setVisible(true);
             textField.setToolTipText(busyTooltip != null ? busyTooltip : "Searching...");
         } else {

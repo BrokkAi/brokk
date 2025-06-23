@@ -49,7 +49,7 @@ public final class LoadingButton extends JButton {
             // idleText, idleIcon, idleTooltip are already up-to-date via overridden setters
             // or from construction if no setters were called while enabled.
 
-            var spinnerIcon = SpinnerIconUtil.getSpinner(chrome);
+            var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
             super.setIcon(spinnerIcon);
             super.setDisabledIcon(spinnerIcon); // Show spinner even when disabled
             super.setText(busyText);
