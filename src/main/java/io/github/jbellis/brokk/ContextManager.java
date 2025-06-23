@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -126,6 +127,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // The current, mutable, live context that the user interacts with
     private volatile Context liveContext = Context.EMPTY; // Initialize to a non-null default
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -140,6 +142,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void removeContextListener(ContextListener listener) {
         contextListeners.remove(listener);
+    }
+
+    public void addFileSystemEventListener(FileSystemEventListener listener) {
+        fileSystemEventListeners.add(listener);
+    }
+
+    public void removeFileSystemEventListener(FileSystemEventListener listener) {
+        fileSystemEventListeners.remove(listener);
     }
 
     /**
@@ -280,6 +290,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // analyzer refresh will call this too, but it will be delayed
                 io.updateWorkspace();
                 io.updateCommitPanel();
+                for (var fsListener : fileSystemEventListeners) {
+                    fsListener.onTrackedFilesChanged();
+                }
             }
 
             @Override
