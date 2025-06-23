@@ -489,8 +489,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         // the whole background task will fail and be logged by submitBackgroundTask's wrapper.
                         // The UI won't update checkoutPrButton in that specific scenario, but that's acceptable for now.
 
-                        Optional<String> existingBranchOpt = existsLocalPrBranch(prNumber); // I/O
-                        String syncStatus = getLocalSyncStatus(prNumber, prHeadSha); // I/O
+                        Optional<String> existingBranchOpt = existsLocalPrBranch(selectedPr); // I/O
+                        String syncStatus = getLocalSyncStatus(selectedPr, prHeadSha); // I/O
 
                         SwingUtilities.invokeLater(() -> {
                             // Check if the selection is still the same
@@ -639,20 +639,53 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         reviewFilter.setEnabled(enabled);
     }
 
-    private Optional<String> existsLocalPrBranch(int prNumber) {
+    /**
+     * Determines the expected local branch name for a PR based on whether it's from the same repository or a fork.
+     */
+    private String getExpectedLocalBranchName(GHPullRequest pr) {
+        var prHead = pr.getHead();
+        String prBranchName = prHead.getRef();
+        if (prBranchName.startsWith("refs/heads/")) {
+            prBranchName = prBranchName.substring("refs/heads/".length());
+        }
+        
+        String repoFullName = prHead.getRepository().getFullName();
+        
         try {
             var repo = getRepo();
-            String prefix = "pr-" + prNumber;
+            var remoteUrl = repo.getRemoteUrl();
+            GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            
+            if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
+                // PR is from the same repository - use the actual branch name
+                return prBranchName;
+            } else {
+                // PR is from a fork - use username/branchname format
+                return prHead.getRepository().getOwnerName() + "/" + prBranchName;
+            }
+        } catch (Exception e) {
+            logger.warn("Error determining repository info for PR #{}, defaulting to fork format: {}", pr.getNumber(), e.getMessage());
+            // Default to fork format if we can't determine the repo info
+            return prHead.getRepository().getOwnerName() + "/" + prBranchName;
+        }
+    }
+
+    private Optional<String> existsLocalPrBranch(GHPullRequest pr) {
+        try {
+            var repo = getRepo();
             List<String> localBranches = repo.listLocalBranches();
+            
+            String expectedLocalBranchName = getExpectedLocalBranchName(pr);
             for (String branchName : localBranches) {
-                // Matches "pr-<number>" or "pr-<number>-<digits>"
-                if (branchName.equals(prefix) ||
-                        (branchName.startsWith(prefix + "-") && branchName.substring(prefix.length() + 1).matches("\\d+"))) {
+                // Matches "expectedLocalBranchName" or "expectedLocalBranchName-<digits>"
+                if (branchName.equals(expectedLocalBranchName) || 
+                    (branchName.startsWith(expectedLocalBranchName + "-") && branchName.substring(expectedLocalBranchName.length() + 1).matches("\\d+"))) {
                     return Optional.of(branchName);
                 }
             }
+            
         } catch (Exception e) {
-            logger.warn("Error checking for existing local PR branch for PR #{}: {}", prNumber, e.getMessage(), e);
+            logger.warn("Error checking for existing local PR branch for PR #{}: {}", pr.getNumber(), e.getMessage(), e);
         }
         return Optional.empty();
     }
@@ -1246,10 +1279,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
 
-    private String getLocalSyncStatus(int prNumber, String prHeadSha) {
+    private String getLocalSyncStatus(GHPullRequest pr, String prHeadSha) {
         try {
             var repo = getRepo();
-            var localBranchOpt = existsLocalPrBranch(prNumber);
+            var localBranchOpt = existsLocalPrBranch(pr);
             if (localBranchOpt.isEmpty()) return ""; // no local branch
             var localBranch = localBranchOpt.get();
             var localHeadObj = repo.resolve(localBranch);
@@ -1257,7 +1290,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             if (localHeadSha.equals(prHeadSha)) return "ok"; // up to date
             return "behind";
         } catch (Exception e) {
-            logger.warn("Error determining sync status for PR #{}: {}", prNumber, e.getMessage());
+            logger.warn("Error determining sync status for PR #{}: {}", pr.getNumber(), e.getMessage());
             return "";
         }
     }
@@ -1442,7 +1475,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         org.kohsuke.github.GHPullRequest selectedPrObject = displayedPrs.get(selectedRow);
         final int prNumber = selectedPrObject.getNumber();
 
-        Optional<String> existingLocalBranchOpt = existsLocalPrBranch(prNumber);
+        Optional<String> existingLocalBranchOpt = existsLocalPrBranch(selectedPrObject);
 
         if (existingLocalBranchOpt.isPresent()) {
             updateExistingLocalPrBranch(prNumber, existingLocalBranchOpt.get());
@@ -1534,13 +1567,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     remoteBranchRef = remoteName + "/" + prBranchName;
                 }
 
-                String baseBranchNameSuffix = "pr-" + prNumber;
-                String localBranchName = baseBranchNameSuffix;
-                List<String> localBranches = getRepo().listLocalBranches();
-                int suffix = 1;
-                while (localBranches.contains(localBranchName)) {
-                    localBranchName = baseBranchNameSuffix + "-" + suffix++;
-                }
+                String localBranchName = getExpectedLocalBranchName(pr);
 
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 
