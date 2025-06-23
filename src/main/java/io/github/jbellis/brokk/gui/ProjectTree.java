@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -206,6 +207,13 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             return;
         }
 
+        // Add "Show History" item
+        if (selectedFiles.size() == 1) {
+            JMenuItem historyItem = getHistoryMenuItem(selectedFiles);
+            contextMenu.add(historyItem);
+            contextMenu.addSeparator();
+        }
+
         boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(selectedFiles);
 
         JMenuItem editItem = new JMenuItem(selectedFiles.size() == 1 ? "Edit" : "Edit All");
@@ -238,6 +246,24 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
         });
         contextMenu.add(summarizeItem);
+    }
+
+    private @NotNull JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
+        var file = selectedFiles.getFirst();
+        boolean hasGit = contextManager.getProject().hasGit();
+        JMenuItem historyItem = new JMenuItem("Show History");
+        historyItem.addActionListener(ev -> {
+            if (chrome.getGitPanel() != null) {
+                chrome.getGitPanel().addFileHistoryTab(file);
+            } else {
+                logger.warn("GitPanel is null, cannot show history for {}", file);
+            }
+        });
+        historyItem.setEnabled(hasGit);
+        if (!hasGit) {
+            historyItem.setToolTipText("Git not available for this project.");
+        }
+        return historyItem;
     }
 
     private void prepareAndShowContextMenu(int x, int y) {
