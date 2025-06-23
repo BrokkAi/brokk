@@ -2002,7 +2002,7 @@ public class WorkspacePanel extends JPanel {
 
     private @Nullable Icon getCachedSpinnerIcon() {
         boolean isDark = chrome.getTheme().isDarkTheme();
-        String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
+        String path = "/icons/" + (isDark ? "spinner_dark_sm.gif" : "spinner_white_sm.gif");
         var url = getClass().getResource(path);
 
         if (url == null) {
