@@ -98,4 +98,18 @@ public class SummarizerPrompts {
                 new UserMessage("<diff>\n" + diff + "\n</diff>")
         );
     }
+
+    public List<ChatMessage> collectPrDescriptionFromCommitMsgs(List<String> commitMsgs) {
+        String body = String.join("\n\n", commitMsgs);
+
+        return List.of(
+            new SystemMessage("""
+                You are an expert software engineer writing clear pull-request descriptions.
+                Use ONLY the commit messages below.  Summarise the intent, major behaviour
+                changes, and key implementation ideas. 75–150 words, ideal.
+                Do NOT include raw commit messages verbatim.
+                """.stripIndent()),
+            new UserMessage("<commits>\n" + body + "\n</commits>")
+        );
+    }
 }

@@ -71,6 +71,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private FilterBox labelFilter;
     private FilterBox assigneeFilter;
     private FilterBox reviewFilter;
+    private JButton refreshPrButton;
 
     private final GitHubTokenMissingPanel gitHubTokenMissingPanel;
 
@@ -311,7 +312,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
-        JButton refreshPrButton = new JButton("Refresh");
+        refreshPrButton = new JButton("Refresh");
         refreshPrButton.addActionListener(e -> updatePrList());
         prButtonPanel.add(refreshPrButton);
 
@@ -623,6 +624,20 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         currentPrCommitDetailsList.clear();
     }
 
+    /**
+     * Enable or disable every widget that can trigger a new reload.
+     * Must be called on the EDT.
+     */
+    private void setReloadUiEnabled(boolean enabled)
+    {
+        refreshPrButton.setEnabled(enabled);
+
+        statusFilter.setEnabled(enabled);
+        authorFilter.setEnabled(enabled);
+        labelFilter.setEnabled(enabled);
+        assigneeFilter.setEnabled(enabled);
+        reviewFilter.setEnabled(enabled);
+    }
 
     private Optional<String> existsLocalPrBranch(int prNumber) {
         try {
@@ -651,6 +666,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
      * Also fetches CI statuses for these PRs.
      */
     private void updatePrList() {
+        assert SwingUtilities.isEventDispatchThread();
+        setReloadUiEnabled(false);
+
         var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
             List<org.kohsuke.github.GHPullRequest> fetchedPrs;
             try {
@@ -684,6 +702,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     authorChoices.clear();
                     labelChoices.clear();
                     assigneeChoices.clear();
+                    setReloadUiEnabled(true);
                 });
                 return null;
             }
@@ -696,6 +715,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 // ciStatusCache is updated incrementally, not fully cleared here unless error
                 populateDynamicFilterChoices(allPrsFromApi);
                 filterAndDisplayPrs(); // Apply current filters, which will also trigger CI fetching
+                setReloadUiEnabled(true);
             });
             return null;
         });

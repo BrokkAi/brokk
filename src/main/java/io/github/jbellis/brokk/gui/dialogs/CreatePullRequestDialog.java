@@ -27,12 +27,15 @@ import io.github.jbellis.brokk.prompts.SummarizerPrompts;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import java.awt.Desktop;
+import dev.langchain4j.data.message.ChatMessage;
 
 
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
+
 import org.jetbrains.annotations.Nullable;
 
 
@@ -382,7 +385,26 @@ public class CreatePullRequestDialog extends JDialog {
                         // Auto-generate title and description
                         // This diff is for the LLM, not for display directly
                         var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
-                        debounceGenerate(diffText);
+                        var svc = contextManager.getService();
+                        int maxTokensInput = svc.getMaxInputTokens(svc.quickestModel());
+                        // Heuristic: ~3 characters per token for English text.
+                        // Multiply maxTokensInput by a safety factor (e.g., 0.9) to leave headroom.
+                        int estimatedTokens = diffText.length() / 3;
+                        boolean diffTooBig  = estimatedTokens > (maxTokensInput * 0.9);
+
+                        if (diffTooBig) {
+                            logger.info("Diff (approx. {} tokens) may exceed model's input budget ({} tokens); falling back to commit messages for PR description.",
+                                        estimatedTokens, maxTokensInput);
+                            var commitMsgs = gitRepo.getCommitMessagesBetween(sourceBranch, targetBranch);
+                            if (commitMsgs.isEmpty()) {
+                                logger.warn("Diff too big, and no commit messages found between {} and {}. Cannot generate PR description.", sourceBranch, targetBranch);
+                                cancelGenerationWorkersAndClearFields();
+                            } else {
+                                debounceGenerateFromCommitMessages(commitMsgs);
+                            }
+                        } else {
+                            debounceGenerateFromDiff(diffText);
+                        }
                     } else {
                         // No merge base, cannot generate diff for description.
                         logger.warn("No merge base found between {} and {}, cannot generate PR description.", sourceBranch, targetBranch);
@@ -680,15 +702,13 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    // --- PR Description and Title Generation ---
-
     private class PrDescriptionWorker extends SwingWorker<String, Void> {
         private final ContextManager cm;
-        private final String diff;
+        private final Supplier<List<ChatMessage>> promptSupplier;
 
-        PrDescriptionWorker(ContextManager cm, String diff) {
+        PrDescriptionWorker(ContextManager cm, Supplier<List<ChatMessage>> promptSupplier) {
             this.cm = cm;
-            this.diff = diff;
+            this.promptSupplier = promptSupplier;
         }
 
         @Override
@@ -696,7 +716,7 @@ public class CreatePullRequestDialog extends JDialog {
             if (isCancelled()) {
                 return ""; // Early exit if cancelled before starting work
             }
-            var msgs = SummarizerPrompts.instance.collectPrDescriptionMessages(diff);
+            var msgs = promptSupplier.get(); // Get messages from the supplier
             var llm = cm.getLlm(cm.getService().quickestModel(), "PR-description");
             var result = llm.sendRequest(msgs);
 
@@ -814,16 +834,34 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    private void debounceGenerate(String diffTxt) {
+    private void debounceGenerate(Supplier<List<ChatMessage>> promptSupplier) {
         if (pendingDebounceTask != null) {
             pendingDebounceTask.cancel(false);
         }
         pendingDebounceTask = debounceExec.schedule(
-                () -> spawnDescriptionWorker(diffTxt), // Will run on executor thread
+                () -> spawnDescriptionWorker(promptSupplier), // Will run on executor thread
                 DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
-    private void spawnDescriptionWorker(String diffTxt) {
+    // Specific debouncer for diff-based generation
+    private void debounceGenerateFromDiff(String diffTxt) {
+        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
+            setTextAndResetCaret(descriptionArea, "Generating description from diff...");
+            setTextAndResetCaret(titleField, "Generating title...");
+        });
+        debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionMessages(diffTxt));
+    }
+
+    // Specific debouncer for commit-message-based generation
+    private void debounceGenerateFromCommitMessages(List<String> commitMsgs) {
+        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
+             setTextAndResetCaret(descriptionArea, "Generating description from commit messages...");
+             setTextAndResetCaret(titleField, "Generating title...");
+        });
+        debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMsgs));
+    }
+
+    private void spawnDescriptionWorker(Supplier<List<ChatMessage>> promptSupplier) {
         // Cancel previous background LLM calls
         if (currentDescriptionWorker != null) {
             currentDescriptionWorker.cancel(true);
@@ -832,13 +870,8 @@ public class CreatePullRequestDialog extends JDialog {
             currentTitleWorker.cancel(true);
         }
 
-        // Optimistic placeholders while work runs
-        SwingUtilities.invokeLater(() -> {
-            setTextAndResetCaret(descriptionArea, "Generating description ...");
-            setTextAndResetCaret(titleField, "Generating title ...");
-        });
-
-        currentDescriptionWorker = new PrDescriptionWorker(contextManager, diffTxt);
+        // Optimistic placeholders
+        currentDescriptionWorker = new PrDescriptionWorker(contextManager, promptSupplier);
         currentDescriptionWorker.execute();
     }
 
