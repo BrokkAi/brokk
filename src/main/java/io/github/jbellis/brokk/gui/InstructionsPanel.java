@@ -22,7 +22,6 @@ import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectChoices;
-import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.SettingsGlobalPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
@@ -61,7 +60,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
@@ -153,6 +151,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.actionOutput("Recording");
         }, msg -> chrome.toolError(msg, "Error"));
         commandResultLabel = buildCommandResultLabel(); // Initialize moved component
+
 
         // Initialize Buttons first
         architectButton = new JButton("Architect"); // Now a regular JButton

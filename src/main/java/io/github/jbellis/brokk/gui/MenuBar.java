@@ -271,11 +271,14 @@ public class MenuBar {
     var dropAllItem = new JMenuItem("Drop All");
     dropAllItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
     dropAllItem.addActionListener(e -> {
-            chrome.getContextPanel().performContextActionAsync(
-                    WorkspacePanel.ContextAction.DROP, List.of());
-        });
-        dropAllItem.setEnabled(hasProject);
-        contextMenu.add(dropAllItem);
+        chrome.getContextPanel().performContextActionAsync(
+                WorkspacePanel.ContextAction.DROP, List.of());
+    });
+    dropAllItem.setEnabled(hasProject);
+    contextMenu.add(dropAllItem);
+
+    // Store reference in WorkspacePanel for dynamic state updates
+    chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
 
         menuBar.add(contextMenu);
 

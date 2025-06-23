@@ -86,11 +86,17 @@ public class WorkspacePanel extends JPanel {
     public static final class NoSelection implements PopupScenario {
         @Override
         public List<Action> getActions(WorkspacePanel panel) {
-            return List.of(
-                WorkspaceAction.DROP_ALL.createAction(panel),
-                WorkspaceAction.COPY_ALL.createAction(panel),
-                WorkspaceAction.PASTE.createAction(panel)
-            );
+            var actions = new ArrayList<Action>();
+            
+            // Only add drop all action if workspace is editable and we're on the last history item
+            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
+                actions.add(WorkspaceAction.DROP_ALL.createAction(panel));
+            }
+            
+            actions.add(WorkspaceAction.COPY_ALL.createAction(panel));
+            actions.add(WorkspaceAction.PASTE.createAction(panel));
+            
+            return actions;
         }
     }
 
@@ -193,13 +199,10 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, List.of(fragment)));
 
-            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment));
-            if (!panel.workspaceCurrentlyEditable ||
-                !java.util.Objects.equals(panel.contextManager.selectedContext(), panel.contextManager.topContext())) {
-                dropAction.setEnabled(false);
-                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
+            // Only add drop action if workspace is editable and we're on the last history item
+            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
+                actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment)));
             }
-            actions.add(dropAction);
 
             return actions;
         }
@@ -228,13 +231,10 @@ public class WorkspacePanel extends JPanel {
             actions.add(null); // Separator
             actions.add(WorkspaceAction.COPY.createFragmentsAction(panel, fragments));
 
-            var dropAction = WorkspaceAction.DROP.createFragmentsAction(panel, fragments);
-            if (!panel.workspaceCurrentlyEditable ||
-                !java.util.Objects.equals(panel.contextManager.selectedContext(), panel.contextManager.topContext())) {
-                dropAction.setEnabled(false);
-                dropAction.putValue(Action.SHORT_DESCRIPTION, READ_ONLY_TIP);
+            // Only add drop action if workspace is editable and we're on the last history item
+            if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
+                actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, fragments));
             }
-            actions.add(dropAction);
 
             return actions;
         }
@@ -560,6 +560,8 @@ public class WorkspacePanel extends JPanel {
     private boolean workspaceCurrentlyEditable = true;
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
+    private TitledBorder workspaceTitledBorder;
+    @Nullable private JMenuItem dropAllMenuItem = null;
 
     // Buttons
     // Table popup menu (when no row is selected)
@@ -567,6 +569,9 @@ public class WorkspacePanel extends JPanel {
 
     private static final String READ_ONLY_TIP = "Select latest activity to enable";
     private static final String COPY_ALL_ACTION_CMD = "workspace.copyAll";
+    private static final String DROP_ALL_ACTION_CMD = "workspace.dropAll";
+    private static final String WORKSPACE_TITLE = "Workspace";
+    private static final String WORKSPACE_TITLE_NOT_LIVE = "Workspace (read-only)";
 
     /**
      * Primary constructor allowing menu-mode selection
@@ -580,13 +585,14 @@ public class WorkspacePanel extends JPanel {
         this.contextManager = contextManager;
         this.popupMenuMode = popupMenuMode;
 
-        setBorder(BorderFactory.createTitledBorder(
+        workspaceTitledBorder = BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
-                "Workspace",
+                WORKSPACE_TITLE,
                 TitledBorder.DEFAULT_JUSTIFICATION,
                 TitledBorder.DEFAULT_POSITION,
                 new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
+        );
+        setBorder(workspaceTitledBorder);
 
         buildContextPanel();
 
@@ -875,6 +881,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.addSeparator();
 
         JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
+        dropAllMenuItem.setActionCommand(DROP_ALL_ACTION_CMD);
         dropAllMenuItem.addActionListener(e -> performContextActionAsync(ContextAction.DROP, List.of()));
         tablePopupMenu.add(dropAllMenuItem);
 
@@ -933,11 +940,11 @@ public class WorkspacePanel extends JPanel {
 
         BorderUtils.addFocusBorder(tableScrollPane, contextTable);
 
-        // Create gray semi-transparent overlay for history viewing
-        workspaceOverlay = OverlayPanel.createGrayOverlay(
+        // Create gray semi-transparent overlay for history viewing that allows mouse clicks through
+        workspaceOverlay = OverlayPanel.createNonBlockingGrayOverlay(
                 overlay -> {}, // No action on click - this overlay is not meant to be dismissed by user
                 READ_ONLY_TIP,
-                60 // Light transparency (80/255 ≈ 31%) - visible but not too heavy
+                30 // Very light transparency (30/255 ≈ 12%) - subtle indication
         );
         workspaceOverlay.setVisible(false); // Start hidden
 
@@ -1206,7 +1213,10 @@ public class WorkspacePanel extends JPanel {
      * Called by Chrome to refresh the table if context changes
      */
     public void updateContextTable() {
-        SwingUtilities.invokeLater(() -> populateContextTable(requireNonNull(contextManager.selectedContext())));
+        SwingUtilities.invokeLater(() -> {
+            populateContextTable(requireNonNull(contextManager.selectedContext()));
+            refreshMenuState(); // Update menu states when context changes
+        });
     }
 
     private JTextArea createWarningTextArea(String text, Color foregroundColor, String tooltip) {
@@ -1283,6 +1293,14 @@ public class WorkspacePanel extends JPanel {
                 .filter(ProjectFile.class::isInstance)
                 .map(ProjectFile.class::cast)
                 .allMatch(pf -> pf.exists() && project.getRepo().getTrackedFiles().contains(pf));
+    }
+
+    /**
+     * Returns true if the workspace is currently on the latest (top) context.
+     * When false, the workspace is viewing historical context and should be read-only.
+     */
+    private boolean isOnLatestContext() {
+        return Objects.equals(contextManager.selectedContext(), contextManager.topContext());
     }
 
     /**
@@ -1933,12 +1951,17 @@ public class WorkspacePanel extends JPanel {
         SwingUtilities.invokeLater(() -> {
             this.workspaceCurrentlyEditable = editable;
 
-            // Show/hide overlay based on editable state
+            // Show/hide overlay based on editable state and update title
             if (editable) {
                 workspaceOverlay.hideOverlay();
+                workspaceTitledBorder.setTitle(WORKSPACE_TITLE);
             } else {
                 workspaceOverlay.showOverlay();
+                workspaceTitledBorder.setTitle(WORKSPACE_TITLE_NOT_LIVE);
             }
+
+            // Repaint to show title change
+            repaint();
 
             refreshMenuState();
         });
@@ -2013,25 +2036,47 @@ public class WorkspacePanel extends JPanel {
         ImageIcon originalIcon = new ImageIcon(url);
         // Create a new ImageIcon from the Image to ensure animation restarts
         return new ImageIcon(originalIcon.getImage());
+
+    }
+
+    /**
+     * Sets the drop all menu item reference for dynamic state updates.
+     */
+    public void setDropAllMenuItem(JMenuItem dropAllMenuItem) {
+        this.dropAllMenuItem = dropAllMenuItem;
     }
 
     private void refreshMenuState() {
-        if (tablePopupMenu == null) {
-            return;
-        }
         var editable = workspaceCurrentlyEditable;
+        var onLastHistoryItem = isOnLatestContext();
+        
         for (var component : tablePopupMenu.getComponents()) {
             if (component instanceof JMenuItem mi) {
-                // "Copy All" is always enabled.
-                // Other JMenuItems (including JMenu "Add") are enabled based on workspace editability.
                 boolean copyAll = COPY_ALL_ACTION_CMD.equals(mi.getActionCommand());
-                mi.setEnabled(editable || copyAll);
-                if (copyAll || editable) {
+                boolean dropAll = DROP_ALL_ACTION_CMD.equals(mi.getActionCommand());
+                
+                if (dropAll) {
+                    // "Drop All" is only visible and enabled when workspace is editable and on last history item
+                    mi.setVisible(editable && onLastHistoryItem);
+                    mi.setEnabled(editable && onLastHistoryItem);
+                    mi.setToolTipText(editable && onLastHistoryItem ? null : READ_ONLY_TIP);
+                } else if (copyAll) {
+                    // "Copy All" is always enabled and visible
+                    mi.setEnabled(true);
+                    mi.setVisible(true);
                     mi.setToolTipText(null);
                 } else {
-                    mi.setToolTipText(READ_ONLY_TIP);
+                    // Other menu items (including JMenu "Add") are enabled based on workspace editability
+                    mi.setEnabled(editable);
+                    mi.setVisible(true);
+                    mi.setToolTipText(editable ? null : READ_ONLY_TIP);
                 }
             }
+        }
+
+        // Also update the global drop all menu item
+        if (dropAllMenuItem != null) {
+            dropAllMenuItem.setEnabled(editable && onLastHistoryItem);
         }
     }
 }
