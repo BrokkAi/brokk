@@ -107,7 +107,27 @@ public class CodeAgent {
         UserMessage messageForRetry = null;
         String consoleLogForRetry = null;
 
-        if (parseResult.parseError() != null) {
+        if (parseResult.parseError() == null) {
+            parseFailures = 0; // Current segment is clean.
+            if (streamingResult.isPartial()) {
+                if (newlyParsedBlocks.isEmpty()) {
+                    messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                    consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
+                } else {
+                    messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                    consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
+                }
+            } else if (updatedBlocks.isEmpty() && currentState.blocksAppliedWithoutBuild == 0) {
+                io.systemOutput("No edits found in response, and no changes since last build; ending task");
+                TaskResult.StopDetails stopDetails;
+                if (!currentState.currentTaskInstructions().equals(currentState.initialGoal())) { // implies build error
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, currentState.currentTaskInstructions());
+                } else {
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                }
+                throw new EditStopException(stopDetails);
+            }
+        } else {
             if (newlyParsedBlocks.isEmpty()) {
                 parseFailures++;
                 if (parseFailures > MAX_PARSE_ATTEMPTS) {
@@ -120,17 +140,6 @@ public class CodeAgent {
                 parseFailures = 0; // Reset, as we got some good blocks.
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry = "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix".formatted(newlyParsedBlocks.size());
-            }
-        } else {
-            parseFailures = 0; // Current segment is clean.
-            if (streamingResult.isPartial()) {
-                if (newlyParsedBlocks.isEmpty()) {
-                    messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                    consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
-                } else {
-                    messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                    consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
-                }
             }
         }
 
@@ -166,18 +175,7 @@ public class CodeAgent {
         int applyFailures = currentState.applyFailures();
         var originalContentsOfChangedFiles = new HashMap<>(currentState.originalContentsOfChangedFiles());
         UserMessage nextRequest = currentState.nextRequest();
-
-        if (blocks.isEmpty() && blocksAppliedWithoutBuild == 0) {
-            io.systemOutput("No edits found in response, and no changes since last build; ending task");
-            TaskResult.StopDetails stopDetails;
-            if (!currentState.currentTaskInstructions().equals(currentState.initialGoal())) { // implies build error
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, currentState.currentTaskInstructions());
-            } else {
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-            }
-            throw new EditStopException(stopDetails);
-        }
-
+        
         var readOnlyFiles = findConflicts(blocks, contextManager);
         if (!readOnlyFiles.isEmpty()) {
             var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
@@ -227,6 +225,7 @@ public class CodeAgent {
                         attemptFullFileReplacements(editResult.failedBlocks(), originalContentsOfChangedFiles, currentState.initialGoal(), currentState.taskMessages());
                         logger.debug("Full file replacement fallback successful.");
                         applyFailures = 0;
+                        blocksAppliedWithoutBuild = 1;
                     } catch (EditStopException e) {
                         io.systemOutput("Code Agent stopping after failing to apply edits: " + e.getStopDetails().explanation());
                         throw e;
@@ -303,6 +302,10 @@ public class CodeAgent {
         try {
             while (true) {
                 editState = requestEdits(editState, coder, parser, messageProvider);
+                if (editState.blocksAppliedWithoutBuild == 0) {
+                    // parse error, apply error, or we just need to retry
+                    continue;
+                }
 
                 // Attempt build/verification
                 var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
