@@ -677,9 +677,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             
             String expectedLocalBranchName = getExpectedLocalBranchName(pr);
             for (String branchName : localBranches) {
-                // Matches "expectedLocalBranchName" or "expectedLocalBranchName-<digits>"
-                if (branchName.equals(expectedLocalBranchName) || 
-                    (branchName.startsWith(expectedLocalBranchName + "-") && branchName.substring(expectedLocalBranchName.length() + 1).matches("\\d+"))) {
+                if (branchName.equals(expectedLocalBranchName)) {
                     return Optional.of(branchName);
                 }
             }
