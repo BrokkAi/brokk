@@ -75,7 +75,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     // Debouncing for issue description loading
     private static final int DESCRIPTION_DEBOUNCE_DELAY = 250; // ms
     private final Timer descriptionDebounceTimer;
+    @Nullable
     private IssueHeader pendingHeaderForDescription;
+    @Nullable
     private Future<?> currentDescriptionFuture;
 
 
@@ -109,7 +111,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         this.gitPanel = gitPanel;
         this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient();
-
+        
+        // Initialize nullable fields to avoid NullAway errors
+        this.pendingHeaderForDescription = null;
+        this.currentDescriptionFuture = null;
+        
         // Load dynamic statuses after issueService and statusFilter are initialized
         var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
             List<String> fetchedStatuses = null;
@@ -721,7 +727,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             } catch (Exception ex) {
                 if (wasCancellation(ex)) {
                     // Ensure loading indicator is turned off, but don't show an error row or log as ERROR.
-                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
+                    SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 } else {
                     logger.error("Failed to fetch issues via IssueService", ex);
                     SwingUtilities.invokeLater(() -> {
@@ -732,7 +738,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                                 "", "Error fetching issues: " + ex.getMessage(), "", "", "", "", ""
                         });
                         disableIssueActionsAndClearDetails();
-                        searchBox.setLoading(false, null); // Stop loading on error
+                        searchBox.setLoading(false, ""); // Stop loading on error
                     });
                 }
                 return null;
@@ -740,7 +746,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
             if (Thread.currentThread().isInterrupted()) {
                 // If interrupted after successful fetch but before processing, ensure loading is stopped.
-                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
+                SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
                 return null;
             }
             // Perform filtering and display processing in the background
@@ -771,7 +777,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void processAndDisplayWorker(List<IssueHeader> sourceList, boolean isFullUpdate) {
         if (Thread.currentThread().isInterrupted()) {
             // Ensure searchBox loading state is reset correctly on the EDT.
-            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, null));
+            SwingUtilities.invokeLater(() -> searchBox.setLoading(false, ""));
             return;
         }
         // This method runs on a background thread.
@@ -858,7 +864,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 issueTable.getSelectionModel().setValueIsAdjusting(true);
                 issueTable.getSelectionModel().setValueIsAdjusting(false);
             }
-            searchBox.setLoading(false, null); // Stop loading after UI updates
+            searchBox.setLoading(false, ""); // Stop loading after UI updates
             logger.debug("processAndDisplayWorker (EDT): UI updates complete.");
         });
     }

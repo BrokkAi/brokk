@@ -4,21 +4,22 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
 public final class SpinnerIconUtil {
     private static final Logger logger = LogManager.getLogger(SpinnerIconUtil.class);
-    private static Icon dark;
-    private static Icon light;
+    private static @Nullable Icon dark;
+    private static @Nullable Icon light;
 
     private SpinnerIconUtil() {}
 
-    public static Icon getSpinner(Chrome chrome) {
+    public static @Nullable Icon getSpinner(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "SpinnerIconUtil.getSpinner must be called on the EDT";
         GuiTheme theme = chrome.getTheme();       // may be null during early startup
         boolean isDark = theme != null && theme.isDarkTheme();
-        Icon cached = isDark ? dark : light;
+        @Nullable Icon cached = isDark ? dark : light;
         if (cached == null) {
             String path = "/icons/" + (isDark ? "spinner_dark.gif" : "spinner_white.gif");
             var url = SpinnerIconUtil.class.getResource(path);
