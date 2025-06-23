@@ -55,7 +55,13 @@ public class GitLogTab extends JPanel {
         super(new BorderLayout());
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext);
+
+        var project = contextManager.getProject();
+        // Determine if the "Create PR" button should be shown, mirroring logic in GitPanel for the PR tab.
+        var showCreatePrButton = project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab");
+        var panelOptions = new GitCommitBrowserPanel.Options(true, true, showCreatePrButton);
+
+        this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
         buildLogTabUI();
     }
 
