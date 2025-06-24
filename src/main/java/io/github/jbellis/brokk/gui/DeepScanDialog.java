@@ -147,6 +147,7 @@ class DeepScanDialog {
                     } else {
                         chrome.systemOutput("Deep Scan complete with no recommendations");
                     }
+                    analysisDoneFuture.complete(null);
                 } else {
                     chrome.systemOutput("Deep Scan complete: Found %d relevant fragments".formatted(allSuggestedFragments.size()));
                     // Split allSuggestedFragments into test and project code fragments
