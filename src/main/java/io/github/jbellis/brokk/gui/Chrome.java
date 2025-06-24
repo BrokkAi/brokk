@@ -77,6 +77,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     // Global Copy/Paste Actions
     private final GlobalCopyAction globalCopyAction;
     private final GlobalPasteAction globalPasteAction;
+    // Global Toggle Mic Action
+    private final ToggleMicAction globalToggleMicAction;
     // necessary for undo/redo because clicking on menubar takes focus from whatever had it
     @Nullable private Component lastRelevantFocusOwner = null;
 
@@ -132,6 +134,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.globalRedoAction = new GlobalRedoAction("Redo");
         this.globalCopyAction = new GlobalCopyAction("Copy");
         this.globalPasteAction = new GlobalPasteAction("Paste");
+        this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
         initializeThemeManager();
 
@@ -209,6 +212,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             globalRedoAction.updateEnabledState();
             globalCopyAction.updateEnabledState();
             globalPasteAction.updateEnabledState();
+            globalToggleMicAction.updateEnabledState();
         });
 
         // Listen for context changes (Chrome already implements IContextManager.ContextListener)
@@ -567,6 +571,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         var pasteKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
         rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(pasteKeyStroke, "globalPaste");
         rootPane.getActionMap().put("globalPaste", globalPasteAction);
+
+        // Cmd/Ctrl+M => toggle microphone
+        var toggleMicKeyStroke = io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_M);
+        rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(toggleMicKeyStroke, "globalToggleMic");
+        rootPane.getActionMap().put("globalToggleMic", globalToggleMicAction);
     }
 
     @Override
@@ -669,6 +678,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             globalRedoAction.updateEnabledState();
             globalCopyAction.updateEnabledState();
             globalPasteAction.updateEnabledState();
+            globalToggleMicAction.updateEnabledState();
 
             // Also update HistoryOutputPanel's local buttons
             historyOutputPanel.updateUndoRedoButtonStates();
@@ -1261,6 +1271,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         return globalPasteAction;
     }
 
+    public Action getGlobalToggleMicAction() {
+        return globalToggleMicAction;
+    }
+
     private boolean isFocusInContextArea(@org.jetbrains.annotations.Nullable Component focusOwner) {
         if (focusOwner == null) return false;
         // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
@@ -1409,6 +1423,36 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 canPasteNow = true;
             }
             setEnabled(canPasteNow);
+        }
+    }
+
+    // --- Global Toggle Mic Action Class ---
+    private class ToggleMicAction extends AbstractAction {
+        public ToggleMicAction(String name) {
+            super(name);
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
+            if (currentInstructionsPanel != null) {
+                VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+                if (micButton != null && micButton.isEnabled()) {
+                    micButton.doClick();
+                }
+            }
+        }
+
+        public void updateEnabledState() {
+            boolean canToggleMic = false;
+            InstructionsPanel currentInstructionsPanel = Chrome.this.instructionsPanel;
+            if (currentInstructionsPanel != null) {
+                VoiceInputButton micButton = currentInstructionsPanel.getVoiceInputButton();
+                if (micButton != null) {
+                    canToggleMic = micButton.isEnabled();
+                }
+            }
+            setEnabled(canToggleMic);
         }
     }
 
