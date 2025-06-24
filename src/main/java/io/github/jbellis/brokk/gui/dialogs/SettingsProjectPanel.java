@@ -468,16 +468,12 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                           JOptionPane.WARNING_MESSAGE);
             return;
         }
-
-        IProject tempProject = new IProject() {
-            @Override public Path getRoot() { return Path.of("."); } // Dummy
-        };
-
+        
         testJiraConnectionButton.setEnabled(false);
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
-            protected String doInBackground() throws Exception {
-                JiraIssueService testService = new JiraIssueService(tempProject);
+            protected String doInBackground() {
+                JiraIssueService testService = new JiraIssueService(chrome.getProject());
                 try {
                     // Use a concrete FilterOptions implementation, e.g., JiraFilterOptions with nulls for a basic check
                     FilterOptions filterOptions = new JiraFilterOptions(null, null, null, null, null, null);
