@@ -9,6 +9,7 @@ import org.eclipse.jgit.api.errors.NoHeadException;
 import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.api.*;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ProgressMonitor;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
@@ -568,6 +569,23 @@ public class GitRepo implements Closeable, IGitRepo {
         refresh();
         
         return results;
+    }
+
+    /**
+     * Fetches all remotes with pruning, reporting progress to the given monitor.
+     *
+     * @param pm The progress monitor to report to.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void fetchAll(ProgressMonitor pm) throws GitAPIException {
+        for (String remote : repository.getRemoteNames()) {
+            git.fetch()
+               .setRemote(remote)
+               .setRemoveDeletedRefs(true)   // --prune
+               .setProgressMonitor(pm)
+               .call();
+        }
+        refresh(); // Invalidate caches & ref-db
     }
 
     /**
