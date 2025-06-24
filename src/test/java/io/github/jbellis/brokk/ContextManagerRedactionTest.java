@@ -13,7 +13,7 @@ class ContextManagerRedactionTest {
 
     private final EditBlockParser parser = EditBlockParser.instance;
 
-    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided edits for file %s]";
+    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
 
     private String createSingleBlockMessage(String filename, String search, String replace) {
         return """
@@ -36,7 +36,7 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedMessage = ContextManager.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedMessage.isPresent(), "Message with only S/R block should NOT be removed.");
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER.formatted("file.txt"), redactedMessage.get().text(), "Message content should be the placeholder.");
+        assertEquals(ELIDED_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the placeholder.");
     }
 
     @Test
@@ -51,7 +51,7 @@ class ContextManagerRedactionTest {
 
         assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
         AiMessage redactedMessage = redactedResult.get();
-        String expectedText = prefix + ELIDED_BLOCK_PLACEHOLDER.formatted("foo.txt") + suffix;
+        String expectedText = prefix + ELIDED_BLOCK_PLACEHOLDER + suffix;
         assertEquals(expectedText, redactedMessage.text(), "S/R block should be replaced by placeholder.");
     }
 
@@ -98,7 +98,7 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
-        String expectedText = text1 + ELIDED_BLOCK_PLACEHOLDER.formatted("file1.txt") + text2 + ELIDED_BLOCK_PLACEHOLDER.formatted("file2.java") + text3;
+        String expectedText = text1 + ELIDED_BLOCK_PLACEHOLDER + text2 + ELIDED_BLOCK_PLACEHOLDER + text3;
         assertEquals(expectedText, redactedResult.get().text(), "All S/R blocks should be replaced by placeholders.");
     }
 
@@ -114,7 +114,7 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
         
         assertTrue(redactedResult.isPresent(), "Message composed of only S/R blocks but resulting in non-blank placeholder text should be present.");
-        String expectedText = ELIDED_BLOCK_PLACEHOLDER.formatted("file1.txt") + "\n" + ELIDED_BLOCK_PLACEHOLDER.formatted("file2.txt");
+        String expectedText = ELIDED_BLOCK_PLACEHOLDER + "\n" + ELIDED_BLOCK_PLACEHOLDER;
         assertEquals(expectedText, redactedResult.get().text());
     }
 
@@ -128,7 +128,7 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
         
         assertTrue(redactedResult.isPresent());
-        assertEquals(text + ELIDED_BLOCK_PLACEHOLDER.formatted("file.end"), redactedResult.get().text());
+        assertEquals(text + ELIDED_BLOCK_PLACEHOLDER, redactedResult.get().text());
     }
     
     @Test
@@ -141,6 +141,6 @@ class ContextManagerRedactionTest {
         Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent());
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER.formatted("file.start") + text, redactedResult.get().text());
+        assertEquals(ELIDED_BLOCK_PLACEHOLDER + text, redactedResult.get().text());
     }
 }
