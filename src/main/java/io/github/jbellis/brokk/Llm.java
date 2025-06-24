@@ -1114,11 +1114,19 @@ public class Llm {
 
         public String formatted() {
             if (error != null) {
+                String contentToShow;
+                // text() helper method returns chatResponse.text() or "" if chatResponse is null.
+                if (!text().isEmpty()) {
+                    contentToShow = "[Partial response text]\n" + text();
+                } else {
+                    contentToShow = "[No response content available]";
+                }
                 return """
                        [Error: %s]
                        %s
-                       """.formatted(formatThrowable(error), originalResponse() == null ? "[Null response]" : originalResponse().toString());
+                       """.stripIndent().formatted(formatThrowable(error), contentToShow);
             }
+            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
             return castNonNull(originalResponse()).toString();
         }
 
@@ -1137,7 +1145,7 @@ public class Llm {
          */
         public String getDescription() {
             if (error != null) {
-                return Objects.toString(error.getMessage(), "Unknown error");
+                return requireNonNull(error.getMessage());
             }
 
             var cr = castNonNull(chatResponse);
