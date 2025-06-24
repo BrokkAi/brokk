@@ -502,50 +502,49 @@ public class GitWorktreeTab extends JPanel {
                 GridBagConstraints gbc = new GridBagConstraints();
                 gbc.insets = new Insets(5, 5, 5, 5);
 
-                JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:", true);
-                JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
-                branchComboBox.setEnabled(true);
-
-                JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:");
+                JRadioButton createNewBranchRadio = new JRadioButton("Create new branch:", true);
                 JTextField newBranchNameField = new JTextField(15);
-                newBranchNameField.setEnabled(false);
+                newBranchNameField.setEnabled(true);
 
                 JComboBox<String> sourceBranchForNewComboBox = new JComboBox<>(finalLocalBranches.toArray(new String[0]));
                 sourceBranchForNewComboBox.setSelectedItem(finalCurrentGitBranch);
-                sourceBranchForNewComboBox.setEnabled(false);
+                sourceBranchForNewComboBox.setEnabled(true);
+
+                JRadioButton useExistingBranchRadio = new JRadioButton("Use existing branch:");
+                JComboBox<String> branchComboBox = new JComboBox<>(finalAvailableBranches.toArray(new String[0]));
+                branchComboBox.setEnabled(false);
 
                 ButtonGroup group = new ButtonGroup();
-                group.add(useExistingBranchRadio);
                 group.add(createNewBranchRadio);
+                group.add(useExistingBranchRadio);
 
-                useExistingBranchRadio.addActionListener(eL -> {
-                    branchComboBox.setEnabled(true);
-                    newBranchNameField.setEnabled(false);
-                    sourceBranchForNewComboBox.setEnabled(false);
-                });
                 createNewBranchRadio.addActionListener(eL -> {
-                    branchComboBox.setEnabled(false);
                     newBranchNameField.setEnabled(true);
                     sourceBranchForNewComboBox.setEnabled(true);
+                    branchComboBox.setEnabled(false);
+                });
+                useExistingBranchRadio.addActionListener(eL -> {
+                    newBranchNameField.setEnabled(false);
+                    sourceBranchForNewComboBox.setEnabled(false);
+                    branchComboBox.setEnabled(true);
                 });
 
                 gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL;
-                panel.add(useExistingBranchRadio, gbc);
-                gbc.gridx = 0; gbc.gridy = 1; gbc.insets = new Insets(2, 25, 5, 5); gbc.weightx = 1.0;
-                panel.add(branchComboBox, gbc);
-                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
-                gbc.gridx = 0; gbc.gridy = 2; gbc.insets = new Insets(10, 5, 2, 5);
                 panel.add(createNewBranchRadio, gbc);
-                gbc.insets = new Insets(5, 5, 5, 5);
-                gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 1; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 2, 5);
+                gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 2, 5);
                 panel.add(new JLabel("Name:"), gbc);
-                gbc.gridx = 1; gbc.gridy = 3; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 2, 5);
+                gbc.gridx = 1; gbc.gridy = 1; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 2, 5);
                 panel.add(newBranchNameField, gbc);
                 gbc.weightx = 0.0;
-                gbc.gridx = 0; gbc.gridy = 4; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 5, 5);
+                gbc.gridx = 0; gbc.gridy = 2; gbc.anchor = GridBagConstraints.EAST; gbc.fill = GridBagConstraints.NONE; gbc.insets = new Insets(2, 25, 5, 5);
                 panel.add(new JLabel("From:"), gbc);
-                gbc.gridx = 1; gbc.gridy = 4; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 5, 5);
+                gbc.gridx = 1; gbc.gridy = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.weightx = 1.0; gbc.insets = new Insets(2, 0, 5, 5);
                 panel.add(sourceBranchForNewComboBox, gbc);
+                gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
+                gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.insets = new Insets(10, 5, 5, 5);
+                panel.add(useExistingBranchRadio, gbc);
+                gbc.gridx = 0; gbc.gridy = 4; gbc.insets = new Insets(2, 25, 5, 5); gbc.weightx = 1.0;
+                panel.add(branchComboBox, gbc);
                 gbc.weightx = 0.0; gbc.insets = new Insets(5, 5, 5, 5);
 
                 JCheckBox copyWorkspaceCheckbox = new JCheckBox("Copy Workspace to worktree Session");
@@ -553,8 +552,27 @@ public class GitWorktreeTab extends JPanel {
                 gbc.gridx = 0; gbc.gridy = 5; gbc.gridwidth = 2; gbc.anchor = GridBagConstraints.WEST; gbc.fill = GridBagConstraints.HORIZONTAL; gbc.insets = new Insets(10, 5, 5, 5);
                 panel.add(copyWorkspaceCheckbox, gbc);
 
-                int result = JOptionPane.showConfirmDialog(GitWorktreeTab.this, panel, "Add Worktree", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
-                if (result == JOptionPane.OK_OPTION) {
+                JOptionPane optionPane = new JOptionPane(panel, JOptionPane.PLAIN_MESSAGE, JOptionPane.OK_CANCEL_OPTION);
+                JDialog dialog = optionPane.createDialog(GitWorktreeTab.this, "Add Worktree");
+                JButton okButton = new JButton(UIManager.getString("OptionPane.okButtonText"));
+                okButton.addActionListener(e -> {
+                    optionPane.setValue(JOptionPane.OK_OPTION);
+                    dialog.dispose();
+                });
+                optionPane.setOptions(new Object[]{okButton, new JButton(UIManager.getString("OptionPane.cancelButtonText")) {
+                    {
+                        addActionListener(e -> {
+                            optionPane.setValue(JOptionPane.CANCEL_OPTION);
+                            dialog.dispose();
+                        });
+                    }
+                }});
+                dialog.getRootPane().setDefaultButton(okButton);
+                newBranchNameField.requestFocusInWindow(); // Focus the new branch name field
+                dialog.setVisible(true);
+                Object selectedValue = optionPane.getValue();
+                dialog.dispose();
+                if (selectedValue != null && selectedValue.equals(JOptionPane.OK_OPTION)) {
                     String selectedBranchName;
                     if (createNewBranchRadio.isSelected()) {
                         selectedBranchName = newBranchNameField.getText().trim(); // Raw name, will be sanitized on background thread
