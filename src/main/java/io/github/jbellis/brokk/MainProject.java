@@ -458,10 +458,10 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    @Nullable private volatile io.github.jbellis.brokk.IssueProvider issuesProviderCache = null;
+    @Nullable private volatile IssueProvider issuesProviderCache = null;
 
     @Override
-    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+    public IssueProvider getIssuesProvider() {
         if (issuesProviderCache != null) {
             return issuesProviderCache;
         }
@@ -469,40 +469,20 @@ public final class MainProject extends AbstractProject {
         String json = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
-                issuesProviderCache = objectMapper.readValue(json, io.github.jbellis.brokk.IssueProvider.class);
+                issuesProviderCache = objectMapper.readValue(json, IssueProvider.class);
                 return issuesProviderCache;
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.", json, e);
             }
         }
-
-        // Migration from old properties
-        String oldProviderEnumName = projectProps.getProperty(OLD_ISSUE_PROVIDER_ENUM_KEY);
-        if (oldProviderEnumName != null) {
-            io.github.jbellis.brokk.issues.IssueProviderType oldType = io.github.jbellis.brokk.issues.IssueProviderType.fromString(oldProviderEnumName);
-            if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.JIRA) {
-                String baseUrl = projectProps.getProperty(JIRA_PROJECT_BASE_URL_KEY, "");
-                String apiToken = projectProps.getProperty(JIRA_PROJECT_API_TOKEN_KEY, "");
-                String projectKey = projectProps.getProperty(JIRA_PROJECT_KEY_KEY, "");
-                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.jira(baseUrl, apiToken, projectKey);
-            } else if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.GITHUB) {
-                // Old GitHub had no specific config, so it's the default GitHub config
-                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
-            }
-            // If migrated, save new format and remove old keys
-            if (issuesProviderCache != null) {
-                setIssuesProvider(issuesProviderCache); // This will save and clear old keys
-                logger.info("Migrated issue provider settings from old format for project {}", getRoot().getFileName());
-                return issuesProviderCache;
-            }
-        }
-
+        
         // Defaulting logic if no JSON and no old properties
         if (isGitHubRepo()) {
-            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
+            issuesProviderCache = IssueProvider.github();
         } else {
-            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.none();
+            issuesProviderCache = IssueProvider.none();
         }
+
         // Save the default so it's persisted
         setIssuesProvider(issuesProviderCache);
         logger.info("Defaulted issue provider to {} for project {}", issuesProviderCache.type(), getRoot().getFileName());
@@ -510,7 +490,7 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+    public void setIssuesProvider(IssueProvider provider) {
         try {
             String json = objectMapper.writeValueAsString(provider);
             projectProps.setProperty(ISSUES_PROVIDER_JSON_KEY, json);
