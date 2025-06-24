@@ -22,6 +22,8 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.util.ArrayList;
@@ -248,9 +250,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (index < 0 || index >= fileComparisons.size()) {
             return;
         }
+        
+        // Save current file before switching
+        saveCurrentFile();
+        
         logger.debug("Switching to file {} of {}", index + 1, fileComparisons.size());
         currentFileIndex = index;
         loadFileOnDemand(currentFileIndex);
+    }
+
+    /**
+     * Saves the currently displayed file if it has changes.
+     */
+    private void saveCurrentFile() {
+        var currentPanel = getBufferDiffPanel();
+        if (currentPanel != null) {
+            try {
+                currentPanel.doSave();
+            } catch (Exception ex) {
+                logger.error("Error during save operation: {}", ex.getMessage(), ex);
+                // Don't show error dialog here since doSave() already handles it
+                /// waht
+            }
+        }
     }
 
     private void updateNavigationButtons() {
@@ -506,6 +528,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
+                // Save any unsaved changes before closing
+                saveCurrentFile();
                 contextManager.getProject().saveDiffWindowBounds(frame);
             }
         });
@@ -665,6 +689,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void dispose() {
         logger.debug("Disposing BrokkDiffPanel and clearing panel cache");
+
+        // Save any unsaved changes before disposal
+        saveCurrentFile();
 
         // Clear all cached panels and dispose their resources
         for (var panel : panelCache.values()) {

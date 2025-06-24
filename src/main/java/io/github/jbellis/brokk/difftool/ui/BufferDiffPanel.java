@@ -299,6 +299,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         applyTheme(guiTheme);
         // Register keyboard shortcuts for search functionality
         registerSearchKeyBindings();
+
+        // Register save shortcut (Ctrl+S / Cmd+S)
+        registerSaveShortcut();
     }
 
     /**
@@ -329,6 +332,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (rightSearchBar != null) {
             barContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
         }
+
+        
 
         return barContainer;
     }
@@ -653,11 +658,23 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             if (fp == null) continue;
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
+            
+            // Check if document is read-only before attempting to save
+            if (doc.isReadonly()) {
+                System.out.println("Skipping save for read-only document: " + doc.getName());
+                continue;
+            }
+            
             try {
                 doc.write();
+                System.out.println("Successfully saved file: " + doc.getName());
             } catch (Exception ex) {
+                System.err.println("Failed to save file: " + doc.getName() + " - " + ex.getMessage());
+                ex.printStackTrace();
                 JOptionPane.showMessageDialog(mainPanel,
-                                              "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
+                                              "Can't save file: " + doc.getName() + "\n" + 
+                                              "Reason: " + ex.getMessage() + "\n" +
+                                              "File is read-only: " + doc.isReadonly(),
                                               "Problem writing file", JOptionPane.ERROR_MESSAGE);
             }
         }
@@ -796,6 +813,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
                 }
             });
         }
+    }
+
+    /**
+     * Registers Ctrl+S / Cmd+S keyboard shortcut for manual saving.
+     */
+    private void registerSaveShortcut() {
+        KeyboardShortcutUtil.registerSaveShortcut(this, this::doSave);
     }
 
     /**
