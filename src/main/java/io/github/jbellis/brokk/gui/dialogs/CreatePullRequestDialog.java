@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -398,7 +400,8 @@ public class CreatePullRequestDialog extends JDialog {
                         // This diff is for the LLM, not for display directly
                         var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
                         var svc = contextManager.getService();
-                        int maxTokensInput = svc.getMaxInputTokens(svc.quickestModel());
+                        var model = getPreferredModelForPrGeneration();
+                        int maxTokensInput = svc.getMaxInputTokens(model);
                         // Heuristic: ~3 characters per token for English text.
                         // Multiply maxTokensInput by a safety factor (e.g., 0.9) to leave headroom.
                         int estimatedTokens = diffText.length() / 3;
@@ -439,6 +442,12 @@ public class CreatePullRequestDialog extends JDialog {
                 throw e;
             }
         });
+    }
+
+    private StreamingChatLanguageModel getPreferredModelForPrGeneration() {
+        var svc = contextManager.getService();
+        var model = svc.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+        return model != null ? model : svc.quickestModel();
     }
 
     private void updateCreatePrButtonState() {
@@ -729,7 +738,7 @@ public class CreatePullRequestDialog extends JDialog {
                 return ""; // Early exit if cancelled before starting work
             }
             var msgs = promptSupplier.get(); // Get messages from the supplier
-            var llm = cm.getLlm(cm.getService().quickestModel(), "PR-description");
+            var llm = cm.getLlm(getPreferredModelForPrGeneration(), "PR-description");
             var result = llm.sendRequest(msgs);
 
             if (isCancelled()) { // Check again after potentially long LLM call

@@ -200,7 +200,7 @@ public final class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GROK_3_MINI = "grok-3-mini";
+    public static final String GROK_3_MINI = "grok-3-mini-beta";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
