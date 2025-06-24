@@ -49,6 +49,7 @@ public class CreatePullRequestDialog extends JDialog {
     private JComboBox<String> targetBranchComboBox;
     private JTextField titleField;
     private JTextArea descriptionArea;
+    private JLabel descriptionHintLabel; // Hint for description generation source
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
@@ -223,6 +224,17 @@ public class CreatePullRequestDialog extends JDialog {
         descriptionArea = new JTextArea(10, 20); // Initial rows and columns
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
+
+        // Hint label for description generation source
+        descriptionHintLabel = new JLabel("<html>Description generated from commit messages as the diff was too large.</html>");
+        descriptionHintLabel.setFont(descriptionHintLabel.getFont().deriveFont(Font.ITALIC, descriptionHintLabel.getFont().getSize() * 0.9f));
+        descriptionHintLabel.setVisible(false); // Initially hidden
+        gbc.gridx = 1;
+        gbc.gridy = 2; // Position below the description area
+        gbc.weighty = 0; // Don't take extra vertical space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Align to top-left of its cell
+        panel.add(descriptionHintLabel, gbc);
         
         return panel;
     }
@@ -830,7 +842,14 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> {
             titleField.setText("");
             descriptionArea.setText("");
+            showDescriptionHint(false); // Hide hint when clearing
             updateCreatePrButtonState();
+        });
+    }
+
+    private void showDescriptionHint(boolean show) {
+        SwingUtilities.invokeLater(() -> {
+            descriptionHintLabel.setVisible(show);
         });
     }
 
@@ -848,6 +867,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
             setTextAndResetCaret(descriptionArea, "Generating description from diff...");
             setTextAndResetCaret(titleField, "Generating title...");
+            showDescriptionHint(false); // Hide hint if using diff
         });
         debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionMessages(diffTxt));
     }
@@ -857,6 +877,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
              setTextAndResetCaret(descriptionArea, "Generating description from commit messages...");
              setTextAndResetCaret(titleField, "Generating title...");
+             showDescriptionHint(true); // Show hint if using commit messages
         });
         debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMsgs));
     }
