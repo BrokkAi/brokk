@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
@@ -49,6 +51,7 @@ public class CreatePullRequestDialog extends JDialog {
     private JComboBox<String> targetBranchComboBox;
     private JTextField titleField;
     private JTextArea descriptionArea;
+    private JLabel descriptionHintLabel; // Hint for description generation source
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
@@ -223,6 +226,17 @@ public class CreatePullRequestDialog extends JDialog {
         descriptionArea = new JTextArea(10, 20); // Initial rows and columns
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
+
+        // Hint label for description generation source
+        descriptionHintLabel = new JLabel("<html>Description generated from commit messages as the diff was too large.</html>");
+        descriptionHintLabel.setFont(descriptionHintLabel.getFont().deriveFont(Font.ITALIC, descriptionHintLabel.getFont().getSize() * 0.9f));
+        descriptionHintLabel.setVisible(false); // Initially hidden
+        gbc.gridx = 1;
+        gbc.gridy = 2; // Position below the description area
+        gbc.weighty = 0; // Don't take extra vertical space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Align to top-left of its cell
+        panel.add(descriptionHintLabel, gbc);
         
         return panel;
     }
@@ -386,7 +400,8 @@ public class CreatePullRequestDialog extends JDialog {
                         // This diff is for the LLM, not for display directly
                         var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
                         var svc = contextManager.getService();
-                        int maxTokensInput = svc.getMaxInputTokens(svc.quickestModel());
+                        var model = getPreferredModelForPrGeneration();
+                        int maxTokensInput = svc.getMaxInputTokens(model);
                         // Heuristic: ~3 characters per token for English text.
                         // Multiply maxTokensInput by a safety factor (e.g., 0.9) to leave headroom.
                         int estimatedTokens = diffText.length() / 3;
@@ -427,6 +442,12 @@ public class CreatePullRequestDialog extends JDialog {
                 throw e;
             }
         });
+    }
+
+    private StreamingChatLanguageModel getPreferredModelForPrGeneration() {
+        var svc = contextManager.getService();
+        var model = svc.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT);
+        return model != null ? model : svc.quickestModel();
     }
 
     private void updateCreatePrButtonState() {
@@ -717,7 +738,7 @@ public class CreatePullRequestDialog extends JDialog {
                 return ""; // Early exit if cancelled before starting work
             }
             var msgs = promptSupplier.get(); // Get messages from the supplier
-            var llm = cm.getLlm(cm.getService().quickestModel(), "PR-description");
+            var llm = cm.getLlm(getPreferredModelForPrGeneration(), "PR-description");
             var result = llm.sendRequest(msgs);
 
             if (isCancelled()) { // Check again after potentially long LLM call
@@ -830,7 +851,14 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> {
             titleField.setText("");
             descriptionArea.setText("");
+            showDescriptionHint(false); // Hide hint when clearing
             updateCreatePrButtonState();
+        });
+    }
+
+    private void showDescriptionHint(boolean show) {
+        SwingUtilities.invokeLater(() -> {
+            descriptionHintLabel.setVisible(show);
         });
     }
 
@@ -848,6 +876,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
             setTextAndResetCaret(descriptionArea, "Generating description from diff...");
             setTextAndResetCaret(titleField, "Generating title...");
+            showDescriptionHint(false); // Hide hint if using diff
         });
         debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionMessages(diffTxt));
     }
@@ -857,6 +886,7 @@ public class CreatePullRequestDialog extends JDialog {
         SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
              setTextAndResetCaret(descriptionArea, "Generating description from commit messages...");
              setTextAndResetCaret(titleField, "Generating title...");
+             showDescriptionHint(true); // Show hint if using commit messages
         });
         debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMsgs));
     }
