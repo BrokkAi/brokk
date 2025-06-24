@@ -5,6 +5,7 @@ import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -36,8 +37,8 @@ public class ScrollSynchronizer
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
         
-        // Initialize debounced scroll timer (100ms delay)
-        scrollSyncTimer = new Timer(100, e -> {
+        // Initialize debounced scroll timer with reduced delay for better responsiveness
+        scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
             if (hasPendingScroll) {
                 scroll(pendingLeftScrolled);
                 hasPendingScroll = false;
@@ -98,6 +99,11 @@ public class ScrollSynchronizer
                 public void adjustmentValueChanged(AdjustmentEvent e)
                 {
                     if (insideScroll) return;
+                    
+                    // Suppress scroll sync if either panel is actively typing to prevent flickering
+                    if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+                        return;
+                    }
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
@@ -224,6 +230,10 @@ public class ScrollSynchronizer
         if (offset < 0) {
             return;
         }
+        
+        // Mark that we're navigating to ensure highlights appear
+        fp.setNavigatingToDiff(true);
+        
         var viewport = fp.getScrollPane().getViewport();
         var editor = fp.getEditor();
         try {
@@ -236,8 +246,25 @@ public class ScrollSynchronizer
 
             var p = rect.getLocation();
             viewport.setViewPosition(p);
+            
+            // Only invalidate viewport cache if not actively typing to prevent flicker
+            if (!fp.isActivelyTyping()) {
+                fp.invalidateViewportCache();
+            }
+            
+            // Trigger immediate redisplay to show highlights
+            fp.reDisplay();
+            
+            // Reset navigation flag after a minimal delay to allow highlighting to complete
+            Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+                fp.setNavigatingToDiff(false);
+            });
+            resetNavTimer.setRepeats(false);
+            resetNavTimer.start();
+            
         } catch (BadLocationException ex) {
             // This usually means the offset is invalid for the document model
+            fp.setNavigatingToDiff(false); // Reset flag on error
             throw new RuntimeException(ex);
         }
     }
@@ -248,10 +275,18 @@ public class ScrollSynchronizer
      */
     public void showDelta(AbstractDelta<String> delta)
     {
+        // Mark both panels as navigating to ensure highlights appear on both sides
+        filePanelLeft.setNavigatingToDiff(true);
+        filePanelRight.setNavigatingToDiff(true);
+        
         // We assume we want to scroll the left side. The 'source' chunk is the original side.
         var source = delta.getSource();
         scrollToLine(filePanelLeft, source.getPosition());
         // That triggers the verticalAdjustmentListener to sync the right side.
+        
+        // Trigger immediate redisplay on both panels to ensure highlights appear
+        filePanelLeft.reDisplay();
+        filePanelRight.reDisplay();
     }
 
     public void toNextDelta(boolean next)

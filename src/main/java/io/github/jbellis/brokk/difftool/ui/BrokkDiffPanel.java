@@ -20,6 +20,7 @@ import com.github.difflib.algorithm.DiffAlgorithmListener;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import org.apache.logging.log4j.LogManager;
@@ -48,8 +49,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
 
-    // LRU cache for loaded diff panels - keeps max 3 panels in memory
-    private static final int MAX_CACHED_PANELS = 5;
+    // LRU cache for loaded diff panels
+    private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
     private final Map<Integer, BufferDiffPanel> panelCache = new LinkedHashMap<>(MAX_CACHED_PANELS + 1, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<Integer, BufferDiffPanel> eldest) {
@@ -350,31 +351,31 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         });
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
         toolBar.add(btnNext);
 
         // Add file navigation buttons if multiple files
         if (fileComparisons.size() > 1) {
-            toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
+            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
             toolBar.addSeparator();
-            toolBar.add(Box.createHorizontalStrut(10));
+            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
             toolBar.add(btnPreviousFile);
-            toolBar.add(Box.createHorizontalStrut(10));
+            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
             toolBar.add(btnNextFile);
-            toolBar.add(Box.createHorizontalStrut(15));
+            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_MEDIUM_SPACING_PX));
             toolBar.add(fileIndicatorLabel);
         }
 
-        toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
         toolBar.addSeparator(); // Adds space between groups
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
         toolBar.add(btnUndo);
-        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
         toolBar.add(btnRedo);
 
-        toolBar.add(Box.createHorizontalStrut(20));
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
         toolBar.addSeparator();
-        toolBar.add(Box.createHorizontalStrut(10));
+        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
         toolBar.add(showBlankLineDiffsCheckBox);
 
         // Add Capture Diff button to the right

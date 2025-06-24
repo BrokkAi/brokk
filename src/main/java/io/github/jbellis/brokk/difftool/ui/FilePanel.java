@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.search.RTextAreaSearchableComponent;
 import io.github.jbellis.brokk.gui.search.SearchCommand;
 import io.github.jbellis.brokk.gui.search.SearchableComponent;
 import io.github.jbellis.brokk.util.SyntaxDetector;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -42,6 +43,7 @@ import static java.util.Objects.requireNonNullElseGet;
 
 public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private static final Logger logger = LogManager.getLogger(FilePanel.class);
+    
 
     private final BufferDiffPanel diffPanel;
     private final String name;
@@ -64,6 +66,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
+    
+    // Typing state detection to prevent scroll sync interference
+    private volatile boolean isActivelyTyping = false;
+    private Timer typingStateTimer;
+    
+    // Navigation state to ensure highlights appear when scrolling to diffs
+    private volatile boolean isNavigatingToDiff = false;
 
     public FilePanel(@NotNull BufferDiffPanel diffPanel, @NotNull String name) {
         this.diffPanel = diffPanel;
@@ -102,21 +111,28 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Initially, add scrollPane to the visual container
         visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
 
-        // Setup a one-time timer to refresh the UI after 800ms to reduce flickering
-        timer = new Timer(800, e -> {
-            if (initialSetupComplete) {
-                diffPanel.diff();
-            }
-        });
+        // Unified update timer to consolidate diff and highlight updates
+        // This reduces timer overhead and prevents conflicting updates
+        timer = new Timer(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS, this::handleUnifiedUpdate);
         timer.setRepeats(false);
 
-        // Setup debounced reDisplay timer to reduce highlight flickering
-        redisplayTimer = new Timer(300, e -> {
-            if (initialSetupComplete) {
+        // Keep redisplayTimer for backward compatibility but make it lightweight
+        redisplayTimer = new Timer(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS, e -> {
+            if (initialSetupComplete && !isActivelyTyping) {
                 reDisplayInternal();
             }
         });
         redisplayTimer.setRepeats(false);
+        
+        // Typing state timer to detect when user stops typing
+        typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
+            isActivelyTyping = false;
+            // Trigger a single update after typing stops to ensure UI is current
+            if (initialSetupComplete) {
+                reDisplayInternal();
+            }
+        });
+        typingStateTimer.setRepeats(false);
         // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
         GuiTheme.loadRSyntaxTheme(diffPanel.isDarkTheme()).ifPresent(theme ->
                 theme.apply(editor)
@@ -178,8 +194,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 if (newDocument != null) {
                     // Copy text into RSyntaxDocument instead of replacing the model
                     String txt = newDocument.getText(0, newDocument.getLength());
+                    
+                    // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
+                    applyPerformanceOptimizations(txt.length());
+                    
                     editor.setText(txt);
-                    editor.setTabSize(4); // TODO: Make configurable
+                    editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
                     bd.addChangeListener(this);
 
                     // Setup bidirectional mirroring between PlainDocument and RSyntaxDocument
@@ -254,6 +274,15 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Repaint highlights: we get the patch from BufferDiffPanel, then highlight
      * each delta's relevant lines in *this* panel (ORIGINAL or REVISED).
      */
+    // Cache viewport bounds to avoid repeated calculations
+    private volatile int lastVisibleStartLine = -1;
+    private volatile int lastVisibleEndLine = -1;
+    private volatile long lastViewportUpdate = 0;
+    
+    /**
+     * PERFORMANCE OPTIMIZATION: Only highlights deltas visible in the current viewport
+     * for massive performance improvement with large files.
+     */
     private void paintRevisionHighlights()
     {
         assert SwingUtilities.isEventDispatchThread() : "NOT ON EDT";
@@ -263,13 +292,178 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         var patch = diffPanel.getPatch();
         if (patch == null) return;
 
+        // Skip viewport optimization when navigating to ensure highlights appear
+        if (isNavigatingToDiff) {
+            logger.debug("Navigation mode: highlighting all deltas to ensure target is visible");
+            paintAllDeltas(patch);
+            return;
+        }
+        
+        // Get visible line range with caching for performance
+        var visibleRange = getVisibleLineRange();
+        if (visibleRange == null) {
+            // Fallback to highlighting all deltas if viewport calculation fails
+            paintAllDeltas(patch);
+            return;
+        }
+        
+        int startLine = visibleRange.start;
+        int endLine = visibleRange.end;
+        
+        // Filter deltas to only those intersecting visible area
+        int totalDeltas = patch.getDeltas().size();
+        int visibleCount = 0;
+        
         for (var delta : patch.getDeltas()) {
-            // Are we the "original" side or the "revised" side?
+            if (deltaIntersectsViewport(delta, startLine, endLine)) {
+                visibleCount++;
+                // Are we the "original" side or the "revised" side?
+                if (BufferDocumentIF.ORIGINAL.equals(name)) {
+                    new HighlightOriginal(delta).highlight();
+                } else if (BufferDocumentIF.REVISED.equals(name)) {
+                    new HighlightRevised(delta).highlight();
+                }
+            }
+        }
+        
+        logger.trace("Painted {} of {} deltas for viewport lines {}-{}", 
+                     visibleCount, totalDeltas, startLine, endLine);
+    }
+    
+    /**
+     * Fallback method to paint all deltas (original behavior).
+     */
+    private void paintAllDeltas(com.github.difflib.patch.Patch<String> patch) {
+        for (var delta : patch.getDeltas()) {
             if (BufferDocumentIF.ORIGINAL.equals(name)) {
                 new HighlightOriginal(delta).highlight();
             } else if (BufferDocumentIF.REVISED.equals(name)) {
                 new HighlightRevised(delta).highlight();
             }
+        }
+    }
+    
+    /**
+     * Cached viewport calculation to avoid expensive repeated calls.
+     */
+    @Nullable
+    private VisibleRange getVisibleLineRange() {
+        if (bufferDocument == null) {
+            return null;
+        }
+        
+        long now = System.currentTimeMillis();
+        
+        // Use cached values if recent enough
+        if (now - lastViewportUpdate < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS && 
+            lastVisibleStartLine >= 0 && lastVisibleEndLine >= 0) {
+            return new VisibleRange(lastVisibleStartLine, lastVisibleEndLine);
+        }
+        
+        try {
+            var viewport = scrollPane.getViewport();
+            var viewRect = viewport.getViewRect();
+            
+            // Calculate visible line range with buffer for smooth scrolling
+            // Use larger buffer when navigating to ensure target highlights are visible
+            int bufferLines = isNavigatingToDiff ? 
+                PerformanceConstants.VIEWPORT_BUFFER_LINES * 3 : 
+                PerformanceConstants.VIEWPORT_BUFFER_LINES;
+            int lineHeight = editor.getLineHeight();
+            
+            // Calculate start/end offsets with buffer
+            int startY = Math.max(0, viewRect.y - bufferLines * lineHeight);
+            int endY = viewRect.y + viewRect.height + bufferLines * lineHeight;
+            
+            int startOffset = editor.viewToModel2D(new Point(0, startY));
+            int endOffset = editor.viewToModel2D(new Point(0, endY));
+            
+            // Convert to line numbers - bufferDocument is null-checked above
+            int startLine = Math.max(0, bufferDocument.getLineForOffset(startOffset));
+            int endLine = Math.min(bufferDocument.getNumberOfLines() - 1, bufferDocument.getLineForOffset(endOffset));
+            
+            // Cache the result
+            lastVisibleStartLine = startLine;
+            lastVisibleEndLine = endLine;
+            lastViewportUpdate = now;
+            
+            return new VisibleRange(startLine, endLine);
+            
+        } catch (Exception e) {
+            logger.debug("Error calculating visible range, falling back to full highlighting: {}", e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Check if a delta intersects with the visible line range.
+     */
+    private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine) {
+        Chunk<String> chunk = BufferDocumentIF.ORIGINAL.equals(name) ? delta.getSource() : delta.getTarget();
+        if (chunk == null) return false;
+        
+        int deltaStart = chunk.getPosition();
+        int deltaEnd = deltaStart + Math.max(1, chunk.size()) - 1;
+        
+        // Check if delta range overlaps with visible range
+        return !(deltaEnd < startLine || deltaStart > endLine);
+    }
+    
+    /**
+     * Clear viewport cache when scrolling to ensure fresh calculations.
+     */
+    public void invalidateViewportCache() {
+        lastViewportUpdate = 0;
+    }
+    
+    /**
+     * Check if user is actively typing to prevent scroll sync interference.
+     */
+    public boolean isActivelyTyping() {
+        return isActivelyTyping;
+    }
+    
+    /**
+     * Mark that we're navigating to a diff to ensure highlights appear.
+     */
+    public void setNavigatingToDiff(boolean navigating) {
+        this.isNavigatingToDiff = navigating;
+        if (navigating) {
+            // Invalidate viewport cache to force recalculation with new position
+            invalidateViewportCache();
+        }
+    }
+    
+    /**
+     * PERFORMANCE OPTIMIZATION: Apply performance optimizations based on file size.
+     */
+    private void applyPerformanceOptimizations(long contentLength) {
+        boolean isLargeFile = contentLength > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
+        
+        if (isLargeFile) {
+            logger.info("Applying performance optimizations for large file: {}KB", contentLength / 1024);
+            
+            // Use longer debounce times for large files to reduce update frequency
+            timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
+            redisplayTimer.setDelay(PerformanceConstants.LARGE_FILE_REDISPLAY_TIMER_DELAY_MS);
+            logger.debug("Increased timer delays for large file");
+        } else {
+            // Use normal timing for smaller files
+            timer.setDelay(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
+            redisplayTimer.setDelay(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS);
+        }
+    }
+    
+    /**
+     * Simple data class for visible line range.
+     */
+    private static class VisibleRange {
+        final int start;
+        final int end;
+        
+        VisibleRange(int start, int end) {
+            this.start = start;
+            this.end = end;
         }
     }
 
@@ -413,11 +607,50 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         return bufferDocument != null && bufferDocument.isChanged();
     }
 
+    /**
+     * PERFORMANCE OPTIMIZATION: Unified update handler to coordinate diff and highlight updates.
+     * Reduces timer overhead and prevents conflicting operations.
+     */
+    private void handleUnifiedUpdate(java.awt.event.ActionEvent e) {
+        if (!initialSetupComplete) return;
+        
+        // Coordinate updates to prevent conflicts
+        long startTime = System.currentTimeMillis();
+        
+        try {
+            // First, update the diff (this may change the patch)
+            diffPanel.diff();
+            
+            // Then update highlights based on new diff state
+            // The viewport optimization will ensure only visible deltas are processed
+            reDisplayInternal();
+            
+            long duration = System.currentTimeMillis() - startTime;
+            if (duration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
+                logger.debug("Unified update took {}ms for document: {}", 
+                           duration, bufferDocument != null ? bufferDocument.getName() : "unknown");
+            }
+        } catch (Exception ex) {
+            logger.warn("Error during unified update: {}", ex.getMessage(), ex);
+            // Fallback to individual operations if unified update fails
+            try {
+                diffPanel.diff();
+            } catch (Exception diffEx) {
+                logger.error("Fallback diff update failed: {}", diffEx.getMessage(), diffEx);
+            }
+        }
+    }
+
     @Override
     public void documentChanged(JMDocumentEvent de) {
         // Don't trigger timer during initial setup
         if (!initialSetupComplete) return;
 
+        // Set typing state and restart typing timer for user-initiated changes
+        if (de.getDocumentEvent() != null) {
+            isActivelyTyping = true;
+            typingStateTimer.restart();
+        }
 
         if (de.getStartLine() == -1 && de.getDocumentEvent() == null) {
             // Refresh the diff of whole document.
@@ -517,6 +750,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Only called during initial setup to avoid flickering.
      */
     private void scrollToFirstDiff() {
+        // Don't auto-scroll if user is actively typing
+        if (isActivelyTyping) {
+            return;
+        }
+        
         var patch = diffPanel.getPatch();
         if (patch != null && !patch.getDeltas().isEmpty()) {
             var firstDelta = patch.getDeltas().get(0);
