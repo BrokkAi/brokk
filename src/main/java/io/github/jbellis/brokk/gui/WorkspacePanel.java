@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
+import java.awt.event.*;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -39,9 +40,6 @@ import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
-import java.awt.event.ActionEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -939,8 +937,6 @@ public class WorkspacePanel extends JPanel {
         var tableScrollPane = new JScrollPane(contextTable, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         tableScrollPane.setPreferredSize(new Dimension(600, 150));
 
-        BorderUtils.addFocusBorder(tableScrollPane, contextTable);
-
         // Create gray semi-transparent overlay for history viewing that allows mouse clicks through
         workspaceOverlay = OverlayPanel.createNonBlockingGrayOverlay(
                 overlay -> {}, // No action on click - this overlay is not meant to be dismissed by user
@@ -951,6 +947,47 @@ public class WorkspacePanel extends JPanel {
 
         // Create layered pane to support overlay
         workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
+
+        // Create a focusable wrapper that provides consistent focus behavior across the workspace
+        var focusableWrapper = new JPanel(new BorderLayout()) {
+            @Override
+            public boolean requestFocusInWindow() {
+                boolean result = super.requestFocusInWindow();
+                if (!result) {
+                    requestFocus();
+                }
+                return true;
+            }
+        };
+        focusableWrapper.setFocusable(true);
+        focusableWrapper.setFocusTraversalKeysEnabled(true);
+        focusableWrapper.setOpaque(false); // Transparent so underlying components show through
+        focusableWrapper.add(workspaceLayeredPane, BorderLayout.CENTER);
+
+        // Add mouse listeners to key components to ensure focus
+        var focusMouseListener = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    SwingUtilities.invokeLater(() -> {
+                        focusableWrapper.requestFocusInWindow();
+                    });
+                }
+            }
+        };
+
+        // Add to the table (this should definitely work)
+        contextTable.addMouseListener(focusMouseListener);
+
+        // Add to the table header
+        if (contextTable.getTableHeader() != null) {
+            contextTable.getTableHeader().addMouseListener(focusMouseListener);
+        }
+
+        // Add to the scroll pane viewport for empty areas
+        tableScrollPane.getViewport().addMouseListener(focusMouseListener);
+
+        BorderUtils.addFocusBorder(focusableWrapper, focusableWrapper);
 
         // Add a mouse listener to the scroll pane for right-clicks on empty areas
         tableScrollPane.addMouseListener(new MouseAdapter() {
@@ -986,24 +1023,13 @@ public class WorkspacePanel extends JPanel {
             }
         });
 
-        tablePanel.add(workspaceLayeredPane, BorderLayout.CENTER);
+        tablePanel.add(focusableWrapper, BorderLayout.CENTER);
 
         setLayout(new BorderLayout());
 
         add(tablePanel, BorderLayout.CENTER);
 
         add(contextSummaryPanel, BorderLayout.SOUTH);
-
-        // Listener for layered pane (focus on click, specific popup for empty area)
-        workspaceLayeredPane.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                // Focus table when clicking on the layered pane
-                if (!e.isPopupTrigger() && SwingUtilities.isLeftMouseButton(e)) {
-                    contextTable.requestFocusInWindow();
-                }
-            }
-        });
 
         // Shared listener for panel-wide context menu and focus
         MouseAdapter panelPopupAndFocusListener = new MouseAdapter() {
