@@ -4,7 +4,7 @@ import sbtbuildinfo.BuildInfoPlugin
 import sbtbuildinfo.BuildInfoPlugin.autoImport.*
 
 scalaVersion := "3.6.4"
-version := "0.10.0"
+version := "0.11.0.rc1"
 organization := "io.github.jbellis"
 name := "brokk"
 
