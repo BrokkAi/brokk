@@ -1,10 +1,20 @@
 package io.github.jbellis.brokk.issues;
 
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Marker parent.  Concrete records hold the supplier‐specific data.
  */
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME,
+              include = JsonTypeInfo.As.PROPERTY,
+              property = "kind")
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = IssuesProviderConfig.NoneConfig.class, name = "none"),
+    @JsonSubTypes.Type(value = IssuesProviderConfig.GithubConfig.class, name = "github"),
+    @JsonSubTypes.Type(value = IssuesProviderConfig.JiraConfig.class, name = "jira")
+})
 public sealed interface IssuesProviderConfig
         permits IssuesProviderConfig.NoneConfig, IssuesProviderConfig.GithubConfig, IssuesProviderConfig.JiraConfig {
 
