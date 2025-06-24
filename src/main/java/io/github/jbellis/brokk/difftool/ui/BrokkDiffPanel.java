@@ -250,10 +250,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (index < 0 || index >= fileComparisons.size()) {
             return;
         }
-        
+
         // Save current file before switching
         saveCurrentFile();
-        
+
         logger.debug("Switching to file {} of {}", index + 1, fileComparisons.size());
         currentFileIndex = index;
         loadFileOnDemand(currentFileIndex);
@@ -270,7 +270,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Error during save operation: {}", ex.getMessage(), ex);
                 // Don't show error dialog here since doSave() already handles it
-                /// waht
             }
         }
     }
@@ -288,7 +287,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Create toolbar
         var toolBar = new JToolBar();
 
-// Buttons are already initialized as fields
+        // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
         btnNext.addActionListener(e -> navigateToNextChange());
@@ -496,7 +495,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-
     @Nullable
     public AbstractContentPanel getCurrentContentPanel() {
         var selectedComponent = getTabbedPane().getSelectedComponent();
@@ -505,8 +503,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
         return null;
     }
-
-
 
     /**
      * Shows the diff panel in a frame.

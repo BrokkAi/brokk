@@ -109,7 +109,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         });
         timer.setRepeats(false);
-        
+
         // Setup debounced reDisplay timer to reduce highlight flickering
         redisplayTimer = new Timer(300, e -> {
             if (initialSetupComplete) {
@@ -236,7 +236,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             reDisplayInternal();
         }
     }
-    
+
     private void reDisplayInternal() {
         removeHighlights();
         paintSearchHighlights();
@@ -623,6 +623,28 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /**
+     * Cleanup method to properly dispose of resources when the panel is no longer needed.
+     * Should be called when the FilePanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Stop any running timers
+        if (timer != null && timer.isRunning()) {
+            timer.stop();
+        }
+        if (redisplayTimer != null && redisplayTimer.isRunning()) {
+            redisplayTimer.stop();
+        }
+
+        // Remove document listeners
+        removeMirroring();
+
+        // Clear buffer document listener
+        if (bufferDocument != null) {
+            bufferDocument.removeChangeListener(this);
+        }
+    }
+
+    /**
      * Synchronizes a specific document change incrementally to preserve cursor position
      * and avoid replacing the entire document content.
      */
@@ -630,7 +652,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         try {
             int offset = e.getOffset();
             int length = e.getLength();
-            
+
             var eventType = e.getType();
             if (eventType == DocumentEvent.EventType.INSERT) {
                 // Get the inserted text from the source document
@@ -678,12 +700,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Only perform fallback if documents are significantly out of sync
             String srcText = src.getText(0, src.getLength());
             String dstText = dst.getText(0, dst.getLength());
-            
+
             // If documents are identical, skip the disruptive full copy
             if (srcText.equals(dstText)) {
                 return;
             }
-            
+
             // If documents differ significantly, perform full copy as last resort
             dst.remove(0, dst.getLength());
             dst.insertString(0, srcText, null);

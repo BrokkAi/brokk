@@ -14,6 +14,8 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,7 +35,9 @@ import static java.util.Objects.requireNonNull;
  */
 public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 {
-    /**
+    private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
+
+   /**
      * Enum representing the two sides of the diff panel.
      * Provides type safety and clarity compared to magic numbers.
      */
@@ -152,7 +156,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         diff(false); // Don't scroll by default (used for document changes)
     }
 
-    /*e
+    /**
      * Rerun the diff and optionally scroll to the selected delta.
      * @param scrollToSelection whether to scroll to the selected delta after recalculation
      */
@@ -332,8 +336,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (rightSearchBar != null) {
             barContainer.add(rightSearchBar, cc.xyw(8, 2, 3)); // Same span as right text area
         }
-
-        
 
         return barContainer;
     }
@@ -658,21 +660,20 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             if (fp == null) continue;
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
-            
+
             // Check if document is read-only before attempting to save
             if (doc.isReadonly()) {
-                System.out.println("Skipping save for read-only document: " + doc.getName());
+                logger.debug("Skipping save for read-only document: {}", doc.getName());
                 continue;
             }
-            
+
             try {
                 doc.write();
-                System.out.println("Successfully saved file: " + doc.getName());
+                logger.debug("Successfully saved file: {}", doc.getName());
             } catch (Exception ex) {
-                System.err.println("Failed to save file: " + doc.getName() + " - " + ex.getMessage());
-                ex.printStackTrace();
+                logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
                 JOptionPane.showMessageDialog(mainPanel,
-                                              "Can't save file: " + doc.getName() + "\n" + 
+                                              "Can't save file: " + doc.getName() + "\n" +
                                               "Reason: " + ex.getMessage() + "\n" +
                                               "File is read-only: " + doc.isReadonly(),
                                               "Problem writing file", JOptionPane.ERROR_MESSAGE);
@@ -850,5 +851,24 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (leftSearchBar != null) {
             leftSearchBar.focusSearchField();
         }
+    }
+
+    /**
+     * Cleanup method to properly dispose of resources when the panel is no longer needed.
+     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Dispose of file panels to clean up their timers and listeners
+        for (var fp : filePanels.values()) {
+            if (fp != null) {
+                fp.dispose();
+            }
+        }
+        filePanels.clear();
+
+        // Clear references
+        diffNode = null;
+        patch = null;
+        selectedDelta = null;
     }
 }
