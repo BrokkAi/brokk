@@ -2,13 +2,16 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.components.LoadingButton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ProgressMonitor;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -159,10 +162,34 @@ public class GitLogTab extends JPanel {
         branchesPanel.add(branchTabbedPane, BorderLayout.CENTER);
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton refreshBranchesButton = new JButton("Refresh");
-        refreshBranchesButton.addActionListener(e -> update());
-        branchButtonPanel.add(refreshBranchesButton);
+        var fetchButton = new LoadingButton("Fetch",
+                                            null, // no idle icon
+                                            chrome,
+                                            null); // ActionListener added below
+        branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
+
+        fetchButton.addActionListener(e -> {
+            // Immediate visual feedback
+            fetchButton.setLoading(true, "Fetching…");
+
+            contextManager.submitBackgroundTask("Fetching all remotes", () -> {
+                try {
+                    var pm = new IoProgressMonitor(contextManager.getIo());
+                    getRepo().fetchAll(pm); // network call
+                    contextManager.getIo().systemOutput("Fetch finished");
+                } catch (GitAPIException ex) {
+                    contextManager.getIo().systemOutput("Fetch failed: " + ex.getMessage());
+                    logger.warn("Fetch failed", ex);
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        fetchButton.setLoading(false, null); // restore label + enable
+                        update();                            // local rescan
+                    });
+                }
+                return null;       // submitBackgroundTask expects a Callable result
+            });
+        });
 
         // The GitCommitBrowserPanel (this.gitCommitBrowserPanel) now handles commits, search, changes tree, and related actions.
         // The old code for "Commits Panel" and "Changes Panel" that was here is removed.
@@ -891,5 +918,50 @@ public class GitLogTab extends JPanel {
         gitCommitBrowserPanel.selectCommitById(commitId);
     }
 
-    // The orphaned line "chrome.systemOutput(...)" and extra brace were removed from here.
+    /**
+     * A JGit ProgressMonitor that sends updates to an IConsoleIO systemOutput.
+     * This class is nested here as it's closely tied to UI feedback via IConsoleIO,
+     * often provided by UI components like Chrome.
+     */
+    public static final class IoProgressMonitor implements ProgressMonitor {
+        private final IConsoleIO io;
+
+        /**
+         * Constructs a new IoProgressMonitor.
+         * @param io The IConsoleIO instance to output progress messages to. Must not be null.
+         */
+        public IoProgressMonitor(IConsoleIO io) {
+            this.io = Objects.requireNonNull(io, "IConsoleIO cannot be null");
+        }
+
+        @Override
+        public void start(int totalTasks) {
+            // This basic monitor does not use this information.
+        }
+
+        @Override
+        public void beginTask(String title, int totalWork) {
+            io.systemOutput("Fetch: " + title);
+        }
+
+        @Override
+        public void update(int completed) {
+            // This basic monitor does not report granular updates.
+        }
+
+        @Override
+        public void endTask() {
+            // This basic monitor does not use this information.
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false; // This monitor does not support cancellation.
+        }
+
+        @Override
+        public void showDuration(boolean enabled) {
+            // This basic monitor does not use this information.
+        }
+    }
 }
