@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
-import io.github.jbellis.brokk.gui.dialogs.UpgradeAgentDialog;
 
 import javax.swing.*;
 import java.awt.*;
@@ -291,8 +290,8 @@ public class MenuBar {
             upgradeAgentItem.addActionListener(e -> {
                 if (chrome.getProject() != null && chrome.getContextManager() != null) {
                     SwingUtilities.invokeLater(() -> {
-                        var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
-                        dialog.setVisible(true);
+//                        var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
+//                        dialog.setVisible(true);
                     });
                 }
             });
