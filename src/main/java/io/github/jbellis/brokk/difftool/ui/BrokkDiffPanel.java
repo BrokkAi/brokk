@@ -633,11 +633,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        panelCache.values().forEach(BufferDiffPanel::diff);
+        panelCache.values().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null && !panelCache.containsValue(current)) {
-            current.diff();
+            current.diff(true); // Scroll to selection for user-initiated refresh
         }
         // Update navigation buttons after refresh
         SwingUtilities.invokeLater(this::updateUndoRedoButtons);

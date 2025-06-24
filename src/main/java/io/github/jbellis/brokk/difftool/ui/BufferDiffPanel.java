@@ -148,7 +148,15 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * Rerun the diff from scratch, if needed. For Phase 2 we re-run if a doc changed
      * (the old incremental logic is removed).
      */
-    public void diff()
+    public void diff() {
+        diff(false); // Don't scroll by default (used for document changes)
+    }
+    
+    /**
+     * Rerun the diff and optionally scroll to the selected delta.
+     * @param scrollToSelection whether to scroll to the selected delta after recalculation
+     */
+    public void diff(boolean scrollToSelection)
     {
         // Typically, we'd just re-call diffNode.diff() then re-pull patch.
         if (diffNode != null) {
@@ -172,9 +180,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
                 selectedDelta = null;
             }
 
-            // Refresh display and scroll to selected delta
+            // Refresh display and optionally scroll to selected delta
             reDisplay();
-            if (selectedDelta != null) {
+            if (scrollToSelection && selectedDelta != null) {
                 showSelectedDelta();
             }
         }

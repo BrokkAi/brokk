@@ -554,31 +554,31 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                                                      java.util.concurrent.atomic.AtomicBoolean guard,
                                                      boolean runDestinationUpdateOnEdt) {
         return new DocumentListener() {
-            private void performSync() {
+            private void performIncrementalSync(DocumentEvent e) {
                 if (!guard.compareAndSet(false, true)) { // Attempt to acquire lock
                     return; // Lock not acquired, another sync operation is in progress
                 }
                 try {
-                    copyText(sourceDoc, destinationDoc);
+                    syncDocumentChange(e, sourceDoc, destinationDoc);
                 } finally {
                     guard.set(false); // Release lock
                 }
             }
 
-            private void sync() {
+            private void syncChange(DocumentEvent e) {
                 if (runDestinationUpdateOnEdt) {
                     // Updates to the destination document (e.g., editor's document) must occur on the EDT.
-                    SwingUtilities.invokeLater(this::performSync);
+                    SwingUtilities.invokeLater(() -> performIncrementalSync(e));
                 } else {
                     // Source document changes (e.g., editor) are already on EDT,
                     // or destination document (e.g., plain model) can be updated directly.
-                    performSync();
+                    performIncrementalSync(e);
                 }
             }
 
-            @Override public void insertUpdate(DocumentEvent e) { sync(); }
-            @Override public void removeUpdate(DocumentEvent e)  { sync(); }
-            @Override public void changedUpdate(DocumentEvent e){ sync(); }
+            @Override public void insertUpdate(DocumentEvent e) { syncChange(e); }
+            @Override public void removeUpdate(DocumentEvent e)  { syncChange(e); }
+            @Override public void changedUpdate(DocumentEvent e){ syncChange(e); }
         };
     }
 
@@ -598,18 +598,65 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     /**
-     * Replaces the full content of the destination document with the text from
-     * the source document.
-     * Brute force copying of the full document could be a performance issue for large
-     * documents
+     * Synchronizes a specific document change incrementally to preserve cursor position
+     * and avoid replacing the entire document content.
      */
-    private static void copyText(Document src, Document dst) {
+    private static void syncDocumentChange(DocumentEvent e, Document sourceDoc, Document destinationDoc) {
         try {
-            String txt = src.getText(0, src.getLength());
+            int offset = e.getOffset();
+            int length = e.getLength();
+            
+            var eventType = e.getType();
+            if (eventType == DocumentEvent.EventType.INSERT) {
+                // Get the inserted text from the source document
+                String insertedText = sourceDoc.getText(offset, length);
+                // Validate offset is within bounds for destination document
+                if (offset <= destinationDoc.getLength()) {
+                    destinationDoc.insertString(offset, insertedText, null);
+                } else {
+                    // Offset is beyond destination document, append at end
+                    destinationDoc.insertString(destinationDoc.getLength(), insertedText, null);
+                }
+            } else if (eventType == DocumentEvent.EventType.REMOVE) {
+                // Remove the same range from the destination document
+                if (offset < destinationDoc.getLength() && offset + length <= destinationDoc.getLength()) {
+                    destinationDoc.remove(offset, length);
+                }
+            } else if (eventType == DocumentEvent.EventType.CHANGE) {
+                // For change events, replace the content at the same position
+                String changedText = sourceDoc.getText(offset, length);
+                if (offset < destinationDoc.getLength()) {
+                    int removeLength = Math.min(length, destinationDoc.getLength() - offset);
+                    destinationDoc.remove(offset, removeLength);
+                    destinationDoc.insertString(offset, changedText, null);
+                }
+            }
+        } catch (BadLocationException ex) {
+            // Fallback to full document copy only on error
+            copyTextFallback(sourceDoc, destinationDoc);
+        }
+    }
+
+    /**
+     * Fallback method for full document synchronization when incremental sync fails.
+     * This preserves the original behavior but should only be used as a last resort.
+     */
+    private static void copyTextFallback(Document src, Document dst) {
+        try {
+            // Only perform fallback if documents are significantly out of sync
+            String srcText = src.getText(0, src.getLength());
+            String dstText = dst.getText(0, dst.getLength());
+            
+            // If documents are identical, skip the disruptive full copy
+            if (srcText.equals(dstText)) {
+                return;
+            }
+            
+            // If documents differ significantly, perform full copy as last resort
             dst.remove(0, dst.getLength());
-            dst.insertString(0, txt, null);
+            dst.insertString(0, srcText, null);
         } catch (BadLocationException e) {
-            throw new RuntimeException("Mirroring documents failed", e);
+            throw new RuntimeException("Document mirroring fallback failed", e);
         }
     }
 
