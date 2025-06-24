@@ -7,6 +7,7 @@ import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
@@ -23,12 +24,27 @@ public class ScrollSynchronizer
 
     private @Nullable AdjustmentListener horizontalAdjustmentListener;
     private @Nullable AdjustmentListener verticalAdjustmentListener;
+    
+    // Debounce scroll synchronization to reduce flickering
+    private Timer scrollSyncTimer;
+    private boolean pendingLeftScrolled;
+    private boolean hasPendingScroll = false;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
+        
+        // Initialize debounced scroll timer (100ms delay)
+        scrollSyncTimer = new Timer(100, e -> {
+            if (hasPendingScroll) {
+                scroll(pendingLeftScrolled);
+                hasPendingScroll = false;
+            }
+        });
+        scrollSyncTimer.setRepeats(false);
+        
         init();
     }
 
@@ -85,9 +101,11 @@ public class ScrollSynchronizer
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
-                    insideScroll = true;
-                    scroll(leftScrolled);
-                    insideScroll = false;
+                    
+                    // Debounce scroll synchronization to reduce flickering
+                    pendingLeftScrolled = leftScrolled;
+                    hasPendingScroll = true;
+                    scrollSyncTimer.restart();
                 }
             };
         }
@@ -99,6 +117,27 @@ public class ScrollSynchronizer
      * the equivalent line in the right side. If the right side scrolled, we do the reverse.
      */
     private void scroll(boolean leftScrolled)
+    {
+        // Set insideScroll to prevent infinite recursion
+        var vertListener = (verticalAdjustmentListener != null) ? verticalAdjustmentListener : null;
+        if (vertListener != null) {
+            // Access the insideScroll field through reflection is complex, so we'll use a different approach
+            // We'll temporarily remove and re-add the listener
+            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
+            leftV.removeAdjustmentListener(vertListener);
+            rightV.removeAdjustmentListener(vertListener);
+            
+            performScroll(leftScrolled);
+            
+            leftV.addAdjustmentListener(vertListener);
+            rightV.addAdjustmentListener(vertListener);
+        } else {
+            performScroll(leftScrolled);
+        }
+    }
+    
+    private void performScroll(boolean leftScrolled)
     {
         var patch = diffPanel.getPatch();
         if (patch == null) {

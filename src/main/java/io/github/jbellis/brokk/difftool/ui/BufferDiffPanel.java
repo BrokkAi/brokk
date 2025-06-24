@@ -151,8 +151,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     public void diff() {
         diff(false); // Don't scroll by default (used for document changes)
     }
-    
-    /**
+
+    /*e
      * Rerun the diff and optionally scroll to the selected delta.
      * @param scrollToSelection whether to scroll to the selected delta after recalculation
      */
@@ -222,6 +222,17 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         mainPanel.repaint();
     }
 
+    /**
+     * Refresh highlights for only the specified panel to reduce flickering.
+     */
+    public void reDisplayPanel(PanelSide side)
+    {
+        var fp = filePanels.get(side);
+        if (fp != null) {
+            fp.reDisplay();
+        }
+    }
+
     public String getTitle()
     {
         if (diffNode != null && !diffNode.getName().isBlank()) {
@@ -273,6 +284,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var filePanelComponent = buildFilePanel(columns, rows);
         var searchBarComponent = activateBarDialog(columns);
 
+
+
+
         // Add components directly to BorderLayout without vertical resize capability
         add(searchBarComponent, BorderLayout.NORTH);
         add(filePanelComponent, BorderLayout.CENTER);
@@ -299,9 +313,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
-        var leftFilePanel = getFilePanel(PanelSide.LEFT);
+            var leftFilePanel = getFilePanel(PanelSide.LEFT);
         var rightFilePanel = getFilePanel(PanelSide.RIGHT);
-        if (leftFilePanel != null && rightFilePanel != null) {
+        if(leftFilePanel != null && rightFilePanel != null) {
             leftSearchBar = new GenericSearchBar(leftFilePanel.createSearchableComponent());
             rightSearchBar = new GenericSearchBar(rightFilePanel.createSearchableComponent());
         }

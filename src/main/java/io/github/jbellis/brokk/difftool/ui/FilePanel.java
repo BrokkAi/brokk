@@ -60,6 +60,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Nullable
     private DocumentListener editorToPlainListener;
     private Timer timer;
+    private Timer redisplayTimer;
     @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
@@ -101,9 +102,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Initially, add scrollPane to the visual container
         visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
 
-        // Setup a one-time timer to refresh the UI after 100ms
-        timer = new Timer(100, refresh());
+        // Setup a one-time timer to refresh the UI after 800ms to reduce flickering
+        timer = new Timer(800, e -> {
+            if (initialSetupComplete) {
+                diffPanel.diff();
+            }
+        });
         timer.setRepeats(false);
+        
+        // Setup debounced reDisplay timer to reduce highlight flickering
+        redisplayTimer = new Timer(300, e -> {
+            if (initialSetupComplete) {
+                reDisplayInternal();
+            }
+        });
+        redisplayTimer.setRepeats(false);
         // Apply syntax theme but don't trigger reDisplay yet (no diff data available)
         GuiTheme.loadRSyntaxTheme(diffPanel.isDarkTheme()).ifPresent(theme ->
                 theme.apply(editor)
@@ -203,6 +216,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             // Mark initial setup as complete
             initialSetupComplete = true;
 
+            // Scroll to first diff once after initial setup is complete
+            SwingUtilities.invokeLater(this::scrollToFirstDiff);
+
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(diffPanel, "Could not read file or set document: "
                                                   + (bd != null ? bd.getName() : "Unknown")
@@ -212,6 +228,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     public void reDisplay() {
+        // Use debounced reDisplay to reduce flickering during rapid updates
+        if (redisplayTimer != null) {
+            redisplayTimer.restart();
+        } else {
+            // Fallback for cases where timer isn't initialized yet
+            reDisplayInternal();
+        }
+    }
+    
+    private void reDisplayInternal() {
         removeHighlights();
         paintSearchHighlights();
         paintRevisionHighlights();
@@ -392,6 +418,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Don't trigger timer during initial setup
         if (!initialSetupComplete) return;
 
+
         if (de.getStartLine() == -1 && de.getDocumentEvent() == null) {
             // Refresh the diff of whole document.
             timer.restart();
@@ -404,9 +431,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
 
-    private ActionListener refresh() {
-        return ae -> diffPanel.diff();
-    }
 
     public FocusListener getFocusListener() {
         return new FocusAdapter() {
@@ -484,12 +508,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         editor.setSyntaxEditingStyle(style);
 
-        // After setting syntax style, scroll to show the first diff if available
-        SwingUtilities.invokeLater(this::scrollToFirstDiff);
+        // Scroll to first diff only after document has been set up
+        // This avoids flickering during initial setup
     }
 
     /**
      * Scrolls the editor to show the first diff highlight if available.
+     * Only called during initial setup to avoid flickering.
      */
     private void scrollToFirstDiff() {
         var patch = diffPanel.getPatch();
@@ -612,6 +637,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 String insertedText = sourceDoc.getText(offset, length);
                 // Validate offset is within bounds for destination document
                 if (offset <= destinationDoc.getLength()) {
+                    // Check if text is already there to avoid duplicates
+                    if (offset + length <= destinationDoc.getLength()) {
+                        String existingText = destinationDoc.getText(offset, length);
+                        if (existingText.equals(insertedText)) {
+                            return; // Text already exists, skip insertion
+                        }
+                    }
                     destinationDoc.insertString(offset, insertedText, null);
                 } else {
                     // Offset is beyond destination document, append at end
