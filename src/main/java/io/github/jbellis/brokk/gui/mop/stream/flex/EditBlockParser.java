@@ -184,6 +184,19 @@ public class EditBlockParser extends AbstractBlockParser {
 
     @Override
     public void closeBlock(ParserState state) {
+        // If we haven't already set segments (e.g. because closing marker was not found yet), do it now
+        if (block.getOpeningMarker() == BasedSequence.NULL && openingMarker != BasedSequence.NULL) {
+            var beforeText = stripQuotedWrapping(searchContent.toString(), Objects.toString(currentFilename, ""));
+            var afterText = stripQuotedWrapping(replaceContent.toString(), Objects.toString(currentFilename, ""));
+
+            block.setSegments(openingMarker, searchKeyword,
+                              BasedSequence.of(beforeText),
+                              divider, // already defaults to BasedSequence.NULL
+                              replaceKeyword, // already defaults to BasedSequence.NULL
+                              BasedSequence.of(afterText),
+                              closingMarker); // already defaults to BasedSequence.NULL
+        }
+
         // Ensure filename is set
         if (currentFilename != null && !currentFilename.isBlank() && block.getFilename() == BasedSequence.NULL) {
             block.setFilename(currentFilename);

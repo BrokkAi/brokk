@@ -22,6 +22,7 @@ import javax.swing.text.BadLocationException;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -122,6 +123,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // After calling diff() on JMDiffNode, we get patch from diffNode.getPatch():
         this.patch = diffNode.getPatch(); // new Patch or null
 
+        // Initialize selectedDelta to first change for proper navigation button states
+        if (patch != null && !patch.getDeltas().isEmpty()) {
+            selectedDelta = patch.getDeltas().getFirst();
+        } else {
+            selectedDelta = null;
+        }
+
         // Set the documents into our file panels:
         // Order is important, The left panel will use the left panel syntax type if it can't figure its own
         var rightPanel = getFilePanel(PanelSide.RIGHT);
@@ -146,8 +154,51 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (diffNode != null) {
             diffNode.diff();
             this.patch = diffNode.getPatch();
+
+            // Try to preserve selected delta position, or find best alternative
+            var previousDelta = selectedDelta;
+            if (patch != null && !patch.getDeltas().isEmpty()) {
+                if (previousDelta != null && patch.getDeltas().contains(previousDelta)) {
+                    // Keep the same delta if it's still valid
+                    selectedDelta = previousDelta;
+                } else if (previousDelta != null) {
+                    // Find the closest delta by line position
+                    selectedDelta = findClosestDelta(previousDelta, patch.getDeltas());
+                } else {
+                    // No previous selection, start with first
+                    selectedDelta = patch.getDeltas().getFirst();
+                }
+            } else {
+                selectedDelta = null;
+            }
+
+            // Refresh display and scroll to selected delta
             reDisplay();
+            if (selectedDelta != null) {
+                showSelectedDelta();
+            }
         }
+    }
+
+    /**
+     * Find the closest delta by line position when the previously selected delta is no longer valid.
+     */
+    @Nullable
+    private AbstractDelta<String> findClosestDelta(AbstractDelta<String> previousDelta, List<AbstractDelta<String>> availableDeltas) {
+        if (availableDeltas.isEmpty()) {
+            return null;
+        }
+
+        // Use the start line of the previous delta's source as reference
+        int targetLine = previousDelta.getSource().getPosition();
+
+        // Find the delta with the closest line position
+        return availableDeltas.stream()
+            .min((d1, d2) -> Integer.compare(
+                Math.abs(d1.getSource().getPosition() - targetLine),
+                Math.abs(d2.getSource().getPosition() - targetLine)
+            ))
+            .orElse(availableDeltas.getFirst());
     }
 
     /**
@@ -213,7 +264,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Build file panels first so they exist when creating search bars
         var filePanelComponent = buildFilePanel(columns, rows);
         var searchBarComponent = activateBarDialog(columns);
-        
+
         // Add components directly to BorderLayout without vertical resize capability
         add(searchBarComponent, BorderLayout.NORTH);
         add(filePanelComponent, BorderLayout.CENTER);

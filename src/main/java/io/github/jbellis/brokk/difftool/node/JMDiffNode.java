@@ -1,7 +1,10 @@
 package io.github.jbellis.brokk.difftool.node;
 
 import com.github.difflib.DiffUtils;
+import com.github.difflib.patch.AbstractDelta;
+import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
+import java.util.stream.Collectors;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.StringDocument;
 import org.jetbrains.annotations.Nullable;
@@ -24,6 +27,11 @@ public class JMDiffNode implements TreeNode
 
     // We now store the diff result here instead of JMRevision.
     @Nullable private Patch<String> patch;
+
+    // Whether to ignore blank-line-only differences (default: true)
+    private static boolean ignoreBlankLineDiffs = true;
+    public static void setIgnoreBlankLineDiffs(boolean ignore) { ignoreBlankLineDiffs = ignore; }
+    public static boolean isIgnoreBlankLineDiffs() { return ignoreBlankLineDiffs; }
 
     // Placeholder for an empty document, used when a side is missing.
     private static final BufferDocumentIF EMPTY_DOC = new StringDocument("", "<empty>", true);
@@ -76,6 +84,13 @@ public class JMDiffNode implements TreeNode
 
         // Compute the diff
         this.patch = DiffUtils.diff(leftLines, rightLines);
+        if (ignoreBlankLineDiffs && this.patch != null) {
+            this.patch.getDeltas().removeIf(d -> isBlankChunk(d.getSource()) && isBlankChunk(d.getTarget()));
+        }
+    }
+
+    private static boolean isBlankChunk(Chunk<String> chunk) {
+        return chunk.getLines().stream().allMatch(l -> l.trim().isEmpty());
     }
 
     /**

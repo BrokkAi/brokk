@@ -9,6 +9,7 @@ import static javax.swing.SwingUtilities.invokeLater;
 
 import java.util.Objects;
 
+import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -16,7 +17,6 @@ import org.jetbrains.annotations.Nullable;
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
 import com.github.difflib.algorithm.DiffAlgorithmListener;
-import com.github.difflib.patch.Patch;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -39,6 +39,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private boolean started;
     private final JLabel loadingLabel = new JLabel("Processing... Please wait.");
     private final GuiTheme theme;
+    private final JCheckBox showBlankLineDiffsCheckBox = new JCheckBox("Show blank-lines");
 
     // All file comparisons with lazy loading cache
     private final List<FileComparisonInfo> fileComparisons;
@@ -124,6 +125,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             @Override
             public void ancestorRemoved(AncestorEvent event) {
             }
+        });
+
+        showBlankLineDiffsCheckBox.setSelected(!JMDiffNode.isIgnoreBlankLineDiffs());
+        showBlankLineDiffsCheckBox.addActionListener(e -> {
+            boolean show = showBlankLineDiffsCheckBox.isSelected();
+            JMDiffNode.setIgnoreBlankLineDiffs(!show);
+            refreshAllDiffPanels();
         });
 
         revalidate();
@@ -342,6 +350,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(btnUndo);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnRedo);
+
+        toolBar.add(Box.createHorizontalStrut(20));
+        toolBar.addSeparator();
+        toolBar.add(Box.createHorizontalStrut(10));
+        toolBar.add(showBlankLineDiffsCheckBox);
 
         // Add Capture Diff button to the right
         toolBar.add(Box.createHorizontalGlue()); // Pushes subsequent components to the right
@@ -617,15 +630,29 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    private void refreshAllDiffPanels() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        // Refresh existing cached panels (preserves cache for performance)
+        panelCache.values().forEach(BufferDiffPanel::diff);
+        // Refresh current panel if it's not cached
+        var current = getBufferDiffPanel();
+        if (current != null && !panelCache.containsValue(current)) {
+            current.diff();
+        }
+        // Update navigation buttons after refresh
+        SwingUtilities.invokeLater(this::updateUndoRedoButtons);
+        repaint();
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
-        
+
         // Apply theme to cached panels
         for (var panel : panelCache.values()) {
             panel.applyTheme(guiTheme);
         }
-        
+
         // Update all child components including toolbar buttons and labels
         SwingUtilities.updateComponentTreeUI(this);
         revalidate();
