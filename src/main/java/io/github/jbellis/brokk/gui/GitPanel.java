@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -115,12 +116,54 @@ public class GitPanel extends JPanel
 
         // 5) Issues tab (conditionally added)
         // Ensure this property ("brokk.issuetab") is set if you want this tab to appear.
-        if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.issuetab")) {
+        if (project != null &&
+            project.getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE &&
+            Boolean.getBoolean("brokk.issuetab")) {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
 
         updateBorderTitle(); // Set initial title with branch name
+    }
+
+    /**
+     * Recreates the Issues tab, typically after a change in issue provider settings.
+     * This ensures the tab uses the correct IssueService and reflects the new provider.
+     */
+    public void recreateIssuesTab() {
+        SwingUtilities.invokeLater(() -> {
+            var project = contextManager.getProject();
+            int issuesTabIndex = -1;
+            if (issuesTab != null) {
+                issuesTabIndex = tabbedPane.indexOfComponent(issuesTab);
+                if (issuesTabIndex != -1) {
+                    tabbedPane.remove(issuesTabIndex);
+                }
+                MainProject.removeSettingsChangeListener(issuesTab); // Unregister old tab
+                issuesTab = null; // Clear the reference
+            }
+
+            // Re-evaluate condition for showing the issues tab
+            if (project != null &&
+                project.getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE &&
+                Boolean.getBoolean("brokk.issuetab"))
+            {
+                issuesTab = new GitIssuesTab(chrome, contextManager, this); // New tab will register itself as listener
+                if (issuesTabIndex != -1) {
+                    tabbedPane.insertTab("Issues", null, issuesTab, "GitHub/Jira Issues", issuesTabIndex);
+                    tabbedPane.setSelectedIndex(issuesTabIndex);
+                } else {
+                    tabbedPane.addTab("Issues", issuesTab);
+                    tabbedPane.setSelectedIndex(tabbedPane.getTabCount() - 1);
+                }
+                logger.info("Recreated Issues tab for provider type: {}", project.getIssuesProvider().type());
+            } else {
+                logger.info("Issues tab not recreated as conditions are not met (provider: {}, prop: {}).",
+                            project != null ? project.getIssuesProvider().type() : "null project",
+                            Boolean.getBoolean("brokk.issuetab"));
+            }
+            // No need to call updateIssueList() here, the new GitIssuesTab constructor does it.
+        });
     }
 
     private String getCurrentBranchName() {

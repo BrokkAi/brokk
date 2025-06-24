@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -491,10 +492,30 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void setIssuesProvider(IssueProvider provider) {
+        IssueProvider oldProvider = this.issuesProviderCache;
+        IssueProviderType oldType = null;
+        if (oldProvider != null) {
+            oldType = oldProvider.type();
+        } else {
+            // Attempt to load from props if cache is null to get a definitive "before" type
+            String currentJsonInProps = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
+            if (currentJsonInProps != null && !currentJsonInProps.isBlank()) {
+                try {
+                    IssueProvider providerFromProps = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
+                    oldType = providerFromProps.type();
+                } catch (JsonProcessingException e) {
+                    // Log or ignore, oldType remains null or determined by migration if applicable
+                    logger.debug("Could not parse existing IssueProvider JSON from properties while determining old type: {}", e.getMessage());
+                }
+            }
+        }
+
+        var newType = provider.type();
+
         try {
             String json = objectMapper.writeValueAsString(provider);
             projectProps.setProperty(ISSUES_PROVIDER_JSON_KEY, json);
-            issuesProviderCache = provider;
+            this.issuesProviderCache = provider; // Update cache
 
             // Remove old keys after successful new key storage
             boolean removedOld = projectProps.remove(OLD_ISSUE_PROVIDER_ENUM_KEY) != null;
@@ -507,6 +528,12 @@ public final class MainProject extends AbstractProject {
 
             saveProjectProperties();
             logger.info("Set issue provider to type '{}' for project {}", provider.type(), getRoot().getFileName());
+
+            // Notify listeners if the provider *type* has changed.
+            if (oldType != newType) {
+                logger.debug("Issue provider type changed from {} to {}. Notifying listeners.", oldType, newType);
+                notifyIssueProviderChanged();
+            }
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize IssueProvider to JSON: {}. Settings not saved.", provider, e);
             throw new RuntimeException("Failed to serialize IssueProvider", e);
@@ -780,6 +807,16 @@ public final class MainProject extends AbstractProject {
         }
         saveGlobalProperties(props);
         notifyGitHubTokenChanged();
+    }
+
+    private static void notifyIssueProviderChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.issueProviderChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of issue provider change", e);
+            }
+        }
     }
 
     private static void notifyGitHubTokenChanged() {

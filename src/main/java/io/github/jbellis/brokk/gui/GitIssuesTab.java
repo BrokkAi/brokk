@@ -30,7 +30,6 @@ import java.net.URI;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -100,7 +99,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
-    private final Set<Future<?>> futuresToBeCancelledOnGutHubTokenChange = ConcurrentHashMap.newKeySet();
+    private final Set<Future<?>> activeFutures = ConcurrentHashMap.newKeySet();
 
 
     public GitIssuesTab(Chrome chrome, ContextManager contextManager, GitPanel gitPanel, IssueService issueService) {
@@ -138,10 +137,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     } else {
                         actualStatusFilterOptions.addAll(STATUS_FILTER_OPTIONS); // Fallback
                     }
-                }
-                if (statusFilter != null) {
-                    // If FilterBox needs an explicit update method, it should be called here.
-                    // For now, assuming it might re-fetch from its optionsProvider when next opened.
                 }
             });
             return null;
@@ -500,26 +495,54 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         updateIssueList(); // async
     }
 
+    @Override
+    public void issueProviderChanged() {
+        SwingUtilities.invokeLater(() -> {
+            logger.debug("Issue provider changed notification received. Requesting GitPanel to recreate this issues tab.");
+            cancelActiveFutures();
+            // Ask GitPanel to recreate this tab.
+            // GitPanel is final and assigned in constructor, so it won't be null here.
+            gitPanel.recreateIssuesTab();
+        });
+    }
+
+    private void cancelActiveFutures() {
+        if (searchDebounceTimer != null && searchDebounceTimer.isRunning()) {
+            searchDebounceTimer.stop();
+        }
+        if (descriptionDebounceTimer != null && descriptionDebounceTimer.isRunning()) {
+            descriptionDebounceTimer.stop();
+        }
+        pendingHeaderForDescription = null;
+
+        List<Future<?>> futuresToCancel = new ArrayList<>(activeFutures);
+        // currentSearchFuture and currentDescriptionFuture are added to activeFutures
+        // when they are created, so they will be included in the futuresToCancel list here.
+
+        logger.debug("Attempting to cancel {} active issue-related futures.", futuresToCancel.size());
+        for (Future<?> f : futuresToCancel) {
+            if (f != null && !f.isDone()) {
+                f.cancel(true);
+                logger.trace("Requested cancellation for active future: {}", f.toString());
+            }
+        }
+        activeFutures.clear(); // Clear the set after attempting cancellation
+    }
+
     /**
-     * Tracks a Future that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
+     * Tracks a Future that might need to be cancelled if settings change (e.g. GitHub token, issue provider).
      */
     private void trackCancellableFuture(Future<?> future) {
-        futuresToBeCancelledOnGutHubTokenChange.removeIf(Future::isDone);
-        if (future != null) {
-            futuresToBeCancelledOnGutHubTokenChange.add(future);
-        }
+        activeFutures.removeIf(Future::isDone);
+        activeFutures.add(future);
     }
 
     @Override
     public void removeNotify() {
         super.removeNotify();
         MainProject.removeSettingsChangeListener(this);
-        if (searchDebounceTimer != null) {
-            searchDebounceTimer.stop();
-        }
-        if (descriptionDebounceTimer != null) {
-            descriptionDebounceTimer.stop();
-        }
+        searchDebounceTimer.stop();
+        descriptionDebounceTimer.stop();
     }
 
     @Override
@@ -527,44 +550,18 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         SwingUtilities.invokeLater(() -> {
             logger.debug("GitHub token changed. Initiating cancellation of active issue tasks and scheduling refresh.");
 
-            if (searchDebounceTimer != null && searchDebounceTimer.isRunning()) {
+            if (searchDebounceTimer.isRunning()) {
                 searchDebounceTimer.stop();
             }
-            if (descriptionDebounceTimer != null && descriptionDebounceTimer.isRunning()) {
+            if (descriptionDebounceTimer.isRunning()) {
                 descriptionDebounceTimer.stop();
             }
             pendingHeaderForDescription = null;
 
-            List<Future<?>> futuresToCancelAndAwait = new ArrayList<>(futuresToBeCancelledOnGutHubTokenChange);
+            // This stops timers and clears activeFutures set
+            cancelActiveFutures();
 
-            logger.debug("Attempting to cancel {} issue-related futures.", futuresToCancelAndAwait.size());
-            for (Future<?> f : futuresToCancelAndAwait) {
-                if (!f.isDone()) {
-                    f.cancel(true);
-                    logger.trace("Requested cancellation for issue-related future: {}", f.toString());
-                }
-            }
-
-            if (futuresToCancelAndAwait.isEmpty()) {
-                logger.debug("No active issue tasks to wait for. Proceeding with issue list refresh directly.");
-                updateIssueList();
-                return;
-            }
-
-            // Wait for the futures to complete or be cancelled to avoid potential race conditions
-            contextManager.submitBackgroundTask("Finalizing issue task cancellations and refreshing data", () -> {
-                logger.debug("Waiting for {} issue-related futures to complete cancellation.", futuresToCancelAndAwait.size());
-                for (Future<?> f : futuresToCancelAndAwait) {
-                    try {
-                        f.get();
-                    } catch (Exception e) {
-                        logger.trace("Issue task cancellation confirmed for: {}", f.toString());
-                    }
-                }
-                logger.debug("All identified issue tasks have completed cancellation. Scheduling issue list refresh.");
-                SwingUtilities.invokeLater(this::updateIssueList);
-                return null;
-            });
+            updateIssueList();
         });
     }
 
@@ -578,16 +575,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         io.github.jbellis.brokk.issues.IssueProviderType providerType = project.getIssuesProvider().type();
         Logger staticLogger = LogManager.getLogger(GitIssuesTab.class);
 
-        switch (providerType) {
-            case JIRA:
+        return switch (providerType) {
+            case JIRA -> {
                 staticLogger.info("Using JiraIssueService for project {} (provider: JIRA)", project.getRoot().getFileName());
-                return new JiraIssueService(project);
-            case GITHUB:
-            case NONE: // Explicitly handle NONE, though it might default to GitHub or a NoOp service later
-            default: // Default to GitHub if enum is somehow null or unexpected value, or NONE
+                yield new JiraIssueService(project);
+            } // Explicitly handle NONE, though it might default to GitHub or a NoOp service later
+            default -> {
                 staticLogger.info("Using GitHubIssueService for project {} (provider: {})", project.getRoot().getFileName(), providerType);
-                return new GitHubIssueService(project);
-        }
+                yield new GitHubIssueService(project);
+            }
+        };
     }
 
     private OkHttpClient initializeHttpClient() {
