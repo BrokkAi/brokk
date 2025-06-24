@@ -43,7 +43,6 @@ import static java.util.Objects.requireNonNullElseGet;
 
 public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private static final Logger logger = LogManager.getLogger(FilePanel.class);
-    
 
     private final BufferDiffPanel diffPanel;
     private final String name;
@@ -66,11 +65,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
-    
+
     // Typing state detection to prevent scroll sync interference
     private volatile boolean isActivelyTyping = false;
     private Timer typingStateTimer;
     
+    // Track if updates were deferred during typing and need to be applied
+    private volatile boolean hasDeferredUpdates = false;
+
     // Navigation state to ensure highlights appear when scrolling to diffs
     private volatile boolean isNavigatingToDiff = false;
 
@@ -123,13 +125,19 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         });
         redisplayTimer.setRepeats(false);
-        
+
         // Typing state timer to detect when user stops typing
         typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
             isActivelyTyping = false;
-            // Trigger a single update after typing stops to ensure UI is current
-            if (initialSetupComplete) {
+            // Trigger comprehensive update after typing stops to ensure diff and highlights are current
+            if (initialSetupComplete && hasDeferredUpdates) {
+                logger.trace("Typing stopped, applying deferred updates");
+                // First update the diff to reflect all document changes made during typing
+                diffPanel.diff();
+                // Then update highlights based on the new diff
                 reDisplayInternal();
+                // Reset the deferred updates flag
+                hasDeferredUpdates = false;
             }
         });
         typingStateTimer.setRepeats(false);
@@ -194,10 +202,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 if (newDocument != null) {
                     // Copy text into RSyntaxDocument instead of replacing the model
                     String txt = newDocument.getText(0, newDocument.getLength());
-                    
+
                     // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
                     applyPerformanceOptimizations(txt.length());
-                    
+
                     editor.setText(txt);
                     editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
                     bd.addChangeListener(this);
@@ -248,6 +256,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     public void reDisplay() {
+        // Skip reDisplay entirely during active typing to prevent flickering
+        if (isActivelyTyping) {
+            logger.trace("Skipping reDisplay during active typing");
+            hasDeferredUpdates = true; // Mark that we have updates to apply later
+            return;
+        }
+        
         // Use debounced reDisplay to reduce flickering during rapid updates
         if (redisplayTimer != null) {
             redisplayTimer.restart();
@@ -278,7 +293,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private volatile int lastVisibleStartLine = -1;
     private volatile int lastVisibleEndLine = -1;
     private volatile long lastViewportUpdate = 0;
-    
+
     /**
      * PERFORMANCE OPTIMIZATION: Only highlights deltas visible in the current viewport
      * for massive performance improvement with large files.
@@ -298,7 +313,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             paintAllDeltas(patch);
             return;
         }
-        
+
         // Get visible line range with caching for performance
         var visibleRange = getVisibleLineRange();
         if (visibleRange == null) {
@@ -306,14 +321,14 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             paintAllDeltas(patch);
             return;
         }
-        
+
         int startLine = visibleRange.start;
         int endLine = visibleRange.end;
-        
+
         // Filter deltas to only those intersecting visible area
         int totalDeltas = patch.getDeltas().size();
         int visibleCount = 0;
-        
+
         for (var delta : patch.getDeltas()) {
             if (deltaIntersectsViewport(delta, startLine, endLine)) {
                 visibleCount++;
@@ -325,11 +340,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 }
             }
         }
-        
-        logger.trace("Painted {} of {} deltas for viewport lines {}-{}", 
+
+        logger.trace("Painted {} of {} deltas for viewport lines {}-{}",
                      visibleCount, totalDeltas, startLine, endLine);
     }
-    
+
     /**
      * Fallback method to paint all deltas (original behavior).
      */
@@ -342,7 +357,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             }
         }
     }
-    
+
     /**
      * Cached viewport calculation to avoid expensive repeated calls.
      */
@@ -351,78 +366,78 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (bufferDocument == null) {
             return null;
         }
-        
+
         long now = System.currentTimeMillis();
-        
+
         // Use cached values if recent enough
-        if (now - lastViewportUpdate < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS && 
+        if (now - lastViewportUpdate < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS &&
             lastVisibleStartLine >= 0 && lastVisibleEndLine >= 0) {
             return new VisibleRange(lastVisibleStartLine, lastVisibleEndLine);
         }
-        
+
         try {
             var viewport = scrollPane.getViewport();
             var viewRect = viewport.getViewRect();
-            
+
             // Calculate visible line range with buffer for smooth scrolling
             // Use larger buffer when navigating to ensure target highlights are visible
-            int bufferLines = isNavigatingToDiff ? 
-                PerformanceConstants.VIEWPORT_BUFFER_LINES * 3 : 
+            int bufferLines = isNavigatingToDiff ?
+                PerformanceConstants.VIEWPORT_BUFFER_LINES * 3 :
                 PerformanceConstants.VIEWPORT_BUFFER_LINES;
             int lineHeight = editor.getLineHeight();
-            
+
             // Calculate start/end offsets with buffer
             int startY = Math.max(0, viewRect.y - bufferLines * lineHeight);
             int endY = viewRect.y + viewRect.height + bufferLines * lineHeight;
-            
+
             int startOffset = editor.viewToModel2D(new Point(0, startY));
             int endOffset = editor.viewToModel2D(new Point(0, endY));
-            
+
             // Convert to line numbers - bufferDocument is null-checked above
             int startLine = Math.max(0, bufferDocument.getLineForOffset(startOffset));
             int endLine = Math.min(bufferDocument.getNumberOfLines() - 1, bufferDocument.getLineForOffset(endOffset));
-            
+
             // Cache the result
             lastVisibleStartLine = startLine;
             lastVisibleEndLine = endLine;
             lastViewportUpdate = now;
-            
+
             return new VisibleRange(startLine, endLine);
-            
+
         } catch (Exception e) {
             logger.debug("Error calculating visible range, falling back to full highlighting: {}", e.getMessage());
             return null;
         }
     }
-    
+
     /**
      * Check if a delta intersects with the visible line range.
      */
     private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine) {
         Chunk<String> chunk = BufferDocumentIF.ORIGINAL.equals(name) ? delta.getSource() : delta.getTarget();
         if (chunk == null) return false;
-        
+
         int deltaStart = chunk.getPosition();
         int deltaEnd = deltaStart + Math.max(1, chunk.size()) - 1;
-        
+
         // Check if delta range overlaps with visible range
         return !(deltaEnd < startLine || deltaStart > endLine);
     }
-    
+
     /**
      * Clear viewport cache when scrolling to ensure fresh calculations.
      */
     public void invalidateViewportCache() {
         lastViewportUpdate = 0;
     }
-    
+
     /**
      * Check if user is actively typing to prevent scroll sync interference.
      */
     public boolean isActivelyTyping() {
         return isActivelyTyping;
     }
-    
+
     /**
      * Mark that we're navigating to a diff to ensure highlights appear.
      */
@@ -433,16 +448,16 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             invalidateViewportCache();
         }
     }
-    
+
     /**
      * PERFORMANCE OPTIMIZATION: Apply performance optimizations based on file size.
      */
     private void applyPerformanceOptimizations(long contentLength) {
         boolean isLargeFile = contentLength > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
-        
+
         if (isLargeFile) {
             logger.info("Applying performance optimizations for large file: {}KB", contentLength / 1024);
-            
+
             // Use longer debounce times for large files to reduce update frequency
             timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
             redisplayTimer.setDelay(PerformanceConstants.LARGE_FILE_REDISPLAY_TIMER_DELAY_MS);
@@ -453,19 +468,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             redisplayTimer.setDelay(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS);
         }
     }
-    
+
     /**
-     * Simple data class for visible line range.
+     * Simple data record for visible line range.
      */
-    private static class VisibleRange {
-        final int start;
-        final int end;
-        
-        VisibleRange(int start, int end) {
-            this.start = start;
-            this.end = end;
-        }
-    }
+    private record VisibleRange(int start, int end) {}
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
@@ -613,21 +620,26 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      */
     private void handleUnifiedUpdate(java.awt.event.ActionEvent e) {
         if (!initialSetupComplete) return;
-        
+
+        // Skip updates while actively typing to prevent flickering
+        if (isActivelyTyping) {
+            return;
+        }
+
         // Coordinate updates to prevent conflicts
         long startTime = System.currentTimeMillis();
-        
+
         try {
             // First, update the diff (this may change the patch)
             diffPanel.diff();
-            
+
             // Then update highlights based on new diff state
             // The viewport optimization will ensure only visible deltas are processed
             reDisplayInternal();
-            
+
             long duration = System.currentTimeMillis() - startTime;
             if (duration > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                logger.debug("Unified update took {}ms for document: {}", 
+                logger.debug("Unified update took {}ms for document: {}",
                            duration, bufferDocument != null ? bufferDocument.getName() : "unknown");
             }
         } catch (Exception ex) {
@@ -646,10 +658,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Don't trigger timer during initial setup
         if (!initialSetupComplete) return;
 
-        // Set typing state and restart typing timer for user-initiated changes
-        if (de.getDocumentEvent() != null) {
+        // Enhanced typing state detection - catch more user-initiated changes
+        boolean isUserEdit = de.getDocumentEvent() != null || 
+                            (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
+        
+        if (isUserEdit) {
             isActivelyTyping = true;
             typingStateTimer.restart();
+        }
+
+        // Suppress ALL updates during active typing to prevent flickering
+        if (isActivelyTyping) {
+            logger.trace("Suppressing document change updates during active typing");
+            hasDeferredUpdates = true; // Mark that we have updates to apply later
+            return;
         }
 
         if (de.getStartLine() == -1 && de.getDocumentEvent() == null) {
@@ -754,7 +776,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (isActivelyTyping) {
             return;
         }
-        
+
         var patch = diffPanel.getPatch();
         if (patch != null && !patch.getDeltas().isEmpty()) {
             var firstDelta = patch.getDeltas().get(0);

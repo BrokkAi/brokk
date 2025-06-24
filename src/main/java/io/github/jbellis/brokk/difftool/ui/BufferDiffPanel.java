@@ -288,9 +288,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var filePanelComponent = buildFilePanel(columns, rows);
         var searchBarComponent = activateBarDialog(columns);
 
-
-
-
         // Add components directly to BorderLayout without vertical resize capability
         add(searchBarComponent, BorderLayout.NORTH);
         add(filePanelComponent, BorderLayout.CENTER);
@@ -673,9 +670,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
                 JOptionPane.showMessageDialog(mainPanel,
-                                              "Can't save file: " + doc.getName() + "\n" +
-                                              "Reason: " + ex.getMessage() + "\n" +
-                                              "File is read-only: " + doc.isReadonly(),
+                                              "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
                                               "Problem writing file", JOptionPane.ERROR_MESSAGE);
             }
         }

@@ -351,31 +351,31 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         });
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnNext);
 
         // Add file navigation buttons if multiple files
         if (fileComparisons.size() > 1) {
-            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
+            toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
             toolBar.addSeparator();
-            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+            toolBar.add(Box.createHorizontalStrut(10));
             toolBar.add(btnPreviousFile);
-            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+            toolBar.add(Box.createHorizontalStrut(10));
             toolBar.add(btnNextFile);
-            toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_MEDIUM_SPACING_PX));
+            toolBar.add(Box.createHorizontalStrut(15));
             toolBar.add(fileIndicatorLabel);
         }
 
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
         toolBar.addSeparator(); // Adds space between groups
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnUndo);
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnRedo);
 
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_LARGE_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(20));
         toolBar.addSeparator();
-        toolBar.add(Box.createHorizontalStrut(PerformanceConstants.TOOLBAR_SMALL_SPACING_PX));
+        toolBar.add(Box.createHorizontalStrut(10));
         toolBar.add(showBlankLineDiffsCheckBox);
 
         // Add Capture Diff button to the right

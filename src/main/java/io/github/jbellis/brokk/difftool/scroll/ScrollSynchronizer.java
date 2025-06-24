@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -19,13 +21,15 @@ import java.awt.event.AdjustmentListener;
  */
 public class ScrollSynchronizer
 {
+    private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
+    
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
 
     private @Nullable AdjustmentListener horizontalAdjustmentListener;
     private @Nullable AdjustmentListener verticalAdjustmentListener;
-    
+
     // Debounce scroll synchronization to reduce flickering
     private Timer scrollSyncTimer;
     private boolean pendingLeftScrolled;
@@ -36,7 +40,7 @@ public class ScrollSynchronizer
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
-        
+
         // Initialize debounced scroll timer with reduced delay for better responsiveness
         scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
             if (hasPendingScroll) {
@@ -45,7 +49,7 @@ public class ScrollSynchronizer
             }
         });
         scrollSyncTimer.setRepeats(false);
-        
+
         init();
     }
 
@@ -99,7 +103,7 @@ public class ScrollSynchronizer
                 public void adjustmentValueChanged(AdjustmentEvent e)
                 {
                     if (insideScroll) return;
-                    
+
                     // Suppress scroll sync if either panel is actively typing to prevent flickering
                     if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
                         return;
@@ -107,7 +111,7 @@ public class ScrollSynchronizer
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
-                    
+
                     // Debounce scroll synchronization to reduce flickering
                     pendingLeftScrolled = leftScrolled;
                     hasPendingScroll = true;
@@ -133,18 +137,24 @@ public class ScrollSynchronizer
             var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
             leftV.removeAdjustmentListener(vertListener);
             rightV.removeAdjustmentListener(vertListener);
-            
+
             performScroll(leftScrolled);
-            
+
             leftV.addAdjustmentListener(vertListener);
             rightV.addAdjustmentListener(vertListener);
         } else {
             performScroll(leftScrolled);
         }
     }
-    
+
     private void performScroll(boolean leftScrolled)
     {
+        // Additional check: don't scroll if either panel is typing
+        if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+            logger.trace("Suppressing scroll sync during active typing");
+            return;
+        }
+        
         var patch = diffPanel.getPatch();
         if (patch == null) {
             return;
@@ -230,10 +240,10 @@ public class ScrollSynchronizer
         if (offset < 0) {
             return;
         }
-        
+
         // Mark that we're navigating to ensure highlights appear
         fp.setNavigatingToDiff(true);
-        
+
         var viewport = fp.getScrollPane().getViewport();
         var editor = fp.getEditor();
         try {
@@ -246,22 +256,22 @@ public class ScrollSynchronizer
 
             var p = rect.getLocation();
             viewport.setViewPosition(p);
-            
+
             // Only invalidate viewport cache if not actively typing to prevent flicker
             if (!fp.isActivelyTyping()) {
                 fp.invalidateViewportCache();
             }
-            
+
             // Trigger immediate redisplay to show highlights
             fp.reDisplay();
-            
+
             // Reset navigation flag after a minimal delay to allow highlighting to complete
             Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
                 fp.setNavigatingToDiff(false);
             });
             resetNavTimer.setRepeats(false);
             resetNavTimer.start();
-            
+
         } catch (BadLocationException ex) {
             // This usually means the offset is invalid for the document model
             fp.setNavigatingToDiff(false); // Reset flag on error
@@ -278,12 +288,12 @@ public class ScrollSynchronizer
         // Mark both panels as navigating to ensure highlights appear on both sides
         filePanelLeft.setNavigatingToDiff(true);
         filePanelRight.setNavigatingToDiff(true);
-        
+
         // We assume we want to scroll the left side. The 'source' chunk is the original side.
         var source = delta.getSource();
         scrollToLine(filePanelLeft, source.getPosition());
         // That triggers the verticalAdjustmentListener to sync the right side.
-        
+
         // Trigger immediate redisplay on both panels to ensure highlights appear
         filePanelLeft.reDisplay();
         filePanelRight.reDisplay();
