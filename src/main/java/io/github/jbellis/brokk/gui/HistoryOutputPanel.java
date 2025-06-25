@@ -178,12 +178,10 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Buttons panel
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        // Use GridLayout to make buttons share width equally
+        var buttonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
 
-        var newSessionSize = new Dimension(100, newSessionButton.getPreferredSize().height);
-        newSessionButton.setPreferredSize(newSessionSize);
-        newSessionButton.setMinimumSize(newSessionSize);
-        newSessionButton.setMaximumSize(newSessionSize);
+        // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
         newSessionButton.addActionListener(e -> {
             contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
@@ -191,10 +189,7 @@ public class HistoryOutputPanel extends JPanel {
             );
         });
 
-        var manageSessionSize = new Dimension(100, manageSessionsButton.getPreferredSize().height);
-        manageSessionsButton.setPreferredSize(manageSessionSize);
-        manageSessionsButton.setMinimumSize(manageSessionSize);
-        manageSessionsButton.setMaximumSize(manageSessionSize);
+        // Tooltip and action listener for the manage sessions button
         manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
         manageSessionsButton.addActionListener(e -> {
             var dialog = new SessionsDialog(this, chrome, contextManager);
