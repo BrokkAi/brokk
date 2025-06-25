@@ -995,29 +995,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param fragment The PathFragment to add.
      */
-    public void addReadOnlyFragment(PathFragment fragment) {
-        pushContext(currentLiveCtx -> currentLiveCtx.addReadonlyFiles(List.of(fragment)));
+    public void addReadOnlyFragmentAsync(PathFragment fragment) {
+        submitContextTask("Capture file revision", () -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.addReadonlyFiles(List.of(fragment)));
+        });
     }
-
 
     /**
      * Captures text from the LLM output area and adds it to the context.
      * Called from Chrome's capture button.
      */
     public void captureTextFromContextAsync() {
-        contextActionExecutor.submit(() -> {
-            try {
-                // Capture from the selected *frozen* context in history view
-                var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
-                if (selectedFrozenCtx.getParsedOutput() != null) {
-                    // Add the captured (TaskFragment, which is Virtual) to the *live* context
-                    addVirtualFragment(selectedFrozenCtx.getParsedOutput());
-                    io.systemOutput("Content captured from output");
-                } else {
-                    io.systemOutput("No content to capture");
-                }
-            } catch (CancellationException cex) {
-                io.systemOutput("Capture canceled.");
+        submitContextTask("Capture output", () -> {
+            // Capture from the selected *frozen* context in history view
+            var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
+            if (selectedFrozenCtx.getParsedOutput() != null) {
+                // Add the captured (TaskFragment, which is Virtual) to the *live* context
+                addVirtualFragment(selectedFrozenCtx.getParsedOutput());
+                io.systemOutput("Content captured from output");
+            } else {
+                io.systemOutput("No content to capture");
             }
         });
     }
