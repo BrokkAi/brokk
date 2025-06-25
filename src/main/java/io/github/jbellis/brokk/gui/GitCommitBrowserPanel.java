@@ -621,7 +621,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 selRows = Arrays.stream(selRows).sorted().toArray();
                 var firstCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[0], COL_COMMIT_OBJ)).id();
                 var lastCid = ((ICommitInfo)commitsTableModel.getValueAt(selRows[selRows.length-1], COL_COMMIT_OBJ)).id();
-                GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(fp -> contextManager.toFile(fp)).toList());
+                GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(contextManager::toFile).toList());
             }
         });
         
@@ -683,43 +683,34 @@ public class GitCommitBrowserPanel extends JPanel {
             changesTreeModel.reload();
             return;
         }
+
         contextManager.submitBackgroundTask("Fetching changes for commits", () -> {
-            try {
-                var allChangedFiles = commits.stream()
-                                             .flatMap(GitCommitBrowserPanel::safeChangedFiles)
-                                             .collect(Collectors.toSet());
-                SwingUtil.runOnEdt(() -> {
-                    changesRootNode.removeAllChildren();
-                    if (allChangedFiles.isEmpty()) {
-                        changesTreeModel.reload(); return;
-                    }
-                    var filesByDir = new HashMap<Path, List<String>>();
-                    for (var file : allChangedFiles) {
-                        filesByDir.computeIfAbsent(file.getParent(), k -> new ArrayList<>()).add(file.getFileName());
-                    }
-                    var sortedDirs = new ArrayList<>(filesByDir.keySet());
-                    sortedDirs.sort(Comparator.comparing(Path::toString));
-                    for (var dirPath : sortedDirs) {
-                        var files = filesByDir.get(dirPath);
-                        if (files != null) { // files can be null if dirPath was removed concurrently, though unlikely here
-                            files.sort(String::compareTo);
-                            var dirNode = dirPath.equals(Path.of("")) ? changesRootNode : new DefaultMutableTreeNode(dirPath);
-                            if (dirNode != changesRootNode) changesRootNode.add(dirNode);
-                            for (var f : files) dirNode.add(new DefaultMutableTreeNode(f));
-                        }
-                    }
-                    changesTreeModel.reload();
-                    expandAllNodes(changesTree, 0, changesTree.getRowCount());
-                });
-            } catch (Exception e) {
-                logger.error("Error fetching changes for multiple commits", e);
-                SwingUtil.runOnEdt(() -> {
-                    changesRootNode.removeAllChildren();
-                    changesRootNode.add(new DefaultMutableTreeNode("Error: " + e.getMessage()));
-                    changesTreeModel.reload();
-                });
+            var allChangedFiles = commits.stream()
+                    .flatMap(GitCommitBrowserPanel::safeChangedFiles)
+                    .collect(Collectors.toSet());
+            var newRootNode = new DefaultMutableTreeNode("Changes");
+            var filesByDir = new HashMap<Path, List<String>>();
+            for (var file : allChangedFiles) {
+                filesByDir.computeIfAbsent(file.getParent(), k -> new ArrayList<>()).add(file.getFileName());
             }
-            return null;
+            var sortedDirs = new ArrayList<>(filesByDir.keySet());
+            sortedDirs.sort(Comparator.comparing(Path::toString));
+            for (var dirPath : sortedDirs) {
+                var files = filesByDir.get(dirPath);
+                if (files != null) { // files can be null if dirPath was removed concurrently, though unlikely here
+                    files.sort(String::compareTo);
+                    var dirNode = dirPath.equals(Path.of("")) ? newRootNode : new DefaultMutableTreeNode(dirPath);
+                    if (dirNode != newRootNode) newRootNode.add(dirNode);
+                    for (var f : files) dirNode.add(new DefaultMutableTreeNode(f));
+                }
+            }
+
+            SwingUtil.runOnEdt(() -> {
+                changesRootNode = newRootNode;
+                changesTreeModel = new DefaultTreeModel(changesRootNode);
+                changesTree.setModel(changesTreeModel);
+                expandAllNodes(changesTree, 0, changesTree.getRowCount());
+            });
         });
     }
 
@@ -932,19 +923,25 @@ public class GitCommitBrowserPanel extends JPanel {
     public void clearCommitView() {
         this.currentBranchOrContextName = null;
         SwingUtil.runOnEdt(() -> {
-            commitsTableModel.setRowCount(0);
-            changesRootNode.removeAllChildren();
-            changesTreeModel.reload();
-            revisionTextLabel.setText("Revision:");
-            revisionIdTextArea.setText("N/A");
-            if (this.options.showPushPullButtons()) {
-                pullButton.setEnabled(false);
-                pushButton.setEnabled(false);
+            var selectionModel = commitsTable.getSelectionModel();
+            selectionModel.setValueIsAdjusting(true);
+            try {
+                commitsTableModel.setRowCount(0);
+                changesRootNode.removeAllChildren();
+                changesTreeModel.reload();
+                revisionTextLabel.setText("Revision:");
+                revisionIdTextArea.setText("N/A");
+                if (this.options.showPushPullButtons()) {
+                    pullButton.setEnabled(false);
+                    pushButton.setEnabled(false);
+                }
+                if (this.options.showCreatePrButton()) {
+                    createPrButton.setEnabled(false);
+                }
+                clearSearchField();
+            } finally {
+                selectionModel.setValueIsAdjusting(false);
             }
-            if (this.options.showCreatePrButton()) {
-                createPrButton.setEnabled(false);
-            }
-            clearSearchField();
         });
     }
 
@@ -969,50 +966,46 @@ public class GitCommitBrowserPanel extends JPanel {
             });
         }
 
+        boolean isStashView = "stashes".equals(activeBranchOrContextName);
+        boolean isSearchView = activeBranchOrContextName.startsWith("Search:");
+        boolean isRemoteBranchView;
+        try {
+            // A branch is remote only if it actually appears in the repo’s remote-branch list
+            isRemoteBranchView = getRepo().listRemoteBranches().contains(activeBranchOrContextName);
+        } catch (org.eclipse.jgit.api.errors.GitAPIException ex) {
+            logger.warn("Could not determine if '{}' is a remote branch. Assuming local. Error: {}",
+                        activeBranchOrContextName, ex.getMessage());
+            isRemoteBranchView = false;
+        }
+
+        // Prepare button configurations off-EDT with final variables
+        final String finalActiveBranchOrContextName = activeBranchOrContextName;
+        final boolean finalPullEnabled = this.options.showPushPullButtons() && canPull && !isStashView && !isSearchView && !isRemoteBranchView;
+        final boolean finalPushEnabled = this.options.showPushPullButtons() && canPush && !isStashView && !isSearchView && !isRemoteBranchView;
+        final String finalPullTooltip = this.options.showPushPullButtons() ? (canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull") : "";
+        final String finalPushTooltip = this.options.showPushPullButtons() ? (canPush 
+            ? (unpushedCommitIds.isEmpty() ? "Push upstream for " + activeBranchOrContextName : "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName)
+            : "Nothing to push for " + activeBranchOrContextName) : "";
+        final java.awt.event.ActionListener finalPullListener = finalPullEnabled ? e -> pullBranchInternal(finalActiveBranchOrContextName) : null;
+        final java.awt.event.ActionListener finalPushListener = finalPushEnabled ? e -> pushBranchInternal(finalActiveBranchOrContextName) : null;
+        final boolean finalCreatePrEnabled = this.options.showCreatePrButton() && !isStashView && !isSearchView;
+        final String finalCreatePrTooltip = this.options.showCreatePrButton() ? (finalCreatePrEnabled
+            ? "Create a pull request for branch " + activeBranchOrContextName
+            : "Cannot create PR for stashes or search results") : "";
+
         SwingUtil.runOnEdt(() -> {
             commitsTableModel.setRowCount(0);
             changesRootNode.removeAllChildren();
             changesTreeModel.reload();
 
-            boolean isStashView = "stashes".equals(activeBranchOrContextName); // boolean preferred by style guide
-            boolean isSearchView = activeBranchOrContextName.startsWith("Search:"); // boolean preferred by style guide
-            boolean isRemoteBranchView;
-            try {
-                // A branch is remote only if it actually appears in the repo’s remote-branch list
-                isRemoteBranchView = getRepo().listRemoteBranches().contains(activeBranchOrContextName);
-            } catch (org.eclipse.jgit.api.errors.GitAPIException ex) {
-                logger.warn("Could not determine if '{}' is a remote branch. Assuming local. Error: {}",
-                            activeBranchOrContextName, ex.getMessage());
-                isRemoteBranchView = false;
-            }
-
             if (this.options.showPushPullButtons()) {
-                var pullTooltip = canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull";
-                boolean pullEnabled = canPull && !isStashView && !isSearchView && !isRemoteBranchView;
-                java.awt.event.ActionListener pullListener = pullEnabled
-                        ? e -> pullBranchInternal(activeBranchOrContextName)
-                        : null;
-                configureButton(pullButton, pullEnabled, pullTooltip, pullListener);
-
-                var pushTooltip = canPush 
-                ? (unpushedCommitIds.isEmpty() ? "Push upstream for " + activeBranchOrContextName : "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName)
-                : "Nothing to push for " + activeBranchOrContextName;
-                
-                
-                boolean pushEnabled = canPush && !isStashView && !isSearchView && !isRemoteBranchView;
-                java.awt.event.ActionListener pushListener = pushEnabled
-                        ? e -> pushBranchInternal(activeBranchOrContextName)
-                        : null;
-                configureButton(pushButton, pushEnabled, pushTooltip, pushListener);
+                configureButton(pullButton, finalPullEnabled, finalPullTooltip, finalPullListener);
+                configureButton(pushButton, finalPushEnabled, finalPushTooltip, finalPushListener);
             }
 
             if (this.options.showCreatePrButton()) {
-                boolean createPrEnabled = !isStashView && !isSearchView;
-                String createPrTooltip = createPrEnabled
-                                         ? "Create a pull request for branch " + activeBranchOrContextName
-                                         : "Cannot create PR for stashes or search results";
                 // ActionListener is already set up during button creation.
-                configureButton(createPrButton, createPrEnabled, createPrTooltip, null); // Pass null for listener as it's already attached
+                configureButton(createPrButton, finalCreatePrEnabled, finalCreatePrTooltip, null); // Pass null for listener as it's already attached
             }
 
             if (commitRows.isEmpty()) {
@@ -1024,14 +1017,20 @@ public class GitCommitBrowserPanel extends JPanel {
                 return;
             }
 
-            for (Object[] rowData : commitRows) commitsTableModel.addRow(rowData);
-            TableUtils.fitColumnWidth(commitsTable, 1); // Author
-            TableUtils.fitColumnWidth(commitsTable, 2); // Date
+            var selectionModel = commitsTable.getSelectionModel();
+            selectionModel.setValueIsAdjusting(true);
+            try {
+                for (Object[] rowData : commitRows) commitsTableModel.addRow(rowData);
+                TableUtils.fitColumnWidth(commitsTable, 1); // Author
+                TableUtils.fitColumnWidth(commitsTable, 2); // Date
 
-            if (commitsTableModel.getRowCount() > 0) commitsTable.setRowSelectionInterval(0, 0);
-            else {
-                revisionTextLabel.setText("Revision:");
-                revisionIdTextArea.setText("N/A");
+                if (commitsTableModel.getRowCount() > 0) commitsTable.setRowSelectionInterval(0, 0);
+                else {
+                    revisionTextLabel.setText("Revision:");
+                    revisionIdTextArea.setText("N/A");
+                }
+            } finally {
+                selectionModel.setValueIsAdjusting(false);
             }
         });
     }
