@@ -113,6 +113,9 @@ public class ArchitectOptionsDialog {
             var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
             searchCb.setSelected(currentOptions.includeSearchAgent());
 
+            var askHumanCb = createCheckbox.apply("Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
+            askHumanCb.setSelected(currentOptions.includeAskHuman());
+
             // Separator before worktree option
             mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
             mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
@@ -151,7 +154,8 @@ public class ArchitectOptionsDialog {
                         isCpg && codeIntelConfigured && analyzerCb.isSelected(), // Force false if not CPG or CI not configured
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
-                        searchCb.isSelected()
+                        searchCb.isSelected(),
+                        askHumanCb.isSelected()
                 );
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 

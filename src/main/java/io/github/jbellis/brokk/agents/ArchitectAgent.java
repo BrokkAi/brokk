@@ -20,8 +20,12 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -45,10 +49,11 @@ public class ArchitectAgent {
             boolean includeAnalyzerTools,
             boolean includeWorkspaceTools,
             boolean includeCodeAgent,
-            boolean includeSearchAgent
+            boolean includeSearchAgent,
+            boolean includeAskHuman
     ) {
         /** Default options (all enabled). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true);
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true);
     }
 
     private final IConsoleIO io;
@@ -259,6 +264,28 @@ public class ArchitectAgent {
         return stringResult;
     }
 
+    @Tool("Escalate to a human for guidance. The model should call this " +
+            "when it is stuck or unsure how to proceed. The argument is a question to show the human.")
+    @Nullable
+    public String askHumanQuestion(
+            @P("The question you would like the human to answer. Make sure to provide any necessary background for the human to quickly and completely understand what you need and why.") String question
+    ) throws InterruptedException {
+        logger.debug("askHumanQuestion invoked with question: {}", question);
+        io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
+
+        String answer = SwingUtil.runOnEdt(() -> AskHumanDialog.ask((Chrome) this.io, question), null);
+
+        if (answer == null) {
+            logger.info("Human cancelled the dialog for question: {}", question);
+            io.systemOutput("Human interaction cancelled.");
+            throw new InterruptedException();
+        } else {
+            logger.debug("Human responded: {}", answer);
+            io.llmOutput(answer, ChatMessageType.USER, true);
+            return answer;
+        }
+    }
+
     /**
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks.
      * This uses an iterative approach, letting the LLM decide which tool to call each time.
@@ -355,6 +382,9 @@ public class ArchitectAgent {
                 if (options.includeSearchAgent()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("callSearchAgent")));
                 }
+                if (options.includeAskHuman()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("askHumanQuestion")));
+                }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
 
@@ -399,7 +429,7 @@ public class ArchitectAgent {
             // 4. (everything else)
             // 5. searchAgent
             // 6. codeAgent
-            ToolExecutionRequest answerReq = null, abortReq = null;
+            ToolExecutionRequest answerReq = null, abortReq = null, askReq = null;
             var searchAgentReqs = new ArrayList<ToolExecutionRequest>();
             var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
             var otherReqs = new ArrayList<ToolExecutionRequest>();
@@ -407,13 +437,14 @@ public class ArchitectAgent {
                 switch (req.name()) {
                     case "projectFinished" -> answerReq = req;
                     case "abortProject" -> abortReq = req;
+                    case "askHumanQuestion" -> askReq = req;
                     case "callSearchAgent" -> searchAgentReqs.add(req);
                     case "callCodeAgent" -> codeAgentReqs.add(req);
                     default -> otherReqs.add(req);
                 }
             }
 
-            // 6) If we see "projectFinished" or "abortProject", handle it and then exit
+            // If we see "projectFinished" or "abortProject", handle it and then exit
             if (answerReq != null) {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
@@ -435,7 +466,14 @@ public class ArchitectAgent {
                 return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
             }
 
-            // 7) Execute remaining tool calls in the desired order:
+            // Execute askHumanQuestion if present
+            if (askReq != null) {
+                var toolResult = toolRegistry.executeTool(this, askReq);
+                architectMessages.add(ToolExecutionResultMessage.from(askReq, toolResult.resultText()));
+                logger.debug("Executed tool '{}' => result: {}", askReq.name(), toolResult.resultText());
+            }
+
+            // Execute remaining tool calls in the desired order:
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 var toolResult = toolRegistry.executeTool(this, req);
