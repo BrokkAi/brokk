@@ -452,8 +452,38 @@ public class CreatePullRequestDialog extends JDialog {
 
     private void updateCreatePrButtonState() {
         if (createPrButton != null) {
-            createPrButton.setEnabled(isCreatePrReady());
+            String blockerMessage = getCreatePrBlockerMessage();
+            createPrButton.setEnabled(blockerMessage.isEmpty());
+            createPrButton.setToolTipText(blockerMessage.isEmpty() ? null : blockerMessage);
         }
+    }
+
+    private String getCreatePrBlockerMessage() {
+        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+
+        if (currentCommits.isEmpty()) {
+            return "No commits to include in the pull request.";
+        }
+        if (sourceBranch == null) {
+            return "Source branch not selected.";
+        }
+        if (targetBranch == null) {
+            return "Target branch not selected.";
+        }
+        if (sourceBranch.equals(targetBranch)) {
+            return "Source and target branches cannot be the same.";
+        }
+        if (titleField.getText() == null || titleField.getText().trim().isEmpty()) {
+            return "Title cannot be empty.";
+        }
+        if (descriptionArea.getText() == null || descriptionArea.getText().trim().isEmpty()) {
+            return "Description cannot be empty.";
+        }
+        if (sourceBranchNeedsPush) {
+            return "Local branch is ahead of its remote – push first.";
+        }
+        return ""; // No blocker
     }
 
     /**
