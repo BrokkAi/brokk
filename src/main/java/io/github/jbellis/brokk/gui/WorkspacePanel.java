@@ -981,7 +981,26 @@ public class WorkspacePanel extends JPanel {
 
         // Add to the table header
         if (contextTable.getTableHeader() != null) {
-            contextTable.getTableHeader().addMouseListener(focusMouseListener);
+            var tableHeader = contextTable.getTableHeader();
+            tableHeader.addMouseListener(focusMouseListener);
+
+            // Right-click popup menu on the header (same as title / empty areas)
+            MouseAdapter headerPopupListener = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    showPopup(e);
+                }
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    showPopup(e);
+                }
+                private void showPopup(MouseEvent e) {
+                    if (e.isPopupTrigger()) {
+                        tablePopupMenu.show(e.getComponent(), e.getX(), e.getY());
+                    }
+                }
+            };
+            tableHeader.addMouseListener(headerPopupListener);
         }
 
         // Add to the scroll pane viewport for empty areas
@@ -989,8 +1008,8 @@ public class WorkspacePanel extends JPanel {
 
         BorderUtils.addFocusBorder(focusableWrapper, focusableWrapper);
 
-        // Add a mouse listener to the scroll pane for right-clicks on empty areas
-        tableScrollPane.addMouseListener(new MouseAdapter() {
+        // Add a mouse listener to the scroll pane *and its viewport* for right-clicks on empty areas
+        var emptyAreaPopupListener = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 handleScrollPanePopup(e);
@@ -1021,7 +1040,9 @@ public class WorkspacePanel extends JPanel {
                     tablePopupMenu.show(scrollPane, e.getX(), e.getY());
                 }
             }
-        });
+        };
+        tableScrollPane.addMouseListener(emptyAreaPopupListener);
+        tableScrollPane.getViewport().addMouseListener(emptyAreaPopupListener);
 
         tablePanel.add(focusableWrapper, BorderLayout.CENTER);
 
