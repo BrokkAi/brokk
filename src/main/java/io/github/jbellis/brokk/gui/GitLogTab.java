@@ -6,16 +6,22 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.git.GitRepo.MergeMode;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
+import org.eclipse.jgit.api.RebaseCommand;
+import org.eclipse.jgit.api.RebaseResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.lib.ProgressMonitor;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
+import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -35,6 +41,7 @@ public class GitLogTab extends JPanel {
     // Methods to expose to GitPanel for finding and selecting commits by ID
 
     private static final Logger logger = LogManager.getLogger(GitLogTab.class);
+    private static final String STASHES_VIRTUAL_BRANCH = "stashes";
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -110,7 +117,7 @@ public class GitLogTab extends JPanel {
                 Component c = super.prepareRenderer(renderer, row, column);
                 if (column == 1 && row >= 0 && row < getRowCount()) {
                     String branchName = (String) getValueAt(row, 1);
-                    if ("stashes".equals(branchName)) {
+                    if (STASHES_VIRTUAL_BRANCH.equals(branchName)) {
                         c.setFont(new Font(Font.MONOSPACED, Font.ITALIC, 13));
                     } else {
                         c.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
@@ -296,15 +303,19 @@ public class GitLogTab extends JPanel {
         mergeItem.addActionListener(e -> {
             int selectedRow = branchTable.getSelectedRow();
             if (selectedRow != -1) {
-                String branchDisplay = (String) branchTableModel.getValueAt(selectedRow, 1);
-                mergeBranchIntoHead(branchDisplay);
+                String branchToMerge = (String) branchTableModel.getValueAt(selectedRow, 1);
+                if (STASHES_VIRTUAL_BRANCH.equals(branchToMerge)) {
+                    chrome.toolError("Cannot merge the '" + STASHES_VIRTUAL_BRANCH + "' virtual entry.", "Merge Error");
+                    return;
+                }
+                showMergeDialog(branchToMerge);
             }
         });
         captureDiffVsBranchItem.addActionListener(e -> {
             int row = branchTable.getSelectedRow();
             if (row != -1) {
                 String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
-                if ("stashes".equals(selectedBranch)) return;
+                if (STASHES_VIRTUAL_BRANCH.equals(selectedBranch)) return;
 
                 String currentActualBranch;
                 try {
@@ -412,15 +423,15 @@ public class GitLogTab extends JPanel {
                 int targetSelectionIndex = -1; // Index to select after update
                 String targetBranchToSelect = previouslySelectedBranch; // Prioritize previous selection
 
-                // Add virtual "stashes" entry first if stashes exist
+                // Add virtual stashes entry first if stashes exist
                 boolean hasStashes = false;
                 try {
                     // Just check if the list is non-empty, avoid fetching full info yet
                     hasStashes = !getRepo().listStashes().isEmpty();
                     if (hasStashes) {
-                        localBranchRows.add(new Object[]{"", "stashes"});
-                        if ("stashes".equals(targetBranchToSelect)) {
-                            targetSelectionIndex = 0; // If 'stashes' was selected, mark its index
+                        localBranchRows.add(new Object[]{"", STASHES_VIRTUAL_BRANCH});
+                        if (STASHES_VIRTUAL_BRANCH.equals(targetBranchToSelect)) {
+                            targetSelectionIndex = 0; // If stashes was selected, mark its index
                         }
                     }
                 } catch (GitAPIException e) {
@@ -517,7 +528,7 @@ public class GitLogTab extends JPanel {
                 boolean canPull = false;
 
                 // Special handling for stashes virtual branch
-                if ("stashes".equals(branchName)) {
+                if (STASHES_VIRTUAL_BRANCH.equals(branchName)) {
                     try {
                         // Directly call listStashes which now returns List<CommitInfo>
                         commits = getRepo().listStashes();
@@ -588,40 +599,73 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Merge a branch into HEAD.
-     */
-    private void mergeBranchIntoHead(String branchName) {
-        contextManager.submitUserTask("Merging branch: " + branchName, () -> {
-            try {
-                MergeResult mergeResult = getRepo().mergeIntoHead(branchName);
-                MergeResult.MergeStatus status = mergeResult.getMergeStatus();
+    private void showMergeDialog(String branchToMerge) {
+        String currentBranch;
+        try {
+            currentBranch = getRepo().getCurrentBranch();
+        } catch (GitAPIException e) {
+            logger.error("Could not get current branch for merge dialog", e);
+            chrome.toolError("Could not determine current branch: " + e.getMessage(), "Merge Error");
+            return;
+        }
 
-                if (status.isSuccessful()) {
-                    if (status == MergeResult.MergeStatus.ALREADY_UP_TO_DATE) {
-                        chrome.systemOutput("Branch '" + branchName + "' is already up-to-date with HEAD.");
-                    } else {
-                        chrome.systemOutput("Branch '" + branchName + "' was successfully merged into HEAD.");
-                    }
+        if (branchToMerge.equals(currentBranch)) {
+            chrome.systemNotify("Cannot merge '" + branchToMerge + "' into itself.", "Merge Info", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        var parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
+        var dialogPanel = new MergeBranchDialogPanel(parentFrame, branchToMerge, currentBranch);
+        var result = dialogPanel.showDialog(getRepo(), contextManager);
+
+        if (result.confirmed()) {
+            if (!result.hasConflicts()) {
+                mergeBranchIntoHead(branchToMerge, result.mergeMode());
+            } else {
+                chrome.toolError("Merge cancelled due to conflicts or error: " + result.conflictMessage(), "Merge Cancelled");
+            }
+        }
+    }
+
+    /**
+     * Merge a branch into HEAD using the specified mode.
+     */
+    private void mergeBranchIntoHead(String branchName, MergeMode mode) {
+        contextManager.submitUserTask("Merging branch: " + branchName + " (" + mode + ")", () -> {
+            var repo = getRepo();
+
+            try {
+                String targetBranch = repo.getCurrentBranch();
+                var mergeResult = repo.performMerge(branchName, mode);
+                var status = mergeResult.getMergeStatus();
+
+                if (GitRepo.isMergeSuccessful(mergeResult, mode)) {
+                    String modeDescription = switch (mode) {
+                        case MERGE_COMMIT -> "merged";
+                        case SQUASH_COMMIT -> "squash merged";
+                        case REBASE_MERGE -> "rebase-merged";
+                    };
+                    chrome.systemOutput("Branch '" + branchName + "' successfully " + modeDescription + " into '" + targetBranch + "'.");
                 } else if (status == MergeResult.MergeStatus.CONFLICTING) {
-                    String conflictingFiles = mergeResult.getConflicts().keySet().stream()
+                    String conflictingFiles = Objects.requireNonNull(mergeResult.getConflicts()).keySet().stream()
                             .map(s -> "  - " + s)
                             .collect(Collectors.joining("\n"));
-                    chrome.toolError("Merge conflicts detected for branch '" + branchName + "'.\n" +
-                                        "Please resolve conflicts manually and then commit.\n" +
-                                        "Conflicting files:\n" + conflictingFiles, "Merge Conflict");
+                    chrome.toolError("Merge conflicts for '" + branchName + "' into '" + targetBranch + "'.\n" +
+                                     "Resolve manually and commit.\nConflicting files:\n" + conflictingFiles, "Merge Conflict");
                 } else {
-                    // For other non-successful statuses like FAILED, ABORTED etc.
-                    chrome.toolError("Merge of branch '" + branchName + "' failed with error: " + status, "Merge Error");
+                    chrome.toolError("Merge of '" + branchName + "' into '" + targetBranch + "' failed: " + status, "Merge Error");
                 }
-                update(); // Refresh UI to reflect new state (merged, conflicting, or failed)
+
+                update(); // Refresh UI to reflect new state
             } catch (GitAPIException e) {
-                logger.error("Error merging branch: {}", branchName, e);
-                chrome.toolError("Error merging branch '" + branchName + "': " + e.getMessage(), "Merge Error");
-                update(); // Refresh UI to show current state after error
+                logger.error("Error merging branch '{}' with mode {}: {}", branchName, mode, e.getMessage(), e);
+                chrome.toolError("Error merging branch: " + e.getMessage(), "Merge Error");
+                update(); // Refresh UI
             }
+            return null;
         });
     }
+
 
     /**
      * Creates a new branch from an existing one and checks it out.
@@ -826,7 +870,7 @@ public class GitLogTab extends JPanel {
         }
 
         // renameItem and deleteItem checks
-        boolean isStashesSelected = "stashes".equals(selectedBranchName);
+        boolean isStashesSelected = STASHES_VIRTUAL_BRANCH.equals(selectedBranchName);
         menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
         menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 

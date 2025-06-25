@@ -205,6 +205,96 @@ public class GitRepo implements Closeable, IGitRepo {
         return new ProjectFile(projectRoot, pathRelativeToProjectRoot);
     }
 
+    // ==================== Merge Mode Enum ====================
+
+    /**
+     * Represents the different merge strategies available.
+     */
+    public enum MergeMode {
+        MERGE_COMMIT("Merge commit"),
+        SQUASH_COMMIT("Squash and merge"),
+        REBASE_MERGE("Rebase and merge");
+
+        private final String displayName;
+
+        MergeMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
+
+    // ==================== Git Operation Status Utility Methods ====================
+
+    /**
+     * Determines if a merge operation was successful, accounting for the special case
+     * where squash merges return MERGED_SQUASHED_NOT_COMMITTED which is actually successful.
+     *
+     * @param result the MergeResult to check
+     * @param mode the merge mode that was used
+     * @return true if the merge was successful
+     */
+    public static boolean isMergeSuccessful(MergeResult result, MergeMode mode) {
+        MergeResult.MergeStatus status = result.getMergeStatus();
+        return status.isSuccessful() ||
+               status == MergeResult.MergeStatus.MERGED_NOT_COMMITTED ||
+               (mode == MergeMode.SQUASH_COMMIT && status == MergeResult.MergeStatus.MERGED_SQUASHED_NOT_COMMITTED);
+    }
+
+    /**
+     * Determines if a rebase operation was successful.
+     *
+     * @param result the RebaseResult to check
+     * @return true if the rebase was successful
+     */
+    public static boolean isRebaseSuccessful(RebaseResult result) {
+        return result.getStatus().isSuccessful();
+    }
+
+    /**
+     * Determines if a push operation was successful for a specific ref update.
+     *
+     * @param status the RemoteRefUpdate.Status to check
+     * @return true if the push was successful
+     */
+    public static boolean isPushSuccessful(RemoteRefUpdate.Status status) {
+        return status == RemoteRefUpdate.Status.OK || status == RemoteRefUpdate.Status.UP_TO_DATE;
+    }
+
+    /**
+     * Determines if any conflicts exist in a merge result.
+     *
+     * @param result the MergeResult to check
+     * @return true if conflicts exist
+     */
+    public static boolean hasConflicts(MergeResult result) {
+        return result.getMergeStatus() == MergeResult.MergeStatus.CONFLICTING;
+    }
+
+    /**
+     * Gets a user-friendly description of a merge result status.
+     *
+     * @param result the MergeResult to describe
+     * @param mode the merge mode that was used
+     * @return a human-readable description of the merge result
+     */
+    public static String describeMergeResult(MergeResult result, MergeMode mode) {
+        MergeResult.MergeStatus status = result.getMergeStatus();
+        return switch (status) {
+            case FAST_FORWARD -> "Fast-forward merge";
+            case ALREADY_UP_TO_DATE -> "Already up to date";
+            case MERGED -> "Merge commit created";
+            case MERGED_SQUASHED_NOT_COMMITTED -> "Squashed changes ready for commit";
+            case CONFLICTING -> "Merge conflicts detected";
+            case ABORTED -> "Merge aborted";
+            case FAILED -> "Merge failed";
+            default -> "Merge result: " + status;
+        };
+    }
+
     @Override
     public synchronized void refresh() {
         logger.debug("GitRepo refresh");
@@ -359,7 +449,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .map(file -> PathFilter.create(toRepoRelativePath(file)))
                 .collect(Collectors.toCollection(ArrayList::new));
         var filterGroup = PathFilterGroup.create(filters);
-        
+
         return performDiffWithFilter(filterGroup);
     }
 
@@ -472,33 +562,31 @@ public class GitRepo implements Closeable, IGitRepo {
                                           .setRemote("origin") // Default to "origin"
                                           .setRefSpecs(refSpec)
                                           .call();
-        var rejectionMessages = new StringBuilder();
+        List<String> rejectionMessages = new ArrayList<>();
 
         for (var result : results) {
             for (var rru : result.getRemoteUpdates()) {
                 var status = rru.getStatus();
                 // Consider any status other than OK or UP_TO_DATE as a failure for that ref.
-                if (status != RemoteRefUpdate.Status.OK && status != RemoteRefUpdate.Status.UP_TO_DATE) {
-                    if (rejectionMessages.length() > 0) {
-                        rejectionMessages.append("\n");
-                    }
-                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' (local '").append(branchName).append("') update failed: ");
+                if (!isPushSuccessful(status)) {
+                    String message = "Ref '" + rru.getRemoteName() + "' (local '" + branchName + "') update failed: ";
                     if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
                         status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
-                        rejectionMessages.append("The remote contains work that you do not have locally. ")
-                                .append("Pull and merge from the remote (or rebase) before pushing.");
+                        message += "The remote contains work that you do not have locally. " +
+                                "Pull and merge from the remote (or rebase) before pushing.";
                     } else {
-                        rejectionMessages.append(status.toString());
+                        message += status.toString();
                         if (rru.getMessage() != null) {
-                            rejectionMessages.append(" (").append(rru.getMessage()).append(")");
+                            message += " (" + rru.getMessage() + ")";
                         }
                     }
+                    rejectionMessages.add(message);
                 }
             }
         }
 
-        if (rejectionMessages.length() > 0) {
-            throw new GitPushRejectedException("Push rejected by remote:\n" + rejectionMessages.toString());
+        if (!rejectionMessages.isEmpty()) {
+            throw new GitPushRejectedException("Push rejected by remote:\n" + String.join("\n", rejectionMessages));
         }
         // If loop completes without rejections, push was successful or refs were up-to-date.
     }
@@ -528,31 +616,29 @@ public class GitRepo implements Closeable, IGitRepo {
                                           .setRefSpecs(refSpec)
                                           .call();
 
-        var rejectionMessages = new StringBuilder();
+        List<String> rejectionMessages = new ArrayList<>();
         for (var result : results) {
             for (var rru : result.getRemoteUpdates()) {
                 var status = rru.getStatus();
-                if (status != RemoteRefUpdate.Status.OK && status != RemoteRefUpdate.Status.UP_TO_DATE) {
-                    if (!rejectionMessages.isEmpty()) {
-                        rejectionMessages.append("\n");
-                    }
-                    rejectionMessages.append("Ref '").append(rru.getRemoteName()).append("' (local '").append(localBranchName).append("') update failed: ");
+                if (!isPushSuccessful(status)) {
+                    String message = "Ref '" + rru.getRemoteName() + "' (local '" + localBranchName + "') update failed: ";
                     if (status == RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ||
                         status == RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED) {
-                        rejectionMessages.append("The remote contains work that you do not have locally. ")
-                                .append("Pull and merge from the remote (or rebase) before pushing.");
+                        message += "The remote contains work that you do not have locally. " +
+                                "Pull and merge from the remote (or rebase) before pushing.";
                     } else {
-                        rejectionMessages.append(status.toString());
+                        message += status.toString();
                         if (rru.getMessage() != null) {
-                            rejectionMessages.append(" (").append(rru.getMessage()).append(")");
+                            message += " (" + rru.getMessage() + ")";
                         }
                     }
+                    rejectionMessages.add(message);
                 }
             }
         }
 
         if (!rejectionMessages.isEmpty()) {
-            throw new GitPushRejectedException("Push rejected by remote:\n" + rejectionMessages.toString());
+            throw new GitPushRejectedException("Push rejected by remote:\n" + String.join("\n", rejectionMessages));
         }
 
         // 2. Record upstream info in config only if push was successful
@@ -567,7 +653,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         refresh();
-        
+
         return results;
     }
 
@@ -854,8 +940,244 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public MergeResult mergeIntoHead(String branchName) throws GitAPIException {
         var result = git.merge().include(resolve(branchName)).call();
+
+        logger.trace("Merge result status: {}", result.getMergeStatus());
+        logger.trace("isSuccessful(): {}", result.getMergeStatus().isSuccessful());
+        logger.trace("isMergeSuccessful() utility: {}", isMergeSuccessful(result, MergeMode.MERGE_COMMIT));
+
         refresh();
         return result;
+    }
+
+    /**
+     * Perform a squash merge of the specified branch into HEAD.
+     *
+     * @param branchName The branch to squash merge
+     * @return The result of the squash merge operation
+     * @throws GitAPIException if the squash merge fails
+     */
+    @Override
+    public MergeResult squashMergeIntoHead(String branchName) throws GitAPIException {
+        logger.trace("Squash merging '{}' into HEAD", branchName);
+        String targetBranch = getCurrentBranch();
+
+        // Build squash commit message
+        String squashCommitMessage;
+        try {
+            var commitMessages = getCommitMessagesBetween(branchName, targetBranch);
+            String header = "Squash merge branch '" + branchName + "' into '" + targetBranch + "'\n\n";
+            String body = commitMessages.isEmpty()
+                    ? "- No individual commit messages found between " + branchName + " and " + targetBranch + "."
+                    : commitMessages.stream()
+                            .map(msg -> "- " + msg)
+                            .collect(Collectors.joining("\n"));
+            squashCommitMessage = header + body;
+        } catch (GitAPIException e) {
+            logger.error("Failed to get commit messages between {} and {}: {}", branchName, targetBranch, e.getMessage(), e);
+            throw e;
+        }
+
+        // Perform squash merge
+        ObjectId resolvedBranch = resolve(branchName);
+        if (resolvedBranch == null) {
+            logger.error("Failed to resolve branch: {}", branchName);
+            throw new GitAPIException("Failed to resolve branch: " + branchName) {};
+        }
+
+        // Check repository state before merge
+        var status = git.status().call();
+        logger.trace("Working tree clean: {}", status.isClean());
+        logger.trace("Added files: {}", status.getAdded());
+        logger.trace("Changed files: {}", status.getChanged());
+        logger.trace("Modified files: {}", status.getModified());
+        logger.trace("Removed files: {}", status.getRemoved());
+        logger.trace("Missing files: {}", status.getMissing());
+        logger.trace("Untracked files: {}", status.getUntracked());
+        logger.trace("Conflicting files: {}", status.getConflicting());
+
+        // Check for staged changes that might interfere with merge, but first try to reset any phantom staged changes
+        if (!status.getAdded().isEmpty() || !status.getChanged().isEmpty()) {
+            String stagedFiles = Stream.concat(status.getAdded().stream(), status.getChanged().stream())
+                    .collect(Collectors.joining(", "));
+            logger.info("Resetting phantom staged changes: {}", stagedFiles);
+
+            // Try to reset the index to match HEAD to clear any phantom staged changes
+            try {
+                git.reset().call();
+
+                // Re-check status after reset
+                var newStatus = git.status().call();
+                logger.debug("Status after reset - Added: {}, Changed: {}, Modified: {}",
+                           newStatus.getAdded(), newStatus.getChanged(), newStatus.getModified());
+
+                if (!newStatus.getAdded().isEmpty() || !newStatus.getChanged().isEmpty()) {
+                    String remainingStagedFiles = Stream.concat(newStatus.getAdded().stream(), newStatus.getChanged().stream())
+                            .collect(Collectors.joining(", "));
+                    throw new GitAPIException("Cannot perform squash merge with staged changes. Please commit or reset the following files first: " + remainingStagedFiles) {};
+                }
+
+                // Also check for unstaged changes that might interfere
+                if (!newStatus.getModified().isEmpty()) {
+                    logger.info("Stashing unstaged changes: {}", newStatus.getModified());
+                    try {
+                        var stashResult = git.stashCreate().call();
+                        if (stashResult != null) {
+                            logger.trace("Stashed changes: {}", stashResult.getName());
+                        }
+                    } catch (GitAPIException stashException) {
+                        logger.error("Failed to stash unstaged changes: {}", stashException.getMessage());
+                        throw new GitAPIException("Cannot perform squash merge with unstaged changes in: " + String.join(", ", newStatus.getModified()) +
+                                                ". Please commit or stash these changes first.") {};
+                    }
+                }
+            } catch (GitAPIException resetException) {
+                logger.error("Failed to reset index: {}", resetException.getMessage());
+                throw new GitAPIException("Cannot perform squash merge with staged changes and failed to reset them. Please commit or reset the following files first: " + stagedFiles) {};
+            }
+        }
+
+        // Perform squash merge
+        var squashResult = git.merge()
+                .setSquash(true)
+                .include(resolvedBranch)
+                .call();
+
+        logger.debug("Squash merge result status: {}", squashResult.getMergeStatus());
+        logger.debug("isSuccessful(): {}", squashResult.getMergeStatus().isSuccessful());
+        logger.debug("isMergeSuccessful() utility: {}", isMergeSuccessful(squashResult, MergeMode.SQUASH_COMMIT));
+        logger.debug("Merge result conflicts: {}", squashResult.getConflicts());
+        logger.debug("Merge result failing paths: {}", squashResult.getFailingPaths());
+        logger.debug("Merge result checkout conflicts: {}", squashResult.getCheckoutConflicts());
+
+        if (!isMergeSuccessful(squashResult, MergeMode.SQUASH_COMMIT)) {
+            logger.warn("Squash merge failed with status: {}", squashResult.getMergeStatus());
+
+            // Provide more specific error information
+            if (squashResult.getFailingPaths() != null && !squashResult.getFailingPaths().isEmpty()) {
+                String errorDetails = squashResult.getFailingPaths().entrySet().stream()
+                    .map(entry -> entry.getKey() + " (" + entry.getValue() + ")")
+                    .collect(Collectors.joining(", "));
+                logger.error("Squash merge conflicts: {}", errorDetails);
+                refresh();
+                throw new GitAPIException("Squash merge failed due to conflicts in: " + errorDetails) {};
+            }
+
+            refresh();
+            return squashResult;
+        }
+
+        // Commit the squashed changes
+        try {
+            git.commit().setMessage(squashCommitMessage).call();
+            refresh();
+            return squashResult;
+        } catch (GitAPIException e) {
+            logger.error("Failed to commit squashed changes: {}", e.getMessage(), e);
+            refresh();
+            throw e;
+        }
+    }
+
+    /**
+     * Perform a rebase merge of the specified branch into HEAD.
+     * This creates a temporary branch, rebases it onto the target, then fast-forward merges.
+     *
+     * @param branchName The branch to rebase merge
+     * @return The result of the final fast-forward merge
+     * @throws GitAPIException if any step of the rebase merge fails
+     */
+    @Override
+    public MergeResult rebaseMergeIntoHead(String branchName) throws GitAPIException {
+        String targetBranch = getCurrentBranch();
+        String originalBranch = targetBranch;
+        String tempRebaseBranchName = null;
+
+        try {
+            // Create temporary branch for rebase
+            tempRebaseBranchName = createTempRebaseBranchName(branchName);
+            createBranch(tempRebaseBranchName, branchName);
+            checkout(tempRebaseBranchName);
+
+            // Rebase the temporary branch onto target
+            ObjectId resolvedTarget = resolve(targetBranch);
+            var rebaseResult = git.rebase()
+                    .setUpstream(resolvedTarget)
+                    .call();
+
+            if (!isRebaseSuccessful(rebaseResult)) {
+                // Attempt to abort rebase
+                try {
+                    if (!getCurrentBranch().equals(tempRebaseBranchName)) {
+                        checkout(tempRebaseBranchName);
+                    }
+                    git.rebase().setOperation(org.eclipse.jgit.api.RebaseCommand.Operation.ABORT).call();
+                } catch (GitAPIException abortEx) {
+                    logger.error("Failed to abort rebase for {}", tempRebaseBranchName, abortEx);
+                }
+                throw new GitAPIException("Rebase of '" + branchName + "' onto '" + targetBranch + "' failed: " + rebaseResult.getStatus()) {};
+            }
+
+            // Switch back to target branch and fast-forward merge
+            checkout(targetBranch);
+            MergeResult ffMergeResult = mergeIntoHead(tempRebaseBranchName);
+
+            if (!ffMergeResult.getMergeStatus().isSuccessful()) {
+                throw new GitAPIException("Fast-forward merge of rebased '" + tempRebaseBranchName + "' into '" + targetBranch + "' failed: " + ffMergeResult.getMergeStatus()) {};
+            }
+
+            refresh();
+            return ffMergeResult;
+
+        } finally {
+            // Cleanup: ensure we're on the original branch and delete temp branch
+            try {
+                if (!getCurrentBranch().equals(originalBranch)) {
+                    checkout(originalBranch);
+                }
+            } catch (GitAPIException e) {
+                logger.error("Error ensuring checkout to target branch '{}' during rebase cleanup", originalBranch, e);
+            }
+
+            if (tempRebaseBranchName != null) {
+                try {
+                    forceDeleteBranch(tempRebaseBranchName);
+                } catch (GitAPIException e) {
+                    logger.error("Failed to delete temporary rebase branch {}", tempRebaseBranchName, e);
+                }
+            }
+        }
+    }
+
+    /**
+     * Perform a merge operation with the specified mode.
+     *
+     * @param branchName The branch to merge
+     * @param mode The merge mode (MERGE_COMMIT, SQUASH_COMMIT, or REBASE_MERGE)
+     * @return The result of the merge operation
+     * @throws GitAPIException if the merge fails
+     */
+    @Override
+    public MergeResult performMerge(String branchName, MergeMode mode) throws GitAPIException {
+        logger.debug("performMerge called with branch: {} and mode: {}", branchName, mode);
+        try {
+            return switch (mode) {
+                case MERGE_COMMIT -> {
+                    logger.trace("Performing merge commit");
+                    yield mergeIntoHead(branchName);
+                }
+                case SQUASH_COMMIT -> {
+                    logger.trace("Performing squash commit");
+                    yield squashMergeIntoHead(branchName);
+                }
+                case REBASE_MERGE -> {
+                    logger.trace("Performing rebase merge");
+                    yield rebaseMergeIntoHead(branchName);
+                }
+            };
+        } catch (GitAPIException e) {
+            logger.error("performMerge failed for branch: {} with mode: {}: {}", branchName, mode, e.getMessage(), e);
+            throw e;
+        }
     }
 
     /**
@@ -893,22 +1215,22 @@ public class GitRepo implements Closeable, IGitRepo {
         if (files.isEmpty()) {
             throw new IllegalArgumentException("No files specified for checkout");
         }
-        
+
         logger.debug("Checking out {} files from commit {}", files.size(), commitId);
-        
+
         var checkoutCommand = git.checkout()
                 .setStartPoint(commitId);
-        
+
         // Add each file path to the checkout command
         for (ProjectFile file : files) {
             var relativePath = file.toString();
             checkoutCommand.addPath(relativePath);
             logger.trace("Adding file to checkout: {}", relativePath);
         }
-        
+
         checkoutCommand.call();
         refresh();
-        
+
         logger.debug("Successfully checked out {} files from commit {}", files.size(), commitId);
     }
 
@@ -1889,8 +2211,10 @@ public class GitRepo implements Closeable, IGitRepo {
             RevCommit sourceCommit = revWalk.parseCommit(sourceHead);
             revWalk.markStart(sourceCommit);
 
-            RevCommit targetCommit;
-            targetCommit = revWalk.parseCommit(targetHead);
+            RevCommit targetCommit = null;
+            if (targetHead != null) {
+                targetCommit = revWalk.parseCommit(targetHead);
+            }
 
             if (excludeMergeCommitsFromTarget) {
                 if (targetCommit != null) {
@@ -2033,19 +2357,27 @@ public class GitRepo implements Closeable, IGitRepo {
         return modifiedFiles;
     }
 
+    private static String createTempBranchName(String prefix) {
+        return prefix + "_" + System.currentTimeMillis();
+    }
+
+    public static String createTempRebaseBranchName(String sourceBranchName) {
+        String sanitized = sourceBranchName.replaceAll("[^a-zA-Z0-9-_]", "_");
+        return createTempBranchName("brokk_temp_rebase_" + sanitized);
+    }
+
     @Override
-    public @Nullable String checkMergeConflicts(String worktreeBranchName, String targetBranchName, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+    public @Nullable String checkMergeConflicts(String worktreeBranchName, String targetBranchName, MergeMode mode) throws GitAPIException {
         ObjectId worktreeBranchId = resolve(worktreeBranchName); // Can throw GitAPIException
         ObjectId targetBranchId = resolve(targetBranchName); // Can throw GitAPIException
 
         String originalBranch = null;
-        String tempBranchNameSuffix = "_" + System.currentTimeMillis();
 
         try {
             originalBranch = getCurrentBranch();
 
-            if (mode == io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode.REBASE_MERGE) {
-                String tempRebaseBranchName = "brokk_temp_rebase_check" + tempBranchNameSuffix;
+            if (mode == MergeMode.REBASE_MERGE) {
+                String tempRebaseBranchName = createTempBranchName("brokk_temp_rebase_check");
                 logger.debug("Checking rebase conflicts: {} onto {} (using temp branch {})", worktreeBranchName, targetBranchName, tempRebaseBranchName);
 
                 try {
@@ -2103,7 +2435,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     }
                 }
             } else { // MERGE_COMMIT or SQUASH_COMMIT
-                String tempMergeBranchName = "brokk_temp_merge_check" + tempBranchNameSuffix;
+                String tempMergeBranchName = createTempBranchName("brokk_temp_merge_check");
                 logger.debug("Checking merge conflicts: {} into {} (using temp branch {}) with mode {}", worktreeBranchName, targetBranchName, tempMergeBranchName, mode);
 
                 try {
@@ -2111,12 +2443,12 @@ public class GitRepo implements Closeable, IGitRepo {
                     git.checkout().setName(tempMergeBranchName).call();
 
                     MergeCommand mergeCmd = git.merge().include(worktreeBranchId);
-                    if (mode == io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode.SQUASH_COMMIT) {
+                    mergeCmd.setCommit(false); // Ensure no commit (and thus no signing) during conflict check
+
+                    if (mode == MergeMode.SQUASH_COMMIT) {
                         mergeCmd.setSquash(true);
                     } else { // MERGE_COMMIT
                         mergeCmd.setSquash(false);
-                        mergeCmd.setCommit(true);
-                        mergeCmd.setMessage("Temporary merge for conflict check");
                         mergeCmd.setFastForward(MergeCommand.FastForwardMode.NO_FF);
                     }
                     MergeResult mergeResult = mergeCmd.call();
@@ -2126,7 +2458,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     if (status == MergeResult.MergeStatus.CONFLICTING) {
                         var conflicts = requireNonNull(mergeResult.getConflicts());
                         return "Merge conflicts detected in: " + String.join(", ", conflicts.keySet());
-                    } else if (status.isSuccessful()) {
+                    } else if (isMergeSuccessful(mergeResult, mode)) {
                         return null; // MERGED, FAST_FORWARD, MERGED_SQUASHED, ALREADY_UP_TO_DATE
                     } else {
                         return "Merge pre-check failed: " + status.toString();
@@ -2136,6 +2468,9 @@ public class GitRepo implements Closeable, IGitRepo {
                     if (repoState == RepositoryState.MERGING || repoState == RepositoryState.MERGING_RESOLVED) {
                         logger.warn("Merge was still active during cleanup for {}. Resetting HARD.", tempMergeBranchName);
                         try {
+                            // A merge operation that was set with .setCommit(false) should not leave the repo in MERGING state
+                            // if it was successful. If it's CONFLICTING, it might.
+                            // However, a reset is a safe cleanup if the state is unexpected.
                             git.reset().setMode(ResetCommand.ResetType.HARD).call();
                         } catch (GitAPIException e) {
                             logger.error("Failed to reset hard during merge cleanup", e);

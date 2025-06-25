@@ -36,23 +36,6 @@ import org.jetbrains.annotations.Nullable;
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
 
-    public enum MergeMode {
-        MERGE_COMMIT("Merge commit"),
-        SQUASH_COMMIT("Squash and merge"),
-        REBASE_MERGE("Rebase and merge");
-
-        private final String displayName;
-
-        MergeMode(String displayName) {
-            this.displayName = displayName;
-        }
-
-        @Override
-        public String toString() {
-            return displayName;
-        }
-    }
-
     private final Chrome chrome;
     private final ContextManager contextManager;
     // private final GitPanel gitPanel; // Field is not read
@@ -880,8 +863,8 @@ public class GitWorktreeTab extends JPanel {
 
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.weightx = 1.0;
-        JComboBox<MergeMode> mergeModeComboBox = new JComboBox<>(MergeMode.values());
-        mergeModeComboBox.setSelectedItem(MergeMode.MERGE_COMMIT);
+        JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
+        mergeModeComboBox.setSelectedItem(GitRepo.MergeMode.MERGE_COMMIT);
         dialogPanel.add(mergeModeComboBox, gbc);
         gbc.weightx = 0;
 
@@ -1000,7 +983,7 @@ public class GitWorktreeTab extends JPanel {
             // Ensure these are captured before the lambda potentially changes them,
             // or ensure they are final/effectively final.
             final String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
-            final MergeMode selectedMergeMode = (MergeMode) mergeModeComboBox.getSelectedItem();
+            final GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
             String currentConflictText = conflictStatusLabel.getText(); // Check the final state of the label
             if (currentConflictText.startsWith("No conflicts detected") || currentConflictText.startsWith("Checking for conflicts")) {
@@ -1025,13 +1008,13 @@ public class GitWorktreeTab extends JPanel {
         }
     }
 
-    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, @Nullable JButton okButton) {
+    private void checkConflictsAsync(JComboBox<String> targetBranchComboBox, JComboBox<GitRepo.MergeMode> mergeModeComboBox, JLabel conflictStatusLabel, String worktreeBranchName, @Nullable JButton okButton) {
         if (okButton != null) {
             okButton.setEnabled(false);
         }
 
         String selectedTargetBranch = (String) targetBranchComboBox.getSelectedItem();
-        MergeMode selectedMergeMode = (MergeMode) mergeModeComboBox.getSelectedItem();
+        GitRepo.MergeMode selectedMergeMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
 
         if (selectedTargetBranch == null || selectedTargetBranch.equals("Error loading branches") || selectedTargetBranch.equals("Unsupported parent repo type") || selectedTargetBranch.equals("Parent repo not available") || selectedTargetBranch.equals("Parent project not found") || selectedTargetBranch.equals("Not a worktree project")) {
             conflictStatusLabel.setText("Please select a valid target branch.");
@@ -1050,7 +1033,7 @@ public class GitWorktreeTab extends JPanel {
         IGitRepo gitRepo = parentProject.getRepo();
 
         final String finalSelectedTargetBranch = selectedTargetBranch;
-        final MergeMode finalSelectedMergeMode = selectedMergeMode;
+        final GitRepo.MergeMode finalSelectedMergeMode = selectedMergeMode;
 
         contextManager.submitBackgroundTask("Checking merge conflicts", () -> {
             String conflictResultString;
@@ -1092,7 +1075,7 @@ public class GitWorktreeTab extends JPanel {
         });
     }
 
-    private void performMergeOperation(String worktreeBranchName, String targetBranch, MergeMode mode, boolean deleteWorktree, boolean deleteBranch) {
+    private void performMergeOperation(String worktreeBranchName, String targetBranch, GitRepo.MergeMode mode, boolean deleteWorktree, boolean deleteBranch) {
         var project = contextManager.getProject();
         if (!(project instanceof WorktreeProject worktreeProject)) {
             logger.error("performMergeOperation called on a non-WorktreeProject: {}", project.getClass().getSimpleName());
@@ -1113,148 +1096,26 @@ public class GitWorktreeTab extends JPanel {
                 parentGitRepo.checkout(targetBranch);
                 logger.info("Switched parent repository to target branch: {}", targetBranch);
 
-                if (mode == MergeMode.MERGE_COMMIT) {
-                    logger.info("Performing merge commit of {} into {}", worktreeBranchName, targetBranch);
-                    org.eclipse.jgit.api.MergeResult mergeResult = parentGitRepo.mergeIntoHead(worktreeBranchName);
-                    if (!mergeResult.getMergeStatus().isSuccessful()) {
-                        String conflictDetails = mergeResult.getConflicts() != null
-                                                 ? String.join(", ", mergeResult.getConflicts().keySet())
-                                                 : "unknown conflicts";
-                        String errorMessage = "Merge commit failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
-                        logger.error(errorMessage);
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
-                        return null; // Exit the task, finally block will still run
-                    }
-                    chrome.systemOutput("Successfully merged " + worktreeBranchName + " into " + targetBranch);
-                } else if (mode == MergeMode.SQUASH_COMMIT) {
-                    logger.info("Performing squash merge of {} into {}", worktreeBranchName, targetBranch);
-                    List<String> commitMessages = parentGitRepo.getCommitMessagesBetween(worktreeBranchName, targetBranch);
-                    String squashCommitMessage = "Squash merge branch '" + worktreeBranchName + "' into '" + targetBranch + "'\n\n";
-                    if (commitMessages.isEmpty()) {
-                        squashCommitMessage += "- No individual commit messages found between " + worktreeBranchName + " and " + targetBranch + ".";
-                    } else {
-                        for (String msg : commitMessages) {
-                            squashCommitMessage += "- " + msg + "\n";
-                        }
-                    }
-
-                    var resolvedBranch = parentGitRepo.resolve(worktreeBranchName);
-
-                    MergeResult squashResult = parentGitRepo.getGit().merge()
-                        .setSquash(true)
-                        .include(resolvedBranch)
-                        .call();
-
-                    if (!squashResult.getMergeStatus().isSuccessful()) {
-                        String conflictDetails = squashResult.getConflicts() != null
-                                                 ? String.join(", ", squashResult.getConflicts().keySet())
-                                                 : "unknown conflicts";
-                        String errorMessage = "Squash merge failed with status: " + squashResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
-                        logger.error(errorMessage);
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Squash Merge Failed", JOptionPane.ERROR_MESSAGE));
-                        return null; // Exit the task
-                    }
-
-                    // Commit the squashed changes
-                    parentGitRepo.getGit().commit().setMessage(squashCommitMessage).call();
-                    chrome.systemOutput("Successfully squash merged " + worktreeBranchName + " into " + targetBranch);
-                } else if (mode == MergeMode.REBASE_MERGE) {
-                    logger.info("Performing rebase merge of {} into {}", worktreeBranchName, targetBranch);
-                    String tempRebaseBranchName = null;
-                    // Parent repo is currently on targetBranch
-                    String branchToRestoreAfterRebaseOps = parentGitRepo.getCurrentBranch(); // Should be targetBranch
-                    assert branchToRestoreAfterRebaseOps.equals(targetBranch) : "Parent repo not on target branch before rebase attempt. Current: " + branchToRestoreAfterRebaseOps + ", Expected: " + targetBranch;
-
-                    try {
-                        // 1. Create a temporary branch from the worktree branch name.
-                        // (worktreeBranchName is the original branch from the worktree being merged)
-                        tempRebaseBranchName = "__brokk_rebase_temp_" + worktreeBranchName + "_" + System.currentTimeMillis();
-                        parentGitRepo.createBranch(tempRebaseBranchName, worktreeBranchName);
-                        logger.info("Created temporary branch {} from {}", tempRebaseBranchName, worktreeBranchName);
-
-                        // 2. Checkout the temporary branch to perform rebase on it.
-                        parentGitRepo.checkout(tempRebaseBranchName);
-                        logger.info("Temporarily checked out {} for rebase operation", tempRebaseBranchName);
-
-                        // 3. Rebase the current branch (tempRebaseBranchName) onto the target branch.
-                        logger.info("Rebasing current branch ({}) onto {}", tempRebaseBranchName, targetBranch);
-                        var resolvedTarget = parentGitRepo.resolve(targetBranch);
-
-                        RebaseResult rebaseResult = parentGitRepo.getGit().rebase()
-                                .setUpstream(resolvedTarget) // targetBranch is the new base
-                                .call(); // Rebase acts on the current branch (tempRebaseBranchName)
-
-                        if (!rebaseResult.getStatus().isSuccessful()) {
-                            String errorMessage = "Rebase of " + tempRebaseBranchName + " onto " + targetBranch + " failed with status: " + rebaseResult.getStatus();
-                            logger.error(errorMessage);
-                            try {
-                                // Ensure we are on tempRebaseBranchName to abort, though we should be.
-                                if (!parentGitRepo.getCurrentBranch().equals(tempRebaseBranchName)) {
-                                     logger.warn("Attempting abort, but not on {}. Current: {}. Checking out {}.", tempRebaseBranchName, parentGitRepo.getCurrentBranch(), tempRebaseBranchName);
-                                     parentGitRepo.checkout(tempRebaseBranchName);
-                                }
-                                parentGitRepo.getGit().rebase().setOperation(RebaseCommand.Operation.ABORT).call();
-                                logger.info("Rebase aborted for {}", tempRebaseBranchName);
-                            } catch (GitAPIException abortEx) {
-                                logger.error("Failed to abort rebase for {}: {}", tempRebaseBranchName, abortEx.getMessage(), abortEx);
-                            }
-                            // After abort attempt, switch back to the target branch (branchToRestoreAfterRebaseOps)
-                            try {
-                                parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
-                                logger.info("Switched back to {} after failed rebase.", branchToRestoreAfterRebaseOps);
-                            } catch (GitAPIException checkoutEx) {
-                                logger.error("Failed to switch back to {} after failed rebase: {}", branchToRestoreAfterRebaseOps, checkoutEx.getMessage(), checkoutEx);
-                            }
-                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Rebase Failed", JOptionPane.ERROR_MESSAGE));
-                            return null; // Exit the task
-                        }
-                        logger.info("Successfully rebased temporary branch {} onto {}", tempRebaseBranchName, targetBranch);
-                        // Current branch is still tempRebaseBranchName, now pointing to the rebased commits.
-
-                        // 4. Checkout the target branch again (branchToRestoreAfterRebaseOps).
-                        parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
-                        logger.info("Checked out {} after successful rebase of {}", branchToRestoreAfterRebaseOps, tempRebaseBranchName);
-
-                        // 5. Merge the rebased temporary branch into the target branch (now current). This should be a fast-forward.
-                        logger.info("Merging rebased branch {} into current branch {}", tempRebaseBranchName, branchToRestoreAfterRebaseOps);
-                        org.eclipse.jgit.api.MergeResult mergeResult = parentGitRepo.mergeIntoHead(tempRebaseBranchName);
-
-                        if (!mergeResult.getMergeStatus().isSuccessful()) {
-                            String conflictDetails = mergeResult.getConflicts() != null ?
-                                mergeResult.getConflicts().keySet().stream().collect(Collectors.joining(", ")) : "Unknown conflicts";
-                            String errorMessage = "Merge (post-rebase) of " + tempRebaseBranchName + " into " + targetBranch + " failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
-                            logger.error(errorMessage);
-                            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge (Post-Rebase) Failed", JOptionPane.ERROR_MESSAGE));
-                            return null; // Exit the task
-                        }
-                        chrome.systemOutput("Successfully rebase-merged " + worktreeBranchName + " (via " + tempRebaseBranchName + ") into " + targetBranch);
-
-                    } finally {
-                        // This inner finally ensures tempRebaseBranchName is cleaned up
-                        // and attempts to restore the branch that was active before rebase steps (branchToRestoreAfterRebaseOps / targetBranch).
-                        // The outer finally block will ensure restoration to originalParentBranch.
-                        try {
-                            String currentBranchAfterOps = parentGitRepo.getCurrentBranch();
-                            if (!currentBranchAfterOps.equals(branchToRestoreAfterRebaseOps)) {
-                                logger.warn("Branch after rebase operations was {}, expected {}. Attempting to restore.", currentBranchAfterOps, branchToRestoreAfterRebaseOps);
-                                parentGitRepo.checkout(branchToRestoreAfterRebaseOps);
-                            }
-                        } catch (GitAPIException e) {
-                            logger.error("Error ensuring parent repo is on {} before deleting temp branch: {}", branchToRestoreAfterRebaseOps, e.getMessage(), e);
-                            // Proceed to delete temp branch anyway if possible.
-                        }
-
-                        if (tempRebaseBranchName != null) {
-                            try {
-                                parentGitRepo.forceDeleteBranch(tempRebaseBranchName);
-                                logger.info("Successfully deleted temporary rebase branch {}", tempRebaseBranchName);
-                            } catch (GitAPIException e) {
-                                logger.error("Failed to delete temporary rebase branch {}: {}", tempRebaseBranchName, e.getMessage(), e);
-                                // Non-fatal for the overall operation if merge was successful, but good to log.
-                            }
-                        }
-                    }
+                // Use the centralized merge methods from GitRepo
+                logger.info("Performing {} of {} into {}", mode, worktreeBranchName, targetBranch);
+                MergeResult mergeResult = parentGitRepo.performMerge(worktreeBranchName, mode);
+                
+                if (!GitRepo.isMergeSuccessful(mergeResult, mode)) {
+                    String conflictDetails = mergeResult.getConflicts() != null
+                                             ? String.join(", ", mergeResult.getConflicts().keySet())
+                                             : "unknown conflicts";
+                    String errorMessage = "Merge failed with status: " + mergeResult.getMergeStatus() + ". Conflicts: " + conflictDetails;
+                    logger.error(errorMessage);
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(GitWorktreeTab.this, errorMessage, "Merge Failed", JOptionPane.ERROR_MESSAGE));
+                    return null; // Exit the task, finally block will still run
                 }
+                
+                String modeDescription = switch (mode) {
+                    case MERGE_COMMIT -> "merged";
+                    case SQUASH_COMMIT -> "squash merged";
+                    case REBASE_MERGE -> "rebase-merged";
+                };
+                chrome.systemOutput("Successfully " + modeDescription + " " + worktreeBranchName + " into " + targetBranch);
 
                 // Post-Merge Cleanup
                 if (deleteWorktree) {

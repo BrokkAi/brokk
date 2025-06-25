@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.gui.GitWorktreeTab;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.jetbrains.annotations.Nullable;
@@ -125,12 +127,24 @@ public interface IGitRepo {
      * @return A string describing conflicts if any, or null/empty if no conflicts.
      * @throws GitAPIException if a Git error occurs during the check.
      */
-    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, GitRepo.MergeMode mode) throws GitAPIException {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
 
     default List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
         throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
+    }
+
+    default MergeResult squashMergeIntoHead(String branchName) throws GitAPIException {
+        throw new UnsupportedOperationException("squashMergeIntoHead not implemented");
+    }
+
+    default MergeResult rebaseMergeIntoHead(String branchName) throws GitAPIException {
+        throw new UnsupportedOperationException("rebaseMergeIntoHead not implemented");
+    }
+
+    default MergeResult performMerge(String branchName, GitRepo.MergeMode mode) throws GitAPIException {
+        throw new UnsupportedOperationException("performMerge not implemented");
     }
 
 }

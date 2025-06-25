@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.git;
 
-import io.github.jbellis.brokk.gui.GitWorktreeTab;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
@@ -509,7 +508,7 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_NoConflict_MergeCommit() throws Exception {
         setupBranchesForNoConflictTest_FeatureAhead();
-        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitWorktreeTab.MergeMode.MERGE_COMMIT);
+        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.MERGE_COMMIT);
         assertNull(result, "Should be no conflict for MERGE_COMMIT: " + result);
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
     }
@@ -517,7 +516,7 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_Conflict_MergeCommit() throws Exception {
         setupBranchesForConflictTest();
-        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitWorktreeTab.MergeMode.MERGE_COMMIT);
+        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.MERGE_COMMIT);
         assertNotNull(result, "Should be a conflict for MERGE_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt");
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
@@ -530,7 +529,7 @@ public class GitRepoTest {
         setupBranchesForNoConflictTest_MainAhead(); // main has C1_main, feature is at Initial
         // Rebase feature (at Initial) onto main (at C1_main). No new commits on feature, so it should be fast-forward or up-to-date like.
         String currentMainBranch = repo.getCurrentBranch();
-        String result = repo.checkMergeConflicts("feature", currentMainBranch, GitWorktreeTab.MergeMode.REBASE_MERGE);
+        String result = repo.checkMergeConflicts("feature", currentMainBranch, GitRepo.MergeMode.REBASE_MERGE);
         assertNull(result, "Should be no conflict for REBASE_MERGE when feature is ancestor: " + result);
         assertEquals(currentMainBranch, repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
         assertFalse(repo.getGit().getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
@@ -539,7 +538,7 @@ public class GitRepoTest {
         tearDown(); setUp(); // Reset repo
         setupBranchesForNoConflictTest_FeatureAhead(); // feature has C1, C2; main is at Initial + main_base
         currentMainBranch = repo.getCurrentBranch();
-        result = repo.checkMergeConflicts("feature", currentMainBranch, GitWorktreeTab.MergeMode.REBASE_MERGE);
+        result = repo.checkMergeConflicts("feature", currentMainBranch, GitRepo.MergeMode.REBASE_MERGE);
         assertNull(result, "Should be no conflict for REBASE_MERGE with non-conflicting feature commits: " + result);
         assertEquals(currentMainBranch, repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
         assertFalse(repo.getGit().getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
@@ -548,7 +547,7 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_Conflict_RebaseMerge() throws Exception {
         setupBranchesForConflictTest();
-        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitWorktreeTab.MergeMode.REBASE_MERGE);
+        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.REBASE_MERGE);
         assertNotNull(result, "Should be a conflict for REBASE_MERGE: " + result);
         // JGit's RebaseResult with STOPPED status might not always populate getConflicts().
         // The method returns a generic message in that case.
@@ -564,7 +563,7 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_NoConflict_SquashCommit() throws Exception {
         setupBranchesForNoConflictTest_FeatureAhead();
-        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitWorktreeTab.MergeMode.SQUASH_COMMIT);
+        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.SQUASH_COMMIT);
         assertNull(result, "Should be no conflict for SQUASH_COMMIT: " + result);
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
         org.eclipse.jgit.lib.RepositoryState stateSquashNoConflict = repo.getGit().getRepository().getRepositoryState();
@@ -574,7 +573,7 @@ public class GitRepoTest {
     @Test
     void testCheckMergeConflicts_Conflict_SquashCommit() throws Exception {
         setupBranchesForConflictTest();
-        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitWorktreeTab.MergeMode.SQUASH_COMMIT);
+        String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.SQUASH_COMMIT);
         assertNotNull(result, "Should be a conflict for SQUASH_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt for squash: " + result);
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
@@ -586,14 +585,14 @@ public class GitRepoTest {
     void testCheckMergeConflicts_InvalidWorktreeBranch() throws Exception {
         String mainBranch = repo.getCurrentBranch();
         assertThrows(GitRepo.GitRepoException.class,
-                     () -> repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitWorktreeTab.MergeMode.MERGE_COMMIT));
+                     () -> repo.checkMergeConflicts("nonexistent-feature", mainBranch, GitRepo.MergeMode.MERGE_COMMIT));
     }
 
     @Test
     void testCheckMergeConflicts_InvalidTargetBranch() throws Exception {
         repo.getGit().branchCreate().setName("feature-exists").call();
         assertThrows(GitRepo.GitRepoException.class,
-                     () -> repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitWorktreeTab.MergeMode.MERGE_COMMIT));
+                     () -> repo.checkMergeConflicts("feature-exists", "nonexistent-target", GitRepo.MergeMode.MERGE_COMMIT));
     }
 
     @Test
@@ -819,5 +818,122 @@ public class GitRepoTest {
 
         // The main goal is that this doesn't throw NoHeadException - content can be empty or not
         assertEquals("", diff, "diff() should return empty string for empty repository with no changes");
+    }
+
+    // --- Tests for createTempRebaseBranchName ---
+
+    @Test
+    void testCreateTempRebaseBranchName_UniqueGeneration() {
+        String baseName = "feature/awesome-branch";
+
+        String name1 = GitRepo.createTempRebaseBranchName(baseName);
+
+        // Sleep briefly to ensure different timestamps
+        try {
+            Thread.sleep(1);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        String name2 = GitRepo.createTempRebaseBranchName(baseName);
+
+        // Names may be the same if called within the same millisecond, but that's acceptable
+        // since the goal is to avoid conflicts in practice, not guarantee uniqueness in tests
+        assertTrue(name1.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
+                  "Generated name should start with expected prefix: " + name1);
+        assertTrue(name2.startsWith("brokk_temp_rebase_feature_awesome-branch_"),
+                  "Generated name should start with expected prefix");
+
+        // Verify timestamp suffix is numeric
+        String suffix1 = name1.substring(name1.lastIndexOf('_') + 1);
+        String suffix2 = name2.substring(name2.lastIndexOf('_') + 1);
+
+        assertTrue(suffix1.length() >= 10, "Timestamp suffix should be at least 10 characters: " + suffix1);
+        assertTrue(suffix2.length() >= 10, "Timestamp suffix should be at least 10 characters: " + suffix2);
+
+        // Verify suffix is valid timestamp (numeric)
+        assertDoesNotThrow(() -> Long.parseLong(suffix1),
+                          "Timestamp suffix should be numeric: " + suffix1);
+        assertDoesNotThrow(() -> Long.parseLong(suffix2),
+                          "Timestamp suffix should be numeric: " + suffix2);
+
+        // Verify timestamps are non-decreasing (may be equal due to resolution)
+        long timestamp1 = Long.parseLong(suffix1);
+        long timestamp2 = Long.parseLong(suffix2);
+        assertTrue(timestamp2 >= timestamp1, "Second timestamp should be >= first timestamp");
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_SanitizesInput() {
+        String unsafeName = "feature/branch with spaces!@#";
+
+        String sanitized = GitRepo.createTempRebaseBranchName(unsafeName);
+
+        assertTrue(sanitized.contains("brokk_temp_rebase_feature_branch_with_spaces____"),
+                  "Should sanitize unsafe characters to underscores: " + sanitized);
+        assertFalse(sanitized.contains(" "), "Should not contain spaces");
+        assertFalse(sanitized.contains("!"), "Should not contain exclamation marks");
+        assertFalse(sanitized.contains("@"), "Should not contain at signs");
+        assertFalse(sanitized.contains("#"), "Should not contain hash symbols");
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_EmptyInput() {
+        String emptyName = "";
+
+        String result = GitRepo.createTempRebaseBranchName(emptyName);
+
+        assertTrue(result.startsWith("brokk_temp_rebase__"),
+                  "Should handle empty input gracefully");
+        assertTrue(result.endsWith("_" + result.substring(result.lastIndexOf('_') + 1)),
+                  "Should still append timestamp suffix");
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_PrefixConstant() {
+        String baseName = "test";
+        String result = GitRepo.createTempRebaseBranchName(baseName);
+
+        assertTrue(result.startsWith("brokk_temp_rebase_"),
+                  "Should use the correct prefix constant");
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_ComplexBranchName() {
+        String complexName = "feature/user-auth!@#$%^&*()";
+        String result = GitRepo.createTempRebaseBranchName(complexName);
+
+        assertTrue(result.startsWith("brokk_temp_rebase_feature_user-auth"),
+                  "Should sanitize complex characters properly: " + result);
+        assertTrue(result.matches("brokk_temp_rebase_feature_user-auth_+\\d+"),
+                  "Should match expected pattern with timestamp: " + result);
+        assertFalse(result.contains("!"), "Should not contain exclamation marks");
+        assertFalse(result.contains("@"), "Should not contain at signs");
+        assertFalse(result.contains("#"), "Should not contain hash symbols");
+        assertFalse(result.contains("$"), "Should not contain dollar signs");
+        assertFalse(result.contains("%"), "Should not contain percent signs");
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_OnlySpecialCharacters() {
+        String specialCharsOnly = "!@#$%^&*()";
+        String result = GitRepo.createTempRebaseBranchName(specialCharsOnly);
+
+        assertTrue(result.startsWith("brokk_temp_rebase_"),
+                  "Should handle special-chars-only input: " + result);
+        // Should result in "brokk_temp_rebase___________timestamp" (underscores replacing special chars)
+        assertTrue(result.matches("brokk_temp_rebase__+\\d+"),
+                  "Should replace all special characters with underscores: " + result);
+    }
+
+    @Test
+    void testCreateTempRebaseBranchName_ValidCharactersPreserved() {
+        String validName = "feature_branch-name123";
+        String result = GitRepo.createTempRebaseBranchName(validName);
+
+        assertTrue(result.contains("feature_branch-name123"),
+                  "Should preserve valid characters: " + result);
+        assertTrue(result.startsWith("brokk_temp_rebase_feature_branch-name123_"),
+                  "Should maintain valid branch name components: " + result);
     }
 }

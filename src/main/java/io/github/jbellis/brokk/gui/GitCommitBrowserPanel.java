@@ -32,6 +32,7 @@ import static java.util.Objects.requireNonNull;
 public class GitCommitBrowserPanel extends JPanel {
 
     private static final Logger logger = LogManager.getLogger(GitCommitBrowserPanel.class);
+    private static final String STASHES_VIRTUAL_BRANCH = "stashes";
 
     private static final int COL_ID = 3;
     private static final int COL_UNPUSHED = 4;
@@ -167,7 +168,7 @@ public class GitCommitBrowserPanel extends JPanel {
         createPrButton.setEnabled(false);
         createPrButton.addActionListener(e -> {
             String branch = currentBranchOrContextName;
-            if (branch != null && (branch.startsWith("Search:") || "stashes".equals(branch))) { // Also disable for remote branches
+            if (branch != null && (branch.startsWith("Search:") || STASHES_VIRTUAL_BRANCH.equals(branch))) { // Also disable for remote branches
                 chrome.toolError("Select a branch before creating a PR.");
                 return;
             }
@@ -351,7 +352,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private void setupCommitContextMenu() {
         var commitsContextMenu = new JPopupMenu();
         registerMenu(commitsContextMenu);
-        
+
         addToContextItem = new JMenuItem("Capture Diff");
         softResetItem = new JMenuItem("Soft Reset to Here");
         revertCommitItem = new JMenuItem("Revert Commit");
@@ -397,7 +398,7 @@ public class GitCommitBrowserPanel extends JPanel {
             }
         });
     }
-    
+
     private void updateCommitContextMenuState() {
         int[] selectedRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
         if (selectedRows.length == 0) {
@@ -469,7 +470,7 @@ public class GitCommitBrowserPanel extends JPanel {
             GitUiUtil.addCommitRangeToContext(contextManager, chrome, group.stream().mapToInt(Integer::intValue).toArray(), commitsTableModel, COL_COMMIT_OBJ);
         }
     });
-        
+
     softResetItem.addActionListener(e -> {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
         if (row != -1) {
@@ -478,14 +479,14 @@ public class GitCommitBrowserPanel extends JPanel {
             softResetToCommitInternal(ci.id(), firstLine);
         }
     });
-        
+
     viewChangesItem.addActionListener(e -> {
         if (commitsTable.getSelectedRowCount() == 1) {
             var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
             GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
         }
     });
-        
+
     revertCommitItem.addActionListener(e -> {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide // Assuming single selection for revert, or first of multiple
         if (row != -1) {
@@ -493,11 +494,11 @@ public class GitCommitBrowserPanel extends JPanel {
             revertCommitInternal(ci.id());
         }
     });
-        
+
     popStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::popStashInternal));
     applyStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::applyStashInternal));
     dropStashCommitItem.addActionListener(e -> handleStashAction(ICommitInfo::stashIndex, this::dropStashInternal));
-        
+
     compareAllToLocalItem.addActionListener(e -> {
         if (commitsTable.getSelectedRowCount() == 1) {
             var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
@@ -520,7 +521,7 @@ public class GitCommitBrowserPanel extends JPanel {
         }
     });
     }
-    
+
     private void handleStashAction(java.util.function.Function<ICommitInfo, Optional<Integer>> stashIndexExtractor,
                                    java.util.function.IntConsumer stashOperation) {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
@@ -537,7 +538,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private void setupChangesTreeContextMenu() {
         var changesContextMenu = new JPopupMenu();
         registerMenu(changesContextMenu);
-        
+
         var addFileToContextItem = new JMenuItem("Capture Diff");
         var compareFileWithLocalItem = new JMenuItem("Compare with Local");
         var viewFileAtRevisionItem = new JMenuItem("View File at Revision");
@@ -562,8 +563,8 @@ public class GitCommitBrowserPanel extends JPanel {
         setupChangesTreeContextMenuListener(addFileToContextItem, compareFileWithLocalItem,
                                             viewFileAtRevisionItem, viewDiffItem, viewHistoryItem,
                                             editFileItem, comparePrevWithLocalItem, rollbackFilesItem, changesContextMenu);
-        setupChangesTreeContextMenuActions(addFileToContextItem, compareFileWithLocalItem, 
-                                         viewFileAtRevisionItem, viewDiffItem, viewHistoryItem, 
+        setupChangesTreeContextMenuActions(addFileToContextItem, compareFileWithLocalItem,
+                                         viewFileAtRevisionItem, viewDiffItem, viewHistoryItem,
                                          editFileItem, comparePrevWithLocalItem, rollbackFilesItem);
     }
 
@@ -624,12 +625,12 @@ public class GitCommitBrowserPanel extends JPanel {
                 GitUiUtil.addFilesChangeToContext(contextManager, chrome, firstCid, lastCid, files.stream().map(contextManager::toFile).toList());
             }
         });
-        
+
         compareFileWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, false)));
         comparePrevWithLocalItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showDiffVsLocal(contextManager, chrome, cid, fp, true)));
         viewFileAtRevisionItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.viewFileAtRevision(contextManager, chrome, cid, fp)));
         viewDiffItem.addActionListener(e -> handleSingleFileSingleCommitAction((cid, fp) -> GitUiUtil.showFileHistoryDiff(contextManager, chrome, cid, contextManager.toFile(fp))));
-        
+
         viewHistoryItem.addActionListener(e -> {
             var gitPanel = requireNonNull(chrome.getGitPanel());
             getSelectedFilePathsFromTree().forEach(fp -> gitPanel.addFileHistoryTab(contextManager.toFile(fp)));
@@ -655,7 +656,7 @@ public class GitCommitBrowserPanel extends JPanel {
             }
         });
     }
-    
+
     private void handleSingleFileSingleCommitAction(java.util.function.BiConsumer<String, String> action) {
         var paths = changesTree.getSelectionPaths();
         int[] selRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
@@ -744,7 +745,7 @@ public class GitCommitBrowserPanel extends JPanel {
             }
         });
     }
-    
+
     private void performStashOp(int idx, String description, StashActionPerformer repoCall, String successMsg, boolean refreshView) {
         contextManager.submitUserTask(description + " @" + idx, () -> {
             try {
@@ -777,7 +778,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void pullBranchInternal(String branchName) {
-        if (branchName.equals("stashes") || branchName.contains("/")) {
+        if (branchName.equals(STASHES_VIRTUAL_BRANCH) || branchName.contains("/")) {
             logger.warn("Pull attempted on invalid context: {}", branchName);
             return;
         }
@@ -806,7 +807,7 @@ public class GitCommitBrowserPanel extends JPanel {
     }
 
     private void pushBranchInternal(String branchName) {
-         if (branchName.equals("stashes")) {
+         if (branchName.equals(STASHES_VIRTUAL_BRANCH)) {
             logger.warn("Push attempted on invalid context: {}", branchName);
             return;
         }
@@ -840,7 +841,7 @@ public class GitCommitBrowserPanel extends JPanel {
             }
         });
     }
-    
+
     // This is a placeholder. The actual refresh logic might be more complex
     // or handled by the parent component (GitLogTab or CreatePullRequestDialog).
     private void refreshCurrentViewAfterGitOp() {
@@ -848,7 +849,7 @@ public class GitCommitBrowserPanel extends JPanel {
             // Re-fetch and display commits for the current context.
             // This is a simplified call; actual parameters for unpushed, canPush/Pull might need re-evaluation.
             // For now, assume a simple refresh of the commit list.
-            if ("stashes".equals(currentBranchOrContextName)) {
+            if (STASHES_VIRTUAL_BRANCH.equals(currentBranchOrContextName)) {
                 loadStashesInPanel();
             } else {
                 loadCommitsForBranchInPanel(currentBranchOrContextName);
@@ -860,7 +861,7 @@ public class GitCommitBrowserPanel extends JPanel {
         contextManager.submitBackgroundTask("Fetching stashes", () -> {
             try {
                 var stashes = getRepo().listStashes();
-                setCommits(stashes, Collections.emptySet(), false, false, "stashes");
+                setCommits(stashes, Collections.emptySet(), false, false, STASHES_VIRTUAL_BRANCH);
             } catch (Exception e) {
                 logger.error("Error fetching stashes for panel", e);
                 SwingUtil.runOnEdt(() -> {
@@ -919,7 +920,7 @@ public class GitCommitBrowserPanel extends JPanel {
             return null;
         });
     }
-    
+
     public void clearCommitView() {
         this.currentBranchOrContextName = null;
         SwingUtil.runOnEdt(() -> {
@@ -983,7 +984,7 @@ public class GitCommitBrowserPanel extends JPanel {
         final boolean finalPullEnabled = this.options.showPushPullButtons() && canPull && !isStashView && !isSearchView && !isRemoteBranchView;
         final boolean finalPushEnabled = this.options.showPushPullButtons() && canPush && !isStashView && !isSearchView && !isRemoteBranchView;
         final String finalPullTooltip = this.options.showPushPullButtons() ? (canPull ? "Pull changes for " + activeBranchOrContextName : "Cannot pull") : "";
-        final String finalPushTooltip = this.options.showPushPullButtons() ? (canPush 
+        final String finalPushTooltip = this.options.showPushPullButtons() ? (canPush
             ? (unpushedCommitIds.isEmpty() ? "Push upstream for " + activeBranchOrContextName : "Push " + unpushedCommitIds.size() + " commit(s) for " + activeBranchOrContextName)
             : "Nothing to push for " + activeBranchOrContextName) : "";
         final java.awt.event.ActionListener finalPullListener = finalPullEnabled ? e -> pullBranchInternal(finalActiveBranchOrContextName) : null;
