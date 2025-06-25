@@ -49,10 +49,11 @@ public class ArchitectAgent {
             boolean includeAnalyzerTools,
             boolean includeWorkspaceTools,
             boolean includeCodeAgent,
-            boolean includeSearchAgent
+            boolean includeSearchAgent,
+            boolean includeAskHuman
     ) {
         /** Default options (all enabled). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true);
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true);
     }
 
     private final IConsoleIO io;
@@ -381,6 +382,9 @@ public class ArchitectAgent {
                 if (options.includeSearchAgent()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("callSearchAgent")));
                 }
+                if (options.includeAskHuman()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("askHumanQuestion")));
+                }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
 
@@ -425,7 +429,7 @@ public class ArchitectAgent {
             // 4. (everything else)
             // 5. searchAgent
             // 6. codeAgent
-            ToolExecutionRequest answerReq = null, abortReq = null;
+            ToolExecutionRequest answerReq = null, abortReq = null, askReq = null;
             var searchAgentReqs = new ArrayList<ToolExecutionRequest>();
             var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
             var otherReqs = new ArrayList<ToolExecutionRequest>();
@@ -433,13 +437,14 @@ public class ArchitectAgent {
                 switch (req.name()) {
                     case "projectFinished" -> answerReq = req;
                     case "abortProject" -> abortReq = req;
+                    case "askHumanQuestion" -> askReq = req;
                     case "callSearchAgent" -> searchAgentReqs.add(req);
                     case "callCodeAgent" -> codeAgentReqs.add(req);
                     default -> otherReqs.add(req);
                 }
             }
 
-            // 6) If we see "projectFinished" or "abortProject", handle it and then exit
+            // If we see "projectFinished" or "abortProject", handle it and then exit
             if (answerReq != null) {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
@@ -461,7 +466,14 @@ public class ArchitectAgent {
                 return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
             }
 
-            // 7) Execute remaining tool calls in the desired order:
+            // Execute askHumanQuestion if present
+            if (askReq != null) {
+                var toolResult = toolRegistry.executeTool(this, askReq);
+                architectMessages.add(ToolExecutionResultMessage.from(askReq, toolResult.resultText()));
+                logger.debug("Executed tool '{}' => result: {}", askReq.name(), toolResult.resultText());
+            }
+
+            // Execute remaining tool calls in the desired order:
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 var toolResult = toolRegistry.executeTool(this, req);
