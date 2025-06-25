@@ -20,8 +20,12 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -257,6 +261,28 @@ public class ArchitectAgent {
         logger.debug(stringResult);
 
         return stringResult;
+    }
+
+    @Tool("Escalate to a human for guidance. The model should call this " +
+            "when it is stuck or unsure how to proceed. The argument is a question to show the human.")
+    @Nullable
+    public String askHumanQuestion(
+            @P("A concise question you would like the human to answer") String question
+    ) throws InterruptedException {
+        logger.debug("askHumanQuestion invoked with question: {}", question);
+        io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
+
+        String answer = SwingUtil.runOnEdt(() -> AskHumanDialog.ask((Chrome) this.io, question), null);
+
+        if (answer == null) {
+            logger.info("Human cancelled the dialog for question: {}", question);
+            io.systemOutput("Human interaction cancelled.");
+            throw new InterruptedException();
+        } else {
+            logger.debug("Human responded: {}", answer);
+            io.llmOutput(answer, ChatMessageType.USER, true);
+            return answer;
+        }
     }
 
     /**
