@@ -1641,7 +1641,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     // Finalize previous entry if data is present
                     if (currentPath != null) {
                         worktrees.add(new WorktreeInfo(currentPath,
-                                                       requireNonNull(currentBranch),
+                                                       currentBranch,
                                                        requireNonNull(currentHead)));
                         currentHead = null;
                         currentBranch = null;

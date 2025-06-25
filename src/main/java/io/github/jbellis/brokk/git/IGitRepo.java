@@ -14,8 +14,9 @@ public interface IGitRepo {
     
     /**
      * Information about a Git worktree.
+     * Branch will be null if worktree is in a detached HEAD state.
      */
-    record WorktreeInfo(Path path, String branch, String commitId) {}
+    record WorktreeInfo(Path path, @Nullable String branch, String commitId) {}
     Set<ProjectFile> getTrackedFiles();
 
     default String diff() throws GitAPIException {
