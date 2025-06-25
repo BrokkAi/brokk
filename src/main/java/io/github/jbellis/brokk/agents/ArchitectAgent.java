@@ -268,7 +268,7 @@ public class ArchitectAgent {
             "when it is stuck or unsure how to proceed. The argument is a question to show the human.")
     @Nullable
     public String askHumanQuestion(
-            @P("A concise question you would like the human to answer") String question
+            @P("The question you would like the human to answer. Make sure to provide any necessary background for the human to quickly and completely understand what you need and why.") String question
     ) throws InterruptedException {
         logger.debug("askHumanQuestion invoked with question: {}", question);
         io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
