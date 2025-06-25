@@ -250,7 +250,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(2, 2, 2, 2);
 
         var project = chrome.getProject();
-        boolean showReviewGuide = project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab");
+        boolean showReviewGuide = project.isGitHubRepo();
 
         if (showReviewGuide) {
             gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;

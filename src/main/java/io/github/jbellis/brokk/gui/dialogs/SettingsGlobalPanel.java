@@ -91,9 +91,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // GitHub Tab (conditionally added)
         var project = chrome.getProject();
-        boolean shouldShowGitHubTab = project != null &&
-                                      project.isGitHubRepo() &&
-                                      (Boolean.getBoolean("brokk.prtab") || Boolean.getBoolean("brokk.issuetab"));
+        boolean shouldShowGitHubTab = project.isGitHubRepo();
 
         if (shouldShowGitHubTab) {
             var gitHubPanel = createGitHubPanel();

@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -103,22 +104,19 @@ public class GitPanel extends JPanel
         var project = contextManager.getProject();
 
         // 3) Worktrees tab (always added for Git repositories)
-        if (project != null && project.hasGit()) {
+        if (project.hasGit()) {
             gitWorktreeTab = new GitWorktreeTab(chrome, contextManager, this);
             tabbedPane.addTab("Worktrees", gitWorktreeTab);
         }
 
         // 4) Pull Requests tab (conditionally added)
-        if (project != null && project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab")) {
+        if (project.isGitHubRepo()) {
             pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
             tabbedPane.addTab("Pull Requests", pullRequestsTab);
         }
 
         // 5) Issues tab (conditionally added)
-        // Ensure this property ("brokk.issuetab") is set if you want this tab to appear.
-        if (project != null &&
-            project.getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE &&
-            Boolean.getBoolean("brokk.issuetab")) {
+        if (project.getIssuesProvider().type() != IssueProviderType.NONE) {
             issuesTab = new GitIssuesTab(chrome, contextManager, this);
             tabbedPane.addTab("Issues", issuesTab);
         }
@@ -144,9 +142,7 @@ public class GitPanel extends JPanel
             }
 
             // Re-evaluate condition for showing the issues tab
-            if (project != null &&
-                project.getIssuesProvider().type() != io.github.jbellis.brokk.issues.IssueProviderType.NONE &&
-                Boolean.getBoolean("brokk.issuetab"))
+            if (project.getIssuesProvider().type() != IssueProviderType.NONE)
             {
                 issuesTab = new GitIssuesTab(chrome, contextManager, this); // New tab will register itself as listener
                 if (issuesTabIndex != -1) {
@@ -158,9 +154,8 @@ public class GitPanel extends JPanel
                 }
                 logger.info("Recreated Issues tab for provider type: {}", project.getIssuesProvider().type());
             } else {
-                logger.info("Issues tab not recreated as conditions are not met (provider: {}, prop: {}).",
-                            project != null ? project.getIssuesProvider().type() : "null project",
-                            Boolean.getBoolean("brokk.issuetab"));
+                logger.info("Issues tab not recreated as conditions are not met (provider: {}).",
+                            project.getIssuesProvider().type());
             }
             // No need to call updateIssueList() here, the new GitIssuesTab constructor does it.
         });
