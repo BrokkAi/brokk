@@ -2,9 +2,6 @@
   <img src="docs/brokk.png" alt="Brokk – the forge god" width="600">
 </p>
 
-
-abc
-
 # Overview
 
 Brokk (the [Norse god of the forge](https://en.wikipedia.org/wiki/Brokkr))
