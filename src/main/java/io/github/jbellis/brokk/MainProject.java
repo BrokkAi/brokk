@@ -40,6 +40,8 @@ public final class MainProject extends AbstractProject {
     private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path reviewGuidePath;
+    private final Path mainWorkspacePropertiesPath;
+    private final Properties mainWorkspaceProps;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -124,6 +126,8 @@ public final class MainProject extends AbstractProject {
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
         this.sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
         this.legacySessionsIndexPath = this.sessionsDir.resolve("sessions.jsonl");
+        this.mainWorkspacePropertiesPath = this.root.resolve(".brokk").resolve("workspace.properties");
+        this.mainWorkspaceProps = new Properties();
 
         this.projectProps = new Properties();
 
@@ -132,15 +136,76 @@ public final class MainProject extends AbstractProject {
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
                     projectProps.load(reader);
                 }
-                var bd = loadBuildDetailsInternal(); // Uses projectProps
-                if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-                    this.detailsFuture.complete(bd);
-                }
             }
         } catch (IOException e) {
             logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
             projectProps.clear();
         }
+
+        try {
+            if (Files.exists(mainWorkspacePropertiesPath)) {
+                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
+                    mainWorkspaceProps.load(reader);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Error loading workspace properties from {}: {}", mainWorkspacePropertiesPath, e.getMessage());
+            mainWorkspaceProps.clear();
+        }
+
+        // Migrate Architect options from projectProps to workspaceProps
+        boolean migratedArchitectSettings = false;
+        if (projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY) ||
+                !mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY).equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
+                 mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
+                 migratedArchitectSettings = true;
+            }
+            projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
+            // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
+            // This flag will trigger saveProjectProperties if any key was removed.
+            // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
+            if (!migratedArchitectSettings && mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
+                 // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
+                 // We still need to save projectProps due to removal.
+                 // Let's use a broader flag for saving projectProps.
+            }
+        }
+        // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This variable is not used
+
+        if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY) ||
+                !mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY).equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
+                mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
+                migratedArchitectSettings = true;
+            }
+            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
+            // projectPropsChangedByMigration = projectPropsChangedByMigration || projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
+        }
+        
+        // Determine if projectProps needs saving due to removal of architect keys.
+        boolean removedKey1 = projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY) != null;
+        boolean removedKey2 = projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY) != null;
+        boolean needsProjectSave = removedKey1 || removedKey2;
+
+
+        if (migratedArchitectSettings) { // Data was written to workspaceProps
+            persistWorkspacePropertiesFile();
+            logger.info("Migrated Architect options from project.properties to workspace.properties for {}", root.getFileName());
+        }
+        if (needsProjectSave) { // Keys were removed from projectProps
+            saveProjectProperties();
+            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in workspace)
+                 logger.info("Removed Architect options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
+            }
+        }
+        
+        // Load build details AFTER projectProps might have been modified by migration (though build details keys are not affected here)
+        var bd = loadBuildDetailsInternal(); // Uses projectProps
+        if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+            this.detailsFuture.complete(bd);
+        }
+
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
     }
@@ -546,19 +611,37 @@ public final class MainProject extends AbstractProject {
         // For now, keep local implementation matching AbstractProject's logic.
         try {
             Files.createDirectories(propertiesFile.getParent());
+            Properties existingProps = new Properties();
             if (Files.exists(propertiesFile)) {
-                Properties existingProps = new Properties();
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
                     existingProps.load(reader);
-                } catch (IOException e) { /* ignore */ }
+                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+            }
 
-                if (Objects.equals(existingProps, projectProps)) { // Use AbstractProject.propsEqual
-                    return;
-                }
+            if (Objects.equals(existingProps, projectProps)) {
+                return;
             }
             AtomicWrites.atomicSaveProperties(propertiesFile, projectProps, "Brokk project configuration");
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
+        }
+    }
+
+    private void persistWorkspacePropertiesFile() {
+        try {
+            Files.createDirectories(mainWorkspacePropertiesPath.getParent());
+            Properties existingProps = new Properties();
+            if (Files.exists(mainWorkspacePropertiesPath)) {
+                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
+                    existingProps.load(reader);
+                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+            }
+            if (Objects.equals(existingProps, mainWorkspaceProps)) {
+                return;
+            }
+            AtomicWrites.atomicSaveProperties(mainWorkspacePropertiesPath, mainWorkspaceProps, "Brokk workspace configuration");
+        } catch (IOException e) {
+            logger.error("Error saving workspace properties to {}: {}", mainWorkspacePropertiesPath, e.getMessage());
         }
     }
 
@@ -831,12 +914,12 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        String json = projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
+        String json = mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
                 return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
             } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize ArchitectOptions from JSON: {}. Returning defaults.", json, e);
+                logger.error("Failed to deserialize ArchitectOptions from workspace JSON: {}. Returning defaults.", json, e);
             }
         }
         return ArchitectAgent.ArchitectOptions.DEFAULTS;
@@ -844,19 +927,19 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean getArchitectRunInWorktree() {
-        return Boolean.parseBoolean(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
+        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
     }
 
     @Override
     public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         try {
             String json = objectMapper.writeValueAsString(options);
-            projectProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
-            projectProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
-            saveProjectProperties();
-            logger.debug("Saved Architect options and worktree preference to project properties.");
+            mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
+            mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
+            persistWorkspacePropertiesFile();
+            logger.debug("Saved Architect options and worktree preference to workspace properties.");
         } catch (JsonProcessingException e) {
-            logger.error("Failed to serialize ArchitectOptions to JSON: {}. Settings not saved.", options, e);
+            logger.error("Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
     }
