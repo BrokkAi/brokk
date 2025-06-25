@@ -1176,7 +1176,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var sessionResult = new TaskResult(contextManager,
                                                    "Ask: " + question,
                                                    List.copyOf(chrome.getLlmRawMessages()),
-                                                   Map.of(), // No undo contents for Ask
+                                                   Set.of(), // No undo contents for Ask
                                                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
                 chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(sessionResult, false);
@@ -1194,7 +1194,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.debug(action + " command cancelled with partial results");
                 var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
                                                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
-                                                   Map.of(),
+                                                   Set.of(),
                                                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 chrome.getContextManager().addToHistory(sessionResult, false);
             }

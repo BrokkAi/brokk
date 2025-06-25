@@ -1850,14 +1850,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * returns null if the session is empty, otherwise returns the new TaskEntry
      */
     public TaskEntry addToHistory(TaskResult result, boolean compress) {
-        if (result.output().messages().isEmpty() && result.originalContents().isEmpty()) {
+        if (result.output().messages().isEmpty() && result.changedFiles().isEmpty()) {
             throw new IllegalStateException();
         }
 
-        var originalContents = result.originalContents();
         var action = result.actionDescription();
-
-        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, originalContents.size(), result.stopDetails());
+        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, result.changedFiles(), result.stopDetails());
 
         // Create TaskEntry based on the current liveContext
         TaskEntry newEntry = liveContext.createTaskEntry(result);

@@ -5,17 +5,14 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LogDescription;
-import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -68,7 +65,7 @@ public class CodeAgent {
         coder.setOutput(io);
 
         // Track original contents of files before any changes
-        var originalContentsOfChangedFiles = new HashMap<ProjectFile, String>();
+        var changedFiles = new HashSet<ProjectFile>();
 
         // Keep original workspace editable messages at the start of the task
         var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
@@ -101,7 +98,7 @@ public class CodeAgent {
                                                                            parser,
                                                                            taskMessages,
                                                                            nextRequest,
-                                                                           originalContentsOfChangedFiles.keySet(),
+                                                                           changedFiles,
                                                                            originalWorkspaceEditableMessages);
                 streamingResult = coder.sendRequest(allMessages, true);
             } catch (InterruptedException e) {
@@ -224,7 +221,7 @@ public class CodeAgent {
                 int succeeded = blocks.size() - editResult.failedBlocks().size();
                 io.llmOutput("\n" + succeeded + " SEARCH/REPLACE blocks applied.", ChatMessageType.CUSTOM);
             }
-            editResult.originalContents().forEach(originalContentsOfChangedFiles::putIfAbsent);
+            changedFiles.addAll(editResult.originalContents().keySet());
             int succeededCount = (blocks.size() - editResult.failedBlocks().size());
             blocksAppliedWithoutBuild += succeededCount;
             blocks.clear(); // Clear them out: either successful or moved to editResult.failed
@@ -253,7 +250,7 @@ public class CodeAgent {
                     if (applyFailures >= MAX_PARSE_ATTEMPTS) {
                         logger.debug("Apply failure limit reached ({}), attempting full file replacement fallback.", applyFailures);
                         try {
-                            attemptFullFileReplacements(editResult.failedBlocks(), originalContentsOfChangedFiles, userInput, taskMessages);
+                            attemptFullFileReplacements(editResult.failedBlocks(), userInput, taskMessages);
                             // Full replacement succeeded, reset failures and continue loop (will likely rebuild)
                             logger.debug("Full file replacement fallback successful.");
                             applyFailures = 0; // Reset since we made progress via fallback
@@ -310,7 +307,7 @@ public class CodeAgent {
         var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
         return new TaskResult("Code: " + finalActionDescription,
                               new ContextFragment.TaskFragment(contextManager, finalMessages, userInput),
-                              originalContentsOfChangedFiles,
+                              changedFiles,
                               stopDetails);
     }
 
@@ -363,61 +360,33 @@ public class CodeAgent {
      * Runs replacements in parallel.
      *
      * @param failedBlocks      The list of blocks that failed to apply.
-     * @param originalContents  Map to record original content before replacement.
      * @param originalUserInput The initial user goal for context.
-     * @param taskMessages
+     * @param taskMessages      The list of task messages for context.
      * @throws EditStopException if the fallback fails or is interrupted.
      */
     private void attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
-                                             Map<ProjectFile, String> originalContents,
                                              String originalUserInput,
                                              List<ChatMessage> taskMessages) throws EditStopException
     {
         var failuresByFile = failedBlocks.stream()
-                .map(fb -> fb.block().filename())
-                .filter(Objects::nonNull)
-                .distinct()
-                .map(contextManager::toFile)
-                .toList();
+                .filter(fb -> fb.block().filename() != null)
+                .collect(Collectors.groupingBy(fb -> contextManager.toFile(fb.block().filename())));
 
         if (failuresByFile.isEmpty()) {
             logger.debug("Fatal: no filenames present in failed blocks");
             throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks"));
         }
 
-        io.systemOutput("Attempting full file replacement for: " + failuresByFile.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
-
-        // Ensure original content is available for all files before parallel processing
-        var filesToProcess = new ArrayList<ProjectFile>();
-        for (var file : failuresByFile) {
-            if (originalContents.containsKey(file)) {
-                filesToProcess.add(file);
-                continue;
-            }
-
-            try {
-                originalContents.put(file, file.read());
-                filesToProcess.add(file);
-            } catch (IOException e) {
-                logger.error("Failed to read content of {} for full replacement fallback", file, e);
-                // Skip this file if we can't read its content
-            }
-        }
-
-        if (filesToProcess.isEmpty()) {
-            logger.debug("No files eligible for full file replacement after checking/reading content.");
-            // Throw error indicating failure, as the initial failures couldn't be addressed by fallback
-            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement."));
-        }
-
+        io.systemOutput("Attempting full file replacement for: " + failuresByFile.keySet().stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
+        
         // Process files in parallel using streams
-        var futures = filesToProcess.stream().parallel().map(file -> CompletableFuture.supplyAsync(() -> {
+        var futures = failuresByFile.entrySet().stream().parallel().map(entry -> CompletableFuture.supplyAsync(() -> {
+            var file = entry.getKey();
+            var failuresForFile = entry.getValue();
             try {
-                assert originalContents.containsKey(file); // Should now always be true for files in filesToProcess
-
                 // Prepare request
                 var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, taskMessages);
+                var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, failuresForFile, goal, taskMessages);
                 var model = requireNonNull(contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT));
                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
                 coder.setOutput(io);
@@ -476,9 +445,9 @@ public class CodeAgent {
 
         // Report combined errors
         var combinedError = String.join("\n", actualFailureMessages);
-        if (actualFailureMessages.size() < filesToProcess.size()) { // Compare with filesToProcess which is the actual count attempted
-            int succeeded = filesToProcess.size() - actualFailureMessages.size();
-            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, filesToProcess.size()) + combinedError;
+        if (actualFailureMessages.size() < failuresByFile.size()) {
+            int succeeded = failuresByFile.size() - actualFailureMessages.size();
+            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, failuresByFile.size()) + combinedError;
         }
         logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
         throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s). Details:\n%s".formatted(actualFailureMessages.size(), combinedError)));
@@ -615,9 +584,6 @@ public class CodeAgent {
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
-        // Record the original content so we can undo if necessary
-        var originalContents = Map.of(file, fileContents);
-
         // Initialize pending history with the instruction
         var pendingHistory = new ArrayList<ChatMessage>();
         pendingHistory.add(new UserMessage(instructionsMsg));
@@ -643,7 +609,7 @@ public class CodeAgent {
         // Return TaskResult containing conversation and original content
         return new TaskResult("Quick Edit: " + file.getFileName(),
                               new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
-                              originalContents,
+                              Set.of(file),
                               stopDetails);
     }
 

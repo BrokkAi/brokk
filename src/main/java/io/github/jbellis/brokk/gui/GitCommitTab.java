@@ -21,8 +21,9 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -649,15 +650,6 @@ public class GitCommitTab extends JPanel {
             try {
                 // Add files to context first (this ensures they can be restored)
                 contextManager.editFiles(selectedFiles);
-                // Capture original file contents for the task history
-                var originalContents = new HashMap<ProjectFile, String>();
-                for (var file : selectedFiles) {
-                    try {
-                        originalContents.put(file, file.read());
-                    } catch (IOException e) {
-                        logger.warn("Could not read original content of {}: {}", file, e.getMessage());
-                    }
-                }
 
                 // Take a snapshot of the current state before rollback
                 var frozen = contextManager.liveContext().freezeAndCleanup();
@@ -673,7 +665,7 @@ public class GitCommitTab extends JPanel {
                 var taskResult = new TaskResult(
                     rollbackDescription,
                     new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                    originalContents,
+                    new HashSet<>(selectedFiles),
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
                 );
                 contextManager.addToHistory(taskResult, false);

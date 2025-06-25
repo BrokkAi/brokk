@@ -884,7 +884,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var saveResult = new TaskResult(contextManager,
                                                 actionDescription,
                                                 messagesForHistory,
-                                                Map.of(file, contentBeforeSave),
+                                                Set.of(file),
                                                 TaskResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);

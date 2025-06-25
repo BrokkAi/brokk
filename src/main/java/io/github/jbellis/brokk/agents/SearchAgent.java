@@ -384,7 +384,8 @@ public class SearchAgent {
 
     private TaskResult errorResult(TaskResult.StopDetails details, String explanation) {
         return new TaskResult("Search: " + query,
-                              new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage(query), new AiMessage(explanation)), query), Map.of(),
+                              new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage(query), new AiMessage(explanation)), query), 
+                              Set.of(),
                               details);
     }
 
@@ -1187,7 +1188,8 @@ public class SearchAgent {
         var sessionName = "Search: " + query;
         var fragment = new ContextFragment.SearchFragment(contextManager, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
         return new TaskResult(sessionName,
-                              fragment, Map.of(),
+                              fragment, 
+                              Set.of(),
                               new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 

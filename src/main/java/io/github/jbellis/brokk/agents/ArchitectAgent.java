@@ -453,7 +453,7 @@ public class ArchitectAgent {
                                                                 List.of(new AiMessage(toolResult.resultText())),
                                                                 goal);
                 var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
+                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
             }
             if (abortReq != null) {
                 logger.debug("LLM decided to abortProject. We'll finalize and stop");
@@ -463,7 +463,7 @@ public class ArchitectAgent {
                                                                   List.of(new AiMessage(toolResult.resultText())),
                                                                   goal);
                 var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
+                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
             }
 
             // Execute askHumanQuestion if present
@@ -548,7 +548,7 @@ public class ArchitectAgent {
         return new TaskResult(contextManager,
                               "Architect: " + goal,
                               List.of(),
-                              Map.of(),
+                              Set.of(),
                               new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR));
     }
 

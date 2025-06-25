@@ -345,6 +345,7 @@ public abstract class CodePrompts {
      */
     public List<ChatMessage> collectFullFileReplacementMessages(IContextManager cm,
                                                                 ProjectFile targetFile,
+                                                                List<EditBlock.FailedBlock> failures,
                                                                 String goal,
                                                                 List<ChatMessage> taskMessages)
     throws InterruptedException
@@ -364,13 +365,31 @@ public abstract class CodePrompts {
         // 5. task-messages-so-far
         messages.addAll(taskMessages);
 
-        // 5. Target File Content + Goal
+        // 5. Target File Content + Goal + Failed Blocks
         String currentContent;
         try {
             currentContent = targetFile.read();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
         }
+
+        var failedBlocksText = failures.stream()
+                .map(f -> {
+                    var commentaryText = f.commentary().isBlank() ? "" : """
+                            <commentary>
+                            %s
+                            </commentary>
+                            """.formatted(f.commentary());
+                    return """
+                            <failed_block reason="%s">
+                            <block>
+                            %s
+                            </block>
+                            %s
+                            </failed_block>
+                            """.formatted(f.reason(), f.block().toString(), commentaryText);
+                })
+                .collect(Collectors.joining("\n"));
 
         var userMessage = """
             You are now performing a full-file replacement because previous edits failed.
@@ -385,7 +404,12 @@ public abstract class CodePrompts {
             %s
             </file>
             
-            Review the conversation history, workspace contents, and the current source code.
+            Here are the specific edit blocks that failed to apply:
+            <failed_blocks>
+            %s
+            </failed_blocks>
+            
+            Review the conversation history, workspace contents, the current source code, and the failed edit blocks.
             Figure out what changes we are trying to make to implement the goal,
             then provide the *complete and updated* new content for the entire file,
             fenced with triple backticks. Omit language identifiers or other markdown options.
@@ -393,7 +417,7 @@ public abstract class CodePrompts {
             You MUST include the backtick fences, even if the correct content is an empty file.
             DO NOT modify the file except for the changes pertaining to the goal!
             DO NOT use the SEARCH/REPLACE format you see earlier -- that didn't work!
-            """.formatted(goal, targetFile, currentContent);
+            """.formatted(goal, targetFile, currentContent, failedBlocksText);
         messages.add(new UserMessage(userMessage));
 
         return messages;
