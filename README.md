@@ -2,9 +2,6 @@
   <img src="docs/brokk.png" alt="Brokk – the forge god" width="600">
 </p>
 
-
-abc
-
 # Overview
 
 Brokk (the [Norse god of the forge](https://en.wikipedia.org/wiki/Brokkr))
@@ -29,7 +26,25 @@ If you have `sbtn` installed it can be used to run commands such as `sbtn run` w
 (You can also run a single command without the repl with e.g. `sbt run` but sbt has a very high
 startup overhead so using the repl or `sbtn` is recommended.)
 
-If you change the build definition, run `reload` to start using the changes.
+### Checking the PATH Brokk Sees
+
+To debug PATH issues, inspect the environment from the shell Brokk uses.
+
+- **On Linux/macOS (`/bin/sh`)**
+  ```bash
+  /bin/sh -c env
+  ```
+
+- **On Windows (`cmd`)**
+  ```cmd
+  cmd /C set
+  ```
+
+> If you're using WSL or Git Bash on Windows, you may still be using a Unix-like shell, and `/bin/sh -c env` would apply.
+
+If `sbt` does not appear in the output of these commands, Brokk won't be able to find it during execution.
+
+We recommend using the [official sbt installer](https://www.scala-sbt.org/download.html), as it configures the PATH correctly on most systems.
 
 There are documents on specific aspects of the code in [src/main](https://github.com/BrokkAi/brokk/tree/master/src/main).
 
