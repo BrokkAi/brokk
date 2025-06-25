@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.issues;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.IssueProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,7 +23,9 @@ public class JiraIssueServiceTest {
         }
         jiraApiToken = System.getenv("JIRA_TEST_API_TOKEN");
         if (jiraApiToken == null) {
-            // hardcode token here for tests
+            // Use empty string for unauthenticated tests instead of null
+            // or hardcode your Jira API token here for authenticated tests
+            jiraApiToken = "";
         }
     }
 
@@ -113,7 +114,7 @@ public class JiraIssueServiceTest {
         // Further checks on comment content could be added if a specific comment is guaranteed to exist.
         // For CASSANDRA-1, it's likely to have comments.
         if (!details.comments().isEmpty()) {
-            Comment firstComment = details.comments().get(0);
+            Comment firstComment = details.comments().getFirst();
             assertNotNull(firstComment.author(), "First comment's author should not be null.");
             assertNotNull(firstComment.markdownBody(), "First comment's body should not be null.");
             assertNotNull(firstComment.created(), "First comment's creation date should not be null.");

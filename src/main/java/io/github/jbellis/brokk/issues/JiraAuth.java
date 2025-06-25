@@ -1,8 +1,5 @@
 package io.github.jbellis.brokk.issues;
 
-import io.github.jbellis.brokk.MainProject;
-import okhttp3.Credentials;
-import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import org.apache.logging.log4j.LogManager;
@@ -14,8 +11,6 @@ import java.util.concurrent.TimeUnit;
 
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.IssueProvider;
-import io.github.jbellis.brokk.issues.IssueProviderType;
-import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 
 public class JiraAuth {
     private static final Logger logger = LogManager.getLogger(JiraAuth.class);
