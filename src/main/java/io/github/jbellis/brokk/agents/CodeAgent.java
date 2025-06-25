@@ -379,8 +379,8 @@ public class CodeAgent {
 
         io.systemOutput("Attempting full file replacement for: " + failuresByFile.keySet().stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
         
-        // Process files in parallel using streams
-        var futures = failuresByFile.entrySet().stream().parallel().map(entry -> CompletableFuture.supplyAsync(() -> {
+        // Prepare tasks for parallel execution
+        var tasks = failuresByFile.entrySet().stream().map(entry -> (Callable<Optional<String>>) () -> {
             var file = entry.getKey();
             var failuresForFile = entry.getValue();
             try {
@@ -391,48 +391,36 @@ public class CodeAgent {
                 var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
                 coder.setOutput(io);
                 return executeReplace(file, coder, messages);
-            } catch (InterruptedException e) {
-                throw new CancellationException();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
-        }, contextManager.getBackgroundTasks())).toList();
+        }).toList();
 
-        // Wait for all parallel tasks submitted via supplyAsync; if any is cancelled, cancel the others immediately
+        // Execute tasks with ExecutorService.invokeAll for interrupt handling
+        var executor = Executors.newFixedThreadPool(10);
+        List<Future<Optional<String>>> futures;
         try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        } catch (CancellationException e) {
+            futures = executor.invokeAll(tasks);
+        } catch (InterruptedException e) {
+            logger.debug("Interrupted during full file replacement tasks execution.");
             Thread.currentThread().interrupt();
-        } catch (CompletionException e) {
-            // log this later
-        }
-        if (Thread.currentThread().isInterrupted()) {
-            logger.debug("Interrupted during or after waiting for full file replacement tasks. Cancelling pending tasks.");
-            futures.forEach(f -> f.cancel(true)); // Attempt to cancel ongoing tasks
             throw new EditStopException(TaskResult.StopReason.INTERRUPTED);
+        } finally {
+            executor.shutdownNow();
         }
 
-        // Not cancelled -- collect results
+        // Collect results
         var actualFailureMessages = futures.stream()
-                .map(f -> {
-                    assert f.isDone();
+                .map(future -> {
                     try {
-                        return f.getNow(Optional.of("Should never happen")); // Should not block here
-                    } catch (CancellationException ce) {
-                        // This implies it was cancelled by the interruption block above, or by a timeout not handled here.
-                        // The interruption exception should have been thrown already.
-                        logger.warn("Task was cancelled but not caught by interruption check", ce);
-                        return Optional.of("Task cancelled for file."); // Provide a generic message
-                    } catch (CompletionException ce) {
-                        logger.error("Unexpected error applying change during full file replacement", ce);
-                        Throwable cause = ce.getCause();
-                        if (cause instanceof InterruptedException) { // Check if the cause was an interruption
-                            Thread.currentThread().interrupt(); // Re-interrupt
-                            // This case should ideally be caught by the main interruption check,
-                            // but good to handle if CompletionException wraps InterruptedException.
-                            return Optional.of("Full file replacement interrupted for file.");
-                        }
-                        return Optional.of("Unexpected error: " + (cause != null ? cause.getMessage() : ce.getMessage()));
+                        return future.get(); // This should not block long since invokeAll already waited
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.debug("Interrupted while collecting results for full file replacement.");
+                        return Optional.of("Interrupted during result collection.");
+                    } catch (ExecutionException e) {
+                        logger.error("Error during full file replacement task", e.getCause());
+                        return Optional.of("Error: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
                     }
                 })
                 .flatMap(Optional::stream)
