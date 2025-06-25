@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.search;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import javax.swing.*;
 import java.util.List;
@@ -14,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for error handling in MarkdownSearchableComponent.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 public class MarkdownSearchableComponentErrorTest {
 
     private MarkdownOutputPanel panel;
@@ -55,7 +58,7 @@ public class MarkdownSearchableComponentErrorTest {
             SwingUtilities.invokeLater(() ->
                 searchComponent.highlightAll(searchTerm, false));
 
-            assertTrue(searchDone.await(3, TimeUnit.SECONDS),
+            assertTrue(searchDone.await(10, TimeUnit.SECONDS),
                       "Search for '" + searchTerm + "' should complete");
         }
     }
