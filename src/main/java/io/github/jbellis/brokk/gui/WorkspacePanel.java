@@ -1857,18 +1857,13 @@ public class WorkspacePanel extends JPanel {
                 .filter(ContextManager::isTestFile)
                 .collect(Collectors.toSet());
 
-        contextManager.submitContextTask("Run selected tests", () -> {
-            // Placeholder for building the test command using the extracted BuildAgent logic
-            // Assuming a utility method like `BuildAgent.getBuildLintCommand` or similar is available
-            String cmd = BuildAgent.getBuildLintCommand(contextManager,
-                                                        contextManager.getProject().loadBuildDetails(),
-                                                        testFiles);
-            if (cmd.isEmpty()) {
-                chrome.toolError("Run in Shell: build commands are unknown; run Build Setup first");
-                return;
-            }
+        if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
+            chrome.toolError("No test files found in the selection to run.");
+            return;
+        }
 
-            SwingUtilities.invokeLater(() -> chrome.getInstructionsPanel().runRunCommand(cmd));
+        contextManager.submitContextTask("Run selected tests", () -> {
+            RunTestsService.runTests(chrome, contextManager, testFiles);
         });
     }
 
