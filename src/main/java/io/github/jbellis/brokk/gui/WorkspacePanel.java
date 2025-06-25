@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import io.github.jbellis.brokk.agents.BuildAgent;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -70,7 +71,7 @@ public class WorkspacePanel extends JPanel {
      * Enum representing the different types of context actions that can be performed.
      */
     public enum ContextAction {
-        EDIT, READ, SUMMARIZE, DROP, COPY, PASTE
+        EDIT, READ, SUMMARIZE, DROP, COPY, PASTE, RUN_TESTS
     }
 
     public enum PopupMenuMode { FULL, COPY_ONLY }
@@ -124,6 +125,12 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
                 actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
+                if (ContextManager.isTestFile(fileRef.getRepoFile())) {
+                    actions.add(WorkspaceAction.RUN_TESTS.createFileRefAction(panel, fileRef));
+                } else {
+                    var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
+                    actions.add(disabledAction);
+                }
             }
 
             return actions;
@@ -203,6 +210,14 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment)));
             }
 
+            // Add Run Tests action if the fragment is associated with a test file
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH && fragment.files().stream().anyMatch(ContextManager::isTestFile)) {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
+
             return actions;
         }
     }
@@ -235,6 +250,14 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, fragments));
             }
 
+            // Add Run Tests action if any selected fragment is associated with a test file
+            if (fragments.stream().flatMap(f -> f.files().stream()).anyMatch(ContextManager::isTestFile)) {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
+
             return actions;
         }
     }
@@ -258,7 +281,8 @@ public class WorkspacePanel extends JPanel {
         DROP("Drop"),
         DROP_ALL("Drop All"),
         COPY_ALL("Copy All"),
-        PASTE("Paste text, images, urls");
+        PASTE("Paste text, images, urls"),
+        RUN_TESTS("Run Tests in Shell");
 
         private final String label;
 
@@ -275,6 +299,7 @@ public class WorkspacePanel extends JPanel {
                     case COPY_ALL -> panel.performContextActionAsync(ContextAction.COPY, List.of());
                     case PASTE -> panel.performContextActionAsync(ContextAction.PASTE, List.of());
                     case COMPRESS_HISTORY -> panel.contextManager.compressHistoryAsync();
+                    case RUN_TESTS -> panel.performContextActionAsync(ContextAction.RUN_TESTS, List.of());
                     default -> throw new UnsupportedOperationException("Action not implemented: " + WorkspaceAction.this);
                 }
             }
@@ -369,6 +394,7 @@ public class WorkspacePanel extends JPanel {
                         case SUMMARIZE_ALL_REFS -> ContextAction.SUMMARIZE;
                         case COPY -> ContextAction.COPY;
                         case DROP -> ContextAction.DROP;
+                        case RUN_TESTS -> ContextAction.RUN_TESTS;
                         default -> throw new UnsupportedOperationException("Fragments action not implemented: " + WorkspaceAction.this);
                     };
                     panel.performContextActionAsync(contextAction, fragments);
@@ -1561,6 +1587,7 @@ public class WorkspacePanel extends JPanel {
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
                     case PASTE -> doPasteAction();
+                    case RUN_TESTS -> doRunTestsAction(selectedFragments);
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput(action + " canceled.");
@@ -1822,6 +1849,27 @@ public class WorkspacePanel extends JPanel {
 
             contextManager.drop(selectedFragments); // Use the new ID-based method
         }
+    }
+
+    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
+        var testFiles = selectedFragments.stream()
+                .flatMap(frag -> frag.files().stream())
+                .filter(ContextManager::isTestFile)
+                .collect(Collectors.toSet());
+
+        contextManager.submitContextTask("Run selected tests", () -> {
+            // Placeholder for building the test command using the extracted BuildAgent logic
+            // Assuming a utility method like `BuildAgent.getBuildLintCommand` or similar is available
+            String cmd = BuildAgent.getBuildLintCommand(contextManager,
+                                                        contextManager.getProject().loadBuildDetails(),
+                                                        testFiles);
+            if (cmd.isEmpty()) {
+                chrome.toolError("Run in Shell: build commands are unknown; run Build Setup first");
+                return;
+            }
+
+            SwingUtilities.invokeLater(() -> chrome.getInstructionsPanel().runRunCommand(cmd));
+        });
     }
 
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {

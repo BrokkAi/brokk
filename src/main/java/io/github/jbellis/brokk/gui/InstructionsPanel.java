@@ -1554,9 +1554,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
         chrome.getProject().addToInstructionsHistory(input, 20);
+
+        runRunCommand(input);
+    }
+
+    public void runRunCommand(String input) {
         clearCommandInput();
         disableButtons();
-        // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
