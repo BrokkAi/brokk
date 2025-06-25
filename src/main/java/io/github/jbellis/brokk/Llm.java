@@ -31,6 +31,7 @@ import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -1045,6 +1046,10 @@ public class Llm {
         public boolean isEmpty() {
             return text.isEmpty() && toolRequests.isEmpty();
         }
+
+        public AiMessage aiMessage() {
+            return toolRequests.isEmpty() ? new AiMessage(text) : new AiMessage(text, toolRequests);
+        }
     }
 
     public void setOutput(IConsoleIO io) {
@@ -1097,11 +1102,10 @@ public class Llm {
         }
 
         /**
-         * It is only valid to call this when no error is present,
-         * so we are guaranteed that chatResponse and cR.originalResponse are non-null
+         * Package-private since unless you are test code you should almost always call aiMessage() instead
          */
-        public AiMessage originalMessage() {
-            assert error == null : error;
+        @VisibleForTesting
+        AiMessage originalMessage() {
             return requireNonNull(requireNonNull(chatResponse).originalResponse).aiMessage();
         }
 
@@ -1110,6 +1114,14 @@ public class Llm {
                 return castNonNull(originalResponse()).finishReason() == FinishReason.LENGTH;
             }
             return chatResponse != null;
+        }
+
+        /**
+         * @return the response text if a response is present; else throws
+         */
+        public AiMessage aiMessage() {
+            requireNonNull(chatResponse);
+            return chatResponse.aiMessage();
         }
 
         public String formatted() {

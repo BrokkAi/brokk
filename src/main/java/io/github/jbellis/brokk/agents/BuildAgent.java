@@ -149,7 +149,7 @@ public class BuildAgent {
                 return BuildDetails.EMPTY;
             }
 
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             chatHistory.add(aiMessage); // Add AI request message to history
 
             // 5. Process Tool Execution Requests

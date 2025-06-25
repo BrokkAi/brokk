@@ -415,7 +415,7 @@ public class ArchitectAgent {
 
             totalUsage = TokenUsage.sum(totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             architectMessages.add(messages.getLast());
             architectMessages.add(aiMessage);
 

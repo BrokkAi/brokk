@@ -127,7 +127,7 @@ public class CodeAgent {
 
             // Append request/response to task history
             taskMessages.add(nextRequest);
-            taskMessages.add(streamingResult.originalMessage());
+            taskMessages.add(streamingResult.aiMessage());
 
             String llmText = streamingResult.text();
             logger.debug("Got response (potentially partial if LLM connection was cut off)");
@@ -636,7 +636,7 @@ public class CodeAgent {
             io.toolError("LLM returned empty response for quick edit.");
         } else {
             // Success from LLM perspective (no error, text is not blank)
-            pendingHistory.add(result.originalMessage()); // Safe to call as error is null
+            pendingHistory.add(result.aiMessage());
             stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
 
