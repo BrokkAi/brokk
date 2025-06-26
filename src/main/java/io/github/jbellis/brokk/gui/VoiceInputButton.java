@@ -120,6 +120,9 @@ public class VoiceInputButton extends JButton {
         // Track recording state
         putClientProperty("isRecording", false);
 
+        // Set tooltip for keyboard shortcut discoverability
+        setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
+
         // Configure the toggle behavior
         addActionListener(e -> {
             boolean isRecording = (boolean) getClientProperty("isRecording");

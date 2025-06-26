@@ -1698,6 +1698,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.deepScanButton.setEnabled(enabled);
     }
 
+    public VoiceInputButton getVoiceInputButton() {
+        return this.micButton;
+    }
+
     /**
      * Returns cosine similarity of two equal-length vectors.
      */
