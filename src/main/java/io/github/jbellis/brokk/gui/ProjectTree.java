@@ -495,7 +495,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     } else if (!pathsToSelect.isEmpty()) {
                          scrollPathToVisible(pathsToSelect.get(0));
                     }
-                    requestFocusInWindow(); // Ensure tree has focus to see selection
                 }
             }
             logger.trace("ProjectTree refresh complete.");
