@@ -201,7 +201,7 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.toolError("LLM error: " + th.getMessage()); // Immediate feedback for user
+                    io.systemOutput(th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
                     latch.countDown();
                 });
@@ -347,7 +347,7 @@ public class Llm {
                 break;
             }
 
-            logger.debug("LLM error == {}, isEmpty == {}. Will retry. Attempt={}", lastError, response.isEmpty(), attempt);
+            logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
             if (attempt == maxAttempts) {
                 break; // done
             }
