@@ -377,35 +377,23 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Add undo/redo buttons at the bottom, side by side
-        var buttonPanel = new JPanel();
-        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS)); // Horizontal layout
-        buttonPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-        buttonPanel.add(Box.createHorizontalGlue()); // Push buttons to center
+        // Use GridLayout to make buttons share width equally
+        var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
-        var undoSize = new Dimension(100, undoButton.getPreferredSize().height);
-        undoButton.setPreferredSize(undoSize);
-        undoButton.setMinimumSize(undoSize);
-        undoButton.setMaximumSize(undoSize);
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
-        var redoSize = new Dimension(100, redoButton.getPreferredSize().height);
-        redoButton.setPreferredSize(redoSize);
-        redoButton.setMinimumSize(redoSize);
-        redoButton.setMaximumSize(redoSize);
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
         });
 
         buttonPanel.add(undoButton);
-        buttonPanel.add(Box.createRigidArea(new Dimension(5, 0))); // Add spacing
         buttonPanel.add(redoButton);
-        buttonPanel.add(Box.createHorizontalGlue()); // Push buttons to center
 
         panel.add(scrollPane, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
