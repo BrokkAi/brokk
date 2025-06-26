@@ -367,15 +367,7 @@ public interface ContextFragment {
                     GitFileFragment.class.getName() // original class name for hash
             ));
         }
-
-        // Record canonical constructor
-        public GitFileFragment {
-            Objects.requireNonNull(file);
-            Objects.requireNonNull(revision);
-            Objects.requireNonNull(content);
-            Objects.requireNonNull(id); // ID is content hash
-        }
-
+        
         @Override
         public FragmentType getType() {
             return FragmentType.GIT_FILE;
