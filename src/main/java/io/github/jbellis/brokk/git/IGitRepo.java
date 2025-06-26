@@ -10,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public interface IGitRepo {
@@ -147,4 +148,17 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("performMerge not implemented");
     }
 
+    /**
+     * Attempts to determine the repository's default branch.
+     * Order of preference:
+     *   1. The symbolic ref refs/remotes/origin/HEAD (remote's default)
+     *   2. Local branch named 'main'
+     *   3. Local branch named 'master'
+     *   4. First local branch (alphabetically)
+     * @return An Optional containing the default branch name, or empty if none can be determined.
+     * @throws GitAPIException if an error occurs while accessing Git data.
+     */
+    default Optional<String> getDefaultBranch() throws GitAPIException {
+        throw new UnsupportedOperationException("getDefaultBranch not implemented");
+    }
 }

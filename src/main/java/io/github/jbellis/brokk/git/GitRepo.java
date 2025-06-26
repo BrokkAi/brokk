@@ -2534,4 +2534,61 @@ public class GitRepo implements Closeable, IGitRepo {
             throw e;
         }
     }
+
+    /**
+     * Attempts to determine the repository's default branch.
+     * Order of preference:
+     *   1. The symbolic ref refs/remotes/origin/HEAD (remote's default)
+     *   2. Local branch named 'main'
+     *   3. Local branch named 'master'
+     *   4. First local branch (alphabetically)
+     * @return An Optional containing the default branch name, or empty if none can be determined.
+     * @throws GitAPIException if an error occurs while accessing Git data.
+     */
+    @Override
+    public Optional<String> getDefaultBranch() throws GitAPIException {
+        // 1. Check remote HEAD symbolic ref (typically origin/HEAD)
+        try {
+            var remoteHeadRef = repository.findRef("refs/remotes/origin/HEAD");
+            if (remoteHeadRef != null && remoteHeadRef.isSymbolic()) {
+                var target = remoteHeadRef.getTarget().getName(); // e.g., "refs/remotes/origin/main"
+                if (target.startsWith("refs/remotes/origin/")) {
+                    var branchName = target.substring("refs/remotes/origin/".length());
+                    // Verify this branch actually exists locally, otherwise it's not a usable default
+                    if (listLocalBranches().contains(branchName)) {
+                        logger.debug("Default branch from origin/HEAD: {}", branchName);
+                        return Optional.of(branchName);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Log and continue, as this is just one way to find the default
+            logger.warn("IOException while trying to read refs/remotes/origin/HEAD", e);
+        }
+
+        // 2. Check for local 'main'
+        var localBranches = listLocalBranches();
+        if (localBranches.contains("main")) {
+            logger.debug("Default branch found: local 'main'");
+            return Optional.of("main");
+        }
+
+        // 3. Check for local 'master'
+        if (localBranches.contains("master")) {
+            logger.debug("Default branch found: local 'master'");
+            return Optional.of("master");
+        }
+
+        // 4. Fallback to the first local branch alphabetically
+        if (!localBranches.isEmpty()) {
+            Collections.sort(localBranches);
+            var firstBranch = localBranches.getFirst();
+            logger.debug("Default branch fallback: alphabetically first local branch '{}'", firstBranch);
+            return Optional.of(firstBranch);
+        }
+
+        // 5. No branches found
+        logger.debug("No default branch could be determined (no local branches found).");
+        return Optional.empty();
+    }
 }
