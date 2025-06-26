@@ -161,4 +161,8 @@ public interface IGitRepo {
     default Optional<String> getDefaultBranch() throws GitAPIException {
         throw new UnsupportedOperationException("getDefaultBranch not implemented");
     }
+
+    default String getCurrentBranch() throws GitAPIException {
+        throw new UnsupportedOperationException("getDefaultBranch not implemented");
+    }
 }

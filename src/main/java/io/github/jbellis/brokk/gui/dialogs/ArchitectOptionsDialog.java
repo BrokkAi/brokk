@@ -3,12 +3,15 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.Objects;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -116,6 +119,45 @@ public class ArchitectOptionsDialog {
             var askHumanCb = createCheckbox.apply("Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
             askHumanCb.setSelected(currentOptions.includeAskHuman());
 
+            // --- Git Tools Separator and Header ---
+            mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
+            mainPanel.add(Box.createVerticalStrut(10));
+
+            var gitHeader = new JLabel("Git Tools");
+            gitHeader.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+            gitHeader.setFont(gitHeader.getFont().deriveFont(Font.BOLD));
+            gitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+            mainPanel.add(gitHeader);
+
+            // --- Git Commit Checkbox ---
+            boolean gitAvailable = project.hasGit();
+            boolean onDefaultBranch = false;
+            String defaultBranchName = "";
+            if (gitAvailable) {
+                try {
+                    var repo = project.getRepo();
+                    defaultBranchName = repo.getDefaultBranch()
+                            .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
+                    onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
+                } catch (GitAPIException e) {
+                    defaultBranchName = "";
+                }
+            }
+            boolean commitUsable = gitAvailable && !onDefaultBranch;
+
+            var commitCb = createCheckbox.apply(
+                    "Commit changes",
+                    "Stage & commit all current edits. Disabled on default branch."
+            );
+            commitCb.setEnabled(commitUsable);
+            commitCb.setSelected(commitUsable && currentOptions.includeGitCommit());
+
+            if (!gitAvailable) {
+                commitCb.setToolTipText("No Git repository detected for this project.");
+            } else if (onDefaultBranch) {
+                commitCb.setToolTipText("Cannot commit on the default branch (%s).".formatted(defaultBranchName));
+            }
+
             // Separator before worktree option
             mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
             mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
@@ -124,7 +166,8 @@ public class ArchitectOptionsDialog {
             var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
             worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
             worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
-            boolean gitAvailable = project != null && project.hasGit();
+            // boolean gitAvailable = project != null && project.hasGit(); // This was the duplicate declaration
+            // The 'gitAvailable' variable from above (around line 133) is in scope and used here.
             boolean worktreesSupported = gitAvailable && project.getRepo().supportsWorktrees();
             worktreeCb.setEnabled(worktreesSupported);
             worktreeCb.setSelected(currentRunInWorktree && worktreesSupported); // Only selected if supported
@@ -155,7 +198,8 @@ public class ArchitectOptionsDialog {
                         workspaceCb.isSelected(),
                         codeCb.isSelected(),
                         searchCb.isSelected(),
-                        askHumanCb.isSelected()
+                        askHumanCb.isSelected(),
+                        commitCb.isSelected() // Persist Git commit option
                 );
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 

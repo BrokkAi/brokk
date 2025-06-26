@@ -1265,6 +1265,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get current branch name
      */
+    @Override
     public String getCurrentBranch() throws GitAPIException {
         try {
             var branch = repository.getBranch();

@@ -14,6 +14,8 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
@@ -50,10 +52,11 @@ public class ArchitectAgent {
             boolean includeWorkspaceTools,
             boolean includeCodeAgent,
             boolean includeSearchAgent,
-            boolean includeAskHuman
+            boolean includeAskHuman,
+            boolean includeGitCommit
     ) {
-        /** Default options (all enabled). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true);
+        /** Default options (all enabled, except Git tools). */
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false);
     }
 
     private final IConsoleIO io;
@@ -200,6 +203,40 @@ public class ArchitectAgent {
                 </stop-details>
                 """.stripIndent().formatted(entry != null ? entry.summary() : "CodeAgent failed with no specific summary.", stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
+        return summary;
+    }
+
+    @Tool("Create a local commit containing ALL current changes. " +
+          "If the message is empty, a message will be generated.")
+    public String commitChanges(
+            @Nullable @P("Commit message in imperative form (≤ 80 chars). " +
+               "Leave blank to auto-generate.") String message
+    ) throws Exception {
+        io.llmOutput("Git committing changes...", ChatMessageType.CUSTOM, true);
+
+        // --- Guards ----------------------------------------------------------
+        var project = contextManager.getProject();
+        if (!project.hasGit()) {
+            throw new IllegalStateException("Project is not a Git repository.");
+        }
+
+        var repo = (GitRepo) project.getRepo(); // Cast to concrete GitRepo
+
+        String defaultBranch = repo.getDefaultBranch()
+                .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
+
+        if (Objects.equals(repo.getCurrentBranch(), defaultBranch)) {
+            throw new IllegalStateException("Refusing to commit on the default branch (%s)."
+                                                    .formatted(defaultBranch));
+        }
+
+        // --------------------------------------------------------------------
+        var gws = new GitWorkflowService(contextManager);
+        var result = gws.commit(List.of(), message == null ? "" : message.trim());
+
+        var summary = "Committed %s – “%s”".formatted(result.commitId(), result.firstLine());
+        io.llmOutput(summary, ChatMessageType.CUSTOM);
+        logger.info(summary);
         return summary;
     }
 
@@ -384,6 +421,9 @@ public class ArchitectAgent {
                 }
                 if (options.includeAskHuman()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("askHumanQuestion")));
+                }
+                if (options.includeGitCommit()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("commitChanges")));
                 }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
