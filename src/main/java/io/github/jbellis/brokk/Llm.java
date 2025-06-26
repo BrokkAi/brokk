@@ -188,7 +188,9 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        errorRef.set(new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)"));
+                        var ex = new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)");
+                        logger.debug(ex);
+                        errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
                         String tokens = response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
@@ -201,7 +203,8 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.systemOutput(th.getMessage() + " (retry-able)"); // Immediate feedback for user
+                    logger.debug(th);
+                    io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
                     latch.countDown();
                 });
