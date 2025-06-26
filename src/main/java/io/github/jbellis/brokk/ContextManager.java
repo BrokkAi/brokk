@@ -1388,11 +1388,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public Set<BrokkFile> getReadonlyFiles() {
+    public Set<BrokkFile> getReadonlyProjectFiles() {
         return topContext().readonlyFiles()
-                .filter(ContextFragment.PathFragment.class::isInstance)
-                .map(ContextFragment.PathFragment.class::cast)
-                .map(ContextFragment.PathFragment::file)
+                .filter(pf -> pf instanceof ContextFragment.ProjectPathFragment)
+                .map(pf -> ((ContextFragment.ProjectPathFragment) pf).file())
                 .collect(Collectors.toSet());
     }
 

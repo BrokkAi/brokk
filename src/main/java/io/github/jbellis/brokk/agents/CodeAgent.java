@@ -526,7 +526,7 @@ public class CodeAgent {
 
         // Check for conflicts with read-only files
         var readOnlyFiles = filesToAdd.stream()
-                .filter(file -> cm.getReadonlyFiles().contains(file))
+                .filter(file -> cm.getReadonlyProjectFiles().contains(file))
                 .toList();
         if (!readOnlyFiles.isEmpty()) {
             cm.getIo().systemOutput(

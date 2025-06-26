@@ -98,7 +98,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Set<BrokkFile> getReadonlyFiles() {
+    default Set<BrokkFile> getReadonlyProjectFiles() {
         throw new UnsupportedOperationException();
     }
 
