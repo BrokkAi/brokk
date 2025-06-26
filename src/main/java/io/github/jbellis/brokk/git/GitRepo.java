@@ -762,6 +762,34 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * True iff {@code branchName} is one of this repository’s **local** branches.
+     * Falls back to {@code false} if the branch list cannot be obtained.
+     */
+    public boolean isLocalBranch(String branchName)
+    {
+        try {
+            return listLocalBranches().contains(branchName);
+        } catch (GitAPIException e) {
+            logger.warn("Unable to enumerate local branches", e);
+            return false;
+        }
+    }
+
+    /**
+     * True iff {@code branchName} is one of this repository’s **remote** branches
+     * (e.g. origin/main).  Falls back to {@code false} on error.
+     */
+    public boolean isRemoteBranch(String branchName)
+    {
+        try {
+            return listRemoteBranches().contains(branchName);
+        } catch (GitAPIException e) {
+            logger.warn("Unable to enumerate remote branches", e);
+            return false;
+        }
+    }
+
+    /**
      * Checkout a specific branch
      */
     public void checkout(String branchName) throws GitAPIException {

@@ -1,16 +1,14 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
-import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -26,8 +24,6 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 
 /**
@@ -41,6 +37,7 @@ public class GitCommitTab extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitPanel gitPanel; // Reference to parent GitPanel
+    private final GitWorkflowService workflowService;
 
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
@@ -57,6 +54,7 @@ public class GitCommitTab extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.gitPanel = gitPanel; // Store reference to parent
+        this.workflowService = new GitWorkflowService(contextManager);
         buildCommitTabUI();
     }
 
@@ -211,22 +209,36 @@ public class GitCommitTab extends JPanel {
         suggestMessageButton.addActionListener(e -> {
             suggestMessageButton.setEnabled(false); // Disable button immediately
             List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
-            CompletableFuture<String> suggestionFuture = suggestMessageAsync(selectedFiles);
+
+            CompletableFuture<String> suggestionFuture = contextManager.submitBackgroundTask("Suggesting commit message",
+                () -> workflowService.suggestCommitMessage(selectedFiles));
 
             suggestionFuture.whenComplete((suggestedMessage, throwable) ->
                 SwingUtilities.invokeLater(() -> {
                     try {
                         if (throwable == null) {
+                            // Re-enable button before setting text,
+                            // so dependent UI (like commit button) updates correctly via DocumentListener
+                            suggestMessageButton.setEnabled(true);
+                            if (suggestedMessage.isEmpty() && !selectedFiles.isEmpty()) {
+                                chrome.systemOutput("No changes detected in selected files to suggest a message.");
+                            } else if (suggestedMessage.isEmpty()) {
+                                chrome.systemOutput("No changes detected to suggest a message.");
+                            }
                             setCommitMessageText(suggestedMessage);
                         } else {
-                            // Handle exceptions, e.g., log them or show an error to the user
                             logger.error("Error suggesting commit message:", throwable);
-                            // Optionally inform the user via chrome.toolError or similar
                             String rootCauseMessage = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
+                            // Re-enable button before showing error
+                            suggestMessageButton.setEnabled(true);
                             chrome.toolError("Failed to suggest commit message: " + rootCauseMessage, "Suggestion Error");
                         }
                     } finally {
-                        suggestMessageButton.setEnabled(true); // Re-enable button in all cases
+                        // Button should be re-enabled by specific paths above,
+                        // this is a fallback, though ideally not strictly necessary if all paths handle it.
+                        if (!suggestMessageButton.isEnabled()) { // Should already be true
+                            suggestMessageButton.setEnabled(true);
+                        }
                     }
                 })
             );
@@ -243,26 +255,26 @@ public class GitCommitTab extends JPanel {
             if (userMessage.isEmpty()) {
                 // No message provided, suggest one and stash
                 contextManager.submitUserTask("Suggesting message and stashing", () -> {
-                    try {
-                        Future<String> suggestionFuture = suggestMessageAsync(selectedFiles);
-                        String suggestedMessage = suggestionFuture.get(); // Wait for suggestion
-                        if (suggestedMessage.isBlank()) {
-                            logger.warn("No suggested commit message found");
-                            suggestedMessage = "Stash created by Brokk"; // Fallback
-                        }
-                        String finalStashDescription = suggestedMessage;
-                        // Perform stash with suggested message
-                        performStash(selectedFiles, finalStashDescription);
-                    } catch (GitAPIException ex) {
-                        logger.error("Error stashing changes:", ex);
-                        SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage()));
-                    } catch (ExecutionException | InterruptedException ex) {
-                        throw new RuntimeException(ex);
+                try {
+                    // Note: workflowService.suggestCommitMessage can throw RuntimeException
+                    String suggestedMessage = workflowService.suggestCommitMessage(selectedFiles);
+                    if (suggestedMessage.isBlank()) {
+                        logger.warn("No suggested commit message found");
+                        suggestedMessage = "Stash created by Brokk"; // Fallback
                     }
-                });
-            } else {
-                // Message provided, use it
-                String stashDescription = java.util.Arrays.stream(userMessage.split("\n"))
+                    // Perform stash with suggested message
+                    performStash(selectedFiles, suggestedMessage);
+                } catch (GitAPIException ex) {
+                    logger.error("Error stashing changes:", ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage(), "Stash Error"));
+                } catch (RuntimeException ex) { // Catch RuntimeException from suggestCommitMessage
+                    logger.error("Error suggesting message for stash:", ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error suggesting message for stash: " + ex.getMessage(), "Stash Error"));
+                }
+            });
+        } else {
+            // Message provided, use it
+            String stashDescription = Arrays.stream(userMessage.split("\n"))
                         .filter(line -> !line.trim().startsWith("#"))
                         .collect(Collectors.joining("\n"))
                         .trim();
@@ -289,31 +301,19 @@ public class GitCommitTab extends JPanel {
             }
             contextManager.submitUserTask("Committing files", () -> {
                 try {
-                    if (selectedFiles.isEmpty()) {
-                        var allDirtyFileStatuses = getRepo().getModifiedFiles();
-                        var allDirtyFiles = allDirtyFileStatuses.stream()
-                                .map(GitRepo.ModifiedFile::file)
-                                .collect(Collectors.toList());
-                        getRepo().commitFiles(allDirtyFiles, msg);
-                    } else {
-                        getRepo().commitFiles(selectedFiles, msg);
-                    }
+                    GitWorkflowService.CommitResult result = workflowService.commit(selectedFiles, msg);
                     SwingUtilities.invokeLater(() -> {
-                        try {
-                            String shortHash = GitUiUtil.shortenCommitId(getRepo().getCurrentCommitId());
-                            String firstLine = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
-                            chrome.systemOutput("Committed " + shortHash + ": " + firstLine);
-                        } catch (Exception ex) {
-                            chrome.systemOutput("Changes committed successfully");
-                        }
+                        chrome.systemOutput("Committed "
+                                + GitUiUtil.shortenCommitId(result.commitId())
+                                + ": " + result.firstLine());
                         commitMessageArea.setText("");
                         updateCommitPanel();
                         gitPanel.updateLogTab();
                         gitPanel.selectCurrentBranchInLogTab();
                     });
-                } catch (Exception ex) {
+                } catch (GitAPIException | RuntimeException ex) { // Catch exceptions from workflowService.commit
                     logger.error("Error committing files:", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Error committing files: " + ex.getMessage()));
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error"));
                 }
             });
         });
@@ -714,69 +714,11 @@ public class GitCommitTab extends JPanel {
     }
 
     /**
-     * Asynchronously suggests a commit message based on selected files or all changes.
-     *
-     * @param selectedFiles List of files to diff, or empty to diff all changes.
-     * @return A Future containing the suggested message, or an empty string if no changes or an error occurred.
-     */
-    private CompletableFuture<String> suggestMessageAsync(List<ProjectFile> selectedFiles) {
-        // Submit the Callable to a background task executor managed by ContextManager
-        // We use submitBackgroundTask to ensure it runs off the EDT and provides user feedback
-        return contextManager.submitBackgroundTask("Suggesting commit message", () -> {
-            String diff;
-            try {
-                diff = selectedFiles.isEmpty()
-                        ? getRepo().diff()
-                        : getRepo().diffFiles(selectedFiles);
-            } catch (GitAPIException e) {
-                logger.error("Git diff operation failed while suggesting commit message", e);
-                throw new RuntimeException("Failed to generate diff for commit message suggestion", e);
-            }
-
-            if (diff.isEmpty()) {
-                SwingUtilities.invokeLater(() -> chrome.systemOutput("No changes detected"));
-                return ""; // Return empty string instead of null
-            }
-            // Call the LLM logic
-            return inferCommitMessage(contextManager.getProject(), diff);
-        });
-    }
-
-    /**
-     * Infers a commit message based on the provided diff text using the quickest model.
-     * This method performs the synchronous LLM call.
-     *
-     * @param project  The current project, used to get configuration like commit format.
-     * @param diffText The text difference to analyze for the commit message.
-     * @return The inferred commit message string, or an empty string if no message could be generated or an error occurred.
-     */
-    private String inferCommitMessage(IProject project, String diffText) {
-        var messages = CommitPrompts.instance.collectMessages(project, diffText);
-        if (messages.isEmpty()) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("Nothing to commit for suggestion"));
-            return ""; // Return empty string instead of null
-        }
-
-        Llm.StreamingResult result;
-        try {
-            result = contextManager.getLlm(contextManager.getService().quickestModel(), "Infer commit message").sendRequest(messages);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        if (result.error() != null || result.isEmpty()) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM did not provide a commit message."));
-            return "";
-        }
-
-        return result.text();
-    }
-
-    /**
      * Sets the text in the commit message area (used by LLM suggestions).
      */
     public void setCommitMessageText(String message) {
-        SwingUtilities.invokeLater(() -> commitMessageArea.setText(message));
+        // This method is expected to be called from the EDT already
+        commitMessageArea.setText(message);
     }
 
     public void disableButtons() {
