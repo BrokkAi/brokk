@@ -379,6 +379,7 @@ public class HistoryOutputPanel extends JPanel {
         // Add undo/redo buttons at the bottom, side by side
         // Use GridLayout to make buttons share width equally
         var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 0, 0)); // Add top padding
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
