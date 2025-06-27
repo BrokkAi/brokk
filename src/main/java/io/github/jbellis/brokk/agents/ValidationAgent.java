@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.agents;
 
-// Added import for Coder
-
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.Llm;

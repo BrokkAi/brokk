@@ -59,7 +59,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JTextField gitHubTokenField; // Null if GitHub tab not shown
     private JTabbedPane globalSubTabbedPane = new JTabbedPane(JTabbedPane.TOP);
     private JPanel defaultModelsPanel = new JPanel(); // Initialized
-    // Jira fields removed
 
 
     public SettingsGlobalPanel(Chrome chrome, SettingsDialog parentDialog) {
@@ -272,8 +271,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         return gitHubPanel;
     }
-
-    // createJiraPanel() removed
 
     private void updateSignupLabelVisibility() {
         if (this.signupLabel == null) {
@@ -711,8 +708,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (gitHubTokenField != null) { // Only if panel was created
             gitHubTokenField.setText(MainProject.getGitHubToken());
         }
-
-        // Jira Tab loading removed
     }
 
     public boolean applySettings() {
@@ -790,7 +785,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             }
         }
 
-        // Jira Tab applying removed
         return true;
     }
 

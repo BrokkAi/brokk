@@ -115,7 +115,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") // Finnish comment, keep as is
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 

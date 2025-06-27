@@ -96,9 +96,6 @@ public class GitRepoTest {
         String newBranchName = "feature-branch";
         Path newWorktreePath = tempDir.resolve("feature-worktree");
 
-        // Ensure the parent directory for the new worktree exists if git worktree add doesn't create it.
-        // Files.createDirectories(newWorktreePath.getParent()); // git worktree add creates the directory itself.
-
         repo.addWorktree(newBranchName, newWorktreePath);
 
         List<IGitRepo.WorktreeInfo> worktrees = repo.listWorktrees();
@@ -153,12 +150,6 @@ public class GitRepoTest {
             worktreesAfterRemove.stream().anyMatch(wt -> wt.path().equals(worktreePathToRemoveReal)),
             "Removed worktree should not be found in list."
         );
-        // The `git worktree remove` command should remove the directory if it's clean.
-        // If the worktree had a .git file (typical for linked worktrees), that specific file is removed,
-        // and then the directory structure if it becomes empty or if git decides to clean it fully.
-        // For a robust check, we primarily care that it's not listed by git and its .git marker is gone.
-        // Depending on the git version and exact state, the top-level directory might linger if it had other files.
-        // However, for a freshly added worktree, it should be removed.
         assertFalse(Files.exists(worktreePathToRemove), "Worktree directory should not exist after clean removal.");
     }
 
@@ -446,10 +437,6 @@ public class GitRepoTest {
     }
 
     // --- Tests for checkMergeConflicts ---
-
-    // Mock MergeMode for testing purposes if direct instantiation is problematic
-    // However, the plan is to use the actual static fields if accessible.
-    // The provided snippet for MergeMode `GitWorktreeTab$MergeMode MERGE_COMMIT;` implies static fields.
 
     private void setupBranchesForConflictTest() throws Exception {
         // main: Initial commit -> C_main (modifies common.txt)
