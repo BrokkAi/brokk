@@ -341,6 +341,7 @@ public class ArchitectAgent {
     public String askHumanQuestion(
             @P("The question you would like the human to answer. Make sure to provide any necessary background for the human to quickly and completely understand what you need and why. Use Markdown formatting where appropriate.") String question
     ) throws InterruptedException {
+        var cursor = messageCursor();
         logger.debug("askHumanQuestion invoked with question: {}", question);
         io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
 
@@ -349,10 +350,24 @@ public class ArchitectAgent {
         if (answer == null) {
             logger.info("Human cancelled the dialog for question: {}", question);
             io.systemOutput("Human interaction cancelled.");
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Ask human",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.INTERRUPTED);
+            contextManager.addToHistory(tr, false);
             throw new InterruptedException();
         } else {
             logger.debug("Human responded: {}", answer);
             io.llmOutput(answer, ChatMessageType.USER, true);
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Ask human",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
             return answer;
         }
     }
