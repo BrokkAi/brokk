@@ -37,7 +37,7 @@ import java.util.zip.GZIPOutputStream;
  * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
  * knows how to reload the Service.
  */
-public final class Service {
+public class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
@@ -395,7 +395,7 @@ public final class Service {
      * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    private void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
+    protected void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
                                       Map<String, String> locationsTarget,
                                       Map<String, Map<String, Object>> infoTarget) throws IOException
     {
