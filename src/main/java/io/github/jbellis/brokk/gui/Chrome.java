@@ -627,7 +627,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // Update label text (show only the latest message)
-            systemMessageLabel.setText(message);
+            systemMessageLabel.setText(timestampedMessage);
 
             // Update tooltip with all recent messages
             StringBuilder tooltipText = new StringBuilder("<html>");

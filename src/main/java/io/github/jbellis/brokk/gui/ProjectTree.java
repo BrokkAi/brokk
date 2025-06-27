@@ -251,10 +251,10 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         contextMenu.addSeparator();
         // Add "Run Tests in Shell" item
         JMenuItem runTestsItem = new JMenuItem("Run Tests in Shell");
-        boolean hasTestFiles = selectedFiles.stream().anyMatch(ContextManager::isTestFile);
+        boolean hasTestFiles = selectedFiles.stream().allMatch(ContextManager::isTestFile);
         runTestsItem.setEnabled(hasTestFiles);
         if (!hasTestFiles) {
-            runTestsItem.setToolTipText("No test files in selection.");
+            runTestsItem.setToolTipText("Non-test files in selection");
         }
 
         runTestsItem.addActionListener(ev -> {
@@ -267,7 +267,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     RunTestsService.runTests(chrome, contextManager, testProjectFiles);
                 } else {
                     // This case might occur if selection changes between menu population and action
-                    chrome.toolError("No test files were selected to run.");
+                    chrome.toolError("No test files were selected to run");
                 }
             });
         });

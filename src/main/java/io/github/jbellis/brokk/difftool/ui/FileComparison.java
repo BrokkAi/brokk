@@ -34,7 +34,6 @@ public class FileComparison extends SwingWorker<String, Object> {
     private final GuiTheme theme;
     private final boolean isMultipleCommitsContext;
 
-    // Constructor
     private FileComparison(FileComparisonBuilder builder, GuiTheme theme, ContextManager contextManager) {
         this.mainPanel = builder.mainPanel;
         this.leftSource = Objects.requireNonNull(builder.leftSource);

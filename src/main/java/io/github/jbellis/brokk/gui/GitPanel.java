@@ -33,12 +33,12 @@ public class GitPanel extends JPanel
     // The “Changes” tab, now delegated to GitCommitTab
     private final GitCommitTab commitTab;
 
-    // The “Log” tab extracted into its own class
+    // The “Log” tab
     private final GitLogTab gitLogTab;
 
     // The "Pull Requests" tab - conditionally added
-    @Nullable
-    private GitPullRequestsTab pullRequestsTab; // Keep if you still want PRs
+    @Nullable 
+    private GitPullRequestsTab pullRequestsTab;
 
     // The "Issues" tab - conditionally added
     @Nullable

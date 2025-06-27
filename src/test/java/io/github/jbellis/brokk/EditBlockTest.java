@@ -6,6 +6,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
+import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
+import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -46,19 +48,7 @@ class EditBlockTest {
 
         @Override
         public IConsoleIO getIo() {
-            return new IConsoleIO() {
-                @Override
-                public void actionOutput(String msg) {
-                }
-
-                @Override
-                public void toolError(String msg, String title) {
-                }
-
-                @Override
-                public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
-                }
-            };
+            return new NoOpConsoleIO();
         }
     }
 

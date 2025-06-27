@@ -145,10 +145,6 @@ public final class GitUiUtil {
             var file = new ProjectFile(cm.getRoot(), filePath);
             try {
                 final String content = repo.getFileContent(commitId, file);
-                if (content == null) {
-                    chrome.systemOutput("File not found in this revision or is empty.");
-                    return;
-                }
                 SwingUtilities.invokeLater(() -> {
                     var fragment = new ContextFragment.GitFileFragment(file, commitId, content);
                     chrome.openFragmentPreview(fragment);

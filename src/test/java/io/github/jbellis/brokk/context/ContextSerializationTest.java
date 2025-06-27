@@ -2,13 +2,12 @@ package io.github.jbellis.brokk.context;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.IContextManager;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.TaskEntry;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
 import io.github.jbellis.brokk.util.HistoryIo;
 import io.github.jbellis.brokk.util.Messages;
@@ -39,7 +38,7 @@ public class ContextSerializationTest {
 
     @BeforeEach
     void setup() throws IOException {
-        mockContextManager = new TestContextManager(tempDir);
+        mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Clear the intern pool before each test to ensure isolation
         FrozenFragment.clearInternPoolForTesting();
         // Reset fragment ID counter for test isolation

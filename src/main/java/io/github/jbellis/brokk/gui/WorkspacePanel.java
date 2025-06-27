@@ -120,17 +120,17 @@ public class WorkspacePanel extends JPanel {
                 } else {
                     actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
                 }
-
-                actions.add(null); // Separator
-                actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
-                actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
-                actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
                 if (ContextManager.isTestFile(fileRef.getRepoFile())) {
                     actions.add(WorkspaceAction.RUN_TESTS.createFileRefAction(panel, fileRef));
                 } else {
                     var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
                     actions.add(disabledAction);
                 }
+
+                actions.add(null); // Separator
+                actions.add(WorkspaceAction.EDIT_FILE.createFileRefAction(panel, fileRef));
+                actions.add(WorkspaceAction.READ_FILE.createFileRefAction(panel, fileRef));
+                actions.add(WorkspaceAction.SUMMARIZE_FILE.createFileRefAction(panel, fileRef));
             }
 
             return actions;
@@ -179,6 +179,16 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("View History is available only for single project files."));
             }
 
+            // Add Run Tests action if the fragment is associated with a test file
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                    && fragment.files().stream().anyMatch(ContextManager::isTestFile))
+            {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
+
             actions.add(null); // Separator
 
             // Edit/Read/Summarize
@@ -210,14 +220,6 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, List.of(fragment)));
             }
 
-            // Add Run Tests action if the fragment is associated with a test file
-            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH && fragment.files().stream().anyMatch(ContextManager::isTestFile)) {
-                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                actions.add(disabledAction);
-            }
-
             return actions;
         }
     }
@@ -235,6 +237,13 @@ public class WorkspacePanel extends JPanel {
 
             actions.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction("Cannot view contents of multiple items at once."));
             actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
+            // Add Run Tests action if all selected fragment is associated with a test file
+            if (fragments.stream().flatMap(f -> f.files().stream()).allMatch(ContextManager::isTestFile)) {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
 
             actions.add(null); // Separator
 
@@ -248,14 +257,6 @@ public class WorkspacePanel extends JPanel {
             // Only add drop action if workspace is editable and we're on the last history item
             if (panel.workspaceCurrentlyEditable && panel.isOnLatestContext()) {
                 actions.add(WorkspaceAction.DROP.createFragmentsAction(panel, fragments));
-            }
-
-            // Add Run Tests action if any selected fragment is associated with a test file
-            if (fragments.stream().flatMap(f -> f.files().stream()).anyMatch(ContextManager::isTestFile)) {
-                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
-            } else {
-                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
-                actions.add(disabledAction);
             }
 
             return actions;
