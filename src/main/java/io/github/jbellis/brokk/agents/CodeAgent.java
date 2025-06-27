@@ -91,7 +91,8 @@ public class CodeAgent {
         var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(userInput.trim(),
                                                                    CodePrompts.reminderForModel(contextManager.getService(), model),
-                                                                   parser);
+                                                                   parser,
+                                                                   null);
 
         var conversationState = new ConversationState(taskMessages, nextRequest, originalWorkspaceEditableMessages);
         var workspaceState = new EditState(blocks, 0 /* initial parseFailures */, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
@@ -236,17 +237,17 @@ public class CodeAgent {
         var parser  = EditBlockParser.getParserFor(fileContents);
         var editableMsg = CodePrompts.instance.getSingleFileEditableMessage(file);
 
-        UserMessage initialRequest = CodePrompts.instance.codeRequest(
-                instructions,
-                CodePrompts.reminderForModel(contextManager.getService(), model),
-                parser);
+        UserMessage initialRequest = CodePrompts.instance.codeRequest(instructions,
+                                                                      CodePrompts.reminderForModel(contextManager.getService(), model),
+                                                                      parser,
+                                                                      file);
 
         var conversationState = new ConversationState(new ArrayList<>(), initialRequest, editableMsg);
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
-        io.systemOutput("Code Agent engaged (single-file mode for %s): `%s…`"
-                                .formatted(file, LogDescription.getShortDescription(instructions)));
+        io.systemOutput("Code Agent engaged in single-file mode for %s: `%s…`"
+                                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
 
         TaskResult.StopDetails stopDetails;
 
@@ -254,20 +255,13 @@ public class CodeAgent {
         while (true) {
             // ----- 1-a.  Construct messages for this turn --------------------
             List<ChatMessage> llmMessages;
-            try {
-                llmMessages = CodePrompts.instance.getSingleFileMessages(
-                        contextManager.getProject().getStyleGuide(),
-                        parser,
-                        readOnlyMessages,
-                        loopContext.conversationState().taskMessages(),
-                        loopContext.conversationState().nextRequest(),
-                        loopContext.editState().originalFileContents().keySet(),
-                        editableMsg);
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
+            llmMessages = CodePrompts.instance.getSingleFileMessages(contextManager.getProject().getStyleGuide(),
+                                                                     parser,
+                                                                     readOnlyMessages,
+                                                                     loopContext.conversationState().taskMessages(),
+                                                                     loopContext.conversationState().nextRequest(),
+                                                                     loopContext.editState().originalFileContents().keySet(),
+                                                                     editableMsg);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;
@@ -339,7 +333,7 @@ public class CodeAgent {
                               loopContext.editState().changedFiles(),
                               stopDetails);
     }
-    
+
     Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser) {
         var cs = currentLoopContext.conversationState();
         var ws = currentLoopContext.editState();
