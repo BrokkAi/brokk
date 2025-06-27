@@ -209,6 +209,137 @@ public class CodeAgent {
                               stopDetails);
     }
 
+    /**
+     * Runs a “single-file edit” session in which the LLM is asked to modify exactly
+     * {@code file}.  The method drives the same request / parse / apply FSM that
+     * {@link #runTask(String, boolean)} uses, but it stops after all SEARCH/REPLACE
+     * blocks have been applied (no build verification is performed).
+     *
+     * @param file            the file to edit
+     * @param instructions    user instructions describing the desired change
+     * @param readOnlyMessages conversation context that should be provided
+     *                         to the LLM as read-only (e.g., other related
+     *                         files, build output, etc.)
+     *
+     * @return a {@link TaskResult} recording the conversation and the original
+     *         contents of all files that were changed
+     */
+    public TaskResult runSingleFileEdit(ProjectFile file,
+                                        String instructions,
+                                        List<ChatMessage> readOnlyMessages) throws IOException
+    {
+        // 0.  Setup: coder, parser, initial messages, and initial LoopContext
+        var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
+        coder.setOutput(io);
+
+        var fileContents = file.read();
+        var parser  = EditBlockParser.getParserFor(fileContents);
+        var editableMsg = CodePrompts.instance.getSingleFileEditableMessage(file);
+
+        UserMessage initialRequest = CodePrompts.instance.codeRequest(
+                instructions,
+                CodePrompts.reminderForModel(contextManager.getService(), model),
+                parser);
+
+        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, editableMsg);
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var loopContext = new LoopContext(conversationState, editState, instructions);
+
+        io.systemOutput("Code Agent engaged (single-file mode for %s): `%s…`"
+                                .formatted(file, LogDescription.getShortDescription(instructions)));
+
+        TaskResult.StopDetails stopDetails;
+
+        // 1.  Main FSM loop (request → parse → apply)
+        while (true) {
+            // ----- 1-a.  Construct messages for this turn --------------------
+            List<ChatMessage> llmMessages;
+            try {
+                llmMessages = CodePrompts.instance.getSingleFileMessages(
+                        contextManager.getProject().getStyleGuide(),
+                        parser,
+                        readOnlyMessages,
+                        loopContext.conversationState().taskMessages(),
+                        loopContext.conversationState().nextRequest(),
+                        loopContext.editState().originalFileContents().keySet(),
+                        editableMsg);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
+            // ----- 1-b.  Send to LLM -----------------------------------------
+            StreamingResult streamingResult;
+            try {
+                streamingResult = coder.sendRequest(llmMessages, true);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
+            // ----- 1-c.  REQUEST PHASE ---------------------------------------
+            var step = requestPhase(loopContext, streamingResult);
+            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
+                stopDetails = details;
+                break;
+            }
+            loopContext = step.loopContext();           // Step.Continue
+
+            // ----- 1-d.  PARSE PHASE -----------------------------------------
+            step = parsePhase(loopContext,
+                              streamingResult.text(),
+                              streamingResult.isPartial(),
+                              parser);
+            if (step instanceof Step.Retry retry) {
+                loopContext = retry.loopContext();
+                continue;                               // back to while-loop top
+            }
+            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
+                stopDetails = details;
+                break;
+            }
+            loopContext = step.loopContext();
+
+            // ----- 1-e.  APPLY PHASE -----------------------------------------
+            step = applyPhase(loopContext, parser);
+            if (step instanceof Step.Retry retry2) {
+                loopContext = retry2.loopContext();
+                continue;
+            }
+            if (step instanceof Step.Fatal fatal3) {
+                stopDetails = fatal3.stopDetails();
+                break;
+            }
+            loopContext = step.loopContext();
+
+            // ----- 1-f.  Termination checks ----------------------------------
+            if (loopContext.editState().pendingBlocks().isEmpty()) {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                break;
+            }
+
+            if (Thread.currentThread().isInterrupted()) {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+        }
+
+        // 2.  Produce TaskResult
+        assert stopDetails != null;
+        var finalMessages = prepareMessagesForTaskEntryLog();
+
+        String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
+                             ? instructions
+                             : instructions + " [" + stopDetails.reason().name() + "]";
+
+        return new TaskResult("Code: " + finalAction,
+                              new ContextFragment.TaskFragment(contextManager, finalMessages, instructions),
+                              loopContext.editState().changedFiles(),
+                              stopDetails);
+    }
+    
     Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser) {
         var cs = currentLoopContext.conversationState();
         var ws = currentLoopContext.editState();
