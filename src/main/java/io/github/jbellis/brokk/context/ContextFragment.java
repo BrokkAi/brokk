@@ -1504,7 +1504,6 @@ public interface ContextFragment {
      * represents a single session's Task History
      */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
-        private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
         private final String sessionName;
         private final boolean escapeHtml;
@@ -1519,30 +1518,20 @@ public interface ContextFragment {
             );
         }
 
-        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
             super(calculateId(sessionName, messages), contextManager); // ID is content hash
-            this.parser = parser;
             this.messages = List.copyOf(messages);
             this.sessionName = sessionName;
             this.escapeHtml = escapeHtml;
         }
-
-        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
-            this(contextManager, parser, messages, sessionName, true);
-        }
-
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
-            this(contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
-        }
-
+        
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            this(contextManager, EditBlockParser.instance, messages, sessionName, true);
+            this(contextManager, messages, sessionName, true);
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public TaskFragment(String existingHashId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
-            this.parser = parser;
             this.messages = List.copyOf(messages);
             this.sessionName = sessionName;
             this.escapeHtml = escapeHtml;
@@ -1610,10 +1599,6 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
-        }
-
-        public EditBlockParser parser() {
-            return parser;
         }
     }
 }
