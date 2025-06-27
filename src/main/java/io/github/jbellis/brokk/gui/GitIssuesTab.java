@@ -35,6 +35,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import io.github.jbellis.brokk.util.Environment;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class GitIssuesTab extends JPanel implements SettingsChangeListener {
@@ -932,18 +933,22 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
             return;
         }
-        IssueHeader header = displayedIssues.get(selectedRow);
-        captureIssueHeader(header);
+        captureIssue(displayedIssues.get(selectedRow));
     }
 
-    private void captureIssueHeader(IssueHeader header) {
+    private void captureIssue(IssueHeader header) {
         var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
 
-                List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
-                ContextFragment.TaskFragment issueTextFragment = createIssueTextFragmentFromDetails(details, issueTextMessages);
-                contextManager.addVirtualFragment(issueTextFragment);
+                var issueText = buildIssueTextContentFromDetails(details);
+                IssueHeader header1 = details.header();
+                String description = String.format("Issue %s: %s", header1.id(), header1.title());
+                var issueFragment = new ContextFragment.StringFragment(this.contextManager,
+                                                                       issueText,
+                                                                       description,
+                                                                       SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                contextManager.addVirtualFragment(issueFragment);
 
                 List<ChatMessage> commentChatMessages = buildChatMessagesFromDtoComments(details.comments());
                 if (!commentChatMessages.isEmpty()) {
@@ -964,46 +969,34 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         trackCancellableFuture(future);
     }
 
-    private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
+    private String buildIssueTextContentFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
         String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
         if (this.issueService instanceof JiraIssueService) {
             bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
         }
         bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
-        String content = String.format("""
-                                       # Issue #%s: %s
-                                       
-                                       **Author:** %s
-                                       **Status:** %s
-                                       **URL:** %s
-                                       **Labels:** %s
-                                       **Assignees:** %s
-                                       
-                                       ---
-                                       
-                                       %s
-                                       """.stripIndent(),
-                                       header.id(),
-                                       header.title(),
-                                       header.author(),
-                                       header.status(),
-                                       header.htmlUrl(),
-                                       header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
-                                       header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
-                                       bodyForCapture
-        );
-        return List.of(new CustomMessage(Map.of("text", content)));
-    }
-
-    private ContextFragment.TaskFragment createIssueTextFragmentFromDetails(IssueDetails details, List<ChatMessage> messages) {
-        IssueHeader header = details.header();
-        String description = String.format("Issue %s: %s", header.id(), header.title());
-        return new ContextFragment.TaskFragment(
-                this.contextManager,
-                messages,
-                description,
-                false // some issues contain HTML
+        return String.format("""
+                             # Issue #%s: %s
+                             
+                             **Author:** %s
+                             **Status:** %s
+                             **URL:** %s
+                             **Labels:** %s
+                             **Assignees:** %s
+                             
+                             ---
+                             
+                             %s
+                             """,
+                             header.id(),
+                             header.title(),
+                             header.author(),
+                             header.status(),
+                             header.htmlUrl(),
+                             header.labels().isEmpty() ? "None" : String.join(", ", header.labels()),
+                             header.assignees().isEmpty() ? "None" : String.join(", ", header.assignees()),
+                             bodyForCapture
         );
     }
 
