@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
@@ -269,6 +270,87 @@ public class ArchitectAgent {
         }
     }
 
+    @Tool("Create a GitHub pull-request for the current branch. " +
+          "If title or body is blank they are auto-generated. " +
+          "This implicitly pushes the branch and sets upstream when needed.")
+    public String createPullRequest(
+            @Nullable @P("PR title (optional)") String title,
+            @Nullable @P("PR description in Markdown (optional)") String body
+    )
+    {
+        var cursor = messageCursor();
+        io.llmOutput("Creating pull request…\n", ChatMessageType.CUSTOM, true);
+
+        try {
+            var project = contextManager.getProject();
+            if (!project.hasGit()) {
+                throw new IllegalStateException("Not a Git repository.");
+            }
+
+            var repo = (GitRepo) project.getRepo();
+            var defaultBranch = repo.getDefaultBranch()
+                                    .orElseThrow(() -> new IllegalStateException("Cannot determine default branch"));
+            var currentBranch = repo.getCurrentBranch();
+            if (Objects.equals(currentBranch, defaultBranch)) {
+                throw new IllegalStateException("Refusing to open PR from default branch (" + defaultBranch + ")");
+            }
+
+            if (!repo.getModifiedFiles().isEmpty()) {
+                throw new IllegalStateException("Uncommitted changes present; commit first.");
+            }
+
+            if (!GitHubAuth.tokenPresent(project)) {
+                throw new IllegalStateException("No GitHub credentials configured (e.g. GITHUB_TOKEN environment variable).");
+            }
+
+            if (repo.getRemoteUrl("origin") == null) {
+                throw new IllegalStateException("No 'origin' remote configured for this repository.");
+            }
+
+            var gws = new GitWorkflowService(contextManager);
+
+            // Auto-generate title/body if blank
+            if (title == null || title.isBlank() || body == null || body.isBlank()) {
+                var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+                if (title == null || title.isBlank()) {
+                    title = suggestion.title();
+                }
+                if (body == null || body.isBlank()) {
+                    body = suggestion.description();
+                }
+            }
+
+            var prUrl = gws.createPullRequest(currentBranch, defaultBranch, title.trim(), body.trim());
+            var msg = "Opened PR: \"%s\" %s".formatted(title.trim(), prUrl);
+            io.llmOutput(msg, ChatMessageType.CUSTOM);
+            logger.info(msg);
+
+            // Persist result to history
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git create PR",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
+
+            return msg;
+        } catch (Exception e) {
+            var err = "Create PR failed: " + e.getMessage();
+            io.llmOutput(err, ChatMessageType.CUSTOM);
+            logger.error(err, e);
+
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git create PR",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.TOOL_ERROR);
+            contextManager.addToHistory(tr, false);
+            throw new RuntimeException(err, e);
+        }
+    }
+
     @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
     public String undoLastChanges() {
         logger.debug("undoLastChanges invoked");
@@ -476,6 +558,9 @@ public class ArchitectAgent {
                 if (options.includeGitCommit()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("commitChanges")));
                 }
+                if (options.includeGitCreatePr()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("createPullRequest")));
+                }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
 
@@ -660,7 +745,9 @@ public class ArchitectAgent {
             case "dropFragments" -> 1;
             case "addReadOnlyFiles" -> 2;
             case "addEditableFilesToWorkspace" -> 3;
-            default -> 4; // all other tools have lowest priority
+            case "commitChanges" -> 4;
+            case "createPullRequest" -> 5;
+            default -> 6; // all other tools have lowest priority
         };
     }
 
