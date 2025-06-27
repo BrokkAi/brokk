@@ -26,21 +26,13 @@ public final class TestContextManager implements IContextManager {
     private final StubService stubService;
     private final Context liveContext;
 
-    public TestContextManager(Path projectRoot) {
-        this(projectRoot, null);
-    }
-
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
         this.project = new TestProject(projectRoot, Language.JAVA);
         this.mockAnalyzer = new MockAnalyzer();
         this.inMemoryRepo = new InMemoryRepo();
         this.consoleIO = consoleIO;
         this.stubService = new StubService(this.project);
-        if (this.consoleIO != null) {
-            this.liveContext = new Context(this, "Test context");
-        } else {
-            this.liveContext = null;
-        }
+        this.liveContext = new Context(this, "Test context");
     }
 
     @Override
@@ -59,10 +51,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public Set<BrokkFile> getReadonlyFiles() {
-        // Assuming ProjectFile is a subtype of BrokkFile,
-        // new HashSet<>(readonlyFiles) which is Set<ProjectFile>
-        // can be returned as Set<BrokkFile>.
+    public Set<BrokkFile> getReadonlyProjectFiles() {
         return new HashSet<>(readonlyFiles);
     }
 
@@ -76,11 +65,6 @@ public final class TestContextManager implements IContextManager {
         this.editableFiles.remove(file); // Cannot be both
     }
 
-    public void clearEditableAndReadOnlyFiles() {
-        this.editableFiles.clear();
-        this.readonlyFiles.clear();
-    }
-    
     @Override
     public ProjectFile toFile(String relName) {
         return new ProjectFile(project.getRoot(), relName);

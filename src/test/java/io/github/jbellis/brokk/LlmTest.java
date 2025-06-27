@@ -6,6 +6,7 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -22,21 +23,6 @@ import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class LlmTest {
-
-    // Dummy ConsoleIO for testing purposes
-    static class NoOpConsoleIO implements IConsoleIO {
-        @Override
-        public void actionOutput(String msg) {
-        }
-
-        @Override
-        public void toolError(String msg, String title) {
-            System.out.println(title + ": " + msg);
-        }
-        @Override public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {}
-        @Override public void systemOutput(String message) {}
-    }
-
     private static Llm llm;
     private static IContextManager contextManager; // Add field for ContextManager
 

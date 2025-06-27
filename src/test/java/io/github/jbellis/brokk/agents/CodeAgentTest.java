@@ -9,8 +9,8 @@ import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
+import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import io.github.jbellis.brokk.testutil.TestContextManager;
-import io.github.jbellis.brokk.testutil.TestProject;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.Messages;
 import org.junit.jupiter.api.AfterEach;
@@ -52,7 +52,7 @@ class CodeAgentTest {
     Path projectRoot;
 
     TestContextManager contextManager;
-    io.github.jbellis.brokk.TestConsoleIO consoleIO;
+    TestConsoleIO consoleIO;
     CodeAgent codeAgent;
     EditBlockParser parser;
     BiFunction<String, Path, Environment.ShellCommandRunner> originalShellCommandRunnerFactory;
@@ -61,7 +61,7 @@ class CodeAgentTest {
     @BeforeEach
     void setUp() throws IOException {
         Files.createDirectories(projectRoot);
-        consoleIO = new io.github.jbellis.brokk.TestConsoleIO();
+        consoleIO = new TestConsoleIO();
         contextManager = new TestContextManager(projectRoot, consoleIO);
         // For tests not needing LLM, model can be a dummy,
         // as CodeAgent's constructor doesn't use it directly.
@@ -200,7 +200,7 @@ class CodeAgentTest {
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("continue from there"));
         assertEquals(1, retryStep.loopContext().workspaceState().pendingBlocks().size());
     }
-    
+
     // A-1: applyPhase – read-only conflict
     @Test
     void testApplyPhase_readOnlyConflict() {

@@ -1,9 +1,9 @@
-package io.github.jbellis.brokk;
+package io.github.jbellis.brokk.testutil;
 
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.CustomMessage;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.context.ContextFragment;
 
 import java.util.ArrayList;
@@ -42,7 +42,7 @@ public class TestConsoleIO implements IConsoleIO {
     }
 
     private void finishStreamingAiMessage() {
-        if (streamingAiMessage.length() > 0) {
+        if (!streamingAiMessage.isEmpty()) {
             llmRawMessages.add(new AiMessage(streamingAiMessage.toString()));
             streamingAiMessage.setLength(0);
         }
@@ -51,9 +51,7 @@ public class TestConsoleIO implements IConsoleIO {
     @Override
     public void setLlmOutput(ContextFragment.TaskFragment newOutput) {
         finishStreamingAiMessage();
-        if (newOutput != null && newOutput.messages() != null) {
-            llmRawMessages.addAll(newOutput.messages());
-        }
+        llmRawMessages.addAll(newOutput.messages());
     }
 
     @Override
