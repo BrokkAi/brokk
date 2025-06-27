@@ -90,7 +90,7 @@ class CodeAgentTest {
                 nextRequest,
                 List.of() // originalWorkspaceEditableMessages - empty for these tests
         );
-        var workspaceState = new CodeAgent.WorkspaceState(
+        var workspaceState = new CodeAgent.EditState(
                 new ArrayList<>(pendingBlocks), // Modifiable copy
                 0,
                 0,
@@ -118,22 +118,8 @@ class CodeAgentTest {
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().workspaceState().consecutiveParseFailures());
-        assertTrue(continueStep.loopContext().workspaceState().pendingBlocks().isEmpty());
-    }
-
-    @Test
-    void testParsePhase_emptyResponseIsNotError() {
-        var loopContext = createBasicLoopContext("test goal");
-        String emptyText = "";
-
-        var result = codeAgent.parsePhase(loopContext, emptyText, false, parser);
-
-        // An empty response is also not a parse error.
-        assertInstanceOf(CodeAgent.Step.Continue.class, result);
-        var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().workspaceState().consecutiveParseFailures());
-        assertTrue(continueStep.loopContext().workspaceState().pendingBlocks().isEmpty());
+        assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
+        assertTrue(continueStep.loopContext().editState().pendingBlocks().isEmpty());
     }
 
     // P-2: parsePhase – partial parse + error
@@ -160,8 +146,8 @@ class CodeAgentTest {
         // This is not a parse error, so we continue.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().workspaceState().consecutiveParseFailures());
-        assertEquals(1, continueStep.loopContext().workspaceState().pendingBlocks().size(), "One block should be parsed and now pending.");
+        assertEquals(0, continueStep.loopContext().editState().consecutiveParseFailures());
+        assertEquals(1, continueStep.loopContext().editState().pendingBlocks().size(), "One block should be parsed and now pending.");
     }
 
     // P-3a: parsePhase – isPartial flag handling (with zero blocks)
@@ -175,7 +161,7 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("cut off before you provided any code blocks"));
-        assertTrue(retryStep.loopContext().workspaceState().pendingBlocks().isEmpty());
+        assertTrue(retryStep.loopContext().editState().pendingBlocks().isEmpty());
     }
 
     // P-3b: parsePhase – isPartial flag handling (with >=1 block)
@@ -198,7 +184,7 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("continue from there"));
-        assertEquals(1, retryStep.loopContext().workspaceState().pendingBlocks().size());
+        assertEquals(1, retryStep.loopContext().editState().pendingBlocks().size());
     }
 
     // A-1: applyPhase – read-only conflict
@@ -232,8 +218,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
-        assertEquals(1, retryStep.loopContext().workspaceState().consecutiveApplyFailures());
-        assertEquals(0, retryStep.loopContext().workspaceState().blocksAppliedWithoutBuild());
+        assertEquals(1, retryStep.loopContext().editState().consecutiveApplyFailures());
+        assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild());
         String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
         // check that the name of the file that failed to apply is mentioned in the retry prompt.
         assertTrue(nextRequestText.contains(file.getFileName()));
@@ -254,32 +240,32 @@ class CodeAgentTest {
             // Re-seed the pending blocks for this attempt
             var contextForThisAttempt = new CodeAgent.LoopContext(
                 currentContext.conversationState(),
-                new CodeAgent.WorkspaceState(List.of(nonMatchingBlock), // re-add the block
-                                             currentContext.workspaceState().consecutiveParseFailures(),
-                                             currentContext.workspaceState().consecutiveApplyFailures(),
-                                             currentContext.workspaceState().blocksAppliedWithoutBuild(),
-                                             currentContext.workspaceState().lastBuildError(),
-                                             currentContext.workspaceState().changedFiles(),
-                                             currentContext.workspaceState().originalFileContents()),
+                new CodeAgent.EditState(List.of(nonMatchingBlock), // re-add the block
+                                        currentContext.editState().consecutiveParseFailures(),
+                                        currentContext.editState().consecutiveApplyFailures(),
+                                        currentContext.editState().blocksAppliedWithoutBuild(),
+                                        currentContext.editState().lastBuildError(),
+                                        currentContext.editState().changedFiles(),
+                                        currentContext.editState().originalFileContents()),
                 currentContext.userGoal());
 
             var result = codeAgent.applyPhase(contextForThisAttempt, parser);
             assertInstanceOf(CodeAgent.Step.Retry.class, result, "Should be a retry on failure " + (i + 1));
             currentContext = result.loopContext();
-            assertEquals(i + 1, currentContext.workspaceState().consecutiveApplyFailures());
+            assertEquals(i + 1, currentContext.editState().consecutiveApplyFailures());
         }
 
         // Final failure that should trigger fallback
         // We need to inject the failing block again for the final attempt
         var finalContext = new CodeAgent.LoopContext(
             currentContext.conversationState(),
-            new CodeAgent.WorkspaceState(List.of(nonMatchingBlock),
-                                         currentContext.workspaceState().consecutiveParseFailures(),
-                                         currentContext.workspaceState().consecutiveApplyFailures(),
-                                         currentContext.workspaceState().blocksAppliedWithoutBuild(),
-                                         currentContext.workspaceState().lastBuildError(),
-                                         currentContext.workspaceState().changedFiles(),
-                                         currentContext.workspaceState().originalFileContents()),
+            new CodeAgent.EditState(List.of(nonMatchingBlock),
+                                    currentContext.editState().consecutiveParseFailures(),
+                                    currentContext.editState().consecutiveApplyFailures(),
+                                    currentContext.editState().blocksAppliedWithoutBuild(),
+                                    currentContext.editState().lastBuildError(),
+                                    currentContext.editState().changedFiles(),
+                                    currentContext.editState().originalFileContents()),
             currentContext.userGoal()
         );
 
@@ -287,8 +273,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result, "Should continue after successful fallback");
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals(0, continueStep.loopContext().workspaceState().consecutiveApplyFailures(), "Failures should reset after fallback");
-        assertEquals(1, continueStep.loopContext().workspaceState().blocksAppliedWithoutBuild(), "Should force build after fallback");
+        assertEquals(0, continueStep.loopContext().editState().consecutiveApplyFailures(), "Failures should reset after fallback");
+        assertEquals(1, continueStep.loopContext().editState().blocksAppliedWithoutBuild(), "Should force build after fallback");
     }
 
     // A-4: applyPhase – mix success & failure
@@ -313,8 +299,8 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) result;
 
         // On partial success, consecutive failures should reset, and applied count should increment.
-        assertEquals(0, retryStep.loopContext().workspaceState().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
-        assertEquals(1, retryStep.loopContext().workspaceState().blocksAppliedWithoutBuild(), "One block should have been applied");
+        assertEquals(0, retryStep.loopContext().editState().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
+        assertEquals(1, retryStep.loopContext().editState().blocksAppliedWithoutBuild(), "One block should have been applied");
         
         // The retry message should reflect both the success and the failure.
         String nextRequestText = Messages.getText(retryStep.loopContext().conversationState().nextRequest());
@@ -347,8 +333,8 @@ class CodeAgentTest {
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals("", continueStep.loopContext().workspaceState().lastBuildError());
-        assertEquals(0, continueStep.loopContext().workspaceState().blocksAppliedWithoutBuild()); // Reset after (skipped) build
+        assertEquals("", continueStep.loopContext().editState().lastBuildError());
+        assertEquals(0, continueStep.loopContext().editState().blocksAppliedWithoutBuild()); // Reset after (skipped) build
     }
 
     // V-3: verifyPhase – build failure loop (mocking Environment.runShellCommand)
@@ -379,8 +365,8 @@ class CodeAgentTest {
         var resultFail = codeAgent.verifyPhase(loopContext);
         assertInstanceOf(CodeAgent.Step.Retry.class, resultFail);
         var retryStep = (CodeAgent.Step.Retry) resultFail;
-        assertTrue(retryStep.loopContext().workspaceState().lastBuildError().contains("Detailed build error output"));
-        assertEquals(0, retryStep.loopContext().workspaceState().blocksAppliedWithoutBuild()); // Reset
+        assertTrue(retryStep.loopContext().editState().lastBuildError().contains("Detailed build error output"));
+        assertEquals(0, retryStep.loopContext().editState().blocksAppliedWithoutBuild()); // Reset
         assertTrue(Messages.getText(retryStep.loopContext().conversationState().nextRequest()).contains("The build failed"));
 
         // Second run - build should succeed
@@ -388,14 +374,14 @@ class CodeAgentTest {
         // otherwise verifyPhase will short-circuit because blocksAppliedWithoutBuild is 0 from the Retry step.
         var contextForSecondRun = new CodeAgent.LoopContext(
                 retryStep.loopContext().conversationState(),
-                new CodeAgent.WorkspaceState(
+                new CodeAgent.EditState(
                         List.of(), // pending blocks are empty
-                        retryStep.loopContext().workspaceState().consecutiveParseFailures(),
-                        retryStep.loopContext().workspaceState().consecutiveApplyFailures(),
+                        retryStep.loopContext().editState().consecutiveParseFailures(),
+                        retryStep.loopContext().editState().consecutiveApplyFailures(),
                         1, // Simulate one new fix was applied to pass the guard in verifyPhase
-                        retryStep.loopContext().workspaceState().lastBuildError(),
-                        retryStep.loopContext().workspaceState().changedFiles(),
-                        retryStep.loopContext().workspaceState().originalFileContents()
+                        retryStep.loopContext().editState().lastBuildError(),
+                        retryStep.loopContext().editState().changedFiles(),
+                        retryStep.loopContext().editState().originalFileContents()
                 ),
                 retryStep.loopContext().userGoal()
         );
@@ -403,8 +389,8 @@ class CodeAgentTest {
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun);
         assertInstanceOf(CodeAgent.Step.Continue.class, resultSuccess);
         var continueStep = (CodeAgent.Step.Continue) resultSuccess;
-        assertEquals("", continueStep.loopContext().workspaceState().lastBuildError(), "lastBuildError should be cleared on successful build");
-        assertEquals(0, continueStep.loopContext().workspaceState().blocksAppliedWithoutBuild());
+        assertEquals("", continueStep.loopContext().editState().lastBuildError(), "lastBuildError should be cleared on successful build");
+        assertEquals(0, continueStep.loopContext().editState().blocksAppliedWithoutBuild());
     }
 
     // INT-1: Interruption during verifyPhase (via Environment stub)

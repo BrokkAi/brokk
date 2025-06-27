@@ -13,12 +13,10 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
-import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.LogDescription;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.IOException;
@@ -96,12 +94,12 @@ public class CodeAgent {
                                                                    parser);
 
         var conversationState = new ConversationState(taskMessages, nextRequest, originalWorkspaceEditableMessages);
-        var workspaceState = new WorkspaceState(blocks, 0 /* initial parseFailures */, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+        var workspaceState = new EditState(blocks, 0 /* initial parseFailures */, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
             // Variables needed across phase calls if not passed via Step results
-            StreamingResult streamingResult = null; // Will be set before requestPhase
+            StreamingResult streamingResult; // Will be set before requestPhase
 
             // REQUEST PHASE (Getting the streamingResult)
             try {
@@ -110,7 +108,7 @@ public class CodeAgent {
                                                                                  parser,
                                                                                  loopContext.conversationState().taskMessages(),
                                                                                  loopContext.conversationState().nextRequest(),
-                                                                                 loopContext.workspaceState().changedFiles(),
+                                                                                 loopContext.editState().changedFiles(),
                                                                                  loopContext.conversationState().originalWorkspaceEditableMessages());
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
             } catch (InterruptedException e) {
@@ -172,18 +170,18 @@ public class CodeAgent {
             if (stopDetails != null) break;
 
             // POST-VERIFY CHECKS
-            if (verifyOutcome instanceof Step.Continue && loopContext.workspaceState().lastBuildError().isEmpty()) {
+            if (verifyOutcome instanceof Step.Continue && loopContext.editState().lastBuildError().isEmpty()) {
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                 break;
             }
-            if (loopContext.workspaceState().pendingBlocks().isEmpty()
-                && loopContext.workspaceState().blocksAppliedWithoutBuild() == 0) 
+            if (loopContext.editState().pendingBlocks().isEmpty()
+                && loopContext.editState().blocksAppliedWithoutBuild() == 0) 
             {
                 io.systemOutput("No edits found or applied in response, and no changes since last build; ending task");
-                if (loopContext.workspaceState().lastBuildError().isEmpty()) {
+                if (loopContext.editState().lastBuildError().isEmpty()) {
                     stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, streamingResult.text());
                 } else {
-                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, loopContext.workspaceState().lastBuildError());
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, loopContext.editState().lastBuildError());
                 }
                 break;
             }
@@ -207,13 +205,13 @@ public class CodeAgent {
         var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
         return new TaskResult("Code: " + finalActionDescription,
                               new ContextFragment.TaskFragment(contextManager, finalMessages, loopContext.userGoal()),
-                              loopContext.workspaceState().changedFiles(),
+                              loopContext.editState().changedFiles(),
                               stopDetails);
     }
 
     Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser) {
         var cs = currentLoopContext.conversationState();
-        var ws = currentLoopContext.workspaceState();
+        var ws = currentLoopContext.editState();
 
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
@@ -245,7 +243,7 @@ public class CodeAgent {
             // Add any newly parsed blocks before the error to the pending list for the next apply phase
             var nextPending = new ArrayList<>(ws.pendingBlocks());
             nextPending.addAll(newlyParsedBlocks);
-            var nextWs = new WorkspaceState(nextPending, updatedConsecutiveParseFailures, ws.consecutiveApplyFailures(), ws.blocksAppliedWithoutBuild(), ws.lastBuildError(), ws.changedFiles(), ws.originalFileContents());
+            var nextWs = ws.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
             return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()), consoleLogForRetry);
         }
 
@@ -266,18 +264,12 @@ public class CodeAgent {
                 consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
             }
             var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.originalWorkspaceEditableMessages());
-            var nextWs = new WorkspaceState(mutablePendingBlocks, 
-                                            updatedConsecutiveParseFailures, 
-                                            ws.consecutiveApplyFailures(), 
-                                            ws.blocksAppliedWithoutBuild(), 
-                                            ws.lastBuildError(), 
-                                            ws.changedFiles(), 
-                                            ws.originalFileContents());
-            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()), consoleLogForRetry);
+            var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+        return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()), consoleLogForRetry);
         }
 
         // No parse error, not a partial response. This is a successful, complete segment.
-        var nextWs = new WorkspaceState(mutablePendingBlocks, updatedConsecutiveParseFailures, ws.consecutiveApplyFailures(), ws.blocksAppliedWithoutBuild(), ws.lastBuildError(), ws.changedFiles(), ws.originalFileContents());
+        var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
         return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()), List.copyOf(newlyParsedBlocks));
     }
 
@@ -649,9 +641,6 @@ public class CodeAgent {
 
     Step requestPhase(LoopContext currentLoopContext, StreamingResult streamingResultFromLlm) {
         var cs = currentLoopContext.conversationState();
-        // var ws = currentLoopContext.workspaceState(); // ws not directly used in this phase's logic other than for sendLlmRequest, which is now outside
-
-        // streamingResultFromLlm is passed in, no try-catch for InterruptedException for sendLlmRequest here
 
         var llmError = streamingResultFromLlm.error();
         if (streamingResultFromLlm.isEmpty()) {
@@ -668,15 +657,12 @@ public class CodeAgent {
             return new Step.Fatal(fatalDetails);
         }
 
-        // Append request and AI message to taskMessages (which is part of ConversationState in LoopContext)
+        // Append request and AI message to taskMessages
         cs.taskMessages().add(cs.nextRequest());
         cs.taskMessages().add(streamingResultFromLlm.aiMessage());
 
-        // LoopContext's taskMessages have been updated
         return new Step.Continue(currentLoopContext, Collections.emptyList());
     }
-
-    //Removed handleParsingAndPrepareRetry method
 
     private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply,
                                                             Set<ProjectFile> changedFilesCollector)
@@ -692,7 +678,6 @@ public class CodeAgent {
 
         // Pre-create empty files for any new files from the current LLM response segment
         // (and add to git + workspace). This prevents UI race conditions.
-        // As newlyParsedBlocksFromCurrentIteration is removed, this now operates on all blocksToApply.
         preCreateNewFiles(blocksToApply);
 
 
@@ -706,17 +691,14 @@ public class CodeAgent {
         }
 
         changedFilesCollector.addAll(editResult.originalContents().keySet());
-        // Internal applyFailures counter and fallback logic removed from this helper.
-        // It now simply returns the result of EditBlock.applyEditBlocks.
         return editResult;
     }
 
     Step verifyPhase(LoopContext currentLoopContext) {
         var cs = currentLoopContext.conversationState();
-        var ws = currentLoopContext.workspaceState();
+        var ws = currentLoopContext.editState();
 
         // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
-        // blocksAppliedWithoutBuild acts as editsSinceLastBuild here.
         if (ws.blocksAppliedWithoutBuild() == 0) {
             // LoopContext is not changed here, so no new instance needed for Step.Continue
             return new Step.Continue(currentLoopContext, Collections.emptyList()); // No build needed, pass empty list for newlyParsedBlocks
@@ -732,15 +714,7 @@ public class CodeAgent {
         }
 
         if (latestBuildError.isEmpty()) { // Build succeeded or was skipped by performBuildVerification
-            var newWs = new WorkspaceState(
-                ws.pendingBlocks(), // Should be empty if applyPhase did its job
-                ws.consecutiveParseFailures(),
-                ws.consecutiveApplyFailures(), // Should be 0 if applyPhase was successful
-                0, // blocksAppliedWithoutBuild is reset
-                "", // lastBuildError is empty
-                ws.changedFiles(),
-                ws.originalFileContents()
-            );
+            var newWs = ws.afterSuccessfulBuild();
             // On successful build, the loopContext for Step.Continue should reflect this clean state.
             // The userGoal is still the same, and conversation history is preserved.
             // The nextRequest in cs might be a placeholder from applyPhase fallback; it will be ignored if runTask terminates due to SUCCESS.
@@ -753,22 +727,14 @@ public class CodeAgent {
                 nextRequestForBuildFailure,
                 cs.originalWorkspaceEditableMessages()
             );
-            var newWs = new WorkspaceState(
-                ws.pendingBlocks(), // Should be empty
-                ws.consecutiveParseFailures(),
-                ws.consecutiveApplyFailures(), // Should be 0
-                0, // blocksAppliedWithoutBuild is reset
-                latestBuildError, // Store the new build error
-                ws.changedFiles(),
-                ws.originalFileContents()
-            );
+            var newWs = ws.afterBuildFailure(latestBuildError);
             return new Step.Retry(new LoopContext(newCs, newWs, currentLoopContext.userGoal()), "Build failed with: " + latestBuildError.lines().findFirst().orElse("") + "... Asking LLM to fix.");
         }
     }
 
     Step applyPhase(LoopContext currentLoopContext, EditBlockParser parser) {
         var cs = currentLoopContext.conversationState();
-        var ws = currentLoopContext.workspaceState();
+        var ws = currentLoopContext.editState();
 
         if (ws.pendingBlocks().isEmpty() && ws.blocksAppliedWithoutBuild() == 0) {
             // This case will be handled by runTask's main loop structure to check if LLM provided no fixes.
@@ -787,7 +753,7 @@ public class CodeAgent {
 
         EditBlock.EditResult editResult;
         int updatedConsecutiveApplyFailures = ws.consecutiveApplyFailures();
-        WorkspaceState wsForStep = ws; // Will be updated
+        EditState wsForStep = ws; // Will be updated
         ConversationState csForStep = cs; // Will be updated
 
         try {
@@ -832,30 +798,14 @@ public class CodeAgent {
                     UserMessage placeholderPrompt = new UserMessage("[Placeholder: Build errors will be inserted here by verifyPhase if build fails after this full file replacement]");
                     csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt, cs.originalWorkspaceEditableMessages());
                     
-                    wsForStep = new WorkspaceState(
-                        nextPendingBlocks, // empty
-                        ws.consecutiveParseFailures(),
-                        0, // Reset consecutive apply failures after successful fallback
-                        1, // Force build as per plan (at least one "edit" happened via fallback)
-                        ws.lastBuildError(), // Keep last build error for now
-                        updatedChangedFiles, // Use updated set
-                        nextOriginalFileContents
-                    );
+                    wsForStep = ws.afterFallbackSuccess(nextPendingBlocks, updatedChangedFiles, nextOriginalFileContents);
                     return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()), Collections.emptyList());
                 } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
                     String retryPromptText = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(), parser, succeededCount, contextManager);
                     io.llmOutput("\nFailed to apply %s block(s), asking LLM to retry".formatted(editResult.failedBlocks().size()), ChatMessageType.CUSTOM);
                     UserMessage retryRequest = new UserMessage(retryPromptText);
                     csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.originalWorkspaceEditableMessages());
-                    wsForStep = new WorkspaceState(
-                        nextPendingBlocks, // empty
-                        ws.consecutiveParseFailures(),
-                        updatedConsecutiveApplyFailures,
-                        newBlocksAppliedWithoutBuild,
-                        ws.lastBuildError(),
-                        ws.changedFiles(),
-                        nextOriginalFileContents
-                    );
+                    wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
                     return new Step.Retry(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()), "Retrying apply failures for %d blocks.".formatted(editResult.failedBlocks().size()));
                 }
             } else { // All blocks from ws.pendingBlocks() applied successfully
@@ -863,15 +813,7 @@ public class CodeAgent {
                     io.llmOutput("\n" + succeededCount + " SEARCH/REPLACE blocks applied.", ChatMessageType.CUSTOM);
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
-                wsForStep = new WorkspaceState(
-                    nextPendingBlocks, // empty
-                    ws.consecutiveParseFailures(),
-                    updatedConsecutiveApplyFailures, // now 0
-                    newBlocksAppliedWithoutBuild,
-                        ws.lastBuildError(),
-                        ws.changedFiles(),
-                        nextOriginalFileContents
-                    );
+                wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
                 return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()), Collections.emptyList());
             }
 
@@ -904,7 +846,7 @@ public class CodeAgent {
 
     record LoopContext(
             ConversationState conversationState,
-            WorkspaceState workspaceState,
+            EditState editState,
             String userGoal
     ) {}
 
@@ -927,7 +869,7 @@ public class CodeAgent {
             List<ChatMessage> originalWorkspaceEditableMessages
     ) {}
 
-    record WorkspaceState(
+    record EditState(
             List<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
@@ -935,5 +877,53 @@ public class CodeAgent {
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents
-    ) {}
+    ) {
+        /**
+         * Returns a new WorkspaceState with updated pending blocks and parse failures.
+         */
+        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures)
+        {
+            return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
+                                 blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after a successful build, resetting relevant fields.
+         */
+        EditState afterSuccessfulBuild()
+        {
+            return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
+                                 0, "", changedFiles, originalFileContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after a build failure, updating the error message.
+         */
+        EditState afterBuildFailure(String newBuildError)
+        {
+            return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
+                                 0, newBuildError, changedFiles, originalFileContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after applying blocks, updating relevant fields.
+         */
+        EditState afterApply(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newApplyFailures,
+                             int newBlocksApplied, Map<ProjectFile, String> newOriginalContents)
+        {
+            return new EditState(newPendingBlocks, consecutiveParseFailures, newApplyFailures,
+                                 newBlocksApplied, lastBuildError, changedFiles, newOriginalContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after a successful full-file replacement fallback.
+         */
+        EditState afterFallbackSuccess(List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                                       Set<ProjectFile> updatedChangedFiles,
+                                       Map<ProjectFile, String> newOriginalContents)
+        {
+            return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
+                                 1, lastBuildError, updatedChangedFiles, newOriginalContents);
+        }
+    }
 }
