@@ -211,33 +211,56 @@ public class ArchitectAgent {
     public String commitChanges(
             @Nullable @P("Commit message in imperative form (≤ 80 chars). " +
                "Leave blank to auto-generate.") String message
-    ) throws Exception {
-        io.llmOutput("Git committing changes...", ChatMessageType.CUSTOM, true);
+    ) {
+        var cursor = messageCursor();
+        io.llmOutput("Git committing changes...\n", ChatMessageType.CUSTOM, true);
+        try {
+            // --- Guards ----------------------------------------------------------
+            var project = contextManager.getProject();
+            if (!project.hasGit()) {
+                throw new IllegalStateException("Project is not a Git repository.");
+            }
 
-        // --- Guards ----------------------------------------------------------
-        var project = contextManager.getProject();
-        if (!project.hasGit()) {
-            throw new IllegalStateException("Project is not a Git repository.");
+            var repo = (GitRepo) project.getRepo(); // Cast to concrete GitRepo
+
+            String defaultBranch = repo.getDefaultBranch()
+                    .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
+
+            if (Objects.equals(repo.getCurrentBranch(), defaultBranch)) {
+                throw new IllegalStateException("Refusing to commit on the default branch (%s)."
+                                                        .formatted(defaultBranch));
+            }
+
+            // --------------------------------------------------------------------
+            var gws = new GitWorkflowService(contextManager);
+            var result = gws.commit(List.of(), message == null ? "" : message.trim());
+
+            var summary = "Committed %s - \"%s\"".formatted(result.commitId(), result.firstLine());
+            io.llmOutput(summary, ChatMessageType.CUSTOM);
+            logger.info(summary);
+
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git commit",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
+
+            return summary;
+        } catch (Exception e) {
+            var errorMessage = "Commit failed: " + e.getMessage();
+            logger.error(errorMessage, e);
+            io.llmOutput("Commit failed. See the build log for details.", ChatMessageType.CUSTOM);
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git commit",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.TOOL_ERROR);
+            contextManager.addToHistory(tr, false);
+            throw new RuntimeException("Commit failed", e);
         }
-
-        var repo = (GitRepo) project.getRepo(); // Cast to concrete GitRepo
-
-        String defaultBranch = repo.getDefaultBranch()
-                .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
-
-        if (Objects.equals(repo.getCurrentBranch(), defaultBranch)) {
-            throw new IllegalStateException("Refusing to commit on the default branch (%s)."
-                                                    .formatted(defaultBranch));
-        }
-
-        // --------------------------------------------------------------------
-        var gws = new GitWorkflowService(contextManager);
-        var result = gws.commit(List.of(), message == null ? "" : message.trim());
-
-        var summary = "Committed %s – “%s”".formatted(result.commitId(), result.firstLine());
-        io.llmOutput(summary, ChatMessageType.CUSTOM);
-        logger.info(summary);
-        return summary;
     }
 
     @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
@@ -603,6 +626,17 @@ public class ArchitectAgent {
             case "addEditableFilesToWorkspace" -> 3;
             default -> 4; // all other tools have lowest priority
         };
+    }
+
+    /** Returns a cursor that represents the current end of the LLM output message list. */
+    private int messageCursor() {
+        return io.getLlmRawMessages().size();
+    }
+
+    /** Returns a copy of new messages added to the LLM output after the given cursor. */
+    private List<ChatMessage> messagesSince(int cursor) {
+        var raw = io.getLlmRawMessages();
+        return List.copyOf(raw.subList(cursor, raw.size()));
     }
 
     /**

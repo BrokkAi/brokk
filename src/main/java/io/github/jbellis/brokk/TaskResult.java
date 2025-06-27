@@ -87,6 +87,10 @@ public record TaskResult(String actionDescription,
          * the LLM determined that it was not possible to fulfil the request
          */
         LLM_ABORTED,
+        /**
+         * an error occurred while executing a tool
+         */
+        TOOL_ERROR
     }
 
     public record StopDetails(StopReason reason, String explanation) {
