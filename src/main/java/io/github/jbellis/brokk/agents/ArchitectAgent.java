@@ -75,6 +75,7 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private final AtomicInteger searchAgentId = new AtomicInteger(1);
+    private final AtomicInteger planningStep = new AtomicInteger(1);
     private boolean offerUndoToolNext = false;
 
     /**
@@ -366,6 +367,7 @@ public class ArchitectAgent {
         var modelsService = contextManager.getService();
 
         while (true) {
+            var planningCursor = messageCursor();
             io.llmOutput("\n# Planning", ChatMessageType.AI, true);
 
             // Determine active models and their minimum input token limit
@@ -485,6 +487,14 @@ public class ArchitectAgent {
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
             io.llmOutput("\nTool call(s): %s".formatted(deduplicatedRequests.stream().map(req -> "`" + req.name() + "`").collect(Collectors.joining(", "))), ChatMessageType.AI);
+
+            var planningMessages = messagesSince(planningCursor);
+            contextManager.addToHistory(new TaskResult(contextManager,
+                                                        "Architect planning step " + planningStep.getAndIncrement(),
+                                                        planningMessages,
+                                                        Set.of(),
+                                                        TaskResult.StopReason.SUCCESS),
+                                        false);
 
             // execute tool calls in the following order:
             // 1. projectFinished
