@@ -99,6 +99,12 @@ public class CodeAgent {
         var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
+            if (Thread.interrupted()) {
+                logger.debug("CodeAgent interrupted");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
             // Variables needed across phase calls if not passed via Step results
             StreamingResult streamingResult; // Will be set before requestPhase
 
@@ -113,10 +119,8 @@ public class CodeAgent {
                                                                                  loopContext.conversationState().originalWorkspaceEditableMessages());
                 streamingResult = coder.sendRequest(allMessagesForLlm, true);
             } catch (InterruptedException e) {
-                logger.debug("CodeAgent interrupted during LLM request in runTask");
                 Thread.currentThread().interrupt();
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break; // Break main loop
+                continue; // let main loop interruption check handle
             }
 
             // Actual requestPhase handles the result of sendLlmRequest
@@ -186,15 +190,8 @@ public class CodeAgent {
                 }
                 break;
             }
-
-            // Check for interruption before next iteration (if not continuing or breaking)
-            if (Thread.currentThread().isInterrupted()) {
-                logger.debug("CodeAgent interrupted at end of loop iteration.");
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
-                break;
-            }
-        } // End of while(true)
-
+        }
+        
         // Conclude task
         assert stopDetails != null; // Ensure a stop reason was set before exiting the loop
         // create the Result for history
