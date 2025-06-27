@@ -321,7 +321,7 @@ public class ArchitectAgent {
             }
 
             var prUrl = gws.createPullRequest(currentBranch, defaultBranch, title.trim(), body.trim());
-            var msg = "Opened PR: \"%s\" \n`%s`".formatted(title.trim(), prUrl);
+            var msg = "Opened PR: \"%s\" \n[%s](%s)".formatted(title.trim(), prUrl, prUrl);
             io.llmOutput(msg, ChatMessageType.CUSTOM);
             logger.info(msg);
 
