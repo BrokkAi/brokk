@@ -123,12 +123,6 @@ public class ArchitectOptionsDialog {
             mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
             mainPanel.add(Box.createVerticalStrut(10));
 
-            var gitHeader = new JLabel("Git Tools");
-            gitHeader.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
-            gitHeader.setFont(gitHeader.getFont().deriveFont(Font.BOLD));
-            gitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
-            mainPanel.add(gitHeader);
-
             // --- Git Commit Checkbox ---
             boolean gitAvailable = project.hasGit();
             boolean onDefaultBranch = false;
@@ -157,10 +151,6 @@ public class ArchitectOptionsDialog {
             } else if (onDefaultBranch) {
                 commitCb.setToolTipText("Cannot commit on the default branch (%s).".formatted(defaultBranchName));
             }
-
-            // Separator before worktree option
-            mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
-            mainPanel.add(Box.createVerticalStrut(10)); // Add some space before the worktree option
 
             // --- Worktree Checkbox ---
             var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
