@@ -1497,7 +1497,7 @@ public interface ContextFragment {
      */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
         private final List<ChatMessage> messages; // Content is fixed once created
-        private final String sessionName;
+        private final String taskName;
 
         private static String calculateId(String sessionName, List<ChatMessage> messages) {
             return FragmentUtils.calculateContentHash(
@@ -1509,17 +1509,17 @@ public interface ContextFragment {
             );
         }
 
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
-            super(calculateId(sessionName, messages), contextManager); // ID is content hash
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String taskName) {
+            super(calculateId(taskName, messages), contextManager); // ID is content hash
             this.messages = List.copyOf(messages);
-            this.sessionName = sessionName;
+            this.taskName = taskName;
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
-        public TaskFragment(String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
+        public TaskFragment(String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String taskName) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
             this.messages = List.copyOf(messages);
-            this.sessionName = sessionName;
+            this.taskName = taskName;
         }
         
         @Override
@@ -1535,7 +1535,7 @@ public interface ContextFragment {
 
         @Override
         public String description() {
-            return sessionName;
+            return taskName;
         }
 
         @Override
