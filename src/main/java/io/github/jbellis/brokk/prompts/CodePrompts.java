@@ -12,6 +12,8 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 
 import java.io.IOException;
@@ -88,7 +90,6 @@ public abstract class CodePrompts {
                                                          UserMessage request,
                                                          Set<ProjectFile> changedFiles,
                                                          List<ChatMessage> originalWorkspaceEditableMessages)
-    throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
 
@@ -170,7 +171,7 @@ public abstract class CodePrompts {
         """.stripIndent().formatted(reminder);
     }
 
-    public UserMessage codeRequest(String input, String reminder, EditBlockParser parser) {
+    public UserMessage codeRequest(String input, String reminder, EditBlockParser parser, @Nullable ProjectFile file) {
         var instructions = """
         <instructions>
         Think about this request for changes to the supplied code.
@@ -196,7 +197,7 @@ public abstract class CodePrompts {
         
         If you are struggling to use a dependency or API correctly, stop and ask the user for help.
         """;
-        return new UserMessage(instructions + parser.instructions(input, reminder));
+        return new UserMessage(instructions + parser.instructions(input, file, reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -719,7 +720,11 @@ public abstract class CodePrompts {
                               """.stripIndent().formatted(originalWorkspaceEditableContent);
 
         var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+        return List.of(editableUserMessage, getAiWorkspaceResponse());
+    }
+
+    private static @NotNull AiMessage getAiWorkspaceResponse() {
+        return new AiMessage("Thank you for the original editable Workspace state.\n\nIMPORTANT SYSTEM NOTE: I WILL NOW INJECT TWO EXAMPLES OF HYPOTHETICAL USER REQUESTS AND AI RESPONSES TO ILLUSTRATE PROPER *SEARCH/REPLACE* BLOCK GENERATION. MESSAGES AFTER THOSE WILL BE REAL.");
     }
 
     public List<ChatMessage> getSingleFileEditableMessage(ProjectFile file) {
@@ -738,7 +743,7 @@ public abstract class CodePrompts {
                                   </workspace_editable_original>
                                   """.stripIndent().formatted(file.toString(), file.read());
             var editableUserMessage = new UserMessage(editableText);
-            return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+            return List.of(editableUserMessage, getAiWorkspaceResponse());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

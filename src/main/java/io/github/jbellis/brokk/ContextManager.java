@@ -115,7 +115,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") // Finnish comment, keep as is
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
@@ -1196,7 +1196,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param parser    The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
         // Pass an empty set for trackedFiles as it's not needed for redaction.
         var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
         // Check if there are actual S/R block objects, not just text parts
@@ -1388,11 +1388,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public Set<BrokkFile> getReadonlyFiles() {
+    public Set<BrokkFile> getReadonlyProjectFiles() {
         return topContext().readonlyFiles()
-                .filter(ContextFragment.PathFragment.class::isInstance)
-                .map(ContextFragment.PathFragment.class::cast)
-                .map(ContextFragment.PathFragment::file)
+                .filter(pf -> pf instanceof ContextFragment.ProjectPathFragment)
+                .map(pf -> ((ContextFragment.ProjectPathFragment) pf).file())
                 .collect(Collectors.toSet());
     }
 

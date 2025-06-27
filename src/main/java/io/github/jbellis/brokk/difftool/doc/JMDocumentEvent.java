@@ -7,7 +7,7 @@ import javax.swing.event.DocumentEvent;
 public class JMDocumentEvent {
     private final AbstractBufferDocument document;
     @Nullable
-    private DocumentEvent de; // Made nullable as it's not set in one constructor
+    private DocumentEvent de;
     private int startLine;
     private int numberOfLines;
 

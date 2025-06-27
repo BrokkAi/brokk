@@ -96,7 +96,7 @@ public class EditBlockParser {
         );
     }
 
-    protected final String instructions(String input, String reminder) {
+    protected final String instructions(String input, @Nullable ProjectFile file, String reminder) {
         return """
         <rules>
         %s
@@ -146,10 +146,13 @@ public class EditBlockParser {
         %s
         </rules>
         
-        <goal>
+        <goal%s>
         %s
         </goal>
-        """.stripIndent().formatted(diffFormatInstructions(), reminder, input);
+        """.formatted(diffFormatInstructions(), 
+                      reminder,
+                      file == null ? "" : " target=\"%s\">".formatted(file),
+                      input);
     }
 
     public String diffFormatInstructions() {

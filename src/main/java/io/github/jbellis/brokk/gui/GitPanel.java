@@ -30,15 +30,15 @@ public class GitPanel extends JPanel
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
 
-    // The “Commit” tab, now delegated to GitCommitTab
+    // The “Commit” tab
     private final GitCommitTab commitTab;
 
-    // The “Log” tab extracted into its own class
+    // The “Log” tab
     private final GitLogTab gitLogTab;
 
     // The "Pull Requests" tab - conditionally added
-    @Nullable
-    private GitPullRequestsTab pullRequestsTab; // Keep if you still want PRs
+    @Nullable 
+    private GitPullRequestsTab pullRequestsTab;
 
     // The "Issues" tab - conditionally added
     @Nullable

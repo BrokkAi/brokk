@@ -17,7 +17,7 @@ public final class LoadingTextBox extends JPanel {
     private final JLabel spinner;
     private final String placeholder;
     private boolean showingHint;
-    private boolean internalChange = false; // Flag to track internal text changes
+    private boolean internalChange = false;
     private final Color hintColor = Color.GRAY;
     private final Color defaultColor;
 
