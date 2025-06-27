@@ -30,7 +30,7 @@ public class GitPanel extends JPanel
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
 
-    // The “Commit” tab
+    // The “Changes” tab, now delegated to GitCommitTab
     private final GitCommitTab commitTab;
 
     // The “Log” tab
@@ -92,9 +92,9 @@ public class GitPanel extends JPanel
         tabbedPane = new JTabbedPane();
         add(tabbedPane, BorderLayout.CENTER);
 
-        // 1) Commit tab (moved to GitCommitTab)
+        // 1) Changes tab (displays uncommitted changes, uses GitCommitTab internally)
         commitTab = new GitCommitTab(chrome, contextManager, this);
-        tabbedPane.addTab("Commit", commitTab);
+        tabbedPane.addTab("Changes", commitTab);
 
         // 2) Log tab (moved to GitLogTab)
         gitLogTab = new GitLogTab(chrome, contextManager);
@@ -214,14 +214,6 @@ public class GitPanel extends JPanel
     }
 
     /**
-     * Allows external code to set the commit message (e.g. from an LLM suggestion).
-     */
-    public void setCommitMessageText(String message)
-    {
-        commitTab.setCommitMessageText(message);
-    }
-
-    /**
      * For GitCommitTab or external code to re-populate the Log tab.
      */
     void updateLogTab()
@@ -335,7 +327,8 @@ public class GitPanel extends JPanel
         }
     }
 
-    public GitCommitTab getCommitTab() {
+    public GitCommitTab getCommitTab()
+    {
         return commitTab;
     }
 

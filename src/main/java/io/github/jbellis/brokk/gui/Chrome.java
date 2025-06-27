@@ -355,8 +355,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 gitRepo.add(filesToAdd);
                 systemOutput("Added shared .brokk project files (style.md, review.md, project.properties) to git");
 
-                // Update commit message
-                gitPanel.setCommitMessageText("Update for Brokk project files");
+                // Refresh the commit panel to show the new files
                 updateCommitPanel();
             } catch (Exception e) {
                 logger.error(e);
