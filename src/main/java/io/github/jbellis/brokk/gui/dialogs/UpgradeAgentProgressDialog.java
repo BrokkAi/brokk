@@ -135,9 +135,8 @@ public class UpgradeAgentProgressDialog extends JDialog {
                             var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
                             var agent = new CodeAgent(contextManager, model, dialogConsoleIO);
 
-                            List<ChatMessage> readOnlyMessages;
+                            List<ChatMessage> readOnlyMessages = new ArrayList<>();
                             try {
-                                readOnlyMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceReadOnlyMessages(contextManager));
                                 if (UpgradeAgentProgressDialog.this.relatedK != null) {
                                     var acFragment = contextManager.liveContext().buildAutoContext(UpgradeAgentProgressDialog.this.relatedK);
                                     if (!acFragment.text().isBlank()) {
