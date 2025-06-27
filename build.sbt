@@ -182,7 +182,12 @@ javaOptions ++= Seq(
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
   "-Dbrokk.upgradeagenttab=true"
-)
+) ++ sys.env.get("UI_SCALE").map { scale =>
+  Seq(
+    s"-Dsun.java2d.uiScale=$scale",
+    "-Dsun.java2d.dpiaware=true"
+  )
+}.getOrElse(Seq.empty)
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
 Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))
