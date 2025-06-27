@@ -119,11 +119,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
             List<String> fetchedStatuses = null;
             try {
-                if (this.issueService != null) { // Ensure issueService is available
-                    fetchedStatuses = this.issueService.listAvailableStatuses();
-                } else {
-                    logger.warn("IssueService is null, cannot load available statuses.");
-                }
+                // Ensure issueService is available
+                fetchedStatuses = this.issueService.listAvailableStatuses();
             } catch (IOException e) {
                 logger.error("Failed to load available issue statuses. Falling back to defaults.", e);
             }
@@ -409,15 +406,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         // Initialize context menu and items
         issueContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(issueContextMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(issueContextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(issueContextMenu);
 
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));
@@ -507,10 +496,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void cancelActiveFutures() {
-        if (searchDebounceTimer != null && searchDebounceTimer.isRunning()) {
+        if (searchDebounceTimer.isRunning()) {
             searchDebounceTimer.stop();
         }
-        if (descriptionDebounceTimer != null && descriptionDebounceTimer.isRunning()) {
+        if (descriptionDebounceTimer.isRunning()) {
             descriptionDebounceTimer.stop();
         }
         pendingHeaderForDescription = null;
@@ -521,7 +510,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
         logger.debug("Attempting to cancel {} active issue-related futures.", futuresToCancel.size());
         for (Future<?> f : futuresToCancel) {
-            if (f != null && !f.isDone()) {
+            if (!f.isDone()) {
                 f.cancel(true);
                 logger.trace("Requested cancellation for active future: {}", f.toString());
             }
@@ -633,7 +622,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                     return null;
                 }
 
-                if (rawBody == null || rawBody.isBlank()) {
+                if (rawBody.isBlank()) {
                     SwingUtilities.invokeLater(() -> {
                         issueBodyTextPane.setContentType("text/html");
                         issueBodyTextPane.setText("<html><body><p>No description provided.</p></body></html>");
@@ -688,7 +677,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
-        if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
+        if (!currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
         searchBox.setLoading(true, "Searching issues");
@@ -696,7 +685,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             List<IssueHeader> fetchedIssueHeaders;
             try {
                 // Read filter values on EDT or before submitting task. searchBox can be null during early init.
-                final String currentSearchQuery = (searchBox != null) ? searchBox.getText().strip() : "";
+                final String currentSearchQuery = searchBox.getText().strip();
                 final String queryForApi = currentSearchQuery.isBlank() ? null : currentSearchQuery;
 
                 final String statusVal = getBaseFilterValue(statusFilter.getSelected());
@@ -756,7 +745,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private void triggerClientSideFilterUpdate() {
         // This method is called when author, label, or assignee filters change.
         // It re-filters the existing 'allIssuesFromApi' list.
-        if (allIssuesFromApi == null || (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() > 0 && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues"))) {
+        if (allIssuesFromApi.isEmpty() && issueTableModel.getRowCount() > 0 && issueTableModel.getValueAt(0, ISSUE_COL_TITLE).toString().startsWith("Error fetching issues")) {
             logger.debug("Skipping client-side filter update: allIssuesFromApi is not ready or an error is displayed.");
             return;
         }
@@ -789,25 +778,24 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                      selectedAuthorActual, selectedLabelActual, selectedAssigneeActual);
 
         List<IssueHeader> filteredIssues = new ArrayList<>();
-        if (sourceList != null) { // Guard against null sourceList
-            for (var header : sourceList) {
-                boolean matches = true;
-                if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
+        // Guard against null sourceList
+        for (var header : sourceList) {
+            boolean matches = true;
+            if (selectedAuthorActual != null && !selectedAuthorActual.equals(header.author())) {
+                matches = false;
+            }
+            if (matches && selectedLabelActual != null) {
+                if (header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
                     matches = false;
                 }
-                if (matches && selectedLabelActual != null) {
-                    if (header.labels() == null || header.labels().stream().noneMatch(l -> selectedLabelActual.equals(l))) {
-                        matches = false;
-                    }
+            }
+            if (matches && selectedAssigneeActual != null) {
+                if (header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
+                    matches = false;
                 }
-                if (matches && selectedAssigneeActual != null) {
-                    if (header.assignees() == null || header.assignees().stream().noneMatch(a -> selectedAssigneeActual.equals(a))) {
-                        matches = false;
-                    }
-                }
-                if (matches) {
-                    filteredIssues.add(header);
-                }
+            }
+            if (matches) {
+                filteredIssues.add(header);
             }
         }
         logger.debug("processAndDisplayWorker: After filtering, {} issues remain.", filteredIssues.size());
@@ -817,13 +805,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
 
         // Data for EDT update
-        final List<IssueHeader> finalSourceListForApiField = (isFullUpdate && sourceList != null) ? new ArrayList<>(sourceList) : null;
+        final List<IssueHeader> finalSourceListForApiField = isFullUpdate ? new ArrayList<>(sourceList) : null;
         final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
 
         SwingUtilities.invokeLater(() -> {
             // This part runs on the EDT
             logger.debug("processAndDisplayWorker (EDT): Starting UI updates.");
-            if (isFullUpdate && finalSourceListForApiField != null) {
+            if (isFullUpdate) {
                 allIssuesFromApi = finalSourceListForApiField;
                 logger.debug("processAndDisplayWorker (EDT): Updated allIssuesFromApi with {} issues.", allIssuesFromApi.size());
                 // FilterBoxes will lazily re-generate options using the new allIssuesFromApi
@@ -841,8 +829,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             } else {
                 for (var header : displayedIssues) {
                     String formattedUpdated = (header.updated() != null) ? gitPanel.formatCommitDate(header.updated(), today) : "";
-                    String labelsStr = (header.labels() != null) ? String.join(", ", header.labels()) : "";
-                    String assigneesStr = (header.assignees() != null) ? String.join(", ", header.assignees()) : "";
+                    String labelsStr = String.join(", ", header.labels());
+                    String assigneesStr = String.join(", ", header.assignees());
 
                     issueTableModel.addRow(new Object[]{
                             header.id(), header.title(), header.author(), formattedUpdated,
@@ -867,7 +855,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private List<String> generateFilterOptionsFromIssues(List<IssueHeader> issueHeaders, String filterType) {
-        if (issueHeaders == null || issueHeaders.isEmpty()) { // Added null check
+        if (issueHeaders.isEmpty()) { // Added null check
             return List.of();
         }
 
@@ -876,29 +864,27 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         switch (filterType) {
             case "author" -> {
                 for (var header : issueHeaders) {
-                    if (header.author() != null && !header.author().isBlank() && !"N/A".equalsIgnoreCase(header.author())) {
+                    if (!header.author().isBlank() && !"N/A".equalsIgnoreCase(header.author())) {
                         counts.merge(header.author(), 1, Integer::sum);
                     }
                 }
             }
             case "label" -> {
                 for (var header : issueHeaders) {
-                    if (header.labels() != null) { // Added null check
-                        for (String label : header.labels()) {
-                            if (!label.isBlank()) {
-                                counts.merge(label, 1, Integer::sum);
-                            }
+                    // Added null check
+                    for (String label : header.labels()) {
+                        if (!label.isBlank()) {
+                            counts.merge(label, 1, Integer::sum);
                         }
                     }
                 }
             }
             case "assignee" -> {
                 for (var header : issueHeaders) {
-                    if (header.assignees() != null) { // Added null check
-                        for (String assignee : header.assignees()) {
-                            if (assignee != null && !assignee.isBlank() && !"N/A".equalsIgnoreCase(assignee)) {
-                                counts.merge(assignee, 1, Integer::sum);
-                            }
+                    // Added null check
+                    for (String assignee : header.assignees()) {
+                        if (!assignee.isBlank() && !"N/A".equalsIgnoreCase(assignee)) {
+                            counts.merge(assignee, 1, Integer::sum);
                         }
                     }
                 }
@@ -936,11 +922,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     }
 
     private void disableIssueActions() {
-        if (copyDescriptionAction != null) {
-            copyDescriptionAction.setEnabled(false);
-            openInBrowserAction.setEnabled(false);
-            captureAction.setEnabled(false);
-        }
+        copyDescriptionAction.setEnabled(false);
+        openInBrowserAction.setEnabled(false);
+        captureAction.setEnabled(false);
     }
 
     private void captureSelectedIssue() {
@@ -956,11 +940,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         var future = contextManager.submitContextTask("Capturing Issue " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
-                if (details == null) {
-                    logger.error("Failed to load details for issue {}", header.id());
-                    chrome.toolError("Failed to load details for issue " + header.id());
-                    return;
-                }
 
                 List<ChatMessage> issueTextMessages = buildIssueTextContentFromDetails(details);
                 ContextFragment.TaskFragment issueTextFragment = createIssueTextFragmentFromDetails(details, issueTextMessages);
@@ -988,10 +967,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
         String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
-        if (this.issueService instanceof JiraIssueService && bodyForCapture != null) {
+        if (this.issueService instanceof JiraIssueService) {
             bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
         }
-        bodyForCapture = (bodyForCapture == null || bodyForCapture.isBlank()) ? "*No description provided.*" : bodyForCapture;
+        bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
         String content = String.format("""
                                        # Issue #%s: %s
                                        
@@ -1030,17 +1009,16 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
 
     private List<ChatMessage> buildChatMessagesFromDtoComments(List<Comment> dtoComments) {
         List<ChatMessage> chatMessages = new ArrayList<>();
-        if (dtoComments == null) return chatMessages;
 
         for (io.github.jbellis.brokk.issues.Comment comment : dtoComments) {
-            String author = (comment.author() == null || comment.author().isBlank()) ? "unknown" : comment.author();
+            String author = comment.author().isBlank() ? "unknown" : comment.author();
             String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
             String commentBodyForCapture = originalCommentBody;
-            if (this.issueService instanceof JiraIssueService && originalCommentBody != null) {
+            if (this.issueService instanceof JiraIssueService) {
                 commentBodyForCapture = HtmlUtil.convertToMarkdown(originalCommentBody);
             }
 
-            if (commentBodyForCapture != null && !commentBodyForCapture.isBlank()) {
+            if (!commentBodyForCapture.isBlank()) {
                 chatMessages.add(UserMessage.from(author, commentBodyForCapture));
             }
         }
@@ -1061,7 +1039,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private int processAndCaptureImagesFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
         List<URI> attachmentUris = details.attachmentUrls(); // Already extracted by IssueService
-        if (attachmentUris == null || attachmentUris.isEmpty()) {
+        if (attachmentUris.isEmpty()) {
             return 0;
         }
 
@@ -1110,7 +1088,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();
-                if (body != null && !body.isBlank()) {
+                if (!body.isBlank()) {
                     StringSelection stringSelection = new StringSelection(body);
                     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(stringSelection, null);
                     chrome.systemOutput("Issue " + header.id() + " description copied to clipboard.");
