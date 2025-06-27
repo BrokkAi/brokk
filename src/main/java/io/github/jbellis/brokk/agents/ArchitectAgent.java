@@ -160,13 +160,17 @@ public class ArchitectAgent {
             }
         }
 
+        var cursor = messageCursor();
         // TODO label this Architect
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
         var agent = new CodeAgent(contextManager, contextManager.getCodeModel());
         var result = agent.runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        var entry = contextManager.addToHistory(result, true);
+
+        var newMessages = messagesSince(cursor);
+        var historyResult = new TaskResult(result, newMessages, contextManager);
+        var entry = contextManager.addToHistory(historyResult, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
             var entrySummary = entry != null ? entry.summary() : "CodeAgent completed with no specific summary.";

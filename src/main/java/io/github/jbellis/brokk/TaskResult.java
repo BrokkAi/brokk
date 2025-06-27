@@ -40,6 +40,17 @@ public record TaskResult(String actionDescription,
     }
 
     /**
+     * Creates a new TaskResult by replacing the messages in an existing one.
+     */
+    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager)
+    {
+        this(base.actionDescription(),
+             new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
+             base.changedFiles(),
+             base.stopDetails());
+    }
+
+    /**
      * Enum representing the reason a CodeAgent session concluded.
      */
     public enum StopReason {
