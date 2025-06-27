@@ -53,10 +53,11 @@ public class ArchitectAgent {
             boolean includeCodeAgent,
             boolean includeSearchAgent,
             boolean includeAskHuman,
-            boolean includeGitCommit
+            boolean includeGitCommit,
+            boolean includeGitCreatePr
     ) {
         /** Default options (all enabled, except Git tools). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false);
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false, false);
     }
 
     private final IConsoleIO io;

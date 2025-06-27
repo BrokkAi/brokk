@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -124,17 +125,19 @@ public class ArchitectOptionsDialog {
             mainPanel.add(Box.createVerticalStrut(10));
 
             // --- Git Commit Checkbox ---
-            boolean gitAvailable = project.hasGit();
+            boolean gitAvailable = project != null && project.hasGit();
             boolean onDefaultBranch = false;
             String defaultBranchName = "";
+            GitRepo repo = null;
             if (gitAvailable) {
                 try {
-                    var repo = project.getRepo();
+                    repo = (GitRepo)project.getRepo();
                     defaultBranchName = repo.getDefaultBranch()
                             .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
                     onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
                 } catch (GitAPIException e) {
                     defaultBranchName = "";
+                    gitAvailable = false; // if there's an API exception, we can't be sure of the state, so disable git features
                 }
             }
             boolean commitUsable = gitAvailable && !onDefaultBranch;
@@ -151,6 +154,35 @@ public class ArchitectOptionsDialog {
             } else if (onDefaultBranch) {
                 commitCb.setToolTipText("Cannot commit on the default branch (%s).".formatted(defaultBranchName));
             }
+
+            // --- Git Create PR Checkbox ---
+            boolean prDisabled = !commitUsable
+                                 || !GitHubAuth.tokenPresent(project)
+                                 || repo == null
+                                 || repo.getRemoteUrl("origin") == null;
+
+            var prCb = createCheckbox.apply(
+                    "Create PR (includes push)",
+                    "Pushes current branch and opens a pull request. Disabled on default branch or without token."
+            );
+            prCb.setEnabled(!prDisabled);
+            prCb.setSelected(!prDisabled && currentOptions.includeGitCreatePr());
+
+            if (!commitUsable) {
+                if (!gitAvailable) {
+                    prCb.setToolTipText("No Git repository detected for this project.");
+                } else if (onDefaultBranch) {
+                    prCb.setToolTipText("Cannot create PR from the default branch (%s).".formatted(defaultBranchName));
+                }
+            } else if (!GitHubAuth.tokenPresent(project)) {
+                prCb.setToolTipText("No GitHub credentials found (e.g. GITHUB_TOKEN environment variable).");
+            } else if (repo == null || repo.getRemoteUrl("origin") == null) {
+                prCb.setToolTipText("Git repository does not have a remote named 'origin'.");
+            }
+
+            // Keep commit & PR checkboxes consistent
+            prCb.addActionListener(e -> { if (prCb.isSelected()) commitCb.setSelected(true); });
+            commitCb.addActionListener(e -> { if (!commitCb.isSelected()) prCb.setSelected(false); });
 
             // --- Worktree Checkbox ---
             var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
@@ -189,7 +221,8 @@ public class ArchitectOptionsDialog {
                         codeCb.isSelected(),
                         searchCb.isSelected(),
                         askHumanCb.isSelected(),
-                        commitCb.isSelected() // Persist Git commit option
+                        commitCb.isSelected(), // Persist Git commit option
+                        prCb.isSelected()
                 );
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 
