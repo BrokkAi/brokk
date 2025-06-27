@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -806,7 +805,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         logger.debug("processAndDisplayWorker: Sorted the {} filtered issues.", filteredIssues.size());
 
         // Data for EDT update
-        final List<IssueHeader> finalSourceListForApiField = isFullUpdate ? new ArrayList<>(sourceList) : null;
+        final List<IssueHeader> finalSourceListForApiField = isFullUpdate ? new ArrayList<>(sourceList) : List.of();
         final List<IssueHeader> finalFilteredIssuesForDisplay = filteredIssues; // Already a new list
 
         SwingUtilities.invokeLater(() -> {
@@ -1024,8 +1023,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
         return new ContextFragment.TaskFragment(
                 this.contextManager,
                 commentMessages,
-                description,
-                false // some comments contain HTML
+                description
+                // some comments contain HTML
         );
     }
 
