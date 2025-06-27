@@ -314,13 +314,16 @@ class CodeAgentTest {
     // V-1: verifyPhase – skip when no edits
     @Test
     void testVerifyPhase_skipWhenNoEdits() {
-        var loopContext = createBasicLoopContext("test goal"); // blocksAppliedWithoutBuild is 0 by default
+        var loopContext = createLoopContext("test goal",
+                                            List.of(new AiMessage("no edits")),
+                                            new UserMessage("test request"),
+                                            List.of(),
+                                            0);
         var result = codeAgent.verifyPhase(loopContext);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, result);
-        var continueStep = (CodeAgent.Step.Continue) result;
-        // Ensure state is unchanged essentially
-        assertSame(loopContext, continueStep.loopContext());
+        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
+        var step = (CodeAgent.Step.Fatal) result;
+        assertEquals(TaskResult.StopReason.SUCCESS, step.stopDetails().reason());
     }
 
     // V-2: verifyPhase – verification command absent
@@ -331,10 +334,9 @@ class CodeAgentTest {
 
         var result = codeAgent.verifyPhase(loopContext);
 
-        assertInstanceOf(CodeAgent.Step.Continue.class, result);
-        var continueStep = (CodeAgent.Step.Continue) result;
-        assertEquals("", continueStep.loopContext().editState().lastBuildError());
-        assertEquals(0, continueStep.loopContext().editState().blocksAppliedWithoutBuild()); // Reset after (skipped) build
+        assertInstanceOf(CodeAgent.Step.Fatal.class, result);
+        var step = (CodeAgent.Step.Fatal) result;
+        assertEquals(TaskResult.StopReason.SUCCESS, step.stopDetails().reason());
     }
 
     // V-3: verifyPhase – build failure loop (mocking Environment.runShellCommand)
@@ -387,10 +389,9 @@ class CodeAgentTest {
         );
 
         var resultSuccess = codeAgent.verifyPhase(contextForSecondRun);
-        assertInstanceOf(CodeAgent.Step.Continue.class, resultSuccess);
-        var continueStep = (CodeAgent.Step.Continue) resultSuccess;
-        assertEquals("", continueStep.loopContext().editState().lastBuildError(), "lastBuildError should be cleared on successful build");
-        assertEquals(0, continueStep.loopContext().editState().blocksAppliedWithoutBuild());
+        assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
+        var step = (CodeAgent.Step.Fatal) resultSuccess;
+        assertEquals(TaskResult.StopReason.SUCCESS, step.stopDetails().reason());
     }
 
     // INT-1: Interruption during verifyPhase (via Environment stub)
