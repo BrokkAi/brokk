@@ -299,6 +299,7 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}", query);
 
         // Instantiate and run SearchAgent
+        var cursor = messageCursor();
         io.llmOutput("Search Agent engaged: " +query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query,
                                     contextManager,
@@ -306,6 +307,11 @@ public class ArchitectAgent {
                                     toolRegistry,
                                     searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
+
+        var newMessages = messagesSince(cursor);
+        var historyResult = new TaskResult(result, newMessages, contextManager);
+        contextManager.addToHistory(historyResult, false);
+
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
         }
@@ -323,7 +329,7 @@ public class ArchitectAgent {
                 
                 Full list of potentially relevant classes:
                 %s
-                """.stripIndent().formatted(TaskEntry.formatMessages(result.output().messages()), relevantClasses);
+                """.stripIndent().formatted(TaskEntry.formatMessages(historyResult.output().messages()), relevantClasses);
         logger.debug(stringResult);
 
         return stringResult;
