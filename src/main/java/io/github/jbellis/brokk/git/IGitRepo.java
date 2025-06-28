@@ -155,10 +155,11 @@ public interface IGitRepo {
      *   2. Local branch named 'main'
      *   3. Local branch named 'master'
      *   4. First local branch (alphabetically)
-     * @return An Optional containing the default branch name, or empty if none can be determined.
-     * @throws GitAPIException if an error occurs while accessing Git data.
+     * @return The default branch name.
+     * @throws GitRepo.NoDefaultBranchException if no default branch can be determined (e.g., in an empty repository).
+     * @throws GitAPIException if a different error occurs while accessing Git data.
      */
-    default Optional<String> getDefaultBranch() throws GitAPIException {
+    default String getDefaultBranch() throws GitAPIException {
         throw new UnsupportedOperationException("getDefaultBranch not implemented");
     }
 

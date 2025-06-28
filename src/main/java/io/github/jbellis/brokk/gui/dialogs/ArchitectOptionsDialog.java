@@ -222,12 +222,11 @@ public class ArchitectOptionsDialog {
             }
             var repo = (GitRepo) project.getRepo();
             try {
-                var defaultBranchName = repo.getDefaultBranch()
-                        .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
+                var defaultBranchName = repo.getDefaultBranch();
                 var onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
                 return new GitState(true, onDefaultBranch, defaultBranchName, repo);
             } catch (GitAPIException e) {
-                // if there's an API exception, we can't be sure of the state, so disable git features
+                // if there's an API exception (e.g., no default branch), we can't be sure of the state, so disable git features
                 return new GitState(false, false, "", null);
             }
         }

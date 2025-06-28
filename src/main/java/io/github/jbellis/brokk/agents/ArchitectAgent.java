@@ -278,8 +278,7 @@ public class ArchitectAgent {
             }
 
             var repo = (GitRepo) project.getRepo();
-            var defaultBranch = repo.getDefaultBranch()
-                                    .orElseThrow(() -> new IllegalStateException("Cannot determine default branch"));
+            var defaultBranch = repo.getDefaultBranch();
             var currentBranch = repo.getCurrentBranch();
             if (Objects.equals(currentBranch, defaultBranch)) {
                 throw new IllegalStateException("Refusing to open PR from default branch (" + defaultBranch + ")");
