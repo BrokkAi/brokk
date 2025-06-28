@@ -9,7 +9,8 @@ import io.github.jbellis.brokk.context.Context;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionListener;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -24,7 +25,6 @@ public class UpgradeAgentDialog extends JDialog {
     private ButtonGroup scopeButtonGroup;
     private JCheckBox includeRelatedClassesCheckBox;
     private JComboBox<String> relatedClassesCombo;
-    private JCheckBox perFileCommandCheckBox;
     private JTextField perFileCommandTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
 
@@ -32,6 +32,7 @@ public class UpgradeAgentDialog extends JDialog {
         super(owner, "Upgrade Agent", true);
         this.chrome = chrome;
         initComponents();
+        setupKeyBindings();
         pack();
         setLocationRelativeTo(owner);
     }
@@ -182,25 +183,16 @@ public class UpgradeAgentDialog extends JDialog {
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        JPanel perFileCommandPanel = new JPanel(new BorderLayout(5, 5));
-        perFileCommandCheckBox = new JCheckBox("Enable");
+
         perFileCommandTextField = new JTextField();
-        perFileCommandTextField.setEnabled(false); // Initially disabled
 
-        perFileCommandCheckBox.addActionListener(e -> perFileCommandTextField.setEnabled(perFileCommandCheckBox.isSelected()));
-
-        perFileCommandPanel.add(perFileCommandCheckBox, BorderLayout.WEST);
-        perFileCommandPanel.add(perFileCommandTextField, BorderLayout.CENTER);
-
-        JLabel perFileCommandExplanation = new JLabel("<html>Command to run for each file. Use <code>{{filepath}}</code> for the file path.</html>");
+        JLabel perFileCommandExplanation = new JLabel("<html>Command to run for each file (if specified). Use <code>{{filepath}}</code> for the file path.</html>");
         JPanel explanationPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         explanationPanel.add(perFileCommandExplanation);
 
-
         JPanel combinedPerFilePanel = new JPanel(new BorderLayout(0,3));
-        combinedPerFilePanel.add(perFileCommandPanel, BorderLayout.NORTH);
+        combinedPerFilePanel.add(perFileCommandTextField, BorderLayout.NORTH);
         combinedPerFilePanel.add(explanationPanel, BorderLayout.CENTER);
-
 
         contentPanel.add(combinedPerFilePanel, gbc);
 
@@ -217,6 +209,21 @@ public class UpgradeAgentDialog extends JDialog {
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
         add(buttonPanel, BorderLayout.SOUTH);
+    }
+
+    private void setupKeyBindings() {
+        // Allow Shift+Enter to insert a newline in the text area
+        var inputMap = instructionsArea.getInputMap(JComponent.WHEN_FOCUSED);
+        var actionMap = instructionsArea.getActionMap();
+        var enterAction = actionMap.get("insert-break");
+        inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK), "insert-break-shifted");
+        actionMap.put("insert-break-shifted", enterAction);
+
+        // Allow Esc to close the dialog
+        var rootPane = getRootPane();
+        var escapeStroke = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+        java.awt.event.ActionListener actionListener = e -> setVisible(false);
+        rootPane.registerKeyboardAction(actionListener, escapeStroke, JComponent.WHEN_IN_FOCUSED_WINDOW);
     }
 
     private void onOK() {
@@ -287,15 +294,9 @@ public class UpgradeAgentDialog extends JDialog {
             }
         }
 
-        String perFileCommandTemplate = null;
-        if (perFileCommandCheckBox.isSelected()) {
-            perFileCommandTemplate = perFileCommandTextField.getText().trim();
-            if (perFileCommandTemplate.isEmpty()) {
-                JOptionPane.showMessageDialog(this,
-                                              "Per-file command cannot be empty when enabled.",
-                                              "Input Error", JOptionPane.ERROR_MESSAGE);
-                return;
-            }
+        String perFileCommandTemplate = perFileCommandTextField.getText().trim();
+        if (perFileCommandTemplate.isEmpty()) {
+            perFileCommandTemplate = null;
         }
 
         setVisible(false); // Hide this dialog
