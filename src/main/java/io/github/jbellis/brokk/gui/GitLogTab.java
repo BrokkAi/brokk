@@ -354,10 +354,12 @@ public class GitLogTab extends JPanel {
         });
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
+        JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
         JMenuItem remoteDiffItem = new JMenuItem("Capture Diff vs Branch");
 
         remoteBranchContextMenu.add(remoteCheckoutItem);
         remoteBranchContextMenu.add(remoteNewBranchItem);
+        remoteBranchContextMenu.add(remoteMergeItem);
         remoteBranchContextMenu.add(remoteDiffItem);
 
         remoteBranchTable.addMouseListener(new MouseAdapter() {
@@ -377,6 +379,20 @@ public class GitLogTab extends JPanel {
                     if (row >= 0 && !remoteBranchTable.isRowSelected(row)) {
                         remoteBranchTable.setRowSelectionInterval(row, row);
                     }
+                    String currentBranch = null;
+                    try {
+                        currentBranch = getRepo().getCurrentBranch();
+                    } catch (Exception ex) {
+                        logger.error("Could not get current branch for remote context menu", ex);
+                        // currentBranch remains null
+                    }
+                    if (row >= 0 && currentBranch != null) {
+                        remoteMergeItem.setText("Merge into " + currentBranch);
+                        remoteMergeItem.setEnabled(true);
+                    } else {
+                        remoteMergeItem.setText("Merge into...");
+                        remoteMergeItem.setEnabled(false);
+                    }
                     SwingUtilities.invokeLater(() -> {
                         remoteBranchContextMenu.show(remoteBranchTable, e.getX(), e.getY());
                     });
@@ -386,6 +402,7 @@ public class GitLogTab extends JPanel {
 
         remoteCheckoutItem.addActionListener(e -> performRemoteBranchAction(this::checkoutBranch));
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
+        remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
         remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
     }
 
