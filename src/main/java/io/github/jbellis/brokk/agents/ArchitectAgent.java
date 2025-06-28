@@ -271,11 +271,10 @@ public class ArchitectAgent {
     }
 
     @Tool("Create a GitHub pull-request for the current branch. " +
-          "If title or body is blank they are auto-generated. " +
           "This implicitly pushes the branch and sets upstream when needed.")
     public String createPullRequest(
-            @Nullable @P("PR title (optional)") String title,
-            @Nullable @P("PR description in Markdown (optional)") String body
+            @P("PR title.") String title,
+            @P("PR description in Markdown.") String body
     )
     {
         var cursor = messageCursor();
@@ -310,12 +309,12 @@ public class ArchitectAgent {
             var gws = new GitWorkflowService(contextManager);
 
             // Auto-generate title/body if blank
-            if (title == null || title.isBlank() || body == null || body.isBlank()) {
+            if (title.isBlank() || body.isBlank()) {
                 var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
-                if (title == null || title.isBlank()) {
+                if (title.isBlank()) {
                     title = suggestion.title();
                 }
-                if (body == null || body.isBlank()) {
+                if (body.isBlank()) {
                     body = suggestion.description();
                 }
             }
