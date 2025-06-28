@@ -426,7 +426,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         logger.debug("Loading context.  active={}, new={}", activeContext, ctx);
         // If skipUpdateOutputPanelOnContextChange is true it is not updating the MOP => end of runSessions should not scroll MOP away
 
-        final boolean updateOutput = (activeContext != ctx && !isSkipNextUpdateOutputPanelOnContextChange());
+        final boolean updateOutput = (!activeContext.equals(ctx) && !isSkipNextUpdateOutputPanelOnContextChange());
         setSkipNextUpdateOutputPanelOnContextChange(false);
         activeContext = ctx;
 

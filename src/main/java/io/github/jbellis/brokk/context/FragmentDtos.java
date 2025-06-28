@@ -345,6 +345,7 @@ public class FragmentDtos {
      * This is the primary DTO for representing a Context in persistent history.
      */
     public record CompactContextDto(
+            @Nullable String id, // may be null when loading V1
             List<String> editable,      
             List<String> readonly,      
             List<String> virtuals,      
@@ -352,6 +353,7 @@ public class FragmentDtos {
             @Nullable String parsedOutputId,   
             String action) {
         public CompactContextDto {
+            // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);

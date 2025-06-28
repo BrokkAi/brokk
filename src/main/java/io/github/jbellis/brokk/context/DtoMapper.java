@@ -90,13 +90,19 @@ public class DtoMapper {
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
 
-        return new Context(mgr,
-                           editableFragments,
-                           readonlyFragments,
-                           virtualFragments,
-                           taskHistory,
-                           parsedOutputFragment,
-                           actionFuture);
+        // Preserve UUID if present (V2); otherwise generate a new one (V1)
+        java.util.UUID ctxId = dto.id() != null
+                ? java.util.UUID.fromString(dto.id())
+                : java.util.UUID.randomUUID();
+
+        return Context.createWithId(ctxId,
+                                    mgr,
+                                    editableFragments,
+                                    readonlyFragments,
+                                    virtualFragments,
+                                    taskHistory,
+                                    parsedOutputFragment,
+                                    actionFuture);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent

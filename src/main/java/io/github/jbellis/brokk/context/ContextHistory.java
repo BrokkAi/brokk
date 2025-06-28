@@ -6,7 +6,11 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.List;
+import java.util.UUID;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
@@ -25,8 +29,11 @@ public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
     private static final int MAX_DEPTH = 100;
 
+    public record ResetEdge(UUID sourceId, UUID targetId) {}
+
     private final Deque<Context> history = new ArrayDeque<>();
     private final Deque<Context> redo   = new ArrayDeque<>();
+    private final List<ResetEdge> resetEdges = new ArrayList<>();
 
     /** UI-selection; never {@code null} once an initial context is set. */
     private @Nullable Context selected;
@@ -36,7 +43,12 @@ public class ContextHistory {
     }
 
     public ContextHistory(List<Context> contexts) {
+        this(contexts, List.of());
+    }
+
+    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
         history.addAll(contexts);
+        this.resetEdges.addAll(resetEdges);
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -85,6 +97,7 @@ public class ContextHistory {
         assert !frozenInitial.containsDynamicFragments();
         history.clear();
         redo.clear();
+        resetEdges.clear();
         history.add(frozenInitial);
         selected = frozenInitial;
         logger.debug("Initial context set: {}", frozenInitial);
@@ -127,6 +140,7 @@ public class ContextHistory {
         var toUndo = Math.min(steps, history.size() - 1);
         for (int i = 0; i < toUndo; i++) {
             var popped = history.removeLast();
+            resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
             redo.addLast(popped);
         }
         applyFrozenContextToWorkspace(history.peekLast(), io);
@@ -164,6 +178,8 @@ public class ContextHistory {
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
+            var historyIds = history.stream().map(Context::id).collect(java.util.stream.Collectors.toSet());
+            resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
@@ -179,6 +195,15 @@ public class ContextHistory {
         return -1;
     }
 
+    public synchronized void addResetEdge(Context source, Context target) {
+        assert !source.containsDynamicFragments() && !target.containsDynamicFragments();
+        resetEdges.add(new ResetEdge(source.id(), target.id()));
+    }
+
+    public synchronized List<ResetEdge> getResetEdges() {
+        return List.copyOf(resetEdges);
+    }
+
     /**
      * Applies the state from a frozen context to the workspace by restoring files.
      */
@@ -188,7 +213,6 @@ public class ContextHistory {
             return;
         }
         assert !frozenContext.containsDynamicFragments();
-        var restoredFiles = new ArrayList<String>();
         frozenContext.editableFiles.forEach(fragment -> {
             assert fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH : fragment.getType();
             assert fragment.files().size() == 1 : fragment.files();
@@ -199,15 +223,16 @@ public class ContextHistory {
                 var currentContent = pf.exists() ? pf.read() : "";
                 
                 if (!newContent.equals(currentContent)) {
+                    var restoredFiles = new ArrayList<String>();
                     pf.write(newContent);
                     restoredFiles.add(pf.toString());
+                    if (!restoredFiles.isEmpty()) {
+                        io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
+                    }
                 }
             } catch (IOException e) {
                 io.toolError("Failed to restore file " + pf + ": " + e.getMessage(), "Error");
             }
         });
-        if (!restoredFiles.isEmpty()) {
-            io.systemOutput("Restored files: " + String.join(", ", restoredFiles));
-        }
     }
 }

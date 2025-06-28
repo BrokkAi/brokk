@@ -284,7 +284,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getRepo().refresh();
                 var fr = liveContext.freezeAndCleanup();
                 // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                if (!topContext().workspaceEquals(fr.frozenContext())) {
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                     processExternalFileChanges(fr);
                 }
                 // analyzer refresh will call this too, but it will be delayed
@@ -311,7 +311,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // possible for analyzer build to finish before context load does
                     var fr = liveContext.freezeAndCleanup();
                     // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                    if (!topContext().workspaceEquals(fr.frozenContext())) {
+                    if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                         processExternalFileChanges(fr);
                     }
                     io.updateWorkspace();
@@ -840,7 +840,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory()));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, liveContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace canceled.");
@@ -855,7 +862,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context and history", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory()));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, targetFrozenContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace and history canceled.");
@@ -1448,7 +1462,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(liveContext);
         assert !updatedLiveContext.containsFrozenFragments() : updatedLiveContext;
-        if (updatedLiveContext == liveContext) {
+        if (liveContext.workspaceContentEquals(updatedLiveContext)) {
             // No change occurred
             return liveContext;
         }
@@ -1972,6 +1986,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // 3. Initialize the ContextManager's history for the new session with this single context.
             this.contextHistory.setInitialContext(initialContextForNewSession);
+            contextHistory.addResetEdge(sourceFrozenContext, initialContextForNewSession);
 
             // 4. Update the ContextManager's liveContext by unfreezing this initial context.
             this.liveContext = Context.unfreeze(initialContextForNewSession);

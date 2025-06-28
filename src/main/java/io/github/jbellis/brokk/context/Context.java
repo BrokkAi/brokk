@@ -17,7 +17,15 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -29,6 +37,7 @@ import java.util.stream.Stream;
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
 
+    private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {}, null);
 
     public static final int MAX_AUTO_CONTEXT_FILES = 100;
@@ -69,14 +78,16 @@ public class Context {
         return new ContextFragment.TaskFragment(contextManager, messages, "Welcome");
     }
 
-    public Context(IContextManager contextManager,
-            List<ContextFragment> editableFiles,
-            List<ContextFragment> readonlyFiles,
-            List<ContextFragment.VirtualFragment> virtualFragments,
-            List<TaskEntry> taskHistory,
-            @Nullable ContextFragment.TaskFragment parsedOutput,
-            Future<String> action)
+    private Context(UUID id,
+                   IContextManager contextManager,
+                   List<ContextFragment> editableFiles,
+                   List<ContextFragment> readonlyFiles,
+                   List<ContextFragment.VirtualFragment> virtualFragments,
+                   List<TaskEntry> taskHistory,
+                   @Nullable ContextFragment.TaskFragment parsedOutput,
+                   Future<String> action)
     {
+        this.id = id;
         this.contextManager = contextManager;
         this.editableFiles = List.copyOf(editableFiles);
         this.readonlyFiles = List.copyOf(readonlyFiles);
@@ -84,6 +95,24 @@ public class Context {
         this.taskHistory = List.copyOf(taskHistory); // Ensure immutability
         this.action = action;
         this.parsedOutput = parsedOutput;
+    }
+
+    public Context(IContextManager contextManager,
+                   List<ContextFragment> editableFiles,
+                   List<ContextFragment> readonlyFiles,
+                   List<ContextFragment.VirtualFragment> virtualFragments,
+                   List<TaskEntry> taskHistory,
+                   @Nullable ContextFragment.TaskFragment parsedOutput,
+                   Future<String> action)
+    {
+        this(UUID.randomUUID(),
+             contextManager,
+             editableFiles,
+             readonlyFiles,
+             virtualFragments,
+             taskHistory,
+             parsedOutput,
+             action);
     }
 
     /**
@@ -147,7 +176,8 @@ public class Context {
             }
         });
 
-        return new Context(cm,
+        return new Context(frozen.id(),
+                           cm,
                            List.copyOf(editable),
                            List.copyOf(readonly),
                            List.copyOf(virtuals),
@@ -333,6 +363,10 @@ public class Context {
     // ---------------------------------------------------------
     // Accessors
     // ---------------------------------------------------------
+
+    public UUID id() {
+        return id;
+    }
 
     public Stream<ContextFragment> editableFiles() {
         return editableFiles.stream();
@@ -589,6 +623,17 @@ public class Context {
                            action);
     }
 
+    static Context createWithId(UUID id,
+                                IContextManager cm,
+                                List<ContextFragment> editable,
+                                List<ContextFragment> readonly,
+                                List<ContextFragment.VirtualFragment> virtuals,
+                                List<TaskEntry> history,
+                                @Nullable ContextFragment.TaskFragment parsed,
+                                java.util.concurrent.Future<String> action) {
+        return new Context(id, cm, editable, readonly, virtuals, history, parsed, action);
+    }
+
     /**
      * Creates a new Context with a modified task history list.
      * This generates a new context state with a new ID and action.
@@ -630,7 +675,8 @@ public class Context {
         var unfrozenVirtualFragments = sourceContext.virtualFragments().map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager)).toList();
 
         // New ID for the reset point
-        return new Context(currentContext.contextManager,
+        return new Context(UUID.randomUUID(),
+                           currentContext.contextManager,
                            unfrozenEditableFiles,
                            unfrozenReadonlyFiles,
                            unfrozenVirtualFragments,
@@ -716,7 +762,8 @@ public class Context {
         }
 
         // Create frozen context
-        var frozenContext = new Context(this.contextManager,
+        var frozenContext = new Context(this.id,
+                                        this.contextManager,
                                         frozenEditableFiles,
                                         frozenReadonlyFiles,
                                         frozenVirtualFragments,
@@ -759,10 +806,22 @@ public class Context {
         return fragment;
     }
 
-    public boolean workspaceEquals(Context other) {
+    @Override
+    public boolean equals(@Nullable Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Context context)) return false;
+        return id.equals(context.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return id.hashCode();
+    }
+
+    public boolean workspaceContentEquals(Context other) {
         return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
     }
-    
+
     public boolean containsFrozenFragments() {
         return allFragments().anyMatch(f -> f instanceof FrozenFragment);
     }
