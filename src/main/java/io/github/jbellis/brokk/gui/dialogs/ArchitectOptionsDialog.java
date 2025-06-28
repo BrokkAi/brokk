@@ -124,61 +124,10 @@ public class ArchitectOptionsDialog {
             mainPanel.add(new JSeparator(SwingConstants.HORIZONTAL));
             mainPanel.add(Box.createVerticalStrut(10));
 
-            // --- Git Commit Checkbox ---
-            boolean gitAvailable = project != null && project.hasGit();
-            boolean onDefaultBranch = false;
-            String defaultBranchName = "";
-            GitRepo repo = null;
-            if (gitAvailable) {
-                try {
-                    repo = (GitRepo)project.getRepo();
-                    defaultBranchName = repo.getDefaultBranch()
-                            .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
-                    onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
-                } catch (GitAPIException e) {
-                    defaultBranchName = "";
-                    gitAvailable = false; // if there's an API exception, we can't be sure of the state, so disable git features
-                }
-            }
-            boolean commitUsable = gitAvailable && !onDefaultBranch;
-
-            var commitCb = createCheckbox.apply(
-                    "Commit changes",
-                    "Stage & commit all current edits. Disabled on default branch."
-            );
-            commitCb.setEnabled(commitUsable);
-            commitCb.setSelected(commitUsable && currentOptions.includeGitCommit());
-
-            if (!gitAvailable) {
-                commitCb.setToolTipText("No Git repository detected for this project.");
-            } else if (onDefaultBranch) {
-                commitCb.setToolTipText("Cannot commit on the default branch (%s).".formatted(defaultBranchName));
-            }
-
-            // --- Git Create PR Checkbox ---
-            boolean prDisabled = !commitUsable
-                                 || !GitHubAuth.tokenPresent(project)
-                                 || repo == null
-                                 || repo.getRemoteUrl("origin") == null;
-
-            var prCb = createCheckbox.apply(
-                    "Create PR (includes push)",
-                    "Pushes current branch and opens a pull request. Disabled on default branch or without token."
-            );
-            prCb.setEnabled(!prDisabled);
-            prCb.setSelected(!prDisabled && currentOptions.includeGitCreatePr());
-
-            if (!commitUsable) {
-                if (!gitAvailable) {
-                    prCb.setToolTipText("No Git repository detected for this project.");
-                } else if (onDefaultBranch) {
-                    prCb.setToolTipText("Cannot create PR from the default branch (%s).".formatted(defaultBranchName));
-                }
-            } else if (!GitHubAuth.tokenPresent(project)) {
-                prCb.setToolTipText("No GitHub credentials found (e.g. GITHUB_TOKEN environment variable).");
-            } else if (repo == null || repo.getRemoteUrl("origin") == null) {
-                prCb.setToolTipText("Git repository does not have a remote named 'origin'.");
-            }
+            // --- Git-related Checkboxes ---
+            var gitState = GitState.from(project);
+            var commitCb = createCommitCheckbox(currentOptions, createCheckbox, gitState);
+            var prCb = createPrCheckbox(project, currentOptions, createCheckbox, gitState);
 
             // Keep commit & PR checkboxes consistent
             prCb.addActionListener(e -> { if (prCb.isSelected()) commitCb.setSelected(true); });
@@ -188,13 +137,11 @@ public class ArchitectOptionsDialog {
             var worktreeCb = new JCheckBox("<html>Run in New Git worktree<br><i><font size='-2'>Create a new worktree for the Architect to work in, leaving your current one open for other tasks. The Architect will start with a copy of the current Workspace</font></i></html>");
             worktreeCb.setAlignmentX(Component.LEFT_ALIGNMENT);
             worktreeCb.setToolTipText("Create and run the Architect agent in a new Git worktree based on the current commit.");
-            // boolean gitAvailable = project != null && project.hasGit(); // This was the duplicate declaration
-            // The 'gitAvailable' variable from above (around line 133) is in scope and used here.
-            boolean worktreesSupported = gitAvailable && project.getRepo().supportsWorktrees();
+            boolean worktreesSupported = gitState.gitAvailable() && gitState.repo() != null && gitState.repo().supportsWorktrees();
             worktreeCb.setEnabled(worktreesSupported);
             worktreeCb.setSelected(currentRunInWorktree && worktreesSupported); // Only selected if supported
 
-            if (!gitAvailable) {
+            if (!gitState.gitAvailable()) {
                 worktreeCb.setToolTipText("Git is not configured for this project.");
             } else if (!worktreesSupported) {
                 worktreeCb.setToolTipText("Git worktrees are not supported by your Git version or repository configuration.");
@@ -266,5 +213,69 @@ public class ArchitectOptionsDialog {
 
         // Return the result captured from the EDT lambda
         return resultHolder.get();
+    }
+
+    private record GitState(boolean gitAvailable, boolean onDefaultBranch, String defaultBranchName, @Nullable GitRepo repo) {
+        static GitState from(@Nullable IProject project) {
+            if (project == null || !project.hasGit()) {
+                return new GitState(false, false, "", null);
+            }
+            var repo = (GitRepo) project.getRepo();
+            try {
+                var defaultBranchName = repo.getDefaultBranch()
+                        .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
+                var onDefaultBranch = Objects.equals(repo.getCurrentBranch(), defaultBranchName);
+                return new GitState(true, onDefaultBranch, defaultBranchName, repo);
+            } catch (GitAPIException e) {
+                // if there's an API exception, we can't be sure of the state, so disable git features
+                return new GitState(false, false, "", null);
+            }
+        }
+    }
+
+    private static JCheckBox createCommitCheckbox(ArchitectAgent.ArchitectOptions currentOptions,
+                                                  BiFunction<String, String, JCheckBox> createCheckbox,
+                                                  GitState gitState)
+    {
+        var commitUsable = gitState.gitAvailable();
+
+        var commitCb = createCheckbox.apply("Commit changes",
+                                            "Stage & commit all current edits.");
+        commitCb.setEnabled(commitUsable);
+        commitCb.setSelected(commitUsable && currentOptions.includeGitCommit());
+
+        if (!gitState.gitAvailable()) {
+            commitCb.setToolTipText("No Git repository detected for this project.");
+        }
+        return commitCb;
+    }
+
+    private static JCheckBox createPrCheckbox(@Nullable IProject project,
+                                              ArchitectAgent.ArchitectOptions currentOptions,
+                                              BiFunction<String, String, JCheckBox> createCheckbox,
+                                              GitState gitState)
+    {
+        boolean prDisabled = !gitState.gitAvailable()
+                             || gitState.onDefaultBranch()
+                             || project == null
+                             || !GitHubAuth.tokenPresent(project)
+                             || gitState.repo() == null
+                             || gitState.repo().getRemoteUrl("origin") == null;
+
+        var prCb = createCheckbox.apply("Create PR (includes push)",
+                                        "Pushes current branch and opens a pull request. Disabled on default branch or without token.");
+        prCb.setEnabled(!prDisabled);
+        prCb.setSelected(!prDisabled && currentOptions.includeGitCreatePr());
+
+        if (!gitState.gitAvailable()) {
+            prCb.setToolTipText("No Git repository detected for this project.");
+        } else if (gitState.onDefaultBranch()) {
+            prCb.setToolTipText("Cannot create PR from the default branch (%s).".formatted(gitState.defaultBranchName()));
+        } else if (project == null || !GitHubAuth.tokenPresent(project)) {
+            prCb.setToolTipText("No GitHub credentials found (e.g. GITHUB_TOKEN environment variable).");
+        } else if (gitState.repo() == null || gitState.repo().getRemoteUrl("origin") == null) {
+            prCb.setToolTipText("Git repository does not have a remote named 'origin'.");
+        }
+        return prCb;
     }
 }

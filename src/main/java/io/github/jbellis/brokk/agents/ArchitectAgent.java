@@ -228,15 +228,6 @@ public class ArchitectAgent {
                 throw new IllegalStateException("Project is not a Git repository.");
             }
 
-            var repo = (GitRepo) project.getRepo(); // Cast to concrete GitRepo
-
-            String defaultBranch = repo.getDefaultBranch()
-                    .orElseThrow(() -> new IllegalStateException("Could not determine the default branch for the repository."));
-
-            if (Objects.equals(repo.getCurrentBranch(), defaultBranch)) {
-                throw new IllegalStateException("Refusing to commit on the default branch (%s)."
-                                                        .formatted(defaultBranch));
-            }
 
             // --------------------------------------------------------------------
             var gws = new GitWorkflowService(contextManager);
