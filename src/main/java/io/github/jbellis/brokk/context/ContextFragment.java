@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.gui.GitUiUtil;
+import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.util.FragmentUtils;
 import io.github.jbellis.brokk.util.Messages;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
@@ -813,7 +814,7 @@ public interface ContextFragment {
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
         public SearchFragment(String existingHashId, IContextManager contextManager, String sessionName, List<ChatMessage> messages, Set<CodeUnit> sources) {
-            super(existingHashId, contextManager, messages, sessionName); // existingHashId is expected to be a content hash
+            super(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName); // existingHashId is expected to be a content hash
             this.sources = sources;
         }
 
@@ -1404,6 +1405,13 @@ public interface ContextFragment {
 
     interface OutputFragment {
         List<TaskEntry> entries();
+
+        /**
+         * Should raw HTML inside markdown be escaped before rendering?
+         */
+        default boolean isEscapeHtml() {
+            return true;
+        }
     }
 
     /**
@@ -1496,8 +1504,10 @@ public interface ContextFragment {
      * represents a single session's Task History
      */
     class TaskFragment extends VirtualFragment implements OutputFragment { // Non-dynamic, content-hashed
+        private final EditBlockParser parser; // TODO this doesn't belong in TaskFragment anymore
         private final List<ChatMessage> messages; // Content is fixed once created
-        private final String taskName;
+        private final String sessionName;
+        private final boolean escapeHtml;
 
         private static String calculateId(String sessionName, List<ChatMessage> messages) {
             return FragmentUtils.calculateContentHash(
@@ -1509,23 +1519,61 @@ public interface ContextFragment {
             );
         }
 
-        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String taskName) {
-            super(calculateId(taskName, messages), contextManager); // ID is content hash
+        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+            super(calculateId(sessionName, messages), contextManager); // ID is content hash
+            this.parser = parser;
             this.messages = List.copyOf(messages);
-            this.taskName = taskName;
+            this.sessionName = sessionName;
+            this.escapeHtml = escapeHtml;
+        }
+
+        public TaskFragment(IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+            this(contextManager, parser, messages, sessionName, true);
+        }
+
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+            this(contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
+        }
+
+        public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
+            this(contextManager, EditBlockParser.instance, messages, sessionName, true);
         }
 
         // Constructor for DTOs/unfreezing where ID is a pre-calculated hash
-        public TaskFragment(String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String taskName) {
+        public TaskFragment(String existingHashId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
             super(existingHashId, contextManager); // existingHashId is expected to be a content hash
+            this.parser = parser;
             this.messages = List.copyOf(messages);
-            this.taskName = taskName;
+            this.sessionName = sessionName;
+            this.escapeHtml = escapeHtml;
         }
-        
+
+        public TaskFragment(String existingHashId, IContextManager contextManager, EditBlockParser parser, List<ChatMessage> messages, String sessionName) {
+            this(existingHashId, contextManager, parser, messages, sessionName, true);
+        }
+
+        public TaskFragment(String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String sessionName, boolean escapeHtml) {
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName, escapeHtml);
+        }
+
+        public TaskFragment(String existingHashId, IContextManager contextManager, List<ChatMessage> messages, String sessionName) {
+            this(existingHashId, contextManager, EditBlockParser.instance, messages, sessionName, true);
+        }
+
+        @Override
+        public boolean isEscapeHtml() {
+            return escapeHtml;
+        }
+
         @Override
         public FragmentType getType() {
             // SearchFragment overrides this to return FragmentType.SEARCH
             return FragmentType.TASK;
+        }
+
+        @Override
+        public boolean isText() {
+            return true;
         }
 
         @Override
@@ -1535,7 +1583,7 @@ public interface ContextFragment {
 
         @Override
         public String description() {
-            return taskName;
+            return sessionName;
         }
 
         @Override
@@ -1562,6 +1610,10 @@ public interface ContextFragment {
         @Override
         public List<TaskEntry> entries() {
             return List.of(new TaskEntry(-1, this, null));
+        }
+
+        public EditBlockParser parser() {
+            return parser;
         }
     }
 }
