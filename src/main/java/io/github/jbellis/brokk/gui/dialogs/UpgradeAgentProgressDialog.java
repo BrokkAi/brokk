@@ -45,6 +45,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
     private final AtomicInteger processedFileCount = new AtomicInteger(0);
     private final @Nullable Integer relatedK;
     private final @Nullable String perFileCommandTemplate;
+    private final boolean includeWorkspace;
     private final ExecutorService executorService; // Moved here for wider access
 
 
@@ -56,12 +57,14 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                       List<ProjectFile> filesToProcess,
                                       Chrome chrome,
                                       @Nullable Integer relatedK,
-                                      @Nullable String perFileCommandTemplate)
+                                      @Nullable String perFileCommandTemplate,
+                                      boolean includeWorkspace)
     {
         super(owner, "Upgrade Agent Progress", true);
         this.totalFiles = filesToProcess.size();
         this.relatedK = relatedK;
         this.perFileCommandTemplate = perFileCommandTemplate;
+        this.includeWorkspace = includeWorkspace;
 
         setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(600, 400));
@@ -137,6 +140,10 @@ public class UpgradeAgentProgressDialog extends JDialog {
 
                             List<ChatMessage> readOnlyMessages = new ArrayList<>();
                             try {
+                                if (UpgradeAgentProgressDialog.this.includeWorkspace) {
+                                    readOnlyMessages.addAll(contextManager.getWorkspaceContentsMessages());
+                                    dialogConsoleIO.systemOutput("Including workspace contents in context.");
+                                }
                                 if (UpgradeAgentProgressDialog.this.relatedK != null) {
                                     var acFragment = contextManager.liveContext().buildAutoContext(UpgradeAgentProgressDialog.this.relatedK);
                                     if (!acFragment.text().isBlank()) {

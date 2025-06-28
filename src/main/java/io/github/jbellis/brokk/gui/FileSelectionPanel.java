@@ -62,15 +62,8 @@ public class FileSelectionPanel extends JPanel {
 
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        // 1. File Input Component (JTextField or JTextArea)
-        if (config.multiSelect()) {
-            var textArea = new JTextArea(3, 30);
-            textArea.setLineWrap(true);
-            textArea.setWrapStyleWord(true);
-            fileInputComponent = textArea;
-        } else {
-            fileInputComponent = new JTextField(30);
-        }
+        // 1. File Input Component (always JTextField)
+        fileInputComponent = new JTextField(30);
 
         // 2. AutoCompletion
         // The provider needs access to project, allowExternalFiles, and autocompleteCandidates from config
@@ -91,11 +84,7 @@ public class FileSelectionPanel extends JPanel {
         // Layout: Input at North, Tree at Center
         JPanel inputPanel = new JPanel(new BorderLayout());
         inputPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 4, 0)); // Space below input
-        if (config.multiSelect()) {
-            inputPanel.add(new JScrollPane(fileInputComponent), BorderLayout.CENTER);
-        } else {
-            inputPanel.add(fileInputComponent, BorderLayout.CENTER);
-        }
+        inputPanel.add(fileInputComponent, BorderLayout.CENTER);
 
         // Hints below input
         JPanel labelsPanel = new JPanel();
@@ -118,7 +107,7 @@ public class FileSelectionPanel extends JPanel {
         add(inputPanel, BorderLayout.NORTH);
 
         JScrollPane treeScrollPane = new JScrollPane(tree);
-        treeScrollPane.setPreferredSize(new Dimension(450, 300)); // Default size, can be overridden
+        treeScrollPane.setPreferredSize(new Dimension(450, 150)); // Default size, can be overridden
         add(treeScrollPane, BorderLayout.CENTER);
 
         setupListeners();
@@ -214,21 +203,18 @@ public class FileSelectionPanel extends JPanel {
     }
 
     private void appendToFileInput(String filename) {
-        if (!(fileInputComponent instanceof JTextArea textArea)) return;
-
-        String currentText = textArea.getText();
+        String currentText = fileInputComponent.getText();
         String formattedFilename = quotePathIfNecessary(filename);
         String textToAppend = formattedFilename + " "; // Always add trailing space
 
-        int caretPos = textArea.getCaretPosition();
-        // Smart append: if caret is at end, or current text ends with space, or current text is empty
-        if (caretPos == currentText.length() || currentText.endsWith(" ") || currentText.isEmpty()) {
-            textArea.insert(textToAppend, caretPos);
+        // Smart append: if current text ends with space, or current text is empty, just append.
+        if (currentText.endsWith(" ") || currentText.isEmpty()) {
+            fileInputComponent.setText(currentText + textToAppend);
         } else {
             // Insert with a leading space if needed
-            textArea.insert(" " + textToAppend, caretPos);
+            fileInputComponent.setText(currentText + " " + textToAppend);
         }
-        textArea.setCaretPosition(textArea.getDocument().getLength()); // Move caret to end
+        fileInputComponent.setCaretPosition(fileInputComponent.getDocument().getLength()); // Move caret to end
     }
 
     /**
