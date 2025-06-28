@@ -95,7 +95,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
     private static final List<String> STATUS_FILTER_OPTIONS = List.of("Open", "Closed"); // "All" is null selection
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
-    private volatile Future<?> currentSearchFuture;
+    private volatile @Nullable Future<?> currentSearchFuture;
     private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
@@ -677,7 +677,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
      * Fetches open GitHub issues and populates the issue table.
      */
     private void updateIssueList() {
-        if (!currentSearchFuture.isDone()) {
+        if (currentSearchFuture != null && !currentSearchFuture.isDone()) {
             currentSearchFuture.cancel(true);
         }
         searchBox.setLoading(true, "Searching issues");
