@@ -2415,6 +2415,7 @@ public class GitRepo implements Closeable, IGitRepo {
                     RebaseResult rebaseResult = git.rebase().setUpstream(targetBranchId.getName()).call();
                     RebaseResult.Status status = rebaseResult.getStatus();
                     logger.debug("Rebase simulation result: {}", status);
+                    logger.debug("Rebase result conflicts: {}", rebaseResult.getConflicts());
 
                     if (status == RebaseResult.Status.CONFLICTS || status == RebaseResult.Status.STOPPED) {
                         // Get conflicts before aborting, just in case abort clears them from the result object
@@ -2477,11 +2478,18 @@ public class GitRepo implements Closeable, IGitRepo {
                         mergeCmd.setSquash(true);
                     } else { // MERGE_COMMIT
                         mergeCmd.setSquash(false);
-                        mergeCmd.setFastForward(MergeCommand.FastForwardMode.NO_FF);
+                        // Do NOT force NO_FF during conflict-check simulation —
+                        // allowing a fast-forward here avoids JGit reporting
+                        // MergeStatus.FAILED when a fast-forward would succeed.
+                        // The real merge (performMerge) still sets NO_FF so the
+                        // actual operation behaves as expected.
                     }
                     MergeResult mergeResult = mergeCmd.call();
                     MergeResult.MergeStatus status = mergeResult.getMergeStatus();
                     logger.debug("Merge simulation result: {}", status);
+                    logger.debug("Merge result conflicts map: {}", mergeResult.getConflicts());
+                    logger.debug("Merge result failing paths: {}", mergeResult.getFailingPaths());
+                    logger.debug("Merge result checkout conflicts: {}", mergeResult.getCheckoutConflicts());
 
                     if (status == MergeResult.MergeStatus.CONFLICTING) {
                         var conflicts = requireNonNull(mergeResult.getConflicts());
