@@ -602,16 +602,23 @@ public class AnalyzerWrapper implements AutoCloseable {
     private void collectEventsFromKey(WatchKey key, WatchService watchService, Set<FileChangeEvent> batch)
     {
         for (WatchEvent<?> event : key.pollEvents()) {
+            // JVM can emit overflow events with null context (path), skip these
+            if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
+                logger.debug("Overflow event: {}", key.watchable());
+                continue;
+            }
+            // skip any other null contexts. unexpected, so log what they are if any
             @SuppressWarnings("unchecked")
             WatchEvent<Path> pathEvent = (WatchEvent<Path>) event;
             Path relativePath = pathEvent.context();
-            Path parentDir = (Path) key.watchable();
-            Path absolutePath = parentDir.resolve(relativePath);
-
-            if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-                logger.debug("Overflow event: {}", absolutePath);
+            if (relativePath == null) {
+                logger.debug("Event with null context (kind={})", event.kind());
                 continue;
             }
+
+            // now we can resolve the path
+            Path parentDir = (Path) key.watchable();
+            Path absolutePath = parentDir.resolve(relativePath);
 
             // Skip .brokk or log file paths
             String pathStr = absolutePath.toString();
