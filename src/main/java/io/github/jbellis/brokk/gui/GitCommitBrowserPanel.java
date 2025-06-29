@@ -84,6 +84,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private JButton pullButton;
     private JButton pushButton;
     private JButton createPrButton;
+    private JButton viewDiffButton;
 
     @Nullable
     private String currentBranchOrContextName; // Used by push/pull actions
@@ -190,17 +191,40 @@ public class GitCommitBrowserPanel extends JPanel {
             CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager, branch);
         });
 
+        viewDiffButton = new JButton("View Diff");
+        viewDiffButton.setToolTipText("View changes in the selected commit");
+        viewDiffButton.setEnabled(false); // Initially disabled, enabled by selection listener
+        viewDiffButton.addActionListener(e -> {
+            if (commitsTable.getSelectedRowCount() == 1) {
+                var ci = (ICommitInfo) commitsTableModel.getValueAt(commitsTable.getSelectedRow(), COL_COMMIT_OBJ);
+                if (ci.stashIndex().isEmpty()) { // Only for non-stash commits
+                    GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+                }
+            }
+        });
+
 
         if (this.options.showPushPullButtons() || this.options.showCreatePrButton()) {
-            JPanel commitsPanelButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            JPanel buttonBar = new JPanel(new BorderLayout(5, 0)); // Main bar for buttons
+
+            // Left-aligned panel (for View Diff)
+            JPanel leftButtonsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+            leftButtonsPanel.add(viewDiffButton);
+            buttonBar.add(leftButtonsPanel, BorderLayout.WEST);
+
+            // Right-aligned panel (for existing buttons)
+            JPanel rightButtonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
             if (this.options.showCreatePrButton()) {
-                commitsPanelButtons.add(createPrButton);
+                rightButtonsPanel.add(createPrButton);
             }
             if (this.options.showPushPullButtons()) {
-                commitsPanelButtons.add(pullButton);
-                commitsPanelButtons.add(pushButton);
+                rightButtonsPanel.add(pullButton);
+                rightButtonsPanel.add(pushButton);
             }
-            commitsPanel.add(commitsPanelButtons, BorderLayout.SOUTH);
+            if (rightButtonsPanel.getComponentCount() > 0) { // Only add if it has components
+                buttonBar.add(rightButtonsPanel, BorderLayout.EAST);
+            }
+            commitsPanel.add(buttonBar, BorderLayout.SOUTH);
         }
 
         return commitsPanel;
@@ -292,6 +316,28 @@ public class GitCommitBrowserPanel extends JPanel {
 
         setupCommitSelectionListener();
         setupCommitContextMenu();
+        setupCommitDoubleClick(); // Add call to new method
+    }
+
+    private void setupCommitDoubleClick() {
+        commitsTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = commitsTable.rowAtPoint(e.getPoint());
+                    // Check if click was on a valid row and only one row is selected
+                    if (row != -1 && commitsTable.getSelectedRowCount() == 1) {
+                        // Ensure the clicked row is indeed the selected one
+                        if (commitsTable.getSelectedRow() == row) {
+                            var ci = (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ);
+                            if (ci.stashIndex().isEmpty()) { // Action only for non-stash commits
+                                GitUiUtil.openCommitDiffPanel(contextManager, chrome, ci);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private void setupChangesTree() {
@@ -343,7 +389,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 if (selectedRows.length == 1) {
                     labelParts.add(getShortId(allSelectedCommitsFlat.getFirst().id()));
                 } else {
-                    var contiguousRowIndexGroups = groupContiguous(selectedRows);
+                    var contiguousRowIndexGroups = GitUiUtil.groupContiguous(selectedRows);
                     for (var rowIndexGroup : contiguousRowIndexGroups) {
                         var firstCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(rowIndexGroup.getFirst(), COL_COMMIT_OBJ);
                         var firstShortId = getShortId(firstCommitInGroup.id());
@@ -361,6 +407,17 @@ public class GitCommitBrowserPanel extends JPanel {
             revisionTextLabel.setText(labelPrefixToSet);
             revisionIdTextArea.setText(idTextToSet);
             updateChangesForCommits(allSelectedCommitsFlat);
+
+            // Update View Diff button state
+            boolean singleCommitSelected = selectedRows.length == 1;
+            boolean isStashSelected = false;
+            if (singleCommitSelected) {
+                var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
+                isStashSelected = firstCommitInfo.stashIndex().isPresent();
+            }
+            if (viewDiffButton != null) { // viewDiffButton might not be initialized if HIDE_ALL_BUTTONS
+                viewDiffButton.setEnabled(singleCommitSelected && !isStashSelected);
+            }
         });
     }
 
@@ -478,13 +535,15 @@ public class GitCommitBrowserPanel extends JPanel {
             int[] selectedRows = commitsTable.getSelectedRows(); // int[] preferred by style guide
             if (selectedRows.length == 0) return;
             selectedRows = Arrays.stream(selectedRows).sorted().toArray();
-            var contiguousRowGroups = groupContiguous(selectedRows);
+            var contiguousRowGroups = GitUiUtil.groupContiguous(selectedRows);
 
             for (var group : contiguousRowGroups) {
                 if (group.isEmpty()) continue;
-            GitUiUtil.addCommitRangeToContext(contextManager, chrome, group.stream().mapToInt(Integer::intValue).toArray(), commitsTableModel, COL_COMMIT_OBJ);
-        }
-    });
+                ICommitInfo newestCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(group.getFirst(), COL_COMMIT_OBJ);
+                ICommitInfo oldestCommitInGroup = (ICommitInfo) commitsTableModel.getValueAt(group.getLast(), COL_COMMIT_OBJ);
+                GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
+            }
+        });
 
     softResetItem.addActionListener(e -> {
         int row = commitsTable.getSelectedRow(); // int preferred by style guide
@@ -892,6 +951,9 @@ public class GitCommitBrowserPanel extends JPanel {
                 if (this.options.showCreatePrButton()) {
                     createPrButton.setEnabled(false);
                 }
+                if (viewDiffButton != null) { // Check if initialized
+                    viewDiffButton.setEnabled(false);
+                }
                 clearSearchField();
             } finally {
                 selectionModel.setValueIsAdjusting(false);
@@ -1109,6 +1171,9 @@ public class GitCommitBrowserPanel extends JPanel {
             if (viewKind != ViewKind.SEARCH) { // Don't show "no commits" for empty search
                  commitsTableModel.addRow(new Object[]{"No commits found.", "", "", "", false, null});
             }
+            if (viewDiffButton != null) {
+                viewDiffButton.setEnabled(false);
+            }
             return;
         }
 
@@ -1222,26 +1287,6 @@ public class GitCommitBrowserPanel extends JPanel {
         return Arrays.stream(selectedRows)
                 .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                 .toList();
-    }
-
-    private static List<List<Integer>> groupContiguous(int[] rows) { // int[] preferred by style guide
-        if (rows.length == 0) return List.of();
-
-        var groups = new ArrayList<List<Integer>>();
-        var currentGroup = new ArrayList<Integer>();
-        currentGroup.add(rows[0]);
-        groups.add(currentGroup);
-
-        for (int i = 1; i < rows.length; i++) { // int preferred by style guide
-            if (rows[i] == rows[i - 1] + 1) {
-                currentGroup.add(rows[i]);
-            } else {
-                currentGroup = new ArrayList<>();
-                currentGroup.add(rows[i]);
-                groups.add(currentGroup);
-            }
-        }
-        return groups;
     }
 
     private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {

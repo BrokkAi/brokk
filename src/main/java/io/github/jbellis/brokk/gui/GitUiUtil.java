@@ -13,6 +13,7 @@ import io.github.jbellis.brokk.util.SyntaxDetector;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -157,49 +158,58 @@ public final class GitUiUtil {
     }
 
     /**
-     * Add the combined diff of multiple commits to context (from first selected to last).
+     * Captures the diff for a range of commits, defined by the chronologically newest and oldest
+     * ICommitInfo objects in the selection, and adds it to the context.
+     * The diff is calculated from the parent of the oldest commit in the range up to the newest commit.
+     *
+     * @param contextManager      The ContextManager instance.
+     * @param chrome              The Chrome instance for UI feedback.
+     * @param newestCommitInSelection The ICommitInfo for the newest commit in the selected range.
+     * @param oldestCommitInSelection The ICommitInfo for the oldest commit in the selected range.
      */
-    public static void addCommitRangeToContext(ContextManager contextManager, Chrome chrome, int[] selectedRows, javax.swing.table.TableModel tableModel, int commitInfoColumnIndex // Add index for ICommitInfo
-    )
-    {
-        contextManager.submitContextTask("Adding commit range to context", () -> {
+    public static void addCommitRangeToContext
+    (
+            ContextManager contextManager,
+            Chrome chrome,
+            ICommitInfo newestCommitInSelection,
+            ICommitInfo oldestCommitInSelection
+    ) {
+        String taskDescription = String.format("Capturing diff from %s to %s",
+                                               shortenCommitId(oldestCommitInSelection.id()),
+                                               shortenCommitId(newestCommitInSelection.id()));
+        contextManager.submitContextTask(taskDescription, () -> {
             try {
-                if (selectedRows.length == 0 || tableModel.getRowCount() == 0) {
-                    chrome.systemOutput("No commits selected or commits table is empty");
-                    return;
-                }
-                var sorted = selectedRows.clone();
-                java.util.Arrays.sort(sorted);
-                if (sorted[0] < 0 || sorted[sorted.length - 1] >= tableModel.getRowCount()) {
-                    chrome.systemOutput("Invalid commit selection");
-                    return;
-                }
-                // Retrieve ICommitInfo objects using the provided index
-                var firstCommitInfo = (io.github.jbellis.brokk.git.ICommitInfo) tableModel.getValueAt(sorted[0], commitInfoColumnIndex);
-                var lastCommitInfo = (io.github.jbellis.brokk.git.ICommitInfo) tableModel.getValueAt(sorted[sorted.length - 1], commitInfoColumnIndex);
-                var firstCommitId = firstCommitInfo.id();
-                var lastCommitId = lastCommitInfo.id();
-
                 var repo = contextManager.getProject().getRepo();
+                var newestCommitId = newestCommitInSelection.id();
+                var oldestCommitId = oldestCommitInSelection.id();
 
-                // Fetch diff using the correct parent syntax for range
-                var diff = repo.showDiff(firstCommitId, lastCommitId + "^");
+                // Diff is from oldestCommit's parent up to newestCommit.
+                String diff = repo.showDiff(newestCommitId, oldestCommitId + "^");
                 if (diff.isEmpty()) {
                     chrome.systemOutput("No changes found in the selected commit range");
                     return;
                 }
 
-                // Use the correct method to list files between the two commits
-                var changedFiles = repo.listFilesChangedBetweenCommits(firstCommitId, lastCommitId);
-                var fileNames = changedFiles.stream().map(ProjectFile::getFileName).collect(Collectors.toList());
-                var filesTxt = String.join(", ", fileNames);
+                List<ProjectFile> changedFiles;
+                if (newestCommitId.equals(oldestCommitId)) { // Single commit selected
+                    changedFiles = newestCommitInSelection.changedFiles();
+                } else {
+                    // Files changed between oldest selected commit's parent and newest selected commit
+                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^");
+                }
 
-                var firstShort = shortenCommitId(firstCommitId);
-                var lastShort = shortenCommitId(lastCommitId);
-                var hashTxt = firstCommitId.equals(lastCommitId) ? firstShort : firstShort + ".." + lastShort;
-                var description = "Diff of %s [%s]".formatted(filesTxt, hashTxt);
+                var fileNamesSummary = formatFileList(changedFiles);
 
-                var syntaxStyle = changedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE : SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
+                var newestShort = shortenCommitId(newestCommitId);
+                var oldestShort = shortenCommitId(oldestCommitId);
+                var hashTxt = newestCommitId.equals(oldestCommitId)
+                              ? newestShort
+                              : oldestShort + ".." + newestShort;
+
+                var description = "Diff of %s [%s]".formatted(fileNamesSummary, hashTxt);
+
+                var syntaxStyle = changedFiles.isEmpty() ? SyntaxConstants.SYNTAX_STYLE_NONE :
+                                  SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 var fragment = new ContextFragment.StringFragment(contextManager, diff, description, syntaxStyle);
                 contextManager.addVirtualFragment(fragment);
                 chrome.systemOutput("Added changes for commit range to context");
@@ -207,6 +217,31 @@ public final class GitUiUtil {
                 chrome.toolError("Error adding commit range to context: " + ex.getMessage());
             }
         });
+    }
+
+    /**
+     * Groups contiguous integers from a sorted array into sub-lists.
+     * @param sortedRows A sorted array of integers.
+     * @return A list of lists, where each inner list contains a sequence of contiguous integers.
+     */
+    public static List<List<Integer>> groupContiguous(int[] sortedRows) {
+        if (sortedRows.length == 0) return List.of();
+
+        var groups = new ArrayList<List<Integer>>();
+        var currentGroup = new ArrayList<Integer>();
+        currentGroup.add(sortedRows[0]);
+        groups.add(currentGroup);
+
+        for (int i = 1; i < sortedRows.length; i++) {
+            if (sortedRows[i] == sortedRows[i - 1] + 1) {
+                currentGroup.add(sortedRows[i]);
+            } else {
+                currentGroup = new ArrayList<>();
+                currentGroup.add(sortedRows[i]);
+                groups.add(currentGroup);
+            }
+        }
+        return groups;
     }
 
     /**
