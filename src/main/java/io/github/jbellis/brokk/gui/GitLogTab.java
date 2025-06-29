@@ -2,26 +2,22 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.git.GitRepo.MergeMode;
+import io.github.jbellis.brokk.git.ICommitInfo;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
-import org.eclipse.jgit.api.RebaseCommand;
-import org.eclipse.jgit.api.RebaseResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.ObjectId;
-import org.jetbrains.annotations.Nullable;
 import org.eclipse.jgit.lib.ProgressMonitor;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
-import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -68,7 +64,7 @@ public class GitLogTab extends JPanel {
 
         var project = contextManager.getProject();
         // Determine if the "Create PR" button should be shown, mirroring logic in GitPanel for the PR tab.
-        var showCreatePrButton = project.isGitHubRepo();
+        var showCreatePrButton = project.isGitHubRepo() && GitHubAuth.tokenPresent(project);
         var panelOptions = new GitCommitBrowserPanel.Options(true, true, showCreatePrButton);
 
         this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);

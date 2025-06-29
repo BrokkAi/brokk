@@ -165,6 +165,19 @@ public class GitHubAuth
         }
     }
 
+    /**
+     * Checks if a GitHub token is configured, without performing network I/O.
+     * This is suitable for UI checks to enable/disable features.
+     *
+     * @param project The current project (reserved for future use, e.g., project-specific tokens).
+     * @return true if a non-blank token is present.
+     */
+    public static boolean tokenPresent(IProject project)
+    {
+        var token = MainProject.getGitHubToken();
+        return token != null && !token.isBlank();
+    }
+
     public String getOwner()
     {
         return owner;

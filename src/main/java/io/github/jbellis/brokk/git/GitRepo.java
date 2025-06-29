@@ -65,12 +65,26 @@ public class GitRepo implements Closeable, IGitRepo {
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
 
     /**
-     * Returns true if the directory has a .git folder or is within a Git worktree.
+     * Returns true if the directory has a .git folder, is a valid repository,
+     * and contains at least one local branch.
      */
     public static boolean hasGitRepo(Path dir) {
-        FileRepositoryBuilder builder = new FileRepositoryBuilder();
-        builder.findGitDir(dir.toFile());
-        return builder.getGitDir() != null;
+        try {
+            var builder = new FileRepositoryBuilder().findGitDir(dir.toFile());
+            if (builder.getGitDir() == null) {
+                return false;
+            }
+            try (var repo = builder.build()) {
+                // A valid repo for Brokk must have at least one local branch
+                return !repo.getRefDatabase()
+                            .getRefsByPrefix("refs/heads/")
+                            .isEmpty();
+            }
+        } catch (IOException e) {
+            // Corrupted or unreadable repo -> treat as non-git
+            logger.warn("Could not read git repo at {}: {}", dir, e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -1265,6 +1279,7 @@ public class GitRepo implements Closeable, IGitRepo {
     /**
      * Get current branch name
      */
+    @Override
     public String getCurrentBranch() throws GitAPIException {
         try {
             var branch = repository.getBranch();
@@ -1929,6 +1944,12 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
+    public static class NoDefaultBranchException extends GitAPIException {
+        public NoDefaultBranchException(String message) {
+            super(message);
+        }
+    }
+
     private static class GitWrappedIOException extends GitAPIException {
         public GitWrappedIOException(IOException e) {
             super(e.getMessage(), e);
@@ -2541,5 +2562,62 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             throw e;
         }
+    }
+
+    /**
+     * Attempts to determine the repository's default branch.
+     * Order of preference:
+     *   1. The symbolic ref refs/remotes/origin/HEAD (remote's default)
+     *   2. Local branch named 'main'
+     *   3. Local branch named 'master'
+     *   4. First local branch (alphabetically)
+     * @return The default branch name.
+     * @throws NoDefaultBranchException if no default branch can be determined (e.g., in an empty repository).
+     * @throws GitAPIException if an error occurs while accessing Git data.
+     */
+    @Override
+    public String getDefaultBranch() throws GitAPIException {
+        // 1. Check remote HEAD symbolic ref (typically origin/HEAD)
+        try {
+            var remoteHeadRef = repository.findRef("refs/remotes/origin/HEAD");
+            if (remoteHeadRef != null && remoteHeadRef.isSymbolic()) {
+                var target = remoteHeadRef.getTarget().getName(); // e.g., "refs/remotes/origin/main"
+                if (target.startsWith("refs/remotes/origin/")) {
+                    var branchName = target.substring("refs/remotes/origin/".length());
+                    // Verify this branch actually exists locally, otherwise it's not a usable default
+                    if (listLocalBranches().contains(branchName)) {
+                        logger.debug("Default branch from origin/HEAD: {}", branchName);
+                        return branchName;
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Log and continue, as this is just one way to find the default
+            logger.warn("IOException while trying to read refs/remotes/origin/HEAD", e);
+        }
+
+        // 2. Check for local 'main'
+        var localBranches = listLocalBranches();
+        if (localBranches.contains("main")) {
+            logger.debug("Default branch found: local 'main'");
+            return "main";
+        }
+
+        // 3. Check for local 'master'
+        if (localBranches.contains("master")) {
+            logger.debug("Default branch found: local 'master'");
+            return "master";
+        }
+
+        // 4. Fallback to the first local branch alphabetically
+        if (!localBranches.isEmpty()) {
+            Collections.sort(localBranches);
+            var firstBranch = localBranches.getFirst();
+            logger.debug("Default branch fallback: alphabetically first local branch '{}'", firstBranch);
+            return firstBranch;
+        }
+
+        // 5. No branches found
+        throw new NoDefaultBranchException("Repository has no local branches and no default can be determined.");
     }
 }
