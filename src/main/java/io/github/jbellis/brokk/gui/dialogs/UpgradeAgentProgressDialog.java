@@ -22,10 +22,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.StringReader;
 import java.io.StringWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -124,6 +122,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                     if (isCancelled()) {
                         break;
                     }
+                    var ctx = contextManager.topContext();
                     executorService.submit(() -> {
                         var dialogConsoleIO = new DialogConsoleIO(UpgradeAgentProgressDialog.this, file.toString());
                         String errorMessage = null;
@@ -141,7 +140,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                             List<ChatMessage> readOnlyMessages = new ArrayList<>();
                             try {
                                 if (UpgradeAgentProgressDialog.this.includeWorkspace) {
-                                    readOnlyMessages.addAll(contextManager.getWorkspaceContentsMessages());
+                                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(ctx));
                                     dialogConsoleIO.systemOutput("Including workspace contents in context.");
                                 }
                                 if (UpgradeAgentProgressDialog.this.relatedK != null) {

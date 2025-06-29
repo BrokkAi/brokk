@@ -12,21 +12,16 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashSet;
+import java.util.*;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -393,26 +388,21 @@ public class UpgradeAgentDialog extends JDialog {
         }
         var maxTokens = service.getMaxInputTokens(model);
 
-        try {
-            var workspaceTokens = Messages.getApproximateTokens(cm.getWorkspaceContentsMessages());
-            var historyTokens = Messages.getApproximateTokens(cm.getHistoryMessages());
+        var workspaceTokens = Messages.getApproximateTokens(CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
+        var historyTokens = Messages.getApproximateTokens(cm.getHistoryMessages());
 
-            long remaining = (long) maxTokens - workspaceTokens - historyTokens;
+        long remaining = (long) maxTokens - workspaceTokens - historyTokens;
 
-            if (remaining < TOKEN_SAFETY_MARGIN) {
-                tokenWarningLabel.setText(
-                        "<html><b>Warning:</b> The selected model has a " + maxTokens +
-                        "-token window. Your workspace (" + workspaceTokens + " tokens) " +
-                        "+ history (" + historyTokens + " tokens) leaves only " + remaining +
-                        " tokens, which is below the " + TOKEN_SAFETY_MARGIN + " token safety margin. " +
-                        "Trim your workspace or choose a model with a larger context window.</html>"
-                );
-                tokenWarningLabel.setVisible(true);
-            } else {
-                tokenWarningLabel.setVisible(false);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        if (remaining < TOKEN_SAFETY_MARGIN) {
+            tokenWarningLabel.setText(
+                    "<html><b>Warning:</b> The selected model has a " + maxTokens +
+                    "-token window. Your workspace (" + workspaceTokens + " tokens) " +
+                    "+ history (" + historyTokens + " tokens) leaves only " + remaining +
+                    " tokens, which is below the " + TOKEN_SAFETY_MARGIN + " token safety margin. " +
+                    "Trim your workspace or choose a model with a larger context window.</html>"
+            );
+            tokenWarningLabel.setVisible(true);
+        } else {
             tokenWarningLabel.setVisible(false);
         }
     }

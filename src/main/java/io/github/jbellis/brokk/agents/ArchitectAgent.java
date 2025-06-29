@@ -8,10 +8,7 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.GitHubAuth;
@@ -488,7 +485,7 @@ public class ArchitectAgent {
             }
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(contextManager.getWorkspaceContentsMessages(true));
+            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(contextManager.liveContext()));
             int workspaceTokenSize = Messages.getApproximateTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
@@ -759,12 +756,31 @@ public class ArchitectAgent {
     private List<ChatMessage> buildPrompt(int workspaceTokenSize,
                                           int minInputTokenLimit,
                                           List<ChatMessage> precomputedWorkspaceMessages)
+    throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, CodePrompts.ARCHITECT_REMINDER));
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
+
+        // Add auto-context as a separate message/ack pair
+        var acFragment = contextManager.liveContext().buildAutoContext(10);
+        String topClassesRaw = acFragment.text();
+        if (!topClassesRaw.isBlank()) {
+            var topClassesText = """
+                           <related_classes>
+                           Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                           If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                           visible to Code Agent. If they are not relevant, just ignore them.
+                           
+                           %s
+                           </related_classes>
+                           """.stripIndent().formatted(topClassesRaw);
+            messages.add(new UserMessage(topClassesText));
+            messages.add(new AiMessage("Okay, I will consider these related classes."));
+        }
+
         // History from previous tasks/sessions
         messages.addAll(contextManager.getHistoryMessages());
         // This agent's own conversational history for the current goal

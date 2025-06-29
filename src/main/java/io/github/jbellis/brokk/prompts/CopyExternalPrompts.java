@@ -18,10 +18,10 @@ public abstract class CopyExternalPrompts extends CodePrompts {
                         .toList();
     }
 
-    private List<ChatMessage> collectMessagesInternal(ContextManager cm) throws InterruptedException {
+    private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
         var messages = new ArrayList<ChatMessage>();
         messages.addAll(cm.getHistoryMessagesForCopy());
-        messages.addAll(cm.getWorkspaceContentsMessages());
+        messages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(cm.topContext()));
         return messages;
     }
 

@@ -5,6 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -262,9 +263,10 @@ public class ContextAgent {
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
     public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
-        Collection<ChatMessage> workspaceRepresentation = deepScan
-                                                          ? contextManager.getWorkspaceContentsMessages()
-                                                          : contextManager.getWorkspaceSummaryMessages();
+        Collection<ChatMessage> workspaceRepresentation;
+        workspaceRepresentation = deepScan 
+                                  ? CodePrompts.instance.getWorkspaceContentsMessages(contextManager.liveContext()) 
+                                  : CodePrompts.instance.getWorkspaceSummaryMessages(contextManager.liveContext());
         var allFiles = contextManager.getProject().getAllFiles().stream().sorted().toList();
 
         // try single-pass mode first
