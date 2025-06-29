@@ -1,4 +1,4 @@
-<p align="center">
+<p align="right">
   <img src="docs/brokk.png" alt="Brokk – the forge god" width="600">
 </p>
 
