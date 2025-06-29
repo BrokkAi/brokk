@@ -153,6 +153,9 @@ libraryDependencies ++= Seq(
   "org.junit.jupiter" % "junit-jupiter" % "5.10.2" % Test,
   "org.junit.jupiter" % "junit-jupiter-engine"  % "5.10.2" % Test,
   "com.github.sbt.junit" % "jupiter-interface"  % "0.13.3" % Test,
+  // AssertJ – fluent assertions and Swing UI testing
+  "tokyo.northside" % "assertj-swing" % "4.0.0-beta-2" % Test,
+  "tokyo.northside" % "assertj-swing-junit-jupiter" % "4.0.0-beta-2" % Test,
 
   // Java Decompiler
   "com.jetbrains.intellij.java" % "java-decompiler-engine" % "243.25659.59",
