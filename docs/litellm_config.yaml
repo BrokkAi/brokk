@@ -29,7 +29,6 @@ model_list:
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       supports_reasoning: true # override incorrect default
-      supports_reasoning_disable: true
       free_tier_eligible: false
       is_private: true
 
