@@ -44,6 +44,9 @@ public class UpgradeAgentDialog extends JDialog {
     private FileSelectionPanel fileSelectionPanel;
     private JTable selectedFilesTable;
     private javax.swing.table.DefaultTableModel tableModel;
+    private JRadioButton listFilesScopeRadioButton;
+    private JTextArea listFilesTextArea;
+    private JLabel fileListStatusLabel;
 
     public UpgradeAgentDialog(Frame owner, Chrome chrome) {
         super(owner, "Upgrade Agent", true);
@@ -242,6 +245,28 @@ public class UpgradeAgentDialog extends JDialog {
 
         scopeCardsPanel.add(selectFilesCardPanel, "SELECT");
 
+        // "List Files" Card
+        JPanel listFilesCardPanel = new JPanel(new BorderLayout(5, 5));
+        listFilesTextArea = new JTextArea(5, 50);
+        listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) { updateFileListStatus(); }
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) { updateFileListStatus(); }
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) { /* Not needed for plain text */ }
+        });
+        JScrollPane listFilesScrollPane = new JScrollPane(listFilesTextArea);
+        JLabel listFilesInstructions = new JLabel("Paste target files, separated by whitespace.");
+        listFilesCardPanel.add(listFilesInstructions, BorderLayout.NORTH);
+        listFilesCardPanel.add(listFilesScrollPane, BorderLayout.CENTER);
+
+        fileListStatusLabel = new JLabel(" ");
+        fileListStatusLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
+        listFilesCardPanel.add(fileListStatusLabel, BorderLayout.SOUTH);
+        scopeCardsPanel.add(listFilesCardPanel, "LIST");
+
+
         // Per-file command Row
         gbc.gridy++;
         gbc.gridx = 0;
@@ -327,15 +352,18 @@ public class UpgradeAgentDialog extends JDialog {
 
         entireProjectScopeRadioButton = new JRadioButton("Entire Project");
         selectFilesScopeRadioButton = new JRadioButton("Select Files");
+        listFilesScopeRadioButton = new JRadioButton("List Files");
         selectFilesScopeRadioButton.setSelected(true);
 
         scopeButtonGroup = new ButtonGroup();
         scopeButtonGroup.add(entireProjectScopeRadioButton);
         scopeButtonGroup.add(selectFilesScopeRadioButton);
+        scopeButtonGroup.add(listFilesScopeRadioButton);
 
         JPanel scopeRadioPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         scopeRadioPanel.add(entireProjectScopeRadioButton);
         scopeRadioPanel.add(selectFilesScopeRadioButton);
+        scopeRadioPanel.add(listFilesScopeRadioButton);
 
         scopePanel.add(scopeRadioPanel, BorderLayout.NORTH);
         scopePanel.add(scopeCardsPanel, BorderLayout.CENTER);
@@ -344,11 +372,19 @@ public class UpgradeAgentDialog extends JDialog {
 
         // Listeners to switch cards
         java.awt.event.ActionListener scopeListener = e -> {
-            String command = entireProjectScopeRadioButton.isSelected() ? "ENTIRE" : "SELECT";
+            String command;
+            if (entireProjectScopeRadioButton.isSelected()) {
+                command = "ENTIRE";
+            } else if (listFilesScopeRadioButton.isSelected()) {
+                command = "LIST";
+            } else {
+                command = "SELECT";
+            }
             scopeCardLayout.show(scopeCardsPanel, command);
         };
         entireProjectScopeRadioButton.addActionListener(scopeListener);
         selectFilesScopeRadioButton.addActionListener(scopeListener);
+        listFilesScopeRadioButton.addActionListener(scopeListener);
         scopeCardLayout.show(scopeCardsPanel, "SELECT");
 
 
@@ -454,6 +490,44 @@ public class UpgradeAgentDialog extends JDialog {
         }
     }
 
+    private void updateFileListStatus() {
+        String text = listFilesTextArea.getText();
+        if (text.isBlank()) {
+            fileListStatusLabel.setText(" ");
+            return;
+        }
+
+        var repo = chrome.getProject().getRepo();
+        var trackedFiles = repo.getTrackedFiles();
+
+        List<String> paths = Arrays.stream(text.split("\\s+"))
+                                   .filter(s -> !s.isBlank())
+                                   .toList();
+
+        int trackedCount = 0;
+        int untrackedCount = 0;
+
+        for (String pathStr : paths) {
+            try {
+                // toFile may throw for paths outside the project
+                ProjectFile pf = chrome.getContextManager().toFile(pathStr);
+                if (trackedFiles.contains(pf)) {
+                    trackedCount++;
+                } else {
+                    untrackedCount++;
+                }
+            } catch (IllegalArgumentException e) {
+                untrackedCount++; // Treat invalid paths as untracked
+            }
+        }
+
+        String status = String.format("Found %d tracked files, %d untracked.", trackedCount, untrackedCount);
+        if (untrackedCount > 0) {
+            status += " Untracked files will not be processed.";
+        }
+        fileListStatusLabel.setText(status);
+    }
+
     private void onOK() {
         String instructions = instructionsArea.getText().trim();
         if (instructions.isEmpty()) {
@@ -468,10 +542,9 @@ public class UpgradeAgentDialog extends JDialog {
         }
 
         // Determine scope and get files to process
-        boolean isEntireProjectScope = entireProjectScopeRadioButton.isSelected();
-        List<ProjectFile> filesToProcessList = Collections.emptyList();
+        List<ProjectFile> filesToProcessList;
 
-        if (isEntireProjectScope) {
+        if (entireProjectScopeRadioButton.isSelected()) {
             var filesToProcess = chrome.getProject().getRepo().getTrackedFiles().stream()
                     .filter(Objects::nonNull)
                     .filter(ProjectFile::isText);
@@ -483,13 +556,37 @@ public class UpgradeAgentDialog extends JDialog {
                     return selectedLanguageString.equals(lang.toString());
                 });
             }
-            filesToProcessList = filesToProcess.collect(Collectors.toList());
+            filesToProcessList = filesToProcess.toList();
 
             if (filesToProcessList.isEmpty()) {
                 String message = (ALL_LANGUAGES_OPTION.equals(languageComboBox.getSelectedItem()) || languageComboBox.getSelectedItem() == null)
                                  ? "No text files found in the project to process."
                                  : "No text files found for the selected language (" + languageComboBox.getSelectedItem() + ").";
                 JOptionPane.showMessageDialog(this, message, "No Files", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+        } else if (listFilesScopeRadioButton.isSelected()) {
+            String text = listFilesTextArea.getText();
+            if (text.isBlank()) {
+                JOptionPane.showMessageDialog(this, "File list cannot be empty.", "Input Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            var trackedFiles = chrome.getProject().getRepo().getTrackedFiles();
+            filesToProcessList = Arrays.stream(text.split("\\s+"))
+                                       .filter(s -> !s.isBlank())
+                                       .map(pathStr -> {
+                                           try {
+                                               return chrome.getContextManager().toFile(pathStr);
+                                           } catch (IllegalArgumentException e) {
+                                               return null;
+                                           }
+                                       })
+                                       .filter(Objects::nonNull)
+                                       .filter(trackedFiles::contains)
+                                       .toList();
+
+            if (filesToProcessList.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "No tracked files found from the list.", "No Files", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
         } else { // Select Files
