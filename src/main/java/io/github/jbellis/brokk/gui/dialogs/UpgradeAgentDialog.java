@@ -72,13 +72,8 @@ public class UpgradeAgentDialog extends JDialog {
         gbc.gridy = 0;
         gbc.gridwidth = 2;
         gbc.anchor = GridBagConstraints.NORTHWEST;
-        JLabel explanationLabel = new JLabel("The instructions will be applied independently to every file in the project.");
+        JLabel explanationLabel = new JLabel("Upgrade Agent applies your instructions independently to multiple files in parallel:");
         contentPanel.add(explanationLabel, gbc);
-
-        // Instructions Label
-        gbc.gridy++;
-        gbc.gridwidth = 1;
-        contentPanel.add(new JLabel("Instructions:"), gbc);
 
         // Instructions TextArea
         gbc.gridx = 0;
@@ -261,7 +256,13 @@ public class UpgradeAgentDialog extends JDialog {
 
         perFileCommandTextField = new JTextField();
 
-        JLabel perFileCommandExplanation = new JLabel("<html>Command to run for each file (if specified). Use <code>{{filepath}}</code> for the file path.</html>");
+        JLabel perFileCommandExplanation = new JLabel("""
+                                                      <html>
+                                                      Command to run for each file. Use <code>{{filepath}}</code> for the file path. Blank for no command.
+                                                      <br>
+                                                      The output will be sent to the LLM with each target file.
+                                                      </html>
+                                                      """);
         JPanel explanationPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         explanationPanel.add(perFileCommandExplanation);
 
@@ -295,7 +296,7 @@ public class UpgradeAgentDialog extends JDialog {
         gbc.gridwidth = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
-        JLabel relatedFilesExplanation = new JLabel("Includes summaries of the most-closely-related files with each target file");
+        JLabel relatedFilesExplanation = new JLabel("Includes summaries of the most-closely-related files for each target file");
         contentPanel.add(relatedFilesExplanation, gbc);
 
         // Include Workspace Row
