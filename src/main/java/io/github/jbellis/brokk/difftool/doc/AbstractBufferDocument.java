@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.difftool.doc;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.DefaultEditorKit;
@@ -19,7 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Objects;
 
 public abstract class AbstractBufferDocument implements BufferDocumentIF, DocumentListener {
-    private static final Logger log = LogManager.getLogger(AbstractBufferDocument.class);
+    protected static final Logger log = LogManager.getLogger(AbstractBufferDocument.class);
     @Nullable private String name;
     @Nullable private String shortName;
     @Nullable private Line[] lineArray;
@@ -48,7 +51,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
             new DefaultEditorKit().read(reader, document, 0);
         } catch (Exception readEx) {
             // Handle exceptions during the read process specifically
-            System.err.println("Error reading content for " + getName() + ": " + readEx.getMessage());
+            log.error("Error reading content for {}: {}", getName(), readEx.getMessage());
             // Potentially fall back to an empty document state
             document = new PlainDocument(new MyGapContent(10)); // Re-init empty
         }
@@ -175,7 +178,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         }
         // Ensure document is initialized before accessing elements
         if (document == null) {
-            System.err.println("Attempted to initLines before document was initialized for " + getName());
+            log.error("Attempted to initLines before document was initialized for {}", getName());
             lineArray = new Line[0];
             lineOffsetArray = new int[0];
             return;
@@ -453,7 +456,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
     public String getLineText(int lineNumber) {
         Line[] la = getLines();
         if (lineNumber < 0 || lineNumber >= la.length) {
-            System.err.println("getLineText: Invalid line number " + lineNumber + " for document " + getName());
+            log.error("getLineText: Invalid line number {} for document {}", lineNumber, getName());
             return "<INVALID LINE>";
         }
         return la[lineNumber].toString();

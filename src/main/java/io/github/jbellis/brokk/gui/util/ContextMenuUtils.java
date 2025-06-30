@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
@@ -128,7 +129,7 @@ public final class ContextMenuUtils {
             // Fallback if not the expected renderer type
             visibleFiles = fileRefs;
             // Log the issue but continue (avoid breaking the UI)
-            System.err.println("Unexpected renderer type: " + renderer.getClass().getName());
+            logger.error("Unexpected renderer type: {}", renderer.getClass().getName());
         }
         
         // Check what kind of mouse event we're handling
@@ -176,8 +177,7 @@ public final class ContextMenuUtils {
             }
         }
     }
-    
-   
+
     // Private constructor to prevent instantiation
     private ContextMenuUtils() {
     }
@@ -288,6 +288,68 @@ public final class ContextMenuUtils {
         menu.show(owner, x, y);
     }
     
+    /**
+     * Shows a context menu for a symbol.
+     *
+     * @param owner The component that owns the popup (where it will be displayed)
+     * @param x The x position for the menu relative to the owner
+     * @param y The y position for the menu relative to the owner
+     * @param codeUnit The symbol for which to show the menu
+     * @param chrome The Chrome instance for UI integration
+     */
+    public static void showSymbolMenu(Component owner,
+                                      int x,
+                                      int y,
+                                      CodeUnit codeUnit,
+                                      Chrome chrome) {
+        var cm = chrome.getContextManager();
+        JPopupMenu menu = new JPopupMenu();
+
+        var symbolType = getSymbolTypeDisplay(codeUnit);
+
+        JMenuItem gotoDefinitionItem = new JMenuItem("Go to Definition");
+        gotoDefinitionItem.addActionListener(e -> {
+            chrome.openFragmentPreview(new ContextFragment.ProjectPathFragment(codeUnit.source(), cm));
+        });
+        menu.add(gotoDefinitionItem);
+
+        JMenuItem addToContextItem = new JMenuItem("Add " + symbolType + " to Context");
+        addToContextItem.addActionListener(e -> {
+            withTemporaryListenerDetachment(chrome, () -> {
+                cm.addReadOnlyFiles(List.of(codeUnit.source()));
+            }, "Add symbol to context");
+        });
+        menu.add(addToContextItem);
+
+        JMenuItem summarizeItem = new JMenuItem("Summarize " + symbolType);
+        summarizeItem.addActionListener(e -> {
+            if (!cm.getAnalyzerWrapper().isReady()) {
+                cm.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                      AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                      JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            withTemporaryListenerDetachment(chrome, () -> {
+                boolean success = cm.addSummaries(Set.of(codeUnit.source()), Set.of());
+                if (!success) {
+                    chrome.toolError("No summarizable code found");
+                }
+            }, "Summarize symbol");
+        });
+        menu.add(summarizeItem);
+
+        menu.show(owner, x, y);
+    }
+
+    private static String getSymbolTypeDisplay(CodeUnit codeUnit) {
+        return switch (codeUnit.kind()) {
+            case CLASS -> "Class";
+            case FUNCTION -> "Function";
+            case FIELD -> "Field";
+            case MODULE -> "Module";
+        };
+    }
+
     /**
      * Helper method to detach context listener temporarily while performing operations.
      */

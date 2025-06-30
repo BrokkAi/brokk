@@ -592,7 +592,7 @@ public class EditBlock {
      * @throws SymbolNotFoundException  if the file cannot be found.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      */
-    static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
+    public static ProjectFile resolveProjectFile(IContextManager cm, @Nullable String filename)
     throws SymbolNotFoundException, SymbolAmbiguousException
     {
         if (filename == null || filename.isBlank()) { // Handle null or blank filename early

@@ -4,6 +4,8 @@ import io.github.jbellis.brokk.difftool.node.FileNode;
 import io.github.jbellis.brokk.difftool.node.JMDiffNode;
 import io.github.jbellis.brokk.difftool.node.StringNode;
 import io.github.jbellis.brokk.gui.GuiTheme;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -22,6 +24,7 @@ import org.jetbrains.annotations.Nullable;
 
 
 public class FileComparison extends SwingWorker<String, Object> {
+    private static final Logger logger = LogManager.getLogger(FileComparison.class);
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
     @Nullable
@@ -175,7 +178,7 @@ public class FileComparison extends SwingWorker<String, Object> {
             Image scaledImage = originalImage.getScaledInstance(24, 24, Image.SCALE_SMOOTH);
             return new ImageIcon(scaledImage);
         } catch (IOException | NullPointerException e) {
-            System.err.println("Image not found: " + "/images/compare.png" + ": " + e.getMessage());
+            logger.error("Image not found: /images/compare.png: {}", e.getMessage());
             return null;
         }
     }
@@ -201,7 +204,7 @@ public class FileComparison extends SwingWorker<String, Object> {
             }
         } catch (Exception ex) {
             // Handle exceptions during the 'done' phase, e.g., from get()
-            System.err.println("Error completing file comparison task: " + ex.getMessage());
+            logger.error("Error completing file comparison task: {}", ex.getMessage());
             JOptionPane.showMessageDialog(mainPanel, "Error finalizing comparison: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }

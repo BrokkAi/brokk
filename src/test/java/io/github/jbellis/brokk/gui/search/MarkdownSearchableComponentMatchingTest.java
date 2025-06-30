@@ -30,7 +30,7 @@ public class MarkdownSearchableComponentMatchingTest {
 
     @Test
     void testSearchWithNoMatches() throws Exception {
-        searchComponent = new MarkdownSearchableComponent(List.of(panel));
+        searchComponent = new MarkdownSearchableComponent(List.of(panel), null);
 
         CountDownLatch searchComplete = new CountDownLatch(1);
         AtomicInteger totalMatches = new AtomicInteger(-1);

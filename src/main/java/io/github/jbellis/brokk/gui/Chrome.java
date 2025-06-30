@@ -14,8 +14,12 @@ import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
+import io.github.jbellis.brokk.gui.mop.stream.CompositeHtmlCustomizer;
+import io.github.jbellis.brokk.gui.mop.stream.SymbolBadgeCustomizer;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.gui.util.ContextMenuUtils;
+import io.github.jbellis.brokk.gui.TableUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -25,8 +29,13 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Files;
+import java.lang.reflect.InvocationTargetException;
+import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -587,7 +596,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void actionComplete() {
         SwingUtilities.invokeLater(() -> instructionsPanel.clearCommandResultText());
     }
-    
+
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
         SwingUtilities.invokeLater(() -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage));
@@ -690,9 +699,10 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      *
      * @param markdownPanels List of MarkdownOutputPanel instances to make searchable
      * @param toolbarPanel Optional panel to add to the right of the search bar
+     * @param contextManager Context manager for symbol badge customization
      * @return A JPanel containing the search bar, optional toolbar, and content
      */
-    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel) {
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel, IContextManager contextManager) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
@@ -726,7 +736,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
-        var searchableComponent = new MarkdownSearchableComponent(markdownPanels);
+        var searchableComponent = new MarkdownSearchableComponent(markdownPanels, contextManager);
         var searchBar = new GenericSearchBar(searchableComponent);
         componentsWithChatBackground.add(searchBar);
 
@@ -748,7 +758,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
         // Add 5px gap below the top panel
         topPanel.setBorder(new EmptyBorder(0, 0, 5, 0));
-    
+
         // Add components to content panel
         contentPanel.add(topPanel, BorderLayout.NORTH);
         contentPanel.add(contentComponent, BorderLayout.CENTER);
@@ -918,7 +928,11 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 var escapeHtml = outputFragment.isEscapeHtml();
 
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
+                    var markdownPanel = new MarkdownOutputPanel(escapeHtml, this::handleBrokkLink);
+
+                    // Configure symbol badge customizer
+                    var symbolBadgeCustomizer = SymbolBadgeCustomizer.create(contextManager);
+                    markdownPanel.setHtmlCustomizer(new CompositeHtmlCustomizer(symbolBadgeCustomizer));
                     markdownPanel.updateTheme(themeManager.isDarkTheme());
                     markdownPanel.setText(entry);
                     markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
@@ -928,7 +942,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 }
 
                 // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, null);
+                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, null, this.contextManager);
 
                 // When all panels are compacted, scroll to the top
                 CompletableFuture
@@ -1038,6 +1052,41 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         } catch (Exception ex) {
             logger.debug("Error opening preview", ex);
             toolError("Error opening preview: " + ex.getMessage());
+        }
+    }
+
+    public void handleBrokkLink(URI uri) {
+        String host = uri.getHost();
+        String query = uri.getQuery();
+        if (query == null) {
+            return;
+        }
+        // query is like "path=..." or "fq=..."
+        String val = URLDecoder.decode(query.substring(query.indexOf('=') + 1), StandardCharsets.UTF_8);
+
+        if ("file".equals(host)) {
+            var path = Paths.get(val);
+            var relativePath = path.isAbsolute() ? getProject().getRoot().relativize(path).toString() : val;
+            var projectFile = new ProjectFile(getProject().getRoot(), relativePath);
+            var fileRefData = new TableUtils.FileReferenceList.FileReferenceData(
+                projectFile.getFileName(),
+                relativePath,
+                projectFile
+            );
+
+            var p = java.awt.MouseInfo.getPointerInfo().getLocation();
+            SwingUtilities.convertPointFromScreen(p, frame);
+            ContextMenuUtils.showFileRefMenu(frame, p.x, p.y, fileRefData, this, () -> {});
+            return;
+        } else if ("symbol".equals(host)) {
+            var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (analyzer != null) {
+                analyzer.getDefinition(val).ifPresent(codeUnit -> {
+                    var p = java.awt.MouseInfo.getPointerInfo().getLocation();
+                    SwingUtilities.convertPointFromScreen(p, frame);
+                    ContextMenuUtils.showSymbolMenu(frame, p.x, p.y, codeUnit, this);
+                });
+            }
         }
     }
 
@@ -1482,7 +1531,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     @Override
     public void disableHistoryPanel() {
-        historyOutputPanel.disableHistory();
+        if (historyOutputPanel != null) {
+            historyOutputPanel.disableHistory();
+        }
     }
 
     /**
@@ -1502,7 +1553,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void blockLlmOutput(boolean blocked) {
         // Ensure that prev setText calls are processed before blocking => we need the invokeLater
         SwingUtilities.invokeLater(() -> {
-            historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
+            if (historyOutputPanel != null) {
+                historyOutputPanel.setMarkdownOutputPanelBlocking(blocked);
+            }
         });
     }
 

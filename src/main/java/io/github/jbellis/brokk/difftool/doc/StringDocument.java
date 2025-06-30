@@ -79,7 +79,7 @@ public class StringDocument extends AbstractBufferDocument {
      */
     public void setContent(String newContent) {
         if (isReadonly()) {
-            System.err.println("Warning: Attempting to set content on a read-only StringDocument: " + getName());
+            log.warn("Attempting to set content on a read-only StringDocument: {}", getName());
             return; // Or throw an exception
         }
         this.content = newContent;

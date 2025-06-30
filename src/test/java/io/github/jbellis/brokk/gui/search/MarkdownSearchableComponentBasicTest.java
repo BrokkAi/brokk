@@ -33,7 +33,7 @@ public class MarkdownSearchableComponentBasicTest {
 
     @Test
     void testEmptyPanelListHandling() {
-        var emptySearchComponent = new MarkdownSearchableComponent(List.of());
+        var emptySearchComponent = new MarkdownSearchableComponent(List.of(), null);
 
         // Should handle empty panel list gracefully
         assertDoesNotThrow(() -> emptySearchComponent.highlightAll("test", false));
@@ -46,7 +46,7 @@ public class MarkdownSearchableComponentBasicTest {
 
     @Test
     void testCallbackNotification() throws Exception {
-        searchComponent = new MarkdownSearchableComponent(List.of(panel1));
+        searchComponent = new MarkdownSearchableComponent(List.of(panel1), null);
 
         CountDownLatch searchComplete = new CountDownLatch(1);
         AtomicBoolean callbackCalled = new AtomicBoolean(false);

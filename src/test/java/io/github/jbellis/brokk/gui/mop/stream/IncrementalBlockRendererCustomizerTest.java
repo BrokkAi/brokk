@@ -94,8 +94,8 @@ public class IncrementalBlockRendererCustomizerTest {
         List<ComponentData> appleComponents = renderer.buildComponentData(html);
         String appleHtml = extractMarkdownHtml(appleComponents);
         
-        assertTrue(appleHtml.contains("class=\"apple\""), "Should highlight apple with apple class");
-        assertFalse(appleHtml.contains("class=\"orange\""), "Should not have orange class");
+        assertTrue(appleHtml.contains("class=\"apple"), "Should highlight apple with apple class");
+        assertFalse(appleHtml.contains("class=\"orange"), "Should not have orange class");
         
         // Switch to highlighting 'orange'
         HtmlCustomizer orangeHighlighter = new TextNodeMarkerCustomizer(
@@ -106,8 +106,8 @@ public class IncrementalBlockRendererCustomizerTest {
         List<ComponentData> orangeComponents = renderer.buildComponentData(renderer.createHtml(markdown));
         String orangeHtml = extractMarkdownHtml(orangeComponents);
         
-        assertTrue(orangeHtml.contains("class=\"orange\""), "Should highlight orange with orange class");
-        assertFalse(orangeHtml.contains("class=\"apple\""), "Should not have apple class anymore");
+        assertTrue(orangeHtml.contains("class=\"orange"), "Should highlight orange with orange class");
+        assertFalse(orangeHtml.contains("class=\"apple"), "Should not have apple class anymore");
     }
 
     @Test

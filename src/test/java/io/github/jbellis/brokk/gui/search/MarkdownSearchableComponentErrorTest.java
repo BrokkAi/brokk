@@ -29,7 +29,7 @@ public class MarkdownSearchableComponentErrorTest {
 
     @Test
     void testSearchWithNullCallback() {
-        searchComponent = new MarkdownSearchableComponent(List.of(panel));
+        searchComponent = new MarkdownSearchableComponent(List.of(panel), null);
 
         // Should not throw when callback is null
         assertDoesNotThrow(() -> {
@@ -40,7 +40,7 @@ public class MarkdownSearchableComponentErrorTest {
 
     @Test
     void testNullAndSpecialCharacterSearch() throws Exception {
-        searchComponent = new MarkdownSearchableComponent(List.of(panel));
+        searchComponent = new MarkdownSearchableComponent(List.of(panel), null);
 
         // Test special characters
         String[] specialSearches = {"$", "@#", "^&*", "()", "\\n", "\t"};
