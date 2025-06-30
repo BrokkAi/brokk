@@ -8,6 +8,9 @@ version := "0.11.1"
 organization := "io.github.jbellis"
 name := "brokk"
 
+// Auto reload on build.sbt changes
+Global / onChangedBuildSource := ReloadOnSourceChanges
+
 // Add local Error Prone JAR and its dependencies to the compile classpath for javac -Xplugin:ErrorProne
 Compile / unmanagedJars ++= Seq(
   baseDirectory.value / "errorprone" / "error_prone_core-brokk_build-with-dependencies.jar",
@@ -99,7 +102,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   // NullAway - version must match local jar version
   "com.uber.nullaway" % "nullaway" % "0.12.7",
-  
+
   // LangChain4j dependencies
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
