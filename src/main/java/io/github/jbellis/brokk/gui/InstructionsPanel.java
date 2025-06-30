@@ -1733,10 +1733,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Cast the result of loadFavoriteModels and ensure it's handled correctly
         var favoriteModels = MainProject.loadFavoriteModels();
 
-        // Filter favorite models to show only those that are currently available, and sort by alias
+        // Filter favorite models to show only those that are currently available, and sort by alias case-insensitively
         var favoriteModelsToShow = favoriteModels.stream()
                 .filter(fav -> availableModelsMap.containsKey(fav.modelName()))
-                .sorted(Comparator.comparing(Service.FavoriteModel::alias))
+                .sorted(Comparator.comparing(Service.FavoriteModel::alias, String.CASE_INSENSITIVE_ORDER))
                 .toList();
 
         if (favoriteModelsToShow.isEmpty()) {
