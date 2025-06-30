@@ -1168,13 +1168,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 chrome.systemOutput("Ask command complete!");
             }
         } catch (InterruptedException e) {
-            chrome.systemOutput("Ask command cancelled!");
-            // Check if we have any partial output to save
-                maybeAddInterruptedResult("Ask", question);
-            }
+            throw new CancellationException(e.getMessage());
         }
+    }
 
-        private void maybeAddInterruptedResult(String action, String input) {
+        public void maybeAddInterruptedResult(String action, String input) {
             if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
                 logger.debug(action + " command cancelled with partial results");
                 var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
@@ -1193,17 +1191,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param goal    The initial user instruction passed to the agent.
      * @param options The configured options for the agent's tools.
      */
-    private void executeAgentCommand(StreamingChatLanguageModel model, String goal, ArchitectAgent.ArchitectOptions options) {
+    private void executeArchitectCommand(StreamingChatLanguageModel model, String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         try {
-            // Pass options to the constructor
             var agent = new ArchitectAgent(contextManager, model, contextManager.getToolRegistry(), goal, options);
             var result = agent.execute();
             chrome.systemOutput("Architect complete!");
             contextManager.addToHistory(result, false);
         } catch (InterruptedException e) {
-            chrome.systemOutput("Architect Agent cancelled!");
-            maybeAddInterruptedResult("Architect", goal);
+            throw new CancellationException(e.getMessage());
         } catch (Exception e) {
             logger.error("Error during Agent execution", e);
             chrome.toolError("Internal error during Agent command: " + e.getMessage());
@@ -1219,18 +1215,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             chrome.toolError("Please provide a search query");
             return;
         }
+
+        var contextManager = chrome.getContextManager();
         try {
-            var contextManager = chrome.getContextManager();
-            var agent = new SearchAgent(query, contextManager, model, contextManager.getToolRegistry(), 0);
+            SearchAgent agent = new SearchAgent(query, contextManager, model, contextManager.getToolRegistry(), 0);
             var result = agent.execute();
+
             // Search does not stream to llmOutput, so add the final answer here
-            
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             contextManager.addToHistory(result, false);
             chrome.systemOutput("Search complete!");
         } catch (InterruptedException e) {
-            chrome.toolError("Search agent cancelled without answering");
-            populateInstructionsArea(query);
+            throw new CancellationException(e.getMessage());
         }
     }
 
@@ -1257,13 +1253,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             logger.warn("Run command '{}' failed: {}", input, e.getMessage(), e);
             chrome.llmOutput("\n**Command Failed**", ChatMessageType.CUSTOM);
         } catch (InterruptedException e) {
-            // If interrupted, the ```bash block might be open.
-            // It's tricky to know if llmOutput for closing ``` is safe or needed here.
-            // For now, just log and return, consistent with previous behavior for interruption.
-            chrome.systemOutput("Cancelled!");
-            populateInstructionsArea(input);
-            // No action needed for context history on cancellation here
-            return;
+            throw new CancellationException(e.getMessage());
         } finally {
             chrome.hideOutputSpinner();
         }
@@ -1311,7 +1301,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If the user cancelled the dialog, choices will be null.
         if (choices == null) {
-            chrome.systemOutput("Architect command cancelled during option selection.");
+            logger.debug("Architect command cancelled during option selection.");
             enableButtons(); // Re-enable buttons since the action was cancelled before submission
             return;
         }
@@ -1337,7 +1327,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Add to history of current project (already done by caller if not worktree)
         // No need to clearCommandInput, also done by caller
 
-        // Submit the entire worktree setup and eventual Architect run as a background task
+        // don't use submitAction, we're going to kick off a new Worktree + Chrome and run in that, leaving the original free
         cm.submitUserTask("Setup Architect Worktree", true, () -> {
             try {
                 chrome.showOutputSpinner("Setting up Git worktree...");
@@ -1404,8 +1394,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     return null;
                 });
             } catch (InterruptedException e) {
-                logger.warn("Architect worktree setup interrupted.", e);
-                chrome.systemOutput("Architect worktree setup was cancelled.");
+                logger.debug("Architect worktree setup interrupted.", e);
                 populateInstructionsArea(originalInstructions);
             } catch (GitAPIException | IOException | ExecutionException ex) {
                 chrome.toolError("Error setting up worktree: " + ex.getMessage());
@@ -1429,7 +1418,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         submitAction(ACTION_ARCHITECT, goal, () -> {
             // Proceed with execution using the selected options
-            executeAgentCommand(architectModel, goal, options);
+            executeArchitectCommand(architectModel, goal, options);
         });
     }
 
@@ -1559,6 +1548,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner("Executing " + action + " command...");
                 task.run();
+            } catch (CancellationException e) {
+                maybeAddInterruptedResult(action, input);
+                throw e; // propagate to ContextManager
             } finally {
                 chrome.hideOutputSpinner();
                 checkBalanceAndNotify();

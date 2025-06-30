@@ -572,9 +572,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 task.run();
             } catch (CancellationException cex) {
-                io.systemOutput(description + " canceled.");
+                if (isLlmTask) {
+                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM);
+                } else {
+                    io.systemOutput(description + " canceled");
+                }
             } catch (Exception e) {
-                io.toolError("Error while " + description + ": " + e.getMessage());
+                io.toolError("Error while executing " + description + ": " + e.getMessage());
             } finally {
                 io.actionComplete();
                 io.enableActionButtons();
