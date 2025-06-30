@@ -415,9 +415,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
                 isStashSelected = firstCommitInfo.stashIndex().isPresent();
             }
-            if (viewDiffButton != null) { // viewDiffButton might not be initialized if HIDE_ALL_BUTTONS
-                viewDiffButton.setEnabled(singleCommitSelected && !isStashSelected);
-            }
+            viewDiffButton.setEnabled(singleCommitSelected && !isStashSelected);
         });
     }
 
@@ -951,9 +949,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 if (this.options.showCreatePrButton()) {
                     createPrButton.setEnabled(false);
                 }
-                if (viewDiffButton != null) { // Check if initialized
-                    viewDiffButton.setEnabled(false);
-                }
+                viewDiffButton.setEnabled(false);
                 clearSearchField();
             } finally {
                 selectionModel.setValueIsAdjusting(false);
@@ -1171,9 +1167,7 @@ public class GitCommitBrowserPanel extends JPanel {
             if (viewKind != ViewKind.SEARCH) { // Don't show "no commits" for empty search
                  commitsTableModel.addRow(new Object[]{"No commits found.", "", "", "", false, null});
             }
-            if (viewDiffButton != null) {
-                viewDiffButton.setEnabled(false);
-            }
+            viewDiffButton.setEnabled(false);
             return;
         }
 

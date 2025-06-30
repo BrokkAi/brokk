@@ -79,7 +79,7 @@ public final class LoadingTextBox extends JPanel {
         if (loading) {
             spinner.setIcon(SpinnerIconUtil.getSpinner(chrome, false));
             spinner.setVisible(true);
-            textField.setToolTipText(busyTooltip != null ? busyTooltip : "Searching...");
+            textField.setToolTipText(busyTooltip);
         } else {
             spinner.setVisible(false);
             textField.setToolTipText(idleTooltip);
@@ -91,7 +91,7 @@ public final class LoadingTextBox extends JPanel {
     }
 
     public void setText(String txt) {
-        if (txt == null || txt.isEmpty()) {
+        if (txt.isEmpty()) {
             showPlaceholder();
         } else {
             hidePlaceholder(); // Ensure hint is not showing and color is correct

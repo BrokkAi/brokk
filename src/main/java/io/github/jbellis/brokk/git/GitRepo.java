@@ -1021,10 +1021,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // Perform squash merge
         ObjectId resolvedBranch = resolve(branchName);
-        if (resolvedBranch == null) {
-            logger.error("Failed to resolve branch: {}", branchName);
-            throw new GitAPIException("Failed to resolve branch: " + branchName) {};
-        }
 
         // Check repository state before merge
         var status = git.status().call();
@@ -2260,37 +2256,26 @@ public class GitRepo implements Closeable, IGitRepo {
             RevCommit sourceCommit = revWalk.parseCommit(sourceHead);
             revWalk.markStart(sourceCommit);
 
-            RevCommit targetCommit = null;
-            if (targetHead != null) {
-                targetCommit = revWalk.parseCommit(targetHead);
-            }
+            RevCommit targetCommit = revWalk.parseCommit(targetHead);
 
             if (excludeMergeCommitsFromTarget) {
-                if (targetCommit != null) {
-                    revWalk.markUninteresting(targetCommit); // Hide everything reachable from target
-                }
+                revWalk.markUninteresting(targetCommit); // Hide everything reachable from target
                 revWalk.setRevFilter(RevFilter.NO_MERGES); // Exclude all merge commits
             } else {
                 // Original logic for "target..source"
-                if (targetCommit != null) {
-                    ObjectId mergeBaseId = computeMergeBase(sourceCommit.getId(), targetCommit.getId());
-                    if (mergeBaseId != null) {
-                        // The RevCommit must be parsed by this revWalk instance to be used by it
-                        RevCommit mergeBaseForRevWalk = revWalk.parseCommit(mergeBaseId);
-                        revWalk.markUninteresting(mergeBaseForRevWalk);
-                    } else {
-                        // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
-                        // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
-                        logger.warn("No common merge base found between {} ({}) and {} ({}). Listing commits from {} not on {}.",
-                                    sourceBranchName, sourceCommit.getName(),
-                                    targetBranchName, targetCommit.getName(),
-                                    sourceBranchName, targetBranchName);
-                        revWalk.markUninteresting(targetCommit);
-                    }
+                ObjectId mergeBaseId = computeMergeBase(sourceCommit.getId(), targetCommit.getId());
+                if (mergeBaseId != null) {
+                    // The RevCommit must be parsed by this revWalk instance to be used by it
+                    RevCommit mergeBaseForRevWalk = revWalk.parseCommit(mergeBaseId);
+                    revWalk.markUninteresting(mergeBaseForRevWalk);
                 } else {
-                    logger.warn("Target branch {} could not be resolved. Listing all commits from source branch {}.",
-                                targetBranchName, sourceBranchName);
-                    // No target head, so list all commits from sourceCommit. Nothing to mark uninteresting.
+                    // No common ancestor. This implies targetBranchName is either an ancestor of sourceBranchName,
+                    // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
+                    logger.warn("No common merge base found between {} ({}) and {} ({}). Listing commits from {} not on {}.",
+                                sourceBranchName, sourceCommit.getName(),
+                                targetBranchName, targetCommit.getName(),
+                                sourceBranchName, targetBranchName);
+                    revWalk.markUninteresting(targetCommit);
                 }
             }
 

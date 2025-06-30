@@ -163,7 +163,6 @@ public class GitHubIssueService implements IssueService {
     }
 
     private @Nullable IssueHeader mapToIssueHeader(GHIssue ghIssue) {
-        if (ghIssue == null) return null;
         try {
             String id = "#" + ghIssue.getNumber();
             String title = ghIssue.getTitle();
@@ -188,9 +187,6 @@ public class GitHubIssueService implements IssueService {
     }
 
     private String getAuthorLogin(GHUser user) {
-        if (user == null) {
-            return "N/A";
-        }
         try {
             // GHUser.getLogin() itself does not throw IOException.
             // The `user` object might have been obtained via a call that threw (e.g., ghIssue.getUser()).
@@ -210,7 +206,6 @@ public class GitHubIssueService implements IssueService {
     }
 
     private ImmutableList<Comment> mapToComments(List<GHIssueComment> ghComments) {
-        if (ghComments == null) return ImmutableList.of();
         var builder = ImmutableList.<Comment>builder();
         for (GHIssueComment gc : ghComments) {
             try {
@@ -228,14 +223,12 @@ public class GitHubIssueService implements IssueService {
 
     private List<URI> extractAttachmentUrls(String issueBodyMarkdown, List<Comment> dtoComments) {
         Set<String> allImageUrls = new LinkedHashSet<>();
-        if (issueBodyMarkdown != null && !issueBodyMarkdown.isBlank()) {
+        if (!issueBodyMarkdown.isBlank()) {
             allImageUrls.addAll(MarkdownImageParser.extractImageUrls(issueBodyMarkdown));
         }
-        if (dtoComments != null) {
-            for (Comment comment : dtoComments) {
-                if (comment.markdownBody() != null && !comment.markdownBody().isBlank()) {
-                    allImageUrls.addAll(MarkdownImageParser.extractImageUrls(comment.markdownBody()));
-                }
+        for (Comment comment : dtoComments) {
+            if (!comment.markdownBody().isBlank()) {
+                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(comment.markdownBody()));
             }
         }
 

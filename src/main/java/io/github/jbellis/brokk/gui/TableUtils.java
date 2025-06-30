@@ -237,10 +237,8 @@ public final class TableUtils {
         fullList.setForeground(fgColor);
 
         // Register popup with theme manager if available
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popup);
-        }
-        
+        chrome.themeManager.registerPopupMenu(popup);
+
         // Show popup below the specific cell
         var cellRect = table.getCellRect(row, col, true);
         popup.pack(); // Ensure proper sizing

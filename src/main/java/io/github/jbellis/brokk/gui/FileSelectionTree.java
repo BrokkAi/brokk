@@ -192,12 +192,8 @@ public class FileSelectionTree extends JTree {
                         logger.trace("LazyLoadingTreeModel set, added TreeWillExpandListener.");
 
                         // Attempt initial expansion to project root after model is ready
-                        if (project != null && project.getRoot() != null) {
-                            logger.trace("Attempting initial expansion to project root: {}", project.getRoot());
-                            expandTreeToPath(project.getRoot());
-                        } else {
-                            logger.trace("No project root to expand to for LazyLoadingTreeModel.");
-                        }
+                        logger.trace("Attempting initial expansion to project root: {}", project.getRoot());
+                        expandTreeToPath(project.getRoot());
                     } else { // DefaultTreeModel for project files
                         logger.trace("DefaultTreeModel set (Project files).");
                         // Optionally expand the project root node if desired
@@ -275,10 +271,6 @@ public class FileSelectionTree extends JTree {
         logger.info("Attempting to expand tree to path: {}", targetPath);
         if (!(getModel() instanceof LazyLoadingTreeModel model)) {
             logger.warn("expandTreeToPath called but model is not LazyLoadingTreeModel. Skipping.");
-            return;
-        }
-        if (targetPath == null) {
-            logger.warn("expandTreeToPath called with null targetPath. Skipping.");
             return;
         }
 
@@ -649,7 +641,7 @@ public class FileSelectionTree extends JTree {
             List<DefaultMutableTreeNode> childNodes = new ArrayList<>();
             for (File file : files) {
                 // Apply custom filter (if provided) only to files
-                if (fileFilter != null && !file.isDirectory() && !fileFilter.test(file)) {
+                if (!file.isDirectory() && !fileFilter.test(file)) {
                     continue;
                 }
 

@@ -15,7 +15,7 @@ public class LocalFileRepo implements IGitRepo {
     private final Path root;
 
     public LocalFileRepo(Path root) {
-        if (root == null || !Files.exists(root) || !Files.isDirectory(root)) {
+        if (!Files.exists(root) || !Files.isDirectory(root)) {
             throw new IllegalArgumentException("Root path must be an existing directory");
         }
         this.root = root.toAbsolutePath().normalize();

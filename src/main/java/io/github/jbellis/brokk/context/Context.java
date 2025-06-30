@@ -439,7 +439,7 @@ public class Context {
      * @return A new Context with the specified fragments removed, or this context if no changes were made
      */
     public Context removeFragmentsByIds(Collection<String> idsToRemove) {
-        if (idsToRemove == null || idsToRemove.isEmpty()) {
+        if (idsToRemove.isEmpty()) {
             return this;
         }
 
@@ -666,9 +666,6 @@ public class Context {
      * - Setting a suitable action description
      */
     public static Context createFrom(Context sourceContext, Context currentContext, List<TaskEntry> newHistory) {
-        assert sourceContext != null;
-        assert currentContext != null;
-
         // Unfreeze fragments from the source context if they are frozen
         var unfrozenEditableFiles = sourceContext.editableFiles().map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager)).toList();
         var unfrozenReadonlyFiles = sourceContext.readonlyFiles().map(fragment -> unfreezeFragmentIfNeeded(fragment, currentContext.contextManager)).toList();
@@ -686,10 +683,6 @@ public class Context {
     }
 
     public record FreezeResult(Context liveContext, Context frozenContext) {
-        public FreezeResult {
-            assert liveContext != null;
-            assert frozenContext != null;
-        }
     }
 
     /**

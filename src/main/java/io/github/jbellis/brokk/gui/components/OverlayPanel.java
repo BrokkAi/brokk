@@ -22,7 +22,7 @@ public class OverlayPanel extends JPanel {
     public OverlayPanel(Consumer<OverlayPanel> onActivate, String tooltipText, Color overlayColor, boolean isBlocking) {
         this.onActivate = onActivate;
         this.tooltipText = tooltipText;
-        this.overlayColor = overlayColor != null ? overlayColor : TRANSPARENT;
+        this.overlayColor = overlayColor;
         this.isBlocking = isBlocking;
 
         setupOverlay();
@@ -57,15 +57,13 @@ public class OverlayPanel extends JPanel {
         setOpaque(false); // Always transparent background, we paint manually
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 
-        if (tooltipText != null) {
-            setToolTipText(tooltipText);
-        }
+        setToolTipText(tooltipText);
 
         if (isBlocking) {
             addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    if (isActive && onActivate != null) {
+                    if (isActive) {
                         onActivate.accept(OverlayPanel.this);
                     }
                 }

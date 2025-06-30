@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.checkerframework.checker.units.qual.N;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;

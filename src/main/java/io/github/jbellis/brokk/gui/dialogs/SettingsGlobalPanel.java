@@ -110,16 +110,15 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
     
     public void updateModelsPanelEnablement() {
-        boolean projectIsOpen = (chrome.getProject() != null);
-        defaultModelsPanel.setEnabled(projectIsOpen);
-        setEnabledRecursive(defaultModelsPanel, projectIsOpen);
+        defaultModelsPanel.setEnabled(true);
+        setEnabledRecursive(defaultModelsPanel, true);
 
         // Special handling for JComboBox renderers if they show "Off" when disabled
         var service = chrome.getContextManager().getService();
-        if (architectReasoningComboBox != null) updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
-        if (codeReasoningComboBox != null) updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
-        if (askReasoningComboBox != null) updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
-        if (searchReasoningComboBox != null) updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
+        updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
+        updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
+        updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
+        updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
     }
 
     private void setEnabledRecursive(Container container, boolean enabled) {
@@ -273,12 +272,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private void updateSignupLabelVisibility() {
-        if (this.signupLabel == null) {
-            logger.warn("signupLabel is null, cannot update visibility.");
-            return;
-        }
         String currentPersistedKey = MainProject.getBrokkKey(); // Read from persistent store
-        boolean keyIsEffectivelyPresent = currentPersistedKey != null && !currentPersistedKey.trim().isEmpty();
+        boolean keyIsEffectivelyPresent = !currentPersistedKey.trim().isEmpty();
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
     }
 
@@ -387,19 +382,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private JPanel createModelsPanel() {
         var panel = new JPanel(new GridBagLayout()); // Always create, enable/disable content
         panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        var project = chrome.getProject();
-
-        if (project == null) {
-            // Add a placeholder label if no project, actual model controls are added below
-            // but will be disabled by updateModelsPanelEnablement if project is null
-            var placeholderPanel = new JPanel(new BorderLayout());
-            placeholderPanel.add(new JLabel("No project is open. Model settings are project-specific."), BorderLayout.CENTER);
-            // Add this placeholder to the main panel, so it's also subject to setEnabledRecursive
-            panel.setLayout(new BorderLayout()); // Change layout to accommodate placeholder
-            panel.add(placeholderPanel, BorderLayout.CENTER);
-            return panel; // Return early, as model controls depend on project
-        }
-        // If project is not null, proceed to set up the GridBagLayout and controls
         panel.setLayout(new GridBagLayout()); // Reset layout if it was changed for placeholder
 
         var gbc = new GridBagConstraints();
@@ -541,7 +523,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private void refreshBalanceDisplay() {
-        if (this.balanceField == null) return;
         this.balanceField.setText("Loading...");
         var contextManager = chrome.getContextManager();
         var models = contextManager.getService();
@@ -557,9 +538,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private @Nullable String generateModelTooltipText(String modelName, Service service) {
-        if (modelName == null || service == null) return null;
         var pricing = service.getModelPricing(modelName);
-        if (pricing == null || pricing.bands().isEmpty()) return "Price information not available.";
+        if (pricing.bands().isEmpty()) return "Price information not available.";
         if (pricing.bands().stream().allMatch(b -> b.inputCostPerToken() == 0 && b.cachedInputCostPerToken() == 0 && b.outputCostPerToken() == 0)) return "Free";
         if (pricing.bands().size() > 1) {
             return "<html>" + pricing.bands().stream()
@@ -604,7 +584,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     }
 
     private void updateReasoningComboBox(JComboBox<String> modelComboBox, JComboBox<Service.ReasoningLevel> reasoningComboBox, Service service) {
-        if (modelComboBox == null || reasoningComboBox == null) return;
         String selectedModelName = (String) modelComboBox.getSelectedItem();
         boolean supportsReasoning = selectedModelName != null && service.supportsReasoningEffort(selectedModelName);
 
@@ -635,7 +614,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
         if (!supportsReasoning) {
             reasoningComboBox.setRenderer(new DefaultListCellRenderer() {
                 @Override
-                public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                public Component getListCellRendererComponent(JList<?> list, @Nullable Object value, int index, boolean isSelected, boolean cellHasFocus) {
                     JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                     if (index == -1 && !reasoningComboBox.isEnabled()) {
                         label.setText("Off");
@@ -675,30 +654,28 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Models Tab (Project specific, loaded if project exists)
         var project = chrome.getProject();
-        if (project != null) {
-            var architectConfig = project.getArchitectModelConfig();
-            architectModelComboBox.setSelectedItem(architectConfig.name());
-            architectReasoningComboBox.setSelectedItem(architectConfig.reasoning());
+        var architectConfig = project.getArchitectModelConfig();
+        architectModelComboBox.setSelectedItem(architectConfig.name());
+        architectReasoningComboBox.setSelectedItem(architectConfig.reasoning());
 
-            var codeConfig = project.getCodeModelConfig();
-            codeModelComboBox.setSelectedItem(codeConfig.name());
-            codeReasoningComboBox.setSelectedItem(codeConfig.reasoning());
+        var codeConfig = project.getCodeModelConfig();
+        codeModelComboBox.setSelectedItem(codeConfig.name());
+        codeReasoningComboBox.setSelectedItem(codeConfig.reasoning());
 
-            var askConfig = project.getAskModelConfig();
-            askModelComboBox.setSelectedItem(askConfig.name());
-            askReasoningComboBox.setSelectedItem(askConfig.reasoning());
+        var askConfig = project.getAskModelConfig();
+        askModelComboBox.setSelectedItem(askConfig.name());
+        askReasoningComboBox.setSelectedItem(askConfig.reasoning());
 
-            var searchConfig = project.getSearchModelConfig();
-            searchModelComboBox.setSelectedItem(searchConfig.name());
-            searchReasoningComboBox.setSelectedItem(searchConfig.reasoning());
+        var searchConfig = project.getSearchModelConfig();
+        searchModelComboBox.setSelectedItem(searchConfig.name());
+        searchReasoningComboBox.setSelectedItem(searchConfig.reasoning());
 
-            // Initial update of reasoning combo states
-            var service = chrome.getContextManager().getService();
-            updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
-            updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
-            updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
-            updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
-        }
+        // Initial update of reasoning combo states
+        var service = chrome.getContextManager().getService();
+        updateReasoningComboBox(architectModelComboBox, architectReasoningComboBox, service);
+        updateReasoningComboBox(codeModelComboBox, codeReasoningComboBox, service);
+        updateReasoningComboBox(askModelComboBox, askReasoningComboBox, service);
+        updateReasoningComboBox(searchModelComboBox, searchReasoningComboBox, service);
         updateModelsPanelEnablement(); // Re-check enablement based on project presence
 
         // Quick Models Tab
@@ -761,12 +738,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
 
         // Models Tab (Project specific)
         var project = chrome.getProject();
-        if (project != null) {
-            applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
-            applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
-            applyModelConfig(askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
-            applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
-        }
+        applyModelConfig(architectModelComboBox, architectReasoningComboBox, project::getArchitectModelConfig, project::setArchitectModelConfig);
+        applyModelConfig(codeModelComboBox, codeReasoningComboBox, project::getCodeModelConfig, project::setCodeModelConfig);
+        applyModelConfig(askModelComboBox, askReasoningComboBox, project::getAskModelConfig, project::setAskModelConfig);
+        applyModelConfig(searchModelComboBox, searchReasoningComboBox, project::getSearchModelConfig, project::setSearchModelConfig);
 
         // Quick Models Tab
         if (quickModelsTable.isEditing()) {
@@ -792,7 +767,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                                   JComboBox<Service.ReasoningLevel> reasoningCombo,
                                   Supplier<Service.ModelConfig> currentConfigGetter,
                                   Consumer<Service.ModelConfig> configSetter) {
-        if (modelCombo == null || reasoningCombo == null || !modelCombo.isEnabled()) return; // Not initialized or panel disabled
+        if (!modelCombo.isEnabled()) return; // Not initialized or panel disabled
 
         String selectedModelName = (String) modelCombo.getSelectedItem();
         Service.ReasoningLevel selectedReasoning = (Service.ReasoningLevel) reasoningCombo.getSelectedItem();
@@ -901,7 +876,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
     private static class ReasoningCellRenderer extends DefaultTableCellRenderer {
         private final Service models;
         public ReasoningCellRenderer(Service service) { this.models = service; }
-        @Override public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+        @Override public Component getTableCellRendererComponent(JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
             String modelName = (String) table.getModel().getValueAt(row, 1);
             if (modelName != null && !models.supportsReasoningEffort(modelName)) {
@@ -936,7 +911,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
                 comboBox.setSelectedItem(Service.ReasoningLevel.DEFAULT);
                 comboBox.setToolTipText("Reasoning effort not supported by " + modelName);
                 comboBox.setRenderer(new DefaultListCellRenderer() {
-                    @Override public Component getListCellRendererComponent(JList<?> list, Object val, int i, boolean sel, boolean foc) {
+                    @Override public Component getListCellRendererComponent(JList<?> list, @Nullable Object val, int i, boolean sel, boolean foc) {
                         JLabel label = (JLabel) super.getListCellRendererComponent(list, val, i, sel, foc);
                         if (i == -1) { label.setText("Off"); label.setForeground(UIManager.getColor("ComboBox.disabledForeground")); }
                         else if (val instanceof Service.ReasoningLevel lvl) label.setText(lvl.toString()); else label.setText(val == null ? "" : val.toString());
@@ -949,7 +924,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware {
             return editorComponent;
         }
         @Override public boolean isCellEditable(java.util.EventObject anEvent) {
-            if (table != null) { int editingRow = table.getEditingRow(); if (editingRow != -1) { String modelName = (String) table.getModel().getValueAt(editingRow, 1); return modelName != null && models.supportsReasoningEffort(modelName); } }
+            int editingRow = table.getEditingRow();
+            if (editingRow != -1) { String modelName = (String) table.getModel().getValueAt(editingRow, 1); return modelName != null && models.supportsReasoningEffort(modelName); }
             return super.isCellEditable(anEvent);
         }
         @Override public Object getCellEditorValue() { return comboBox.isEnabled() ? super.getCellEditorValue() : Service.ReasoningLevel.DEFAULT; }

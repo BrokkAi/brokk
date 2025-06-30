@@ -216,7 +216,7 @@ public class GitLogTab extends JPanel {
                 String branchName = (String) branchTableModel.getValueAt(branchTable.getSelectedRow(), 1);
                 remoteBranchTable.clearSelection();
                 updateCommitsForBranch(branchName);
-                if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
             }
         });
         remoteBranchTable.getSelectionModel().addListSelectionListener(e -> {
@@ -224,21 +224,13 @@ public class GitLogTab extends JPanel {
                 String branchName = (String) remoteBranchTableModel.getValueAt(remoteBranchTable.getSelectedRow(), 0);
                 branchTable.clearSelection();
                 updateCommitsForBranch(branchName);
-                if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
             }
         });
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(branchContextMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(branchContextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
@@ -344,9 +336,7 @@ public class GitLogTab extends JPanel {
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
         SwingUtilities.invokeLater(() -> {
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
-            }
+            chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
         });
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");

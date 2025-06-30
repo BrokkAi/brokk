@@ -38,7 +38,7 @@ public final class SpinnerIconUtil {
         assert SwingUtilities.isEventDispatchThread() : "SpinnerIconUtil.getSpinner must be called on the EDT";
 
         GuiTheme theme = chrome.getTheme(); // May be null during early startup
-        boolean isDarkTheme = theme != null && theme.isDarkTheme();
+        boolean isDarkTheme = theme.isDarkTheme();
 
         // Determine which cached icon to use or update
         if (isDarkTheme) {

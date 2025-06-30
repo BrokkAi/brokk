@@ -37,7 +37,6 @@ public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log
     // IContextManager is not needed here, TaskFragment itself will get it via SessionResult.output()
     // which is created with a contextManager in the agents
     public static TaskEntry fromSession(int sequence, TaskResult result) {
-        assert result != null;
         return new TaskEntry(sequence, result.output(), null);
     }
 

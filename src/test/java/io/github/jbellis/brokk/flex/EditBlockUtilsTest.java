@@ -21,10 +21,10 @@ public class EditBlockUtilsTest {
         
         // Test with fence removal
         assertEquals("content\n", 
-                     stripQuotedWrapping("```\ncontent\n```", null));
+                     stripQuotedWrapping("```\ncontent\n```", ""));
         
         // Test with empty input
-        assertEquals("", stripQuotedWrapping("", null));
+        assertEquals("", stripQuotedWrapping("", ""));
     }
     
     @Test

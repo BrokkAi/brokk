@@ -142,9 +142,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
      */
     public void executeCommand(double x, double y)
     {
-        if (commands == null) {
-            return;
-        }
         // Iterate in reverse order so topmost shapes are checked first
         for (int i = commands.size() - 1; i >= 0; i--) {
             var command = commands.get(i);
@@ -372,12 +369,6 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
                      }
                 }
 
-                // --- Draw Command Shapes (Triangles) ---
-                Shape commandShape = curveShape != null ? curveShape : simpleShape;
-                if (commandShape == null) { // Should not happen, but safety check
-                    commandShape = new Rectangle(0,0,0,0);
-                }
-
                 // Merging is possible if the target document is not read-only.
                 // The existence of a source is guaranteed by the BufferSource model.
                 boolean canMergeRight = !bdTo.isReadonly();
@@ -563,14 +554,12 @@ public class DiffScrollComponent extends JComponent implements ChangeListener
             public void mouseMoved(MouseEvent e)
             {
                 AbstractDelta<?> deltaUnderMouse = null;
-                if (commands != null) {
-                    // Check commands to find which delta shape is under the mouse
-                    for (int i = commands.size() - 1; i >= 0; i--) { // Check topmost first
-                        var cmd = commands.get(i);
-                        if (cmd.delta != null && cmd.contains(e.getX(), e.getY())) {
-                            deltaUnderMouse = cmd.delta;
-                            break; // Found the shape under the mouse
-                        }
+                // Check commands to find which delta shape is under the mouse
+                for (int i = commands.size() - 1; i >= 0; i--) { // Check topmost first
+                    var cmd = commands.get(i);
+                    if (cmd.contains(e.getX(), e.getY())) {
+                        deltaUnderMouse = cmd.delta;
+                        break; // Found the shape under the mouse
                     }
                 }
 

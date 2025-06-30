@@ -2,7 +2,6 @@ package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.util.FList;
 import io.github.jbellis.brokk.util.FuzzyMatcherUtil;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
@@ -319,7 +318,7 @@ public class FuzzyMatcher {
         assert !fragments.isEmpty();
 
         final var first = requireNonNull(fragments.getHead());
-        boolean startMatch = first != null && first.getStartOffset() == 0;
+        boolean startMatch = first.getStartOffset() == 0;
 
         int matchingCaseScore = 0; // Renamed from matchingCase to avoid confusion
         int patternPos = -1;       // Tracks the index in patternChars corresponding to the last matched name character

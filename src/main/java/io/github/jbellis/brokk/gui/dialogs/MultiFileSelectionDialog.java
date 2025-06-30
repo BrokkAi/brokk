@@ -77,11 +77,7 @@ public class MultiFileSelectionDialog extends JDialog {
                                     boolean allowExternalFiles, Future<Set<ProjectFile>> completableFiles,
                                     Set<SelectionMode> modes) {
         super(parent, title, true);
-        assert parent != null;
-        assert contextManager != null;
-        assert title != null;
-        assert completableFiles != null;
-        assert modes != null && !modes.isEmpty();
+        assert !modes.isEmpty();
 
         this.project = contextManager.getProject();
         this.analyzerWrapper = contextManager.getAnalyzerWrapper();
@@ -185,8 +181,8 @@ public class MultiFileSelectionDialog extends JDialog {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return projectFilesFuture.get().stream()
-                                         .map(ProjectFile::absPath)
-                                         .collect(Collectors.toList());
+                        .map(ProjectFile::absPath)
+                        .collect(Collectors.toList());
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error converting project files to paths for autocompletion", e);
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -242,7 +238,7 @@ public class MultiFileSelectionDialog extends JDialog {
 
         if ("FilesPanel".equals(componentName) && fileSelectionPanel != null) {
             List<BrokkFile> filesResult = fileSelectionPanel.resolveAndGetSelectedFiles();
-            selectionResult = new Selection((filesResult != null && !filesResult.isEmpty()) ? List.copyOf(filesResult) : null, null);
+            selectionResult = new Selection(!filesResult.isEmpty() ? List.copyOf(filesResult) : null, null);
             confirmed = !selectionResult.isEmpty();
             if (!confirmed) selectionResult = null;
             dispose();
@@ -400,8 +396,6 @@ public class MultiFileSelectionDialog extends JDialog {
 
         public SymbolCompletionProvider(AnalyzerWrapper analyzerWrapperParam, ExecutorService backgroundExecutor) {
             super();
-            assert analyzerWrapperParam != null;
-            assert backgroundExecutor != null;
             this.analyzerWrapperField = analyzerWrapperParam;
 
             this.completionsFuture = backgroundExecutor.submit(() -> {
@@ -423,7 +417,7 @@ public class MultiFileSelectionDialog extends JDialog {
             // For class input, which is always JTextArea, we need token extraction
             return getCurrentTokenTextForCompletion(comp);
         }
-        
+
         // Helper method for token extraction, similar to what was in FileSelectionPanel
         private String getCurrentTokenTextForCompletion(JTextComponent comp) {
             String text = comp.getText();

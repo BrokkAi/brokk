@@ -89,7 +89,6 @@ public class CreateBranchDialog extends JDialog {
     }
 
     private String performBasicBranchNameSanitization(String proposedName) {
-        if (proposedName == null) return "";
         String sanitized = proposedName.trim().toLowerCase(Locale.ROOT);
         sanitized = sanitized.replaceAll("\\s+", "-");
         // Same regex as in GitRepo.sanitizeBranchName for consistency in allowed characters

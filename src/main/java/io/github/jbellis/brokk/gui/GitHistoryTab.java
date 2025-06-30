@@ -58,15 +58,7 @@ public class GitHistoryTab extends JPanel {
 
         // Context menu
         JPopupMenu historyContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(historyContextMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(historyContextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(historyContextMenu);
 
         JMenuItem addToContextItem       = new JMenuItem("Capture Diff");
         JMenuItem compareWithLocalItem   = new JMenuItem("Compare with Local");
@@ -195,13 +187,6 @@ public class GitHistoryTab extends JPanel {
         contextManager.submitBackgroundTask("Loading file history: " + file, () -> {
             try {
                 var repo = getRepo();
-                if (repo == null) {
-                    SwingUtilities.invokeLater(() -> {
-                        fileHistoryModel.setRowCount(0);
-                        fileHistoryModel.addRow(new Object[]{"Git repository not available", "", "", ""});
-                    });
-                    return null;
-                }
                 var history = repo.getFileHistory(file);
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);

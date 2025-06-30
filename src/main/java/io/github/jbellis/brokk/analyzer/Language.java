@@ -197,10 +197,6 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            if (project == null) { // Guard against null project if its methods are unconditionally called
-                logger.warn("getDependencyCandidates called with null project for JavaScript.");
-                return List.of();
-            }
             logger.debug("Scanning for JavaScript dependency candidates in project: {}", project.getRoot());
             var results = new ArrayList<Path>();
             Path nodeModules = project.getRoot().resolve("node_modules");
@@ -332,10 +328,6 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            if (project == null) { // Guard against null project
-                logger.warn("getDependencyCandidates called with null project for Python.");
-                return List.of();
-            }
             logger.debug("Scanning for Python dependency candidates in project: {}", project.getRoot());
             List<Path> results = new ArrayList<>();
             List<Path> venvs = findVirtualEnvs(project.getRoot());
@@ -548,7 +540,7 @@ public interface Language {
      * @return The matching Language, or NONE if no match is found or the extension is null/empty.
      */
     static Language fromExtension(String extension) {
-        if (extension == null || extension.isEmpty()) {
+        if (extension.isEmpty()) {
             return NONE;
         }
         String lowerExt = extension.toLowerCase(Locale.ROOT);

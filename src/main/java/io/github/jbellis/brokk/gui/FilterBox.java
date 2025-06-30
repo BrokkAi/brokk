@@ -229,9 +229,7 @@ public final class FilterBox extends JPanel implements ThemeAware {
             }
         }
         // Apply initial theme
-        if (chrome.themeManager != null) {
-            applyTheme(chrome.themeManager);
-        }
+        applyTheme(chrome.themeManager);
     }
 
     /* ----------  popup logic  ---------- */

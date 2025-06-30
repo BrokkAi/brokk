@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.collect.Streams;
 import io.github.jbellis.brokk.AnalyzerWrapper;
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.ValidationAgent;
@@ -49,10 +48,6 @@ class DeepScanDialog {
 
         if (goal.isBlank()) {
             analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Please enter instructions before running Deep Scan."));
-            return analysisDoneFuture;
-        }
-        if (contextManager == null || contextManager.getProject() == null) {
-            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Context/project is unavailable."));
             return analysisDoneFuture;
         }
 
@@ -221,7 +216,7 @@ class DeepScanDialog {
         mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // --- LLM Reasoning Display ---
-        if (reasoning != null && !reasoning.isBlank()) {
+        if (!reasoning.isBlank()) {
             JTextArea reasoningArea = new JTextArea(reasoning);
             reasoningArea.setEditable(false);
             reasoningArea.setLineWrap(true);

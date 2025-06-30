@@ -21,8 +21,6 @@ public final class LoadingButton extends JButton {
                          @Nullable ActionListener actionListener)
     {
         super(initialText, initialIcon);
-        if (initialText == null) throw new IllegalArgumentException("initialText cannot be null");
-        if (chrome == null) throw new IllegalArgumentException("chrome cannot be null");
 
         this.idleText = initialText;
         this.idleIcon = initialIcon;
@@ -68,7 +66,6 @@ public final class LoadingButton extends JButton {
 
     @Override
     public void setText(String text) {
-        if (text == null) throw new IllegalArgumentException("text cannot be null");
         super.setText(text);
         if (isEnabled()) { // Only update idleText if not in loading state (isEnabled is false during loading)
             this.idleText = text;

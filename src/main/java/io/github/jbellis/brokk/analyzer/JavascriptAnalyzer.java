@@ -12,7 +12,6 @@ import org.treesitter.TreeSitterJavascript;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
@@ -115,17 +114,17 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // 1. It's an exported function/component starting with an uppercase letter (common React convention).
         // OR
         // 2. It's a method named "render" (classic React class component method).
-        boolean isExported = exportPrefix != null && !exportPrefix.trim().isEmpty();
+        boolean isExported = !exportPrefix.trim().isEmpty();
         boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
         boolean isRenderMethod = "render".equals(functionName);
 
-        if ((isRenderMethod || (isExported && isComponentName)) && (returnTypeText == null || returnTypeText.isEmpty())) {
+        if ((isRenderMethod || (isExported && isComponentName)) && returnTypeText.isEmpty()) {
             if (returnsJsxElement(funcNode)) { // src parameter removed
                 inferredReturnType = "JSX.Element";
             }
         }
 
-        String tsReturnTypeSuffix = (inferredReturnType != null && !inferredReturnType.isEmpty()) ? ": " + inferredReturnType : "";
+        String tsReturnTypeSuffix = !inferredReturnType.isEmpty() ? ": " + inferredReturnType : "";
         String signature;
         String bodySuffix = " " + bodyPlaceholder();
 
@@ -140,7 +139,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     private boolean isJsxNode(TSNode node) {
-        if (node == null || node.isNull()) return false;
+        if (node.isNull()) return false;
         String type = node.getType();
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
@@ -204,7 +203,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, @Nullable CodeUnit functionCu) {
-        if (bodyNode == null || bodyNode.isNull()) {
+        if (bodyNode.isNull()) {
             return List.of();
         }
 

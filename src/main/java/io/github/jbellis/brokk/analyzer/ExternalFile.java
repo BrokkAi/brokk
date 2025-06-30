@@ -14,9 +14,6 @@ public class ExternalFile implements BrokkFile {
     // Constructor validation
     @JsonCreator
     public ExternalFile(@JsonProperty("path") Path path) {
-        if (path == null) {
-            throw new IllegalArgumentException("Path cannot be null");
-        }
         if (!path.isAbsolute()) {
             throw new IllegalArgumentException("Path must be absolute");
         }

@@ -177,7 +177,7 @@ public class GitPanel extends JPanel
         SwingUtilities.invokeLater(() -> {
             var border = getBorder();
             if (border instanceof TitledBorder titledBorder) {
-                String newTitle = branchName != null && !branchName.isBlank()
+                String newTitle = !branchName.isBlank()
                                   ? "Git (" + branchName + ") ▼"
                                   : "Git ▼";
                 titledBorder.setTitle(newTitle);

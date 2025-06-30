@@ -193,9 +193,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(currentContextMenu);
-            }
+            chrome.themeManager.registerPopupMenu(currentContextMenu);
         }
         return currentContextMenu;
     }

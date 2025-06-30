@@ -210,7 +210,7 @@ public class AnalyzerUtil {
      */
     public static Map<CodeUnit, String> getClassSkeletonsData(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return Map.of();
         }
 
@@ -235,7 +235,7 @@ public class AnalyzerUtil {
      */
     public static Map<String, String> getMethodSourcesData(IAnalyzer analyzer, List<String> methodNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available for getMethodSourcesData.";
-        if (methodNames == null || methodNames.isEmpty()) {
+        if (methodNames.isEmpty()) {
             return Map.of();
         }
 
@@ -243,7 +243,7 @@ public class AnalyzerUtil {
 
         // Iterate through each requested method name
         for (String methodName : methodNames) {
-            if (methodName != null && !methodName.isBlank()) {
+            if (!methodName.isBlank()) {
                 // Attempt to get the source code for the method
                 var methodSourceOpt = analyzer.getMethodSource(methodName);
                 if (methodSourceOpt.isPresent()) {
@@ -284,7 +284,7 @@ public class AnalyzerUtil {
      */
     public static Map<String, String> getClassSourcesData(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available for getClassSourcesData.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return Map.of();
         }
 
@@ -292,7 +292,7 @@ public class AnalyzerUtil {
 
         // Iterate through each requested class name
         for (String className : classNames) {
-            if (className != null && !className.isBlank()) {
+            if (!className.isBlank()) {
                 // Attempt to get the source code for the class
                 var classSource = analyzer.getClassSource(className);
                 if (classSource != null && !classSource.isEmpty()) {

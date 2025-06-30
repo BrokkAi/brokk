@@ -6,7 +6,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.context.ContextFragment;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -77,7 +76,6 @@ public final class QuickEditPrompts {
      * Formats an intro with a short system-level prompt plus workspace/style guide details.
      */
     private SystemMessage systemMessage(String instructions, String styleGuide) {
-        assert styleGuide != null;
         var text = """
           <instructions>
           %s

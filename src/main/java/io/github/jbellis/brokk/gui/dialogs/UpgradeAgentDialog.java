@@ -479,7 +479,7 @@ public class UpgradeAgentDialog extends JDialog {
             if (selectedLanguageString != null && !ALL_LANGUAGES_OPTION.equals(selectedLanguageString)) {
                 filesToProcess = filesToProcess.filter(pf -> {
                     Language lang = pf.getLanguage();
-                    return lang != null && selectedLanguageString.equals(lang.toString());
+                    return selectedLanguageString.equals(lang.toString());
                 });
             }
             filesToProcessList = filesToProcess.collect(Collectors.toList());

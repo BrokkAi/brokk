@@ -45,13 +45,7 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
         document = new PlainDocument(content);
         // Ensure reader is available before reading
         try (Reader reader = getReader()) {
-            if (reader != null) { // Check if reader could be created
-                new DefaultEditorKit().read(reader, document, 0);
-            } else {
-                // Handle case where reader couldn't be obtained (e.g., file not found)
-                // Initialize with empty content or log an error
-                System.err.println("Warning: Could not obtain reader for " + getName() + ", initializing empty document.");
-            }
+            new DefaultEditorKit().read(reader, document, 0);
         } catch (Exception readEx) {
             // Handle exceptions during the read process specifically
             System.err.println("Error reading content for " + getName() + ": " + readEx.getMessage());
@@ -211,9 +205,6 @@ public abstract class AbstractBufferDocument implements BufferDocumentIF, Docume
             throw new IllegalStateException("Cannot write document, it was not initialized: " + getName());
         }
         try (Writer out = getWriter()) {
-            if (out == null) {
-                throw new RuntimeException("Cannot get writer for document: " + getName());
-            }
             new DefaultEditorKit().write(out, document, 0, document.getLength());
             out.flush();
         } catch (Exception ex) {

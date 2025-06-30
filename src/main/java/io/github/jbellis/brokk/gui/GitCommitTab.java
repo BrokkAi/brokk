@@ -8,7 +8,6 @@ import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.GitWorkflowService;
-import io.github.jbellis.brokk.gui.CommitDialog;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -270,7 +269,6 @@ public class GitCommitTab extends JPanel {
      */
     private GitRepo getRepo() {
         var repo = contextManager.getProject().getRepo();
-        assert repo != null;
         return (GitRepo) repo;
     }
 
@@ -508,9 +506,7 @@ public class GitCommitTab extends JPanel {
                     String headContent = "";
                     try {
                         var repo = contextManager.getProject().getRepo();
-                        if (repo != null) {
-                            headContent = repo.getFileContent("HEAD", file);
-                        }
+                        headContent = repo.getFileContent("HEAD", file);
                     } catch (Exception ex) {
                         // new file or retrieval error – treat as empty
                         headContent = "";

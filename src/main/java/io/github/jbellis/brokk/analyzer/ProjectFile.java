@@ -24,12 +24,6 @@ public class ProjectFile implements BrokkFile {
     @JsonCreator
     public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
         // Validation and normalization
-        if (root == null) {
-            throw new IllegalArgumentException("Root cannot be null");
-        }
-        if (relPath == null) {
-            throw new IllegalArgumentException("RelPath cannot be null");
-        }
         if (!root.isAbsolute()) {
             throw new IllegalArgumentException("Root must be absolute, got " + root);
         }

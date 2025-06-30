@@ -689,7 +689,7 @@ public class CodeAgent {
         final TaskResult.StopDetails stopDetails;
 
         public EditStopException(TaskResult.StopDetails stopDetails) {
-            super(stopDetails.reason().name() + (stopDetails.explanation() != null ? ": " + stopDetails.explanation() : ""));
+            super(stopDetails.reason().name() + ": " + stopDetails.explanation());
             this.stopDetails = stopDetails;
         }
 

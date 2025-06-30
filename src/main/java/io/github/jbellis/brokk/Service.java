@@ -808,12 +808,10 @@ public class Service {
     }
 
     public StreamingChatLanguageModel quickestModel() {
-        assert quickestModel != null;
         return quickestModel;
     }
 
     public StreamingChatLanguageModel quickModel() {
-        assert quickModel != null;
         return quickModel;
     }
 
@@ -821,10 +819,6 @@ public class Service {
      * Returns the default speech-to-text model instance.
      */
     public SpeechToTextModel sttModel() {
-        if (sttModel == null) {
-            logger.warn("sttModel accessed before initialization, returning UnavailableSTT.");
-            return new UnavailableSTT();
-        }
         return sttModel;
     }
 

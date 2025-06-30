@@ -38,7 +38,6 @@ public class EditBlockNode extends Block {
      * Get the number of added lines in the edit block.
      */
     public int getAdds() {
-        if (replaceText == null) return 0;
         String content = replaceText.toString().trim();
         if (content.isEmpty()) return 0;
         return (int)content.lines().count();
@@ -48,7 +47,6 @@ public class EditBlockNode extends Block {
      * Get the number of deleted lines in the edit block.
      */
     public int getDels() {
-        if (searchText == null) return 0;
         String content = searchText.toString().trim();
         if (content.isEmpty()) return 0;
         return (int)content.lines().count();

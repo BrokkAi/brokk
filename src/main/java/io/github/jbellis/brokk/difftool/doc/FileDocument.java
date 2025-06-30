@@ -43,7 +43,7 @@ public class FileDocument
     @Override
     public int getBufferSize() {
         // Return a reasonable default buffer size if file doesn't exist or is empty
-        return (file != null && file.exists()) ? (int) Math.max(file.length(), DEFAULT_BUFFER_SIZE) : DEFAULT_BUFFER_SIZE;
+        return file.exists() ? (int) Math.max(file.length(), DEFAULT_BUFFER_SIZE) : DEFAULT_BUFFER_SIZE;
     }
 
     @Override

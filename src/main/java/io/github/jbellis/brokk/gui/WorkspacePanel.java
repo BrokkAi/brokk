@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui;
 
-import io.github.jbellis.brokk.agents.BuildAgent;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -433,7 +432,7 @@ public class WorkspacePanel extends JPanel {
     ) {
         public DescriptionWithReferences {
             // Defensive copy for immutability
-            fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
+            fileReferences = List.copyOf(fileReferences);
         }
 
         @Override
@@ -555,9 +554,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         public void show(Component invoker, int x, int y) {
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(popup);
-            }
+            chrome.themeManager.registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }
@@ -781,16 +778,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a single JPopupMenu for the table
         JPopupMenu contextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(contextMenu);
-        } else {
-            // Register this popup menu later when the theme manager is available
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(contextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(contextMenu);
 
         // Add a mouse listener so we control exactly when the popup shows
         contextTable.addMouseListener(new MouseAdapter() {
@@ -825,9 +813,7 @@ public class WorkspacePanel extends JPanel {
                 });
                 contextMenu.removeAll();
                         contextMenu.add(copyItem);
-                        if (chrome.themeManager != null) {
-                            chrome.themeManager.registerPopupMenu(contextMenu);
-                        }
+                        chrome.themeManager.registerPopupMenu(contextMenu);
                         contextMenu.show(contextTable, e.getX(), e.getY());
                     }
                     return;
@@ -846,9 +832,7 @@ public class WorkspacePanel extends JPanel {
                 // Show empty table menu if no selection
                 if (row < 0 || selectedFragments.isEmpty()) {
                     tablePopupMenu.show(contextTable, e.getX(), e.getY());
-                    if (chrome.themeManager != null) {
-                        chrome.themeManager.registerPopupMenu(tablePopupMenu);
-                    }
+                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
                     return;
                 }
 
@@ -925,15 +909,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(pasteMenuItem);
 
         // Register the popup menu with the theme manager
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(tablePopupMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(tablePopupMenu);
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
@@ -1206,7 +1182,7 @@ public class WorkspacePanel extends JPanel {
         );
 
         for (var config : configuredModelChecks) {
-            if (config.name() == null || config.name().isBlank()) {
+            if (config.name().isBlank()) {
                 continue;
             }
             try {
@@ -1926,14 +1902,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        return files == null ? List.of() : files.stream()
-                .map(f -> {
-                    if (f instanceof ProjectFile pf) {
-                        return pf;
-                    }
-                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-                })
-                .toList();
+        return files.stream()
+                        .map(f -> {
+                            if (f instanceof ProjectFile pf) {
+                                return pf;
+                            }
+                            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                        })
+                        .toList();
     }
 
     /**
@@ -1999,7 +1975,7 @@ public class WorkspacePanel extends JPanel {
         );
 
         for (var config : configsToCheck) {
-            if (config.name() == null || config.name().isBlank() || seenModels.contains(config.name())) {
+            if (config.name().isBlank() || seenModels.contains(config.name())) {
                 continue; // Skip if model name is empty or already processed
             }
 
@@ -2107,11 +2083,9 @@ public class WorkspacePanel extends JPanel {
      */
     public void hideAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
-            if (analyzerRebuildPanel != null) {
-                analyzerRebuildPanel.setVisible(false);
-                analyzerRebuildPanel.revalidate();
-                analyzerRebuildPanel.repaint();
-            }
+            analyzerRebuildPanel.setVisible(false);
+            analyzerRebuildPanel.revalidate();
+            analyzerRebuildPanel.repaint();
         });
     }
 

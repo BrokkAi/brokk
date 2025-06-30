@@ -137,7 +137,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
 
     @Override
     public final List<String> addToInstructionsHistory(String item, int maxItems) {
-        if (item == null || item.trim().isEmpty()) {
+        if (item.trim().isEmpty()) {
             return loadTextHistory();
         }
         var history = new ArrayList<>(loadTextHistory());
@@ -151,7 +151,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
     }
 
     public final void saveWindowBounds(String key, JFrame window) {
-        if (window == null || !window.isDisplayable()) {
+        if (!window.isDisplayable()) {
             return;
         }
         try {
@@ -301,14 +301,8 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
     }
 
     public final void setLastActiveSession(UUID sessionId) {
-        if (sessionId == null) {
-            if (workspaceProps.remove("lastActiveSession") != null) {
-                saveWorkspaceProperties();
-            }
-        } else {
-            workspaceProps.setProperty("lastActiveSession", sessionId.toString());
-            saveWorkspaceProperties();
-        }
+        workspaceProps.setProperty("lastActiveSession", sessionId.toString());
+        saveWorkspaceProperties();
     }
 
     @Override

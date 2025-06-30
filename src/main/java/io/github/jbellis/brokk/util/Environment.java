@@ -165,7 +165,7 @@ public class Environment {
 
         public SubprocessException(String message, String output) {
             super(message);
-            this.output = output == null ? "" : output;
+            this.output = output;
         }
 
         public String getOutput() {

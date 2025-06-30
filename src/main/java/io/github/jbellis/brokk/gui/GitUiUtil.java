@@ -38,7 +38,7 @@ public final class GitUiUtil {
      * @return The shortened commit ID, or the original if null or shorter than 7 characters
      */
     public static String shortenCommitId(String commitId) {
-        return commitId != null && commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
+        return commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
     }
 
     /**
@@ -120,8 +120,7 @@ public final class GitUiUtil {
 
         cm.submitBackgroundTask("Loading history diff for " + file.getFileName(), () -> {
             try {
-                var parentObjectId = repo.resolve(parentCommitId);
-                var parentContent = parentObjectId == null ? "" : repo.getFileContent(parentCommitId, file);
+                var parentContent = repo.getFileContent(parentCommitId, file);
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
@@ -304,23 +303,13 @@ public final class GitUiUtil {
                 String baseCommitShort = shortenCommitId(commitId);
 
                 if (useParent) {
-                    var parentObjectId = repo.resolve(commitId + "^");
-                    if (parentObjectId != null) {
-                        baseCommitId = commitId + "^";
-                        baseCommitTitle = commitId + "^";
-                        baseCommitShort = shortenCommitId(commitId) + "^";
-                    } else {
-                        baseCommitId = null; // Indicates no parent, so old content will be empty
-                        baseCommitTitle = "[No Parent]";
-                        baseCommitShort = "[No Parent]";
-                    }
+                    baseCommitId = commitId + "^";
+                    baseCommitTitle = commitId + "^";
+                    baseCommitShort = shortenCommitId(commitId) + "^";
                 }
 
-                // 3) Read old content from the base commit (if it exists)
-                var oldContent = "";
-                if (baseCommitId != null) {
-                    oldContent = repo.getFileContent(baseCommitId, file);
-                }
+                // 3) Read old content from the base commit
+                var oldContent = repo.getFileContent(baseCommitId, file);
 
                 // 4) Create panel on Swing thread
                 String finalOldContent = oldContent; // effectively final for lambda
@@ -417,7 +406,7 @@ public final class GitUiUtil {
         cm.submitUserTask("Opening diff for commit " + shortenCommitId(commitInfo.id()), () -> {
             try {
                 var files = commitInfo.changedFiles();
-                if (files == null || files.isEmpty()) {
+                if (files.isEmpty()) {
                     chrome.systemOutput("No files changed in this commit.");
                     return;
                 }
@@ -506,7 +495,7 @@ public final class GitUiUtil {
      */
     public static void rollbackFilesToCommit(ContextManager contextManager, Chrome chrome, String commitId, List<ProjectFile> files)
     {
-        if (files == null || files.isEmpty()) {
+        if (files.isEmpty()) {
             chrome.systemOutput("No files selected for rollback");
             return;
         }
@@ -541,7 +530,7 @@ public final class GitUiUtil {
      * @return A formatted string like "file1.java, file2.java" or "5 files"
      */
     public static String formatFileList(List<ProjectFile> files) {
-        if (files == null || files.isEmpty()) {
+        if (files.isEmpty()) {
             return "no files";
         }
 

@@ -478,7 +478,7 @@ public abstract class CodePrompts {
                     if (fragment.isText()) {
                         // Handle text-based fragments
                         String formatted = fragment.format(); // No analyzer
-                        if (formatted != null && !formatted.isBlank()) {
+                        if (!formatted.isBlank()) {
                             readOnlyTextFragments.append(formatted).append("\n\n");
                         }
                     } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE ||
@@ -499,7 +499,7 @@ public abstract class CodePrompts {
                         // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
                         // Just add their formatted representation as text
                         String formatted = fragment.format(); // No analyzer
-                        if (formatted != null && !formatted.isBlank()) {
+                        if (!formatted.isBlank()) {
                             readOnlyTextFragments.append(formatted).append("\n\n");
                         }
                     }
@@ -537,7 +537,7 @@ public abstract class CodePrompts {
         var editableTextFragments = new StringBuilder();
         ctx.getEditableFragments().forEach(fragment -> {
             String formatted = fragment.format(); // format() on live fragment
-            if (formatted != null && !formatted.isBlank()) {
+            if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
         });

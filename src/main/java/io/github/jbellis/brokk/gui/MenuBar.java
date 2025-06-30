@@ -28,8 +28,6 @@ public class MenuBar {
      * @param chrome
      */
     static JMenuBar buildMenuBar(Chrome chrome) {
-        // Check if project is available to enable/disable context-related items
-        boolean hasProject = chrome.getProject() != null;
         var menuBar = new JMenuBar();
 
         // File menu
@@ -51,17 +49,13 @@ public class MenuBar {
         fileMenu.add(openProjectItem);
 
         JMenuItem reopenProjectItem;
-        if (hasProject) {
-            String projectName = chrome.getProject().getRoot().getFileName().toString();
-            reopenProjectItem = new JMenuItem("Reopen `%s`".formatted(projectName));
-            reopenProjectItem.addActionListener(e -> {
-                var currentPath = chrome.getProject().getRoot();
-                Brokk.reOpenProject(currentPath);
-            });
-        } else {
-            reopenProjectItem = new JMenuItem("Reopen Project");
-        }
-        reopenProjectItem.setEnabled(hasProject);
+        String projectName = chrome.getProject().getRoot().getFileName().toString();
+        reopenProjectItem = new JMenuItem("Reopen `%s`".formatted(projectName));
+        reopenProjectItem.addActionListener(e -> {
+            var currentPath = chrome.getProject().getRoot();
+            Brokk.reOpenProject(currentPath);
+        });
+        reopenProjectItem.setEnabled(true);
         fileMenu.add(reopenProjectItem);
 
         var recentProjectsMenu = new JMenu("Recent Projects");
@@ -92,7 +86,7 @@ public class MenuBar {
         fileMenu.addSeparator();
 
         var openDependencyItem = new JMenuItem("Import Dependency...");
-        openDependencyItem.setEnabled(hasProject);
+        openDependencyItem.setEnabled(true);
         openDependencyItem.addActionListener(e -> {
             // Ensure this action is run on the EDT as it might interact with Swing components immediately
             SwingUtilities.invokeLater(() -> ImportDependencyDialog.show(chrome));
@@ -107,16 +101,8 @@ public class MenuBar {
         JMenuItem undoItem;
         JMenuItem redoItem;
 
-        if (hasProject) {
-            undoItem = new JMenuItem(chrome.getGlobalUndoAction());
-            redoItem = new JMenuItem(chrome.getGlobalRedoAction());
-        } else {
-            // Create disabled menu items if no project (and thus no global actions)
-            undoItem = new JMenuItem("Undo");
-            undoItem.setEnabled(false);
-            redoItem = new JMenuItem("Redo");
-            redoItem.setEnabled(false);
-        }
+        undoItem = new JMenuItem(chrome.getGlobalUndoAction());
+        redoItem = new JMenuItem(chrome.getGlobalRedoAction());
 
         undoItem.setText("Undo"); // Ensure text is set if Action's name is different or null
         undoItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_Z, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
@@ -136,15 +122,9 @@ public class MenuBar {
         JMenuItem copyMenuItem;
         JMenuItem pasteMenuItem;
 
-        if (hasProject) {
-            copyMenuItem = new JMenuItem(chrome.getGlobalCopyAction());
-            pasteMenuItem = new JMenuItem(chrome.getGlobalPasteAction());
-        } else {
-            copyMenuItem = new JMenuItem("Copy");
-            copyMenuItem.setEnabled(false);
-            pasteMenuItem = new JMenuItem("Paste");
-            pasteMenuItem.setEnabled(false);
-        }
+        copyMenuItem = new JMenuItem(chrome.getGlobalCopyAction());
+        pasteMenuItem = new JMenuItem(chrome.getGlobalPasteAction());
+        
         copyMenuItem.setText("Copy");
         copyMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         editMenu.add(copyMenuItem);
@@ -160,12 +140,10 @@ public class MenuBar {
 
         var refreshItem = new JMenuItem("Refresh Code Intelligence");
         refreshItem.addActionListener(e -> {
-            // Fixme ensure the menu item is disabled if no project is open
-            assert chrome.getContextManager() != null;
             chrome.contextManager.requestRebuild();
             chrome.systemOutput("Code intelligence will refresh in the background");
         });
-        refreshItem.setEnabled(hasProject);
+        refreshItem.setEnabled(true);
         contextMenu.add(refreshItem);
 
         contextMenu.addSeparator();
@@ -176,7 +154,7 @@ public class MenuBar {
             chrome.getContextPanel().performContextActionAsync(
                     WorkspacePanel.ContextAction.EDIT, List.of());
         });
-        editFilesItem.setEnabled(hasProject && chrome.getProject().hasGit());
+        editFilesItem.setEnabled(chrome.getProject().hasGit());
         contextMenu.add(editFilesItem);
 
         var readFilesItem = new JMenuItem("Read Files");
@@ -185,7 +163,7 @@ public class MenuBar {
             chrome.getContextPanel().performContextActionAsync(
                     WorkspacePanel.ContextAction.READ, List.of());
         });
-        readFilesItem.setEnabled(hasProject);
+        readFilesItem.setEnabled(true);
         contextMenu.add(readFilesItem);
     
     var viewFileItem = new JMenuItem("View File");
@@ -196,8 +174,6 @@ public class MenuBar {
             : KeyEvent.VK_N,
         Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
     viewFileItem.addActionListener(e -> {
-            assert chrome.getContextManager() != null;
-            assert chrome.getProject() != null;
             var cm = chrome.getContextManager();
             var project = cm.getProject();
 
@@ -230,7 +206,7 @@ public class MenuBar {
                 }
             });
         });
-        viewFileItem.setEnabled(hasProject);
+        viewFileItem.setEnabled(true);
         contextMenu.add(viewFileItem);
 
         contextMenu.addSeparator(); // Add separator before Summarize / Symbol Usage
@@ -241,7 +217,7 @@ public class MenuBar {
             chrome.getContextPanel().performContextActionAsync(
                     WorkspacePanel.ContextAction.SUMMARIZE, List.of());
         });
-        summarizeItem.setEnabled(hasProject);
+        summarizeItem.setEnabled(true);
         contextMenu.add(summarizeItem);
 
         var symbolUsageItem = new JMenuItem("Symbol Usage");
@@ -249,21 +225,21 @@ public class MenuBar {
             symbolUsageItem.addActionListener(e -> {
                 chrome.getContextPanel().findSymbolUsageAsync(); // Call via ContextPanel
             });
-            symbolUsageItem.setEnabled(hasProject);
+            symbolUsageItem.setEnabled(true);
             contextMenu.add(symbolUsageItem);
 
         var callersItem = new JMenuItem("Call graph to function");
             callersItem.addActionListener(e -> {
                 chrome.getContextPanel().findMethodCallersAsync(); // Call via ContextPanel
             });
-            callersItem.setEnabled(hasProject);
+            callersItem.setEnabled(true);
             contextMenu.add(callersItem);
 
         var calleesItem = new JMenuItem("Call graph from function");
             calleesItem.addActionListener(e -> {
                 chrome.getContextPanel().findMethodCalleesAsync(); // Call via ContextPanel
             });
-    calleesItem.setEnabled(hasProject);
+    calleesItem.setEnabled(true);
     contextMenu.add(calleesItem);
 
     contextMenu.addSeparator(); // Add separator before Drop All
@@ -274,7 +250,7 @@ public class MenuBar {
         chrome.getContextPanel().performContextActionAsync(
                 WorkspacePanel.ContextAction.DROP, List.of());
     });
-    dropAllItem.setEnabled(hasProject);
+    dropAllItem.setEnabled(true);
     contextMenu.add(dropAllItem);
 
     // Store reference in WorkspacePanel for dynamic state updates
@@ -284,19 +260,17 @@ public class MenuBar {
 
         // Tools menu
         var toolsMenu = new JMenu("Tools");
-        toolsMenu.setEnabled(hasProject);
+        toolsMenu.setEnabled(true);
 
         if (System.getProperty("brokk.upgradeagenttab", "false").equals("true")) {
             var upgradeAgentItem = new JMenuItem("Upgrade Agent...");
             upgradeAgentItem.addActionListener(e -> {
-                if (chrome.getProject() != null && chrome.getContextManager() != null) {
-                    SwingUtilities.invokeLater(() -> {
-                        var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
-                        dialog.setVisible(true);
-                    });
-                }
+                SwingUtilities.invokeLater(() -> {
+                    var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
+                    dialog.setVisible(true);
+                });
             });
-            upgradeAgentItem.setEnabled(hasProject); // Enable only if a project is open
+            upgradeAgentItem.setEnabled(true);
             toolsMenu.add(upgradeAgentItem);
         }
         if (toolsMenu.getItemCount() > 0) {

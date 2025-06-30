@@ -183,7 +183,7 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
         // Top-level fields (e.g. JS `_module_.myVar`) will also contain a dot.
         // This validation might be too strict if a language allows fields without a containing structure name in shortName.
         // For now, retain the check as it's consistent with current JSAnalyzer practice for top-level vars.
-        if (shortName == null || !shortName.contains(".")) {
+        if (!shortName.contains(".")) {
              throw new IllegalArgumentException("shortName for FIELD must be in 'ContainingStructure.fieldName' format (e.g. 'MyClass.field' or '_module_.field'), got: " + shortName);
         }
         return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);

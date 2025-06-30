@@ -16,7 +16,6 @@ import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -30,7 +29,6 @@ import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.FilterOptions;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.stream.Stream;
 import javax.swing.UIManager;
 import javax.swing.BorderFactory;
@@ -171,7 +169,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             buildProgressBar.setVisible(true);
             inferBuildDetailsButton.setEnabled(false);
 
-            project.getBuildDetailsFuture().whenCompleteAsync((detailsResult, ex) -> {
+            project.getBuildDetailsFuture().whenCompleteAsync((@Nullable BuildAgent.BuildDetails detailsResult, @Nullable Throwable ex) -> {
                 SwingUtilities.invokeLater(() -> {
                     projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, true);
                     buildProgressBar.setVisible(false);

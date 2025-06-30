@@ -5,7 +5,6 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 /**

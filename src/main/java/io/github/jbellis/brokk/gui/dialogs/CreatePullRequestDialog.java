@@ -305,9 +305,7 @@ public class CreatePullRequestDialog extends JDialog {
         ActionListener branchChangedListener = e -> {
             // Immediately update flow label for responsiveness before async refresh.
             this.currentCommits = Collections.emptyList();
-            if (this.flowUpdater != null) {
-                this.flowUpdater.run();
-            }
+            this.flowUpdater.run();
             // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
         };
@@ -319,12 +317,8 @@ public class CreatePullRequestDialog extends JDialog {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
         commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
-        if (fileStatusTable != null) {
-            fileStatusTable.setFiles(newFiles == null ? Collections.emptyList() : newFiles);
-        }
-        if (this.flowUpdater != null) {
-            this.flowUpdater.run();
-        }
+        fileStatusTable.setFiles(newFiles);
+        this.flowUpdater.run();
         updateCreatePrButtonState();
     }
 
@@ -391,11 +385,9 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     private void updateCreatePrButtonState() {
-        if (createPrButton != null) {
-            List<String> blockers = getCreatePrBlockers();
-            createPrButton.setEnabled(blockers.isEmpty());
-            createPrButton.setToolTipText(blockers.isEmpty() ? null : formatBlockersTooltip(blockers));
-        }
+        List<String> blockers = getCreatePrBlockers();
+        createPrButton.setEnabled(blockers.isEmpty());
+        createPrButton.setToolTipText(blockers.isEmpty() ? null : formatBlockersTooltip(blockers));
     }
 
     private List<String> getCreatePrBlockers() {
@@ -413,7 +405,7 @@ public class CreatePullRequestDialog extends JDialog {
             blockers.add("Target branch not selected.");
         }
         // This check should only be added if both branches are selected, otherwise it's redundant.
-        if (sourceBranch != null && targetBranch != null && sourceBranch.equals(targetBranch)) {
+        if (sourceBranch != null && sourceBranch.equals(targetBranch)) {
             blockers.add("Source and target branches cannot be the same.");
         }
         if (titleField.getText() == null || titleField.getText().trim().isEmpty()) {
@@ -516,7 +508,7 @@ public class CreatePullRequestDialog extends JDialog {
             // Listeners must be set up AFTER default items are selected to avoid premature firing.
             setupBranchListeners();
 
-            if (this.flowUpdater != null) this.flowUpdater.run(); // Update label based on defaults
+            this.flowUpdater.run(); // Update label based on defaults
             refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater and update button state
             // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
         } catch (GitAPIException e) {
@@ -568,7 +560,7 @@ public class CreatePullRequestDialog extends JDialog {
     
     private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches) throws GitAPIException {
         var currentBranch = gitRepo.getCurrentBranch();
-        if (currentBranch != null && sourceBranches.contains(currentBranch)) {
+        if (sourceBranches.contains(currentBranch)) {
             sourceBranchComboBox.setSelectedItem(currentBranch);
         } else if (!localBranches.isEmpty()) {
             sourceBranchComboBox.setSelectedItem(localBranches.getFirst());

@@ -1670,7 +1670,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return null;
                 }
                 var styleGuide = result.text();
-                if (styleGuide == null || styleGuide.isBlank()) {
+                if (styleGuide.isBlank()) {
                     io.systemOutput("LLM returned empty style guide.");
                     project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
                     return null;

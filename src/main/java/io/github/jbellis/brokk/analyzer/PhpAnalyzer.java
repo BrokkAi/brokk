@@ -6,7 +6,6 @@ import org.treesitter.*;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 public final class PhpAnalyzer extends TreeSitterAnalyzer {
     // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -39,8 +38,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             "",                                                                      // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of("visibility_modifier", "static_modifier", "abstract_modifier", "final_modifier", NODE_TYPE_READONLY_MODIFIER) // modifierNodeTypes
     );
-
+    
+    @Nullable
     private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
+    
+    @Nullable
     private final ThreadLocal<TSQuery> phpNamespaceQuery;
 
 
@@ -131,11 +133,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 log.error("Failed to compile temporary namespace query for PhpAnalyzer in computeFilePackageName for file {}: {}", file, e.getMessage(), e);
                 return ""; // Cannot proceed without the query
             }
-        }
-
-        if (currentPhpNamespaceQuery == null) {
-            log.warn("PhpAnalyzer.phpNamespaceQuery (currentPhpNamespaceQuery) is unexpectedly null for {}. Cannot determine package name.", file);
-            return ""; // Fallback
         }
 
         TSQueryCursor cursor = new TSQueryCursor();
@@ -262,7 +259,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         String formattedReturnType = "";
-        if (returnTypeText != null && !returnTypeText.isEmpty()) {
+        if (!returnTypeText.isEmpty()) {
             formattedReturnType = ": " + returnTypeText.strip();
         }
 

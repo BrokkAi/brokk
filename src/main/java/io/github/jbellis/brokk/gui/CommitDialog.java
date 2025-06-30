@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitWorkflowService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -105,7 +106,7 @@ public class CommitDialog extends JDialog {
                 () -> workflowService.suggestCommitMessage(filesToCommit)
         );
 
-        suggestionFuture.whenComplete((suggestedMessage, throwable) ->
+        suggestionFuture.whenComplete((@Nullable String suggestedMessage, @Nullable Throwable throwable) ->
             SwingUtilities.invokeLater(() -> {
                 if (throwable == null) {
                     if (suggestedMessage != null && !suggestedMessage.isEmpty()) {

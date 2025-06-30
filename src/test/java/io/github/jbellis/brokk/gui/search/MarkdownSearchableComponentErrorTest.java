@@ -42,9 +42,6 @@ public class MarkdownSearchableComponentErrorTest {
     void testNullAndSpecialCharacterSearch() throws Exception {
         searchComponent = new MarkdownSearchableComponent(List.of(panel));
 
-        // Test null search
-        assertDoesNotThrow(() -> searchComponent.highlightAll(null, false));
-
         // Test special characters
         String[] specialSearches = {"$", "@#", "^&*", "()", "\\n", "\t"};
 

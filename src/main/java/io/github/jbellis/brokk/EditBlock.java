@@ -64,11 +64,6 @@ public class EditBlock {
     }
 
     public record FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason, String commentary) {
-        public FailedBlock {
-            assert block != null;
-            assert reason != null;
-            assert commentary != null;
-        }
 
         public FailedBlock(SearchReplaceBlock block, EditBlockFailureReason reason) {
             this(block, reason, "");
@@ -186,11 +181,6 @@ public class EditBlock {
      * search/replace
      */
     public record SearchReplaceBlock(@Nullable String filename, String beforeText, String afterText) {
-        public SearchReplaceBlock {
-            // filename can be null on bad parse
-            assert beforeText != null;
-            assert afterText != null;
-        }
     }
 
     public record ParseResult(List<SearchReplaceBlock> blocks, @Nullable String parseError) {
@@ -629,25 +619,23 @@ public class EditBlock {
 
         // 3. Check tracked files in git repo (substring match)
         var repo = cm.getRepo();
-        if (repo != null) {
-            var trackedMatches = repo.getTrackedFiles().stream()
-                    .filter(f -> f.toString().contains(filename))
+        var trackedMatches = repo.getTrackedFiles().stream()
+                .filter(f -> f.toString().contains(filename))
+                .toList();
+        if (trackedMatches.size() == 1) {
+            logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
+            return trackedMatches.getFirst();
+        }
+        if (trackedMatches.size() > 1) {
+            // Prefer exact basename match if available among tracked files
+            var exactBaseMatches = trackedMatches.stream()
+                    .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
                     .toList();
-            if (trackedMatches.size() == 1) {
-                logger.debug("Resolved partial filename [{}] to tracked file [{}]", filename, trackedMatches.getFirst());
-                return trackedMatches.getFirst();
+            if (exactBaseMatches.size() == 1) {
+                logger.debug("Resolved ambiguous tracked filename [{}] to exact basename match [{}]", filename, exactBaseMatches.getFirst());
+                return exactBaseMatches.getFirst();
             }
-            if (trackedMatches.size() > 1) {
-                // Prefer exact basename match if available among tracked files
-                var exactBaseMatches = trackedMatches.stream()
-                        .filter(f -> f.getFileName().equalsIgnoreCase(file.getFileName()))
-                        .toList();
-                if (exactBaseMatches.size() == 1) {
-                    logger.debug("Resolved ambiguous tracked filename [{}] to exact basename match [{}]", filename, exactBaseMatches.getFirst());
-                    return exactBaseMatches.getFirst();
-                }
-                throw new SymbolAmbiguousException("Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
-            }
+            throw new SymbolAmbiguousException("Filename '%s' matches multiple tracked files: %s".formatted(filename, trackedMatches));
         }
 
         // 4. Not found anywhere

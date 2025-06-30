@@ -64,10 +64,6 @@ public class VoiceInputButton extends JButton {
                             @Nullable Future<Set<String>> customSymbolsFuture,
                             Consumer<String> onError)
     {
-        assert targetTextArea != null;
-        assert onRecordingStart != null;
-        assert onError != null;
-
         this.targetTextArea = targetTextArea;
         this.contextManager = contextManager;
         this.onRecordingStart = onRecordingStart;
@@ -138,7 +134,7 @@ public class VoiceInputButton extends JButton {
         });
 
         // Enable the button only if a context manager is available (needed for transcription)
-        model.setEnabled(contextManager != null);
+        model.setEnabled(true);
     }
 
     /**
@@ -205,8 +201,6 @@ public class VoiceInputButton extends JButton {
      * Stops capturing and sends to STT on a background thread.
      */
     private void stopMicCaptureAndTranscribe() {
-        assert contextManager != null;
-
         // stop capturing
         if (micLine != null) {
             micLine.stop();

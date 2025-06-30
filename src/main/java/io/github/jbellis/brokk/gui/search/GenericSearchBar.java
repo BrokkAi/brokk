@@ -1,8 +1,6 @@
 package io.github.jbellis.brokk.gui.search;
 
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.function.Consumer;

@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import javax.swing.*;
@@ -218,7 +219,7 @@ public class Decompiler {
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException exc) throws IOException {
                 if (exc != null) {
                     logger.warn("Error visiting directory contents for deletion: {} ({})", dir, exc.getMessage());
                     throw exc; // Propagate error

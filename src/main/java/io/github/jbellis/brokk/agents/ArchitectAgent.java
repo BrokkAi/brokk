@@ -172,7 +172,7 @@ public class ArchitectAgent {
         var entry = contextManager.addToHistory(historyResult, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            var entrySummary = entry != null ? entry.summary() : "CodeAgent completed with no specific summary.";
+            var entrySummary = entry.summary();
             var summary = """
                     CodeAgent success!
                     <summary>
@@ -205,7 +205,7 @@ public class ArchitectAgent {
                 <stop-details>
                 %s
                 </stop-details>
-                """.stripIndent().formatted(entry != null ? entry.summary() : "CodeAgent failed with no specific summary.", stopDetails);
+                """.stripIndent().formatted(entry.summary(), stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
         return summary;
     }

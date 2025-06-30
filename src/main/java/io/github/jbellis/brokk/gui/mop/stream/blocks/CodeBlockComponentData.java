@@ -163,7 +163,7 @@ public record CodeBlockComponentData(int id, String body, String lang) implement
      * Gets the appropriate syntax style constant for a language.
      */
     private String getSyntaxStyle(String lang) {
-        if (lang == null || lang.isEmpty()) {
+        if (lang.isEmpty()) {
             return SyntaxConstants.SYNTAX_STYLE_NONE;
         }
 

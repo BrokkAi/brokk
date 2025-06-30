@@ -90,7 +90,7 @@ public class FileSelectionPanel extends JPanel {
         JPanel labelsPanel = new JPanel();
         labelsPanel.setLayout(new BoxLayout(labelsPanel, BoxLayout.PAGE_AXIS));
 
-        if (config.customHintText() != null && !config.customHintText().isBlank()) {
+        if (!config.customHintText().isBlank()) {
             for (String line : Splitter.on('\n').splitToList(config.customHintText())) {
                 labelsPanel.add(new JLabel(line));
             }
@@ -152,7 +152,7 @@ public class FileSelectionPanel extends JPanel {
                         if (node.isLeaf()) {
                             tree.setSelectionPath(path); // Visually select
                             updateFileInputFromTreeSelection(node, path); // Update input field
-                            if (!config.multiSelect() && config.onSingleFileConfirmed() != null) {
+                            if (!config.multiSelect()) {
                                 List<BrokkFile> resolved = resolveAndGetSelectedFiles();
                                 if (!resolved.isEmpty()) {
                                     config.onSingleFileConfirmed().accept(resolved.getFirst());
@@ -239,7 +239,7 @@ public class FileSelectionPanel extends JPanel {
 
             if (potentialPath.isAbsolute()) {
                 if (Files.isRegularFile(potentialPath)) { // Must be an actual file for external
-                    if (rootPath != null && potentialPath.startsWith(rootPath)) {
+                    if (potentialPath.startsWith(rootPath)) {
                         Path relPath = rootPath.relativize(potentialPath);
                         uniqueFiles.put(potentialPath, new ProjectFile(rootPath, relPath));
                     } else if (config.allowExternalFiles()) {
@@ -406,8 +406,8 @@ public class FileSelectionPanel extends JPanel {
             // For simplicity, we assume `autocompleteCandidatesFuture` contains all relevant paths (project + external).
             // Or, we can merge if project exists:
             Set<Path> allCandidatePaths = new java.util.HashSet<>(candidates);
-            if (this.includeProjectFilesInAutocomplete && project.getRepo() != null) {
-                 project.getRepo().getTrackedFiles().stream().map(ProjectFile::absPath).forEach(allCandidatePaths::add);
+            if (this.includeProjectFilesInAutocomplete) {
+                project.getRepo().getTrackedFiles().stream().map(ProjectFile::absPath).forEach(allCandidatePaths::add);
             }
 
 

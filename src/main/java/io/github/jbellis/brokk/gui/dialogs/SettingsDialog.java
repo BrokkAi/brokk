@@ -76,9 +76,8 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             if (applySettings()) {
                 // Reload settings in panels to reflect saved state
                 globalSettingsPanel.loadSettings();
-                if (chrome.getProject() != null) {
-                    projectSettingsPanel.loadSettings();
-                }
+                chrome.getProject();
+                projectSettingsPanel.loadSettings();
                 handleProxyRestartIfNeeded(); // Handle restart if proxy changed on Apply
             }
         });
@@ -102,13 +101,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     }
 
     private void updateProjectPanelEnablement() {
-        boolean projectIsOpen = (chrome.getProject() != null);
-        projectSettingsPanel.setEnabled(projectIsOpen);
-        // The SettingsProjectPanel's initComponents will handle enabling/disabling its own sub-components
-        // based on whether a project is open.
+        projectSettingsPanel.setEnabled(true);
         int projectTabIndex = tabbedPane.indexOfComponent(projectSettingsPanel);
         if (projectTabIndex != -1) {
-            tabbedPane.setEnabledAt(projectTabIndex, projectIsOpen);
+            tabbedPane.setEnabledAt(projectTabIndex, true);
         }
         // Also, the "Default Models" sub-tab in Global settings needs to be updated
         globalSettingsPanel.updateModelsPanelEnablement();
@@ -122,12 +118,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
             return false; // Global settings failed validation
         }
 
-        if (chrome.getProject() != null) {
-            if (!projectSettingsPanel.applySettings()) {
-                return false; // Project settings failed validation
-            }
+        if (!projectSettingsPanel.applySettings()) {
+            return false; // Project settings failed validation
         }
-        
+
         MainProject.LlmProxySetting newProxySetting = MainProject.getProxySetting();
         if (oldProxySetting != newProxySetting && newProxySetting != MainProject.LlmProxySetting.STAGING) { // STAGING is non-interactive
             proxySettingsChanged = true;
@@ -148,12 +142,10 @@ public class SettingsDialog extends JDialog implements ThemeAware {
 
     // Called by SettingsGlobalPanel when Brokk key changes, as it might affect org policy
     public void triggerDataRetentionPolicyRefresh() {
-        if (chrome.getProject() != null) {
-            projectSettingsPanel.refreshDataRetentionPanel();
-            // After data retention policy is refreshed, the model list (which depends on policy)
-            // in the global panel might need to be updated as well.
-            globalSettingsPanel.loadSettings(); // Reload to reflect new policy and available models
-        }
+        projectSettingsPanel.refreshDataRetentionPanel();
+        // After data retention policy is refreshed, the model list (which depends on policy)
+        // in the global panel might need to be updated as well.
+        globalSettingsPanel.loadSettings(); // Reload to reflect new policy and available models
     }
     
     // Called by SettingsProjectPanel's DataRetentionPanel when policy is applied
@@ -176,61 +168,57 @@ public class SettingsDialog extends JDialog implements ThemeAware {
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
-        if (targetTabName != null) {
-            boolean tabSelected = false;
-            // Top-level tabs: "Global", "Project"
-            // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models", "GitHub"
-            // Project sub-tabs: "General", "Build", "Data Retention"
+        boolean tabSelected = false;
+        // Top-level tabs: "Global", "Project"
+        // Global sub-tabs: "Service", "Appearance", SettingsGlobalPanel.MODELS_TAB_TITLE, "Alternative Models", "GitHub"
+        // Project sub-tabs: "General", "Build", "Data Retention"
 
-            // Try to select top-level tab first
-            int globalTabIndex = -1, projectTabIndex = -1;
-            for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
-                if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) globalTabIndex = i;
-                if ("Project".equals(dialog.tabbedPane.getTitleAt(i))) projectTabIndex = i;
+        // Try to select top-level tab first
+        int globalTabIndex = -1, projectTabIndex = -1;
+        for (int i = 0; i < dialog.tabbedPane.getTabCount(); i++) {
+            if ("Global".equals(dialog.tabbedPane.getTitleAt(i))) globalTabIndex = i;
+            if ("Project".equals(dialog.tabbedPane.getTitleAt(i))) projectTabIndex = i;
+        }
+
+        if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(globalTabIndex);
+            tabSelected = true;
+        } else if (targetTabName.equals("Project") && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+            dialog.tabbedPane.setSelectedIndex(projectTabIndex);
+            tabSelected = true;
+        } else {
+            // Check Global sub-tabs
+            JTabbedPane globalSubTabs = dialog.globalSettingsPanel.getGlobalSubTabbedPane();
+            for (int i = 0; i < globalSubTabs.getTabCount(); i++) {
+                if (targetTabName.equals(globalSubTabs.getTitleAt(i))) {
+                    if (globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
+                        dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
+                        if (globalSubTabs.isEnabledAt(i) || targetTabName.equals(SettingsGlobalPanel.MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
+                            globalSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
+                        }
+                    }
+                    break;
+                }
             }
 
-            if (targetTabName.equals("Global") && globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
-                dialog.tabbedPane.setSelectedIndex(globalTabIndex);
-                tabSelected = true;
-            } else if (targetTabName.equals("Project") && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
-                dialog.tabbedPane.setSelectedIndex(projectTabIndex);
-                tabSelected = true;
-            } else {
-                // Check Global sub-tabs
-                JTabbedPane globalSubTabs = dialog.globalSettingsPanel.getGlobalSubTabbedPane();
-                for (int i = 0; i < globalSubTabs.getTabCount(); i++) {
-                    if (targetTabName.equals(globalSubTabs.getTitleAt(i))) {
-                        if (globalTabIndex != -1 && dialog.tabbedPane.isEnabledAt(globalTabIndex)) {
-                            dialog.tabbedPane.setSelectedIndex(globalTabIndex); // Select "Global" parent
-                            if (globalSubTabs.isEnabledAt(i) || targetTabName.equals(SettingsGlobalPanel.MODELS_TAB_TITLE)) { // Models tab content itself handles enablement
-                                globalSubTabs.setSelectedIndex(i);
-                                tabSelected = true;
-                            }
+            // If not found in Global, check Project sub-tabs (only if project is open)
+            if (!tabSelected && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
+                JTabbedPane projectSubTabs = dialog.projectSettingsPanel.getProjectSubTabbedPane();
+                for (int i = 0; i < projectSubTabs.getTabCount(); i++) {
+                    if (targetTabName.equals(projectSubTabs.getTitleAt(i))) {
+                        dialog.tabbedPane.setSelectedIndex(projectTabIndex); // Select "Project" parent
+                        if (projectSubTabs.isEnabledAt(i)) {
+                            projectSubTabs.setSelectedIndex(i);
+                            tabSelected = true;
                         }
                         break;
                     }
                 }
-
-                // If not found in Global, check Project sub-tabs (only if project is open)
-                if (!tabSelected && chrome.getProject() != null && projectTabIndex != -1 && dialog.tabbedPane.isEnabledAt(projectTabIndex)) {
-                    JTabbedPane projectSubTabs = dialog.projectSettingsPanel.getProjectSubTabbedPane();
-                     if (projectSubTabs != null) { // projectSubTabs could be null if project panel didn't init fully
-                        for (int i = 0; i < projectSubTabs.getTabCount(); i++) {
-                            if (targetTabName.equals(projectSubTabs.getTitleAt(i))) {
-                                dialog.tabbedPane.setSelectedIndex(projectTabIndex); // Select "Project" parent
-                                if (projectSubTabs.isEnabledAt(i)) {
-                                    projectSubTabs.setSelectedIndex(i);
-                                    tabSelected = true;
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
             }
-            if (!tabSelected) {
-                logger.warn("Could not find or select target settings tab: {}", targetTabName);
-            }
+        }
+        if (!tabSelected) {
+            logger.warn("Could not find or select target settings tab: {}", targetTabName);
         }
         dialog.setVisible(true);
         return dialog;

@@ -133,7 +133,6 @@ public class ToolRegistry {
      * @return A ToolExecutionResult indicating success or failure.
      */
     public ToolExecutionResult executeTool(Object instance, ToolExecutionRequest request) throws InterruptedException {
-        assert instance != null;
         Class<?> cls = instance.getClass();
         String toolName = request.name();
 

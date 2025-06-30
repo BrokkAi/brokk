@@ -30,7 +30,7 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
 
     public void updateVisibility() {
         String token = MainProject.getGitHubToken();
-        setVisible(token == null || token.trim().isEmpty());
+        setVisible(token.trim().isEmpty());
     }
 
     @Override

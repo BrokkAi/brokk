@@ -743,16 +743,16 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         viewPrDiffButton.setEnabled(false);
 
         // Context menu items for prTable (if initialized)
-        if (checkoutPrMenuItem != null) checkoutPrMenuItem.setEnabled(false);
-        if (diffPrVsBaseMenuItem != null) diffPrVsBaseMenuItem.setEnabled(false);
-        if (viewPrDiffMenuItem != null) viewPrDiffMenuItem.setEnabled(false);
-        if (capturePrDiffMenuItemContextMenu != null) capturePrDiffMenuItemContextMenu.setEnabled(false);
-        if (openPrInBrowserMenuItem != null) openPrInBrowserMenuItem.setEnabled(false);
+        checkoutPrMenuItem.setEnabled(false);
+        diffPrVsBaseMenuItem.setEnabled(false);
+        viewPrDiffMenuItem.setEnabled(false);
+        capturePrDiffMenuItemContextMenu.setEnabled(false);
+        openPrInBrowserMenuItem.setEnabled(false);
 
         // Context menu items for prCommitsTable (if initialized)
-        if (capturePrCommitDiffMenuItem != null) capturePrCommitDiffMenuItem.setEnabled(false);
-        if (viewPrCommitDiffMenuItem != null) viewPrCommitDiffMenuItem.setEnabled(false);
-        if (comparePrCommitToLocalMenuItem != null) comparePrCommitToLocalMenuItem.setEnabled(false);
+        capturePrCommitDiffMenuItem.setEnabled(false);
+        viewPrCommitDiffMenuItem.setEnabled(false);
+        comparePrCommitToLocalMenuItem.setEnabled(false);
 
         prCommitsTableModel.setRowCount(0);
         prFilesTableModel.setRowCount(0);
@@ -1300,7 +1300,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // Check if instructions are empty and populate with PR title + review prompt if needed
         SwingUtilities.invokeLater(() -> {
             String currentInstructions = chrome.getInstructionsPanel().getInstructions();
-            if (currentInstructions == null || currentInstructions.trim().isEmpty()) {
+            if (currentInstructions.trim().isEmpty()) {
                 String reviewGuide = contextManager.getProject().getReviewGuide();
                 String reviewPrompt = String.format("Review PR #%d: %s\n\n%s", pr.getNumber(), pr.getTitle(), reviewGuide);
                 chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
@@ -1310,10 +1310,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
             try {
                 var repo = getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.", "Capture Diff Error");
-                    return;
-                }
 
                 String prHeadSha = pr.getHead().getSha();
                 String prBaseSha = pr.getBase().getSha();

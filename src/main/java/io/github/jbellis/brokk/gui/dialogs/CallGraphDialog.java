@@ -38,10 +38,7 @@ public class CallGraphDialog extends JDialog {
 
     public CallGraphDialog(Frame parent, IAnalyzer analyzer, String title, boolean isCallerGraph) {
         super(parent, title, true); // modal dialog
-        assert parent != null;
-        assert title != null;
-        assert analyzer != null;
-        
+
         this.analyzer = analyzer;
         this.isCallerGraph = isCallerGraph;
 
@@ -158,13 +155,10 @@ public class CallGraphDialog extends JDialog {
         }
 
         // Count total call sites
-        int totalCallSites = 0;
-        if (callGraph != null) {
-            totalCallSites = callGraph.values().stream()
-                    .mapToInt(List::size)
-                    .sum();
-        }
-        
+        int totalCallSites = callGraph.values().stream()
+                .mapToInt(List::size)
+                .sum();
+
         updateCallSitesCount(totalCallSites);
     }
     

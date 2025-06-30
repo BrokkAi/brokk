@@ -274,16 +274,14 @@ public class DtoMapper {
 private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextManager mgr) {
         Path path = Path.of(ifd.absPath());
         // Assuming IProject has a getRoot() method similar to ProjectFile that returns Path
-        if (mgr != null && mgr.getProject() != null && mgr.getProject().getRoot() != null) { 
-            Path projectRoot = mgr.getProject().getRoot(); 
-            if (path.startsWith(projectRoot)) {
-                try {
-                    Path relPath = projectRoot.relativize(path);
-                    return new ProjectFile(projectRoot, relPath);
-                } catch (IllegalArgumentException e) {
-                    // Path cannot be relativized, treat as external
-                    return new ExternalFile(path);
-                }
+        Path projectRoot = mgr.getProject().getRoot(); 
+        if (path.startsWith(projectRoot)) {
+            try {
+                Path relPath = projectRoot.relativize(path);
+                return new ProjectFile(projectRoot, relPath);
+            } catch (IllegalArgumentException e) {
+                // Path cannot be relativized, treat as external
+                return new ExternalFile(path);
             }
         }
         return new ExternalFile(path);
