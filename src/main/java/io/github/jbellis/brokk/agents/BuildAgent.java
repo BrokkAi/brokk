@@ -315,7 +315,7 @@ public class BuildAgent {
      * @return A CompletableFuture containing the suggested verification command string (either specific test command or build/lint command),
      * or null if BuildDetails are unavailable.
      */
-    static @Nullable String determineVerificationCommand(IContextManager cm) {
+    public static @Nullable String determineVerificationCommand(IContextManager cm) {
         // Retrieve build details from the project associated with the ContextManager
         BuildDetails details = cm.getProject().loadBuildDetails();
 

@@ -226,7 +226,7 @@ public class CodeAgent {
         var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
         var loopContext = new LoopContext(conversationState, editState, instructions);
 
-        io.systemOutput("Code Agent engaged in single-file mode for %s: `%s…`"
+        logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
                                 .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
 
         TaskResult.StopDetails stopDetails;
