@@ -249,6 +249,20 @@ public class GitHubAuth
     }
 
     /**
+     * Checks if the authenticated user has push (write) access to the repository.
+     * This method requires a configured token and performs a network request.
+     *
+     * @return true if the user has push access, false otherwise.
+     * @throws IOException if there's a problem connecting to GitHub, which can happen
+     * if the token is invalid or there are network issues.
+     */
+    public boolean hasWriteAccess() throws IOException {
+        // Will throw IOException if connection fails, e.g., bad token.
+        // hasPushAccess() returns the permission status for the authenticated user.
+        return getGhRepository().hasPushAccess();
+    }
+
+    /**
      * Fetches the default branch name for the connected repository.
      */
     public String getDefaultBranch() throws IOException {
