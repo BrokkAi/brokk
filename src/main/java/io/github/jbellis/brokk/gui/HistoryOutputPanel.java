@@ -985,7 +985,11 @@ public class HistoryOutputPanel extends JPanel {
             Graphics2D g2 = (Graphics2D) g.create();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setStroke(new BasicStroke(1.5f));
+                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                // 0.75 px on Hi-DPI looks clean; fall back to 1.0 on non-Hi-DPI
+                float lineWidth = (float) (c.getGraphicsConfiguration()
+                                            .getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
+                g2.setStroke(new BasicStroke(lineWidth));
                 g2.setColor(chrome.getTheme().isDarkTheme() ? Color.LIGHT_GRAY : Color.DARK_GRAY);
 
                 for (var edge : resetEdges) {
@@ -1019,33 +1023,38 @@ public class HistoryOutputPanel extends JPanel {
                 }
             }
 
-            int xOffset = 15; // Horizontal offset inside the first column
-            int arrowHeadLength = 8;
+            int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
+            int arrowHeadLength = 5;
+            int arrowLeadIn = 1; // length of the line segment before the arrowhead
+            int arrowRightMargin = -2; // margin from the right edge of the column
 
-            // Define the path for the arrow
+            int tipX = sourcePoint.x + iconColWidth - arrowRightMargin;
+            int baseX = tipX - arrowHeadLength;
+            int verticalLineX = baseX - arrowLeadIn;
+
+            // Define the path for the arrow shaft
             Path2D.Double path = new Path2D.Double();
-            path.moveTo(sourcePoint.x + xOffset + arrowHeadLength, sourcePoint.y);                              // start at source
-            path.lineTo(sourcePoint.x + xOffset, sourcePoint.y);                    // horizontal into column
-            path.lineTo(sourcePoint.x + xOffset, targetPoint.y);                    // vertical toward target
-            path.lineTo(sourcePoint.x + xOffset + arrowHeadLength, targetPoint.y);  // horizontal to arrow-tip
+            path.moveTo(tipX, sourcePoint.y);              // Start at source, aligned with the eventual arrowhead tip
+            path.lineTo(verticalLineX, sourcePoint.y);     // Horizontal segment at source row
+            path.lineTo(verticalLineX, targetPoint.y);     // Vertical segment connecting rows
+            path.lineTo(baseX, targetPoint.y);             // Horizontal segment leading to arrowhead base
             g2.draw(path);
 
             // Draw the arrowhead at the target, pointing left-to-right
-            drawArrowHead(g2,
-                          new Point(sourcePoint.x + xOffset, targetPoint.y),
-                          new Point(sourcePoint.x + xOffset + arrowHeadLength, targetPoint.y),
-                          arrowHeadLength);
+            drawArrowHead(g2, new Point(tipX, targetPoint.y), arrowHeadLength);
         }
 
-        private void drawArrowHead(Graphics2D g2, Point from, Point to, int size) {
-            double angle = Math.atan2(to.y - from.y, to.x - from.x);
-            long x1 = Math.round(to.x - size * Math.cos(angle - Math.PI / 6));
-            long y1 = Math.round(to.y - size * Math.sin(angle - Math.PI / 6));
-            long x2 = Math.round(to.x - size * Math.cos(angle + Math.PI / 6));
-            long y2 = Math.round(to.y - size * Math.sin(angle + Math.PI / 6));
+        private void drawArrowHead(Graphics2D g2, Point to, int size) {
+            // The arrow is always horizontal, left-to-right. Build an isosceles triangle.
+            int tipX = to.x;
+            int midY = to.y;
+            int baseX = to.x - size;
+            int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
 
-            g2.drawLine(to.x, to.y, (int)x1, (int)y1);
-            g2.drawLine(to.x, to.y, (int)x2, (int)y2);
+            var head = new Polygon(new int[]{tipX, baseX, baseX},
+                                   new int[]{midY, midY - halfHeight, midY + halfHeight},
+                                   3);
+            g2.fill(head);
         }
     }
 }
