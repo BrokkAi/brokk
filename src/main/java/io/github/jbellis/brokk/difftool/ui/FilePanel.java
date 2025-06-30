@@ -31,7 +31,6 @@ import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
 import java.awt.*;
 import io.github.jbellis.brokk.gui.SwingUtil;
-import java.awt.event.ActionListener;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
@@ -40,8 +39,6 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static java.util.Objects.requireNonNullElseGet;
 
@@ -67,14 +64,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     @Nullable
     private Timer timer;
     @Nullable
-    private Timer redisplayTimer;
-    @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
 
-    // Thread safety coordination
-    private final Object timerLock = new Object();
-    private final AtomicBoolean updateInProgress = new AtomicBoolean(false);
 
     // Typing state detection to prevent scroll sync interference
     private final AtomicBoolean isActivelyTyping = new AtomicBoolean(false);
@@ -89,7 +81,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     // Viewport cache for thread-safe access
     private final AtomicReference<ViewportCache> viewportCache = new AtomicReference<>();
-    private final ReadWriteLock viewportCacheLock = new ReentrantReadWriteLock();
 
     public FilePanel(@NotNull BufferDiffPanel diffPanel, @NotNull String name) {
         this.diffPanel = diffPanel;
@@ -128,18 +119,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Initially, add scrollPane to the visual container
         visualComponentContainer.add(scrollPane, BorderLayout.CENTER);
 
-        // Unified update timer to consolidate diff and highlight updates
-        // This reduces timer overhead and prevents conflicting updates
+        // Unified update timer handles both diff updates and highlight redrawing
         timer = new Timer(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS, this::handleUnifiedUpdate);
         timer.setRepeats(false);
-
-        // Keep redisplayTimer for backward compatibility but make it lightweight
-        redisplayTimer = new Timer(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS, e -> {
-            if (initialSetupComplete && !isActivelyTyping.get()) {
-                SwingUtilities.invokeLater(this::reDisplayInternal);
-            }
-        });
-        redisplayTimer.setRepeats(false);
 
         // Typing state timer to detect when user stops typing
         typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
@@ -276,9 +258,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             return;
         }
 
-        // Use debounced reDisplay to reduce flickering during rapid updates
-        if (redisplayTimer != null) {
-            redisplayTimer.restart();
+        // Use the unified timer for debounced updates
+        if (timer != null) {
+            timer.restart();
         }
     }
 
@@ -372,26 +354,13 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         long now = System.currentTimeMillis();
 
-        // Try to read from cache first
-        viewportCacheLock.readLock().lock();
-        try {
-            ViewportCache cached = viewportCache.get();
-            if (cached != null && cached.isValid(now)) {
-                return new VisibleRange(cached.startLine, cached.endLine);
-            }
-        } finally {
-            viewportCacheLock.readLock().unlock();
+        // Try to read from cache first (no locking needed - AtomicReference is thread-safe)
+        ViewportCache cached = viewportCache.get();
+        if (cached != null && cached.isValid(now)) {
+            return new VisibleRange(cached.startLine, cached.endLine);
         }
 
-        // Need to calculate new viewport bounds
-        viewportCacheLock.writeLock().lock();
         try {
-            // Double-check after acquiring write lock
-            ViewportCache cached = viewportCache.get();
-            if (cached != null && cached.isValid(now)) {
-                return new VisibleRange(cached.startLine, cached.endLine);
-            }
-
             var viewport = scrollPane.getViewport();
             var viewRect = viewport.getViewRect();
 
@@ -413,7 +382,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             int startLine = Math.max(0, bufferDocument.getLineForOffset(startOffset));
             int endLine = Math.min(bufferDocument.getNumberOfLines() - 1, bufferDocument.getLineForOffset(endOffset));
 
-            // Cache the result
+            // Cache the result atomically
             viewportCache.set(new ViewportCache(startLine, endLine, now));
 
             return new VisibleRange(startLine, endLine);
@@ -421,8 +390,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         } catch (Exception e) {
             logger.debug("Error calculating visible range, falling back to full highlighting: {}", e.getMessage());
             return null;
-        } finally {
-            viewportCacheLock.writeLock().unlock();
         }
     }
 
@@ -444,12 +411,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Clear viewport cache when scrolling to ensure fresh calculations.
      */
     public void invalidateViewportCache() {
-        viewportCacheLock.writeLock().lock();
-        try {
-            viewportCache.set(null);
-        } finally {
-            viewportCacheLock.writeLock().unlock();
-        }
+        viewportCache.set(null);
     }
 
     /**
@@ -483,17 +445,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (timer != null) {
                 timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
             }
-            if (redisplayTimer != null) {
-                redisplayTimer.setDelay(PerformanceConstants.LARGE_FILE_REDISPLAY_TIMER_DELAY_MS);
-            }
-            logger.debug("Increased timer delays for large file");
+            logger.debug("Increased timer delay for large file");
         } else {
             // Use normal timing for smaller files
             if (timer != null) {
                 timer.setDelay(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
-            }
-            if (redisplayTimer != null) {
-                redisplayTimer.setDelay(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS);
             }
         }
     }
@@ -569,8 +525,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         private boolean isEndAndLastNewline(int toOffset) {
             if (bufferDocument == null) {
                 return false;
-            } else {
-                bufferDocument.getDocument();
             }
             try {
                 var docLen = bufferDocument.getDocument().getLength();
@@ -656,23 +610,12 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             return;
         }
 
-        // Use coordination lock to prevent concurrent updates
-        synchronized (timerLock) {
-            if (updateInProgress.get()) {
-                logger.trace("Update already in progress, skipping");
-                return;
-            }
-            updateInProgress.set(true);
-        }
-
         // Ensure we're on EDT for UI operations
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> handleUnifiedUpdate(e));
-            updateInProgress.set(false);
             return;
         }
 
-        // Coordinate updates to prevent conflicts
         long startTime = System.currentTimeMillis();
 
         try {
@@ -696,8 +639,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             } catch (Exception diffEx) {
                 logger.error("Fallback diff update failed: {}", diffEx.getMessage(), diffEx);
             }
-        } finally {
-            updateInProgress.set(false);
         }
     }
 
@@ -964,10 +905,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (timer != null) {
             timer.stop();
             timer = null;
-        }
-        if (redisplayTimer != null) {
-            redisplayTimer.stop();
-            redisplayTimer = null;
         }
         if (typingStateTimer != null) {
             typingStateTimer.stop();
