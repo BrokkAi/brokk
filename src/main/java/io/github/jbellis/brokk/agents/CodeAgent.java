@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
@@ -183,7 +184,7 @@ public class CodeAgent {
                                         : loopContext.userGoal() + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
+        var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
         return new TaskResult("Code: " + finalActionDescription,
                               new ContextFragment.TaskFragment(contextManager, finalMessages, loopContext.userGoal()),
                               loopContext.editState().changedFiles(),
@@ -213,8 +214,8 @@ public class CodeAgent {
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
         coder.setOutput(io);
 
-        var fileContents = file.read();
-        var parser  = EditBlockParser.getParserFor(fileContents);
+        // TODO smart parser selection -- tricky because we need the redaction in UAPD to work
+        var parser = EditBlockConflictsParser.instance;
         var editableMsg = CodePrompts.instance.getSingleFileEditableMessage(file);
 
         UserMessage initialRequest = CodePrompts.instance.codeRequest(instructions,
@@ -302,7 +303,7 @@ public class CodeAgent {
 
         // 2.  Produce TaskResult
         assert stopDetails != null;
-        var finalMessages = prepareMessagesForTaskEntryLog();
+        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
 
         String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
                              ? instructions
@@ -566,9 +567,7 @@ public class CodeAgent {
      * AI messages containing SEARCH/REPLACE blocks will have their raw text preserved,
      * rather than converting blocks to HTML placeholders or summarizing block-only messages.
      */
-    private List<ChatMessage> prepareMessagesForTaskEntryLog() {
-        var rawMessages = io.getLlmRawMessages();
-
+    private static List<ChatMessage> prepareMessagesForTaskEntryLog(List<ChatMessage> rawMessages) {
         return rawMessages.stream()
                 .flatMap(message -> {
                     return switch (message.type()) {

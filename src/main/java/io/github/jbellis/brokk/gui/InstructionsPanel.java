@@ -179,7 +179,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         askButton = new io.github.jbellis.brokk.gui.components.SplitButton(" Ask");
         askButton.setMnemonic(KeyEvent.VK_A);
         askButton.setToolTipText("Ask the LLM a question about the current context (click ▼ for model options)");
-        askButton.addActionListener(e -> runAskCommand()); // Main button action
+        askButton.addActionListener(e -> runAskCommand(getInstructions())); // Main button action
         askButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
                     var models = chrome.getContextManager().getService();
@@ -1460,19 +1460,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Public entry point for default Ask model
-    public void runAskCommand() {
+    public void runAskCommand(String input) {
         var contextManager = chrome.getContextManager();
-        prepareAndRunAskCommand(contextManager.getAskModel());
+        prepareAndRunAskCommand(contextManager.getAskModel(), input);
     }
 
     // Public entry point for selected Ask model from SplitButton
-    public void runAskCommand(StreamingChatLanguageModel modelToUse) {
-        prepareAndRunAskCommand(modelToUse);
+    private void runAskCommand(StreamingChatLanguageModel modelToUse) {
+        prepareAndRunAskCommand(modelToUse, getInstructions());
     }
 
     // Core method to prepare and submit the Ask action
-    private void prepareAndRunAskCommand(StreamingChatLanguageModel modelToUse) {
-        var input = getInstructions();
+    private void prepareAndRunAskCommand(StreamingChatLanguageModel modelToUse, String input) {
         if (input.isBlank()) {
             chrome.toolError("Please enter a question");
             return;

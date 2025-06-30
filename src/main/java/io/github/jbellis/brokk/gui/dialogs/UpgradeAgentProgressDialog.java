@@ -16,7 +16,9 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.util.Environment;
+import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -35,6 +37,8 @@ import static java.util.Objects.requireNonNull;
 
 public class UpgradeAgentProgressDialog extends JDialog {
 
+    public enum PostProcessingOption { NONE, ARCHITECT, ASK }
+
     private static final Logger logger = LogManager.getLogger(UpgradeAgentProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
@@ -48,6 +52,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
     private final @Nullable Integer relatedK;
     private final @Nullable String perFileCommandTemplate;
     private final boolean includeWorkspace;
+    private final String postProcessingInstructions;
     private final ExecutorService executorService; // Moved here for wider access
 
 
@@ -63,13 +68,16 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                       @Nullable Integer relatedK,
                                       @Nullable String perFileCommandTemplate,
                                       boolean includeWorkspace,
-                                      boolean invokeArchitect)
+                                      PostProcessingOption runOption,
+                                      boolean includeParallelOutput,
+                                      String postProcessingInstructions)
     {
         super(owner, "Upgrade Agent Progress", true);
         this.totalFiles = filesToProcess.size();
         this.relatedK = relatedK;
         this.perFileCommandTemplate = perFileCommandTemplate;
         this.includeWorkspace = includeWorkspace;
+        this.postProcessingInstructions = postProcessingInstructions;
 
         setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(600, 400));
@@ -262,10 +270,10 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                            .map(r -> "## " + r.file() + "\n" + r.llmOutput() + "\n\n")
                                            .collect(Collectors.joining());
 
-                List<ChatMessage> uiMessages = !uiMessageText.isEmpty()
-                                               ? List.of(new UserMessage(instructions),
-                                                         new AiMessage(uiMessageText))
-                                               : List.of();
+                var uiMessages = !uiMessageText.isEmpty()
+                                 ? List.of(new UserMessage(instructions),
+                                           CodePrompts.redactAiMessage(new AiMessage(uiMessageText), EditBlockConflictsParser.instance).orElse(new AiMessage("")))
+                                 : List.<ChatMessage>of();
 
                 List<String> failures = results.stream()
                                                .filter(r -> r.errorMessage() != null)
@@ -307,7 +315,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
 
                 if (isCancelled()) {
                     progressBar.setString("Cancelled. " + processedFileCount.get() + " of " + totalFiles + " files processed.");
-                    outputTextArea.append("\n--- Operation Cancelled by User ---\n");
+                    outputTextArea.append("\n``` Operation Cancelled by User ```\n");
                     return;
                 }
 
@@ -327,66 +335,71 @@ public class UpgradeAgentProgressDialog extends JDialog {
                 progressBar.setString("Completed. " + totalFiles + " of " + totalFiles + " files processed.");
 
                 outputTextArea.append("\nParallel processing complete.\n");
-                if (!invokeArchitect) {
+
+                if (runOption == PostProcessingOption.NONE) {
+                    return;
+                }
+
+                if (runOption == PostProcessingOption.ASK) {
+                    if (!postProcessingInstructions.isBlank()) {
+                        outputTextArea.append("Ask command has been invoked. You can close this window.\n");
+                        chrome.getInstructionsPanel().runAskCommand(postProcessingInstructions);
+                    }
                     return;
                 }
 
                 outputTextArea.append("Architect has been invoked. You can close this window.\n");
                 contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
+                    String buildFailureText = "";
+
                     var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
-                    if (verificationCommand == null || verificationCommand.isBlank()) {
-                        logger.debug("No verification command found, skipping architect invocation.");
-                        return;
-                    }
-
-                    String outputForArchitect = null;
-                    try {
-                        mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-                        mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
-                        Environment.instance.runShellCommand(verificationCommand,
-                                                             contextManager.getProject().getRoot(),
-                                                             line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
-                    } catch (InterruptedException e) {
-                        chrome.llmOutput("# Build canceled", ChatMessageType.AI);
-                        return;
-                    } catch (Environment.SubprocessException e) {
-                        outputForArchitect = e.getMessage() + "\n\n" + e.getOutput();
-                    }
-
-                    if (outputForArchitect != null) {
-                        var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-                        var architectGoal = """
-                                        I just finished a parallel upgrade task with the following instructions:
-                                        ---
-                                        %s
-                                        ---
-                                        
-                                        The task was applied to the following files:
-                                        ---
-                                        %s
-                                        ---
-                                        
-                                        After the changes, the build is failing with the following output. Please fix the problems.
-                                        ---
-                                        %s
-                                        ---
-                                        """.formatted(instructions, files, outputForArchitect);
-
-                        var architect = new ArchitectAgent(contextManager,
-                                                           contextManager.getArchitectModel(),
-                                                           contextManager.getToolRegistry(),
-                                                           architectGoal,
-                                                           ArchitectAgent.ArchitectOptions.DEFAULTS);
-                        TaskResult architectResult;
+                    if (verificationCommand != null && !verificationCommand.isBlank()) {
                         try {
-                            architectResult = architect.execute();
-                            contextManager.addToHistory(architectResult, true);
+                            mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+                            mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+                            Environment.instance.runShellCommand(verificationCommand,
+                                                                 contextManager.getProject().getRoot(),
+                                                                 line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
                         } catch (InterruptedException e) {
-                            chrome.llmOutput("# Architect canceled", ChatMessageType.CUSTOM);
-                        } catch (Exception e) {
-                            chrome.toolError("Internal error during Agent command: " + e.getMessage());
+                            chrome.llmOutput("# Build canceled", ChatMessageType.AI);
+                            return;
+                        } catch (Environment.SubprocessException e) {
+                            buildFailureText = e.getMessage() + "\n\n" + e.getOutput();
                         }
                     }
+
+
+                    if (postProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
+                        logger.debug("Build successful or not run, and parallel output processing was not requested");
+                        return;
+                    }
+
+                    var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+                    var parallelDetails = includeParallelOutput
+                                          ? "The output from the parallel processing was:\n```\n%s```".formatted(Messages.getText(result.output().messages().getLast()))
+                                          : "The task was applied to the following files:\n```\n%s```".formatted(files);
+                    var effectiveGoal = postProcessingInstructions.isBlank()
+                                        ? "Please fix the problems."
+                                        : "Here are the postprocessing instructions:\n```\n%s```".formatted(UpgradeAgentProgressDialog.this.postProcessingInstructions);
+
+                    var architectInstructions = """
+                                            I just finished a parallel upgrade task with the following instructions:
+                                            ```
+                                            %s
+                                            ```
+                                            
+                                            %s
+                                            
+                                            Here is the output from the verification command:
+                                            ```
+                                            %s
+                                            ```
+                                            
+                                            %s
+                                            """.formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
+
+                    var options = new ArchitectAgent.ArchitectOptions(false, false, false, true, true, false, false, false, false);
+                    chrome.getInstructionsPanel().runArchitectCommand(architectInstructions, options);
                 });
             }
         };
