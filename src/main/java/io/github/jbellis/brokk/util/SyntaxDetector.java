@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import io.github.jbellis.brokk.analyzer.BrokkFile;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.util.Map;

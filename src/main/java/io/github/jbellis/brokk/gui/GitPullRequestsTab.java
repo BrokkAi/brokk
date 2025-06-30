@@ -22,6 +22,7 @@ import org.kohsuke.github.GHUser;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.time.LocalDate;
@@ -60,11 +61,20 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private DefaultTableModel prTableModel;
     private JTable prCommitsTable;
     private DefaultTableModel prCommitsTableModel;
-    private JButton checkoutPrButton;
-    private JButton diffPrButton;
-    private JButton viewPrDiffButton;
-    private JButton openInBrowserButton;
-    private JButton capturePrDiffButton;
+    private JButton viewPrDiffButton; 
+
+    // Context Menu Items for prTable
+    private JMenuItem checkoutPrMenuItem;
+    private JMenuItem diffPrVsBaseMenuItem;
+    private JMenuItem viewPrDiffMenuItem;
+    private JMenuItem capturePrDiffMenuItemContextMenu; // Renamed to avoid clash
+    private JMenuItem openPrInBrowserMenuItem;
+
+    // Context Menu Items for prCommitsTable
+    private JMenuItem capturePrCommitDiffMenuItem;
+    private JMenuItem viewPrCommitDiffMenuItem;
+    private JMenuItem comparePrCommitToLocalMenuItem;
+
 
     private FilterBox statusFilter;
     private FilterBox authorFilter;
@@ -276,39 +286,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.setBorder(BorderFactory.createEmptyBorder(Constants.V_GLUE, 0, 0, 0));
         prButtonPanel.setLayout(new BoxLayout(prButtonPanel, BoxLayout.X_AXIS));
 
-        checkoutPrButton = new JButton("Check Out");
-        checkoutPrButton.setToolTipText("Check out this PR branch locally");
-        checkoutPrButton.setEnabled(false);
-        checkoutPrButton.addActionListener(e -> checkoutSelectedPr());
-        prButtonPanel.add(checkoutPrButton);
-        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
-        diffPrButton = new JButton("Diff vs Base");
-        diffPrButton.setToolTipText("Add diff of PR against its base branch to context");
-        diffPrButton.setEnabled(false);
-        diffPrButton.addActionListener(e -> diffSelectedPr());
-        prButtonPanel.add(diffPrButton);
-        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
-        capturePrDiffButton = new JButton("Capture Diff");
-        capturePrDiffButton.setToolTipText("Capture the full diff of this PR to context");
-        capturePrDiffButton.setEnabled(false);
-        capturePrDiffButton.addActionListener(e -> captureSelectedPrDiff());
-        prButtonPanel.add(capturePrDiffButton);
-        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
-        viewPrDiffButton = new JButton("View Diff");
+        viewPrDiffButton = new JButton("View Diff"); // This button remains
         viewPrDiffButton.setToolTipText("View all changes in this PR in a diff viewer");
         viewPrDiffButton.setEnabled(false);
         viewPrDiffButton.addActionListener(e -> viewFullPrDiff());
         prButtonPanel.add(viewPrDiffButton);
-        prButtonPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-
-        openInBrowserButton = new JButton("Open in Browser");
-        openInBrowserButton.setToolTipText("Open the selected PR in your web browser");
-        openInBrowserButton.setEnabled(false);
-        openInBrowserButton.addActionListener(e -> openSelectedPrInBrowser());
-        prButtonPanel.add(openInBrowserButton);
 
         prButtonPanel.add(Box.createHorizontalGlue()); // Pushes refresh button to the right
 
@@ -317,8 +299,11 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prButtonPanel.add(refreshPrButton);
 
         prTableAndButtonsPanel.add(prButtonPanel, BorderLayout.SOUTH);
+        setupPrTableContextMenu();
+        setupPrTableDoubleClick();
         centerContentPanel.add(prTableAndButtonsPanel, BorderLayout.CENTER); // Add to centerContentPanel
         mainPrAreaPanel.add(centerContentPanel, BorderLayout.CENTER); // Add centerContentPanel to main panel
+
 
         // Right side - Commits and Files in the selected PR
         JPanel prCommitsAndFilesPanel = new JPanel(new BorderLayout());
@@ -460,83 +445,38 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         // Listen for PR selection changes
         prTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting() && prTable.getSelectedRow() != -1) {
+            if (!e.getValueIsAdjusting()) {
                 int viewRow = prTable.getSelectedRow();
                 if (viewRow != -1) {
-                    int modelRow = prTable.convertRowIndexToModel(viewRow); // In case of sorting/filtering on JTable later
-                    // Ensure modelRow is valid for displayedPrs
+                    int modelRow = prTable.convertRowIndexToModel(viewRow);
                     if (modelRow < 0 || modelRow >= displayedPrs.size()) {
-                         logger.warn("Selected row {} (model {}) is out of bounds for displayed PRs size {}", viewRow, modelRow, displayedPrs.size());
-                         disablePrButtonsAndClearCommits();
-                         return;
+                        logger.warn("Selected row {} (model {}) is out of bounds for displayed PRs size {}", viewRow, modelRow, displayedPrs.size());
+                        disablePrButtonsAndClearCommitsAndMenus(); // Updated call
+                        return;
                     }
                     GHPullRequest selectedPr = displayedPrs.get(modelRow);
                     int prNumber = selectedPr.getNumber();
                     updateCommitsForPullRequest(selectedPr);
                     updateFilesForPullRequest(selectedPr);
 
-                    // Temporarily set button state while loading
-                    checkoutPrButton.setText("Loading...");
-                    checkoutPrButton.setEnabled(false);
-                    diffPrButton.setEnabled(true);
-                    viewPrDiffButton.setEnabled(true);
-                    openInBrowserButton.setEnabled(true);
-                    capturePrDiffButton.setEnabled(true); // Enable capture diff button
+                    // Button state updates
+                    boolean singlePrSelected = prTable.getSelectedRowCount() == 1;
+                    viewPrDiffButton.setEnabled(singlePrSelected);
+                    updatePrTableContextMenuState();
 
                     this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
-                        String prHeadSha = selectedPr.getHead().getSha(); // This call might throw a RTE from the library on failure
-                        // If getHead() or getSha() fails internally (e.g. network issue leading to RTE in library),
-                        // the whole background task will fail and be logged by submitBackgroundTask's wrapper.
-                        // The UI won't update checkoutPrButton in that specific scenario, but that's acceptable for now.
-
-                        Optional<String> existingBranchOpt = existsLocalPrBranch(prNumber); // I/O
-                        String syncStatus = getLocalSyncStatus(prNumber, prHeadSha); // I/O
-
                         SwingUtilities.invokeLater(() -> {
-                            // Check if the selection is still the same
                             int currentRow = prTable.getSelectedRow();
                             if (currentRow != -1 && currentRow < displayedPrs.size() && displayedPrs.get(currentRow).getNumber() == prNumber) {
-                                if (existingBranchOpt.isPresent()) {
-                                    String existingBranchName = existingBranchOpt.get();
-                                    if ("behind".equals(syncStatus)) {
-                                        checkoutPrButton.setText("Update Local Branch");
-                                        checkoutPrButton.setEnabled(true);
-                                    } else { // "ok" or other status
-                                        try {
-                                            if (getRepo().getCurrentBranch().equals(existingBranchName)) {
-                                                checkoutPrButton.setText("Current Branch");
-                                                checkoutPrButton.setEnabled(false);
-                                            } else {
-                                                checkoutPrButton.setText("Check Out");
-                                                checkoutPrButton.setEnabled(true);
-                                            }
-                                        } catch (Exception ex) {
-                                            logger.warn("Error getting current branch, defaulting checkout button state", ex);
-                                            checkoutPrButton.setText("Check Out");
-                                            checkoutPrButton.setEnabled(true);
-                                        }
-                                    }
-                                } else { // No local branch
-                                    checkoutPrButton.setText("Check Out");
-                                    checkoutPrButton.setEnabled(true);
-                                }
+                                updatePrTableContextMenuState(); // This will re-evaluate based on current selection count
+                                viewPrDiffButton.setEnabled(prTable.getSelectedRowCount() == 1);
                             }
                         });
                         return null;
                     });
-                } else { // No selection or invalid row
-                    checkoutPrButton.setText("Check Out");
-                    checkoutPrButton.setEnabled(false);
-                    diffPrButton.setEnabled(false);
-                    viewPrDiffButton.setEnabled(false);
-                    openInBrowserButton.setEnabled(false);
-                    capturePrDiffButton.setEnabled(false);
-                    prCommitsTableModel.setRowCount(0); // Clear commits table
-                    prFilesTableModel.setRowCount(0); // Clear files table
-                    currentPrCommitDetailsList.clear();
+                } else { // No selection or invalid row (viewRow == -1)
+                    disablePrButtonsAndClearCommitsAndMenus(); // Updated call
                 }
-            } else if (prTable.getSelectedRow() == -1) { // if selection is explicitly cleared
-                 disablePrButtonsAndClearCommits();
             }
         });
 
@@ -544,12 +484,198 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prCommitsTable.getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
                 updateFilesForSelectedCommits();
+                updatePrCommitsContextMenuState();
             }
         });
+        setupPrCommitsTableContextMenu();
+        setupPrCommitsTableDoubleClick();
 
         MainProject.addSettingsChangeListener(this);
         updatePrList(); // async
     }
+
+    private class PrTableDoubleClickAdapter extends MouseAdapter {
+        @Override
+        public void mouseClicked(MouseEvent e) {
+            if (e.getClickCount() == 2) {
+                if (prTable.getSelectedRowCount() == 1) {
+                    viewFullPrDiff();
+                }
+            }
+        }
+    }
+
+    private void setupPrTableDoubleClick() {
+        prTable.addMouseListener(new PrTableDoubleClickAdapter());
+    }
+
+    private void setupPrTableContextMenu() {
+        JPopupMenu contextMenu = new JPopupMenu();
+        chrome.themeManager.registerPopupMenu(contextMenu);
+
+        capturePrDiffMenuItemContextMenu = new JMenuItem("Capture Diff");
+        capturePrDiffMenuItemContextMenu.addActionListener(e -> captureSelectedPrDiff());
+        contextMenu.add(capturePrDiffMenuItemContextMenu);
+
+        viewPrDiffMenuItem = new JMenuItem("View Diff");
+        viewPrDiffMenuItem.addActionListener(e -> viewFullPrDiff());
+        contextMenu.add(viewPrDiffMenuItem);
+
+        diffPrVsBaseMenuItem = new JMenuItem("Diff vs Base");
+        diffPrVsBaseMenuItem.addActionListener(e -> diffSelectedPr());
+        contextMenu.add(diffPrVsBaseMenuItem);
+
+        checkoutPrMenuItem = new JMenuItem("Check Out");
+        checkoutPrMenuItem.addActionListener(e -> checkoutSelectedPr());
+        contextMenu.add(checkoutPrMenuItem);
+
+        openPrInBrowserMenuItem = new JMenuItem("Open in Browser");
+        openPrInBrowserMenuItem.addActionListener(e -> openSelectedPrInBrowser());
+        contextMenu.add(openPrInBrowserMenuItem);
+
+        prTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handlePopup(e);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handlePopup(e);
+            }
+            private void handlePopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = prTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        if (!prTable.isRowSelected(row)) {
+                            prTable.setRowSelectionInterval(row, row);
+                        }
+                        updatePrTableContextMenuState(); // Update menu items based on selection
+                        contextMenu.show(prTable, e.getX(), e.getY());
+                    }
+                }
+            }
+        });
+    }
+
+    private void updatePrTableContextMenuState() {
+        boolean singlePrSelected = prTable.getSelectedRowCount() == 1;
+        boolean anyPrSelected = prTable.getSelectedRowCount() > 0;
+
+        checkoutPrMenuItem.setEnabled(singlePrSelected);
+        diffPrVsBaseMenuItem.setEnabled(singlePrSelected); // Assuming this also implies single selection from context
+        capturePrDiffMenuItemContextMenu.setEnabled(singlePrSelected); // Assuming this also implies single selection
+        viewPrDiffMenuItem.setEnabled(singlePrSelected);
+        openPrInBrowserMenuItem.setEnabled(anyPrSelected); // Open in browser can work for multiple if needed, but typically single
+    }
+
+
+    private void setupPrCommitsTableContextMenu() {
+        JPopupMenu contextMenu = new JPopupMenu();
+        chrome.themeManager.registerPopupMenu(contextMenu);
+
+        capturePrCommitDiffMenuItem = new JMenuItem("Capture Diff");
+        capturePrCommitDiffMenuItem.addActionListener(e -> {
+            int[] selectedViewRows = prCommitsTable.getSelectedRows();
+            if (selectedViewRows.length == 0) return;
+
+            int[] selectedModelRows = Arrays.stream(selectedViewRows)
+                    .map(prCommitsTable::convertRowIndexToModel)
+                    .filter(modelRow -> modelRow >= 0 && modelRow < currentPrCommitDetailsList.size())
+                    .sorted()
+                    .toArray();
+
+            if (selectedModelRows.length == 0) return;
+
+            var contiguousModelRowGroups = GitUiUtil.groupContiguous(selectedModelRows);
+
+            for (var group : contiguousModelRowGroups) {
+                if (group.isEmpty()) continue;
+
+                // currentPrCommitDetailsList is sorted oldest first
+                ICommitInfo oldestCommitInGroup = currentPrCommitDetailsList.get(group.getFirst());
+                ICommitInfo newestCommitInGroup = currentPrCommitDetailsList.get(group.getLast());
+
+                GitUiUtil.addCommitRangeToContext(contextManager, chrome, newestCommitInGroup, oldestCommitInGroup);
+            }
+        });
+        contextMenu.add(capturePrCommitDiffMenuItem);
+
+        viewPrCommitDiffMenuItem = new JMenuItem("View Diff");
+        viewPrCommitDiffMenuItem.addActionListener(e -> {
+            if (prCommitsTable.getSelectedRowCount() == 1) {
+                int modelRow = prCommitsTable.convertRowIndexToModel(prCommitsTable.getSelectedRow());
+                 if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
+                    ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
+                    GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
+                }
+            }
+        });
+        contextMenu.add(viewPrCommitDiffMenuItem);
+
+        comparePrCommitToLocalMenuItem = new JMenuItem("Compare to Local");
+        comparePrCommitToLocalMenuItem.addActionListener(e -> {
+            if (prCommitsTable.getSelectedRowCount() == 1) {
+                int modelRow = prCommitsTable.convertRowIndexToModel(prCommitsTable.getSelectedRow());
+                if (modelRow >= 0 && modelRow < currentPrCommitDetailsList.size()) {
+                    ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
+                    GitUiUtil.compareCommitToLocal(contextManager, chrome, commitInfo);
+                }
+            }
+        });
+        contextMenu.add(comparePrCommitToLocalMenuItem);
+
+        prCommitsTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                handlePopup(e);
+            }
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                handlePopup(e);
+            }
+            private void handlePopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = prCommitsTable.rowAtPoint(e.getPoint());
+                    if (row >= 0) {
+                        if (!prCommitsTable.isRowSelected(row)) {
+                            prCommitsTable.setRowSelectionInterval(row, row);
+                        }
+                        updatePrCommitsContextMenuState();
+                        contextMenu.show(prCommitsTable, e.getX(), e.getY());
+                    }
+                }
+            }
+        });
+    }
+
+    private void updatePrCommitsContextMenuState() {
+        int selectedRowCount = prCommitsTable.getSelectedRowCount();
+        boolean anyCommitSelected = selectedRowCount > 0;
+        boolean singleCommitSelected = selectedRowCount == 1;
+
+        capturePrCommitDiffMenuItem.setEnabled(anyCommitSelected);
+        viewPrCommitDiffMenuItem.setEnabled(singleCommitSelected);
+        comparePrCommitToLocalMenuItem.setEnabled(singleCommitSelected);
+    }
+
+    private void setupPrCommitsTableDoubleClick() {
+        prCommitsTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = prCommitsTable.rowAtPoint(e.getPoint());
+                    if (row != -1) {
+                        int modelRow = prCommitsTable.convertRowIndexToModel(row);
+                        if (modelRow >=0 && modelRow < currentPrCommitDetailsList.size()) {
+                            ICommitInfo commitInfo = currentPrCommitDetailsList.get(modelRow);
+                            GitUiUtil.openCommitDiffPanel(contextManager, chrome, commitInfo);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
 
     /**
      * Tracks a Future that might contain calls to GitHub API, so that it can be cancelled if GitHub access token changes.
@@ -612,17 +738,27 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         });
     }
 
-    private void disablePrButtonsAndClearCommits() {
-        checkoutPrButton.setText("Check Out");
-        checkoutPrButton.setEnabled(false);
-        diffPrButton.setEnabled(false);
+    private void disablePrButtonsAndClearCommitsAndMenus() {
+        // Panel buttons
         viewPrDiffButton.setEnabled(false);
-        openInBrowserButton.setEnabled(false);
-        capturePrDiffButton.setEnabled(false);
+
+        // Context menu items for prTable (if initialized)
+        checkoutPrMenuItem.setEnabled(false);
+        diffPrVsBaseMenuItem.setEnabled(false);
+        viewPrDiffMenuItem.setEnabled(false);
+        capturePrDiffMenuItemContextMenu.setEnabled(false);
+        openPrInBrowserMenuItem.setEnabled(false);
+
+        // Context menu items for prCommitsTable (if initialized)
+        capturePrCommitDiffMenuItem.setEnabled(false);
+        viewPrCommitDiffMenuItem.setEnabled(false);
+        comparePrCommitToLocalMenuItem.setEnabled(false);
+
         prCommitsTableModel.setRowCount(0);
         prFilesTableModel.setRowCount(0);
         currentPrCommitDetailsList.clear();
     }
+
 
     /**
      * Enable or disable every widget that can trigger a new reload.
@@ -639,20 +775,51 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         reviewFilter.setEnabled(enabled);
     }
 
-    private Optional<String> existsLocalPrBranch(int prNumber) {
+    /**
+     * Determines the expected local branch name for a PR based on whether it's from the same repository or a fork.
+     */
+    private String getExpectedLocalBranchName(GHPullRequest pr) {
+        var prHead = pr.getHead();
+        String prBranchName = prHead.getRef();
+        if (prBranchName.startsWith("refs/heads/")) {
+            prBranchName = prBranchName.substring("refs/heads/".length());
+        }
+        
+        String repoFullName = prHead.getRepository().getFullName();
+        
         try {
             var repo = getRepo();
-            String prefix = "pr-" + prNumber;
+            var remoteUrl = repo.getRemoteUrl();
+            GitUiUtil.OwnerRepo ownerRepo = GitUiUtil.parseOwnerRepoFromUrl(Objects.requireNonNullElse(remoteUrl, ""));
+            
+            if (ownerRepo != null && repoFullName.equals(ownerRepo.owner() + "/" + ownerRepo.repo())) {
+                // PR is from the same repository - use the actual branch name
+                return prBranchName;
+            } else {
+                // PR is from a fork - use username/branchname format
+                return prHead.getRepository().getOwnerName() + "/" + prBranchName;
+            }
+        } catch (Exception e) {
+            logger.warn("Error determining repository info for PR #{}, defaulting to fork format: {}", pr.getNumber(), e.getMessage());
+            // Default to fork format if we can't determine the repo info
+            return prHead.getRepository().getOwnerName() + "/" + prBranchName;
+        }
+    }
+
+    private Optional<String> existsLocalPrBranch(GHPullRequest pr) {
+        try {
+            var repo = getRepo();
             List<String> localBranches = repo.listLocalBranches();
+            
+            String expectedLocalBranchName = getExpectedLocalBranchName(pr);
             for (String branchName : localBranches) {
-                // Matches "pr-<number>" or "pr-<number>-<digits>"
-                if (branchName.equals(prefix) ||
-                        (branchName.startsWith(prefix + "-") && branchName.substring(prefix.length() + 1).matches("\\d+"))) {
+                if (branchName.equals(expectedLocalBranchName)) {
                     return Optional.of(branchName);
                 }
             }
+            
         } catch (Exception e) {
-            logger.warn("Error checking for existing local PR branch for PR #{}: {}", prNumber, e.getMessage(), e);
+            logger.warn("Error checking for existing local PR branch for PR #{}: {}", pr.getNumber(), e.getMessage(), e);
         }
         return Optional.empty();
     }
@@ -698,7 +865,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     prTableModel.addRow(new Object[]{
                             "", "Error fetching PRs: " + ex.getMessage(), "", "", "", "", ""
                     });
-                    disablePrButtonsAndClearCommits();
+                    disablePrButtonsAndClearCommitsAndMenus();
                     authorChoices.clear();
                     labelChoices.clear();
                     assigneeChoices.clear();
@@ -843,7 +1010,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         var today = LocalDate.now(java.time.ZoneId.systemDefault());
         if (displayedPrs.isEmpty()) {
             prTableModel.addRow(new Object[]{"", "No matching PRs found", "", "", "", "", ""});
-            disablePrButtons();
+            disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
         } else {
             // Sort PRs by update date, newest first
             displayedPrs.sort(Comparator.comparing(pr -> {
@@ -877,16 +1044,17 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         }
         // Buttons state will be managed by selection listener or if selection is empty
-        if (prTable.getSelectedRow() == -1) {
-            disablePrButtons();
-        } else {
-            // Trigger selection listener to update button states correctly for the (potentially new) selection
-            prTable.getSelectionModel().setValueIsAdjusting(true); // force re-evaluation
-            prTable.getSelectionModel().setValueIsAdjusting(false);
-        }
+            if (prTable.getSelectedRow() == -1) {
+                disablePrButtonsAndClearCommitsAndMenus(); // Clear menus too
+            } else {
+                // Trigger selection listener to update button states correctly for the (potentially new) selection
+                prTable.getSelectionModel().setValueIsAdjusting(true); // force re-evaluation
+                prTable.getSelectionModel().setValueIsAdjusting(false);
+                // The selection listener will call updatePrTableContextMenuState and set viewPrDiffButton state.
+            }
 
-        // Asynchronously fetch CI statuses for the displayed PRs
-        fetchCiStatusesForDisplayedPrs();
+            // Asynchronously fetch CI statuses for the displayed PRs
+            fetchCiStatusesForDisplayedPrs();
     }
 
     private class CiStatusFetcherWorker extends SwingWorker<Map<Integer, String>, Void> {
@@ -1117,14 +1285,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return displayOptionWithCount; // For simple string options like "Open", "Closed", or names without counts
     }
 
-    private void disablePrButtons() {
-        checkoutPrButton.setText("Check Out");
-        checkoutPrButton.setEnabled(false);
-        diffPrButton.setEnabled(false);
-        viewPrDiffButton.setEnabled(false);
-        openInBrowserButton.setEnabled(false);
-        capturePrDiffButton.setEnabled(false);
-    }
+    // This method is now part of disablePrButtonsAndClearCommitsAndMenus
+    // private void disablePrButtons() { ... }
+
 
     private void captureSelectedPrDiff() {
         int selectedRow = prTable.getSelectedRow();
@@ -1137,7 +1300,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // Check if instructions are empty and populate with PR title + review prompt if needed
         SwingUtilities.invokeLater(() -> {
             String currentInstructions = chrome.getInstructionsPanel().getInstructions();
-            if (currentInstructions == null || currentInstructions.trim().isEmpty()) {
+            if (currentInstructions.trim().isEmpty()) {
                 String reviewGuide = contextManager.getProject().getReviewGuide();
                 String reviewPrompt = String.format("Review PR #%d: %s\n\n%s", pr.getNumber(), pr.getTitle(), reviewGuide);
                 chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
@@ -1147,10 +1310,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         contextManager.submitContextTask("Capture PR Diff #" + pr.getNumber(), () -> {
             try {
                 var repo = getRepo();
-                if (repo == null) {
-                    chrome.toolError("Git repository not available.", "Capture Diff Error");
-                    return;
-                }
 
                 String prHeadSha = pr.getHead().getSha();
                 String prBaseSha = pr.getBase().getSha();
@@ -1245,22 +1404,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         });
     }
 
-
-    private String getLocalSyncStatus(int prNumber, String prHeadSha) {
-        try {
-            var repo = getRepo();
-            var localBranchOpt = existsLocalPrBranch(prNumber);
-            if (localBranchOpt.isEmpty()) return ""; // no local branch
-            var localBranch = localBranchOpt.get();
-            var localHeadObj = repo.resolve(localBranch);
-            var localHeadSha = localHeadObj.getName();
-            if (localHeadSha.equals(prHeadSha)) return "ok"; // up to date
-            return "behind";
-        } catch (Exception e) {
-            logger.warn("Error determining sync status for PR #{}: {}", prNumber, e.getMessage());
-            return "";
-        }
-    }
+    // Unused method removed
+    // private String getLocalSyncStatus(GHPullRequest pr, String prHeadSha) { ... }
 
     private String getCiStatus(org.kohsuke.github.GHPullRequest pr) throws IOException {
         // This method is now called from a background thread within updatePrList.
@@ -1442,7 +1587,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         org.kohsuke.github.GHPullRequest selectedPrObject = displayedPrs.get(selectedRow);
         final int prNumber = selectedPrObject.getNumber();
 
-        Optional<String> existingLocalBranchOpt = existsLocalPrBranch(prNumber);
+        Optional<String> existingLocalBranchOpt = existsLocalPrBranch(selectedPrObject);
 
         if (existingLocalBranchOpt.isPresent()) {
             updateExistingLocalPrBranch(prNumber, existingLocalBranchOpt.get());
@@ -1534,13 +1679,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     remoteBranchRef = remoteName + "/" + prBranchName;
                 }
 
-                String baseBranchNameSuffix = "pr-" + prNumber;
-                String localBranchName = baseBranchNameSuffix;
-                List<String> localBranches = getRepo().listLocalBranches();
-                int suffix = 1;
-                while (localBranches.contains(localBranchName)) {
-                    localBranchName = baseBranchNameSuffix + "-" + suffix++;
-                }
+                String localBranchName = getExpectedLocalBranchName(pr);
 
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 

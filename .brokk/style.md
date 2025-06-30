@@ -3,6 +3,7 @@
 ## General principles
 
 1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull (static import from java.util.Objects) when we expect a value to be non-null but can't prove it. Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil) when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map returned by Collectors.partitioningBy.
+1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
 1. **Java 21 features**: The codebase leverages Java features up to JDK 21. Embrace the lambdas! and also getFirst/getLast, Collectors.toList, pattern matching for instanceof, records and record patterns, etc.
 1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
 1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
@@ -28,7 +29,8 @@
 1. **No StringBuilder**: prefer joins or interpolated text blocks where possible. Use stripIndent() with text blocks.
 1. **Overcautious Exception Handling**: Let unexpected exceptions propagate up where they will be logged by a global handler. Don't catch unless you have context-specific handling to apply.
 
-## Custom utilities
+## GUI standards
 
 1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)
 1. **Popup dialogs**: IConsoleIO (implemented by Chrome) offers `systemNotify(String message, String title, int messageType)` and `toolError(String message, String title)` methods backed by JMessageDialog, prefer these for simple "OK" notifications 
+1. **Named components**: Avoid navigating component hierarchies to retrieve a specific component by index or text. Save a reference as a field instead.

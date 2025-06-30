@@ -44,10 +44,10 @@ public class FragmentDtos {
      */
     public record ProjectFileDto(String id, String repoRoot, String relPath) implements PathFragmentDto { // id changed to String
         public ProjectFileDto {
-            if (repoRoot == null || repoRoot.isEmpty()) {
+            if (repoRoot.isEmpty()) {
                 throw new IllegalArgumentException("repoRoot cannot be null or empty");
             }
-            if (relPath == null || relPath.isEmpty()) {
+            if (relPath.isEmpty()) {
                 throw new IllegalArgumentException("relPath cannot be null or empty");
             }
         }
@@ -58,7 +58,7 @@ public class FragmentDtos {
      */
     public record ExternalFileDto(String id, String absPath) implements PathFragmentDto { // id changed to String
         public ExternalFileDto {
-            if (absPath == null || absPath.isEmpty()) {
+            if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
         }
@@ -69,7 +69,7 @@ public class FragmentDtos {
      */
     public record ImageFileDto(String id, String absPath, @Nullable String mediaType) implements PathFragmentDto { // id changed to String
         public ImageFileDto {
-            if (absPath == null || absPath.isEmpty()) {
+            if (absPath.isEmpty()) {
                 throw new IllegalArgumentException("absPath cannot be null or empty");
             }
         }
@@ -96,9 +96,6 @@ public class FragmentDtos {
     public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String sessionName) implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
             messages = List.copyOf(messages);
-            if (sessionName == null) {
-                throw new IllegalArgumentException("sessionName cannot be null");
-            }
         }
     }
     
@@ -107,11 +104,8 @@ public class FragmentDtos {
      */
     public record ChatMessageDto(String role, String content) {
         public ChatMessageDto {
-            if (role == null || role.isEmpty()) {
+            if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
-            }
-            if (content == null) {
-                throw new IllegalArgumentException("content cannot be null");
             }
         }
     }
@@ -120,17 +114,6 @@ public class FragmentDtos {
      * DTO for StringFragment - contains text content with description and syntax style.
      */
     public record StringFragmentDto(String id, String text, String description, String syntaxStyle) implements VirtualFragmentDto { // id changed to String
-        public StringFragmentDto {
-            if (text == null) {
-                throw new IllegalArgumentException("text cannot be null");
-            }
-            if (description == null) {
-                throw new IllegalArgumentException("description cannot be null");
-            }
-            if (syntaxStyle == null) {
-                throw new IllegalArgumentException("syntaxStyle cannot be null");
-            }
-        }
     }
     
     /**
@@ -138,12 +121,6 @@ public class FragmentDtos {
      */
     public record SearchFragmentDto(String id, String query, String explanation, Set<CodeUnitDto> sources, List<ChatMessageDto> messages) implements VirtualFragmentDto { // id changed to String
         public SearchFragmentDto {
-            if (query == null) {
-                throw new IllegalArgumentException("query cannot be null");
-            }
-            if (explanation == null) {
-                throw new IllegalArgumentException("explanation cannot be null");
-            }
             sources = Set.copyOf(sources);
             messages = List.copyOf(messages);
         }
@@ -154,11 +131,11 @@ public class FragmentDtos {
      */
     public record SkeletonFragmentDto(String id, List<String> targetIdentifiers, String summaryType) implements VirtualFragmentDto { // id changed to String
         public SkeletonFragmentDto {
-            if (targetIdentifiers == null || targetIdentifiers.isEmpty()) {
+            if (targetIdentifiers.isEmpty()) {
                 throw new IllegalArgumentException("targetIdentifiers cannot be null or empty");
             }
             targetIdentifiers = List.copyOf(targetIdentifiers);
-            if (summaryType == null || summaryType.isEmpty()) {
+            if (summaryType.isEmpty()) {
                 throw new IllegalArgumentException("summaryType cannot be null or empty");
             }
         }
@@ -169,7 +146,7 @@ public class FragmentDtos {
      */
     public record UsageFragmentDto(String id, String targetIdentifier) implements VirtualFragmentDto { // id changed to String
         public UsageFragmentDto {
-            if (targetIdentifier == null || targetIdentifier.isEmpty()) {
+            if (targetIdentifier.isEmpty()) {
                 throw new IllegalArgumentException("targetIdentifier cannot be null or empty");
             }
         }
@@ -180,17 +157,14 @@ public class FragmentDtos {
      */
     public record GitFileFragmentDto(String id, String repoRoot, String relPath, String revision, String content) implements PathFragmentDto { // id changed to String
         public GitFileFragmentDto {
-            if (repoRoot == null || repoRoot.isEmpty()) {
+            if (repoRoot.isEmpty()) {
                 throw new IllegalArgumentException("repoRoot cannot be null or empty");
             }
-            if (relPath == null || relPath.isEmpty()) {
+            if (relPath.isEmpty()) {
                 throw new IllegalArgumentException("relPath cannot be null or empty");
             }
-            if (revision == null || revision.isEmpty()) {
+            if (revision.isEmpty()) {
                 throw new IllegalArgumentException("revision cannot be null or empty");
-            }
-            if (content == null) {
-                throw new IllegalArgumentException("content cannot be null");
             }
         }
     }
@@ -199,14 +173,6 @@ public class FragmentDtos {
      * DTO for PasteTextFragment - contains pasted text with resolved description.
      */
     public record PasteTextFragmentDto(String id, String text, String description) implements VirtualFragmentDto { // id changed to String
-        public PasteTextFragmentDto {
-            if (text == null) {
-                throw new IllegalArgumentException("text cannot be null");
-            }
-            if (description == null) {
-                throw new IllegalArgumentException("description cannot be null");
-            }
-        }
     }
     
     /**
@@ -214,11 +180,8 @@ public class FragmentDtos {
      */
     public record PasteImageFragmentDto(String id, String base64ImageData, String description) implements VirtualFragmentDto { // id changed to String
         public PasteImageFragmentDto {
-            if (base64ImageData == null || base64ImageData.isEmpty()) {
+            if (base64ImageData.isEmpty()) {
                 throw new IllegalArgumentException("base64ImageData cannot be null or empty");
-            }
-            if (description == null) {
-                throw new IllegalArgumentException("description cannot be null");
             }
         }
     }
@@ -228,15 +191,6 @@ public class FragmentDtos {
      */
     public record StacktraceFragmentDto(String id, Set<CodeUnitDto> sources, String original, String exception, String code) implements VirtualFragmentDto { // id changed to String
         public StacktraceFragmentDto {
-            if (original == null) {
-                throw new IllegalArgumentException("original cannot be null");
-            }
-            if (exception == null) {
-                throw new IllegalArgumentException("exception cannot be null");
-            }
-            if (code == null) {
-                throw new IllegalArgumentException("code cannot be null");
-            }
             sources = Set.copyOf(sources);
         }
     }
@@ -246,7 +200,7 @@ public class FragmentDtos {
      */
     public record CallGraphFragmentDto(String id, String methodName, int depth, boolean isCalleeGraph) implements VirtualFragmentDto { // id changed to String
         public CallGraphFragmentDto {
-            if (methodName == null || methodName.isEmpty()) {
+            if (methodName.isEmpty()) {
                 throw new IllegalArgumentException("methodName cannot be null or empty");
             }
             if (depth <= 0) {
@@ -260,9 +214,6 @@ public class FragmentDtos {
      */
     public record HistoryFragmentDto(String id, List<TaskEntryDto> history) implements VirtualFragmentDto { // id changed to String
         public HistoryFragmentDto {
-            if (history == null) {
-                throw new IllegalArgumentException("history cannot be null");
-            }
             history = List.copyOf(history);
         }
     }
@@ -283,16 +234,10 @@ public class FragmentDtos {
             implements VirtualFragmentDto, ReferencedFragmentDto
     {
         public FrozenFragmentDto {
-            if (originalType == null || originalType.isEmpty()) {
+            if (originalType.isEmpty()) {
                 throw new IllegalArgumentException("originalType cannot be null or empty");
             }
-            if (description == null) {
-                throw new IllegalArgumentException("description cannot be null");
-            }
-            if (syntaxStyle == null) {
-                throw new IllegalArgumentException("syntaxStyle cannot be null");
-            }
-            if (originalClassName == null || originalClassName.isEmpty()) {
+            if (originalClassName.isEmpty()) {
                 throw new IllegalArgumentException("originalClassName cannot be null or empty");
             }
             files = Set.copyOf(files);
@@ -305,16 +250,10 @@ public class FragmentDtos {
      */
     public record CodeUnitDto(ProjectFileDto sourceFile, String kind, String packageName, String shortName) {
         public CodeUnitDto {
-            if (sourceFile == null) {
-                throw new IllegalArgumentException("sourceFile cannot be null");
-            }
-            if (kind == null || kind.isEmpty()) {
+            if (kind.isEmpty()) {
                 throw new IllegalArgumentException("kind cannot be null or empty");
             }
-            if (packageName == null) {
-                throw new IllegalArgumentException("packageName cannot be null");
-            }
-            if (shortName == null || shortName.isEmpty()) {
+            if (shortName.isEmpty()) {
                 throw new IllegalArgumentException("shortName cannot be null or empty");
             }
         }
@@ -345,6 +284,7 @@ public class FragmentDtos {
      * This is the primary DTO for representing a Context in persistent history.
      */
     public record CompactContextDto(
+            @Nullable String id, // may be null when loading V1
             List<String> editable,      
             List<String> readonly,      
             List<String> virtuals,      
@@ -352,13 +292,11 @@ public class FragmentDtos {
             @Nullable String parsedOutputId,   
             String action) {
         public CompactContextDto {
+            // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);
             tasks = List.copyOf(tasks);
-            if (action == null) {
-                throw new IllegalArgumentException("action cannot be null");
-            }
         }
     }
 

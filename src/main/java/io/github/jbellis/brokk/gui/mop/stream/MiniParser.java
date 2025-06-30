@@ -105,9 +105,7 @@ public class MiniParser {
                 var factory = factories.get(tagName);
                 try {
                     ComponentData component = factory.fromElement(element);
-                    if (component != null) {
-                        childrenData.add(component);
-                    }
+                    childrenData.add(component);
                 } catch (Exception ex) {
                     // Log the error but continue parsing - don't crash the UI
                     logger.warn("Failed to parse {} tag: {}. Error: {}", 

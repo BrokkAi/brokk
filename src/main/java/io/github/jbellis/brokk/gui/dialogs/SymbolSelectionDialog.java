@@ -26,10 +26,6 @@ public class SymbolSelectionDialog extends JDialog {
 
     public SymbolSelectionDialog(Frame parent, IAnalyzer analyzer, String title, Set<CodeUnitType> typeFilter) {
         super(parent, title, true); // modal dialog
-        assert parent != null;
-        assert title != null;
-        assert typeFilter != null;
-        assert analyzer != null;
 
         JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));

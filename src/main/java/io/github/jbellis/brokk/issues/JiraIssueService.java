@@ -28,12 +28,16 @@ public class JiraIssueService implements IssueService {
     private static final DateTimeFormatter JIRA_SECONDARY_DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MMM/yy HH:mm", java.util.Locale.ROOT);
 
     private final JiraAuth jiraAuth;
-    private final IProject project; // May be needed for project-specific Jira settings
+    private final IssueProvider provider;
     private @Nullable List<String> availableStatusesCache;
 
     public JiraIssueService(IProject project) {
-        this.project = project;
-        this.jiraAuth = new JiraAuth(project);
+        this(project.getIssuesProvider(), project);
+    }
+
+    public JiraIssueService(IssueProvider provider, @Nullable IProject project) {
+        this.provider = provider;
+        this.jiraAuth = new JiraAuth(provider, project);
     }
 
     @Nullable
@@ -68,16 +72,15 @@ public class JiraIssueService implements IssueService {
         }
         logger.debug("Attempting to list Jira issues with filter options: {}", filterOptions);
 
-        IssueProvider provider = project.getIssuesProvider();
-        if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called with non-Jira or misconfigured provider. Type: " + provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage = "JiraIssueService called with non-Jira or misconfigured provider. Type: " + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
 
         String baseUrl = jiraConfig.baseUrl();
         if (baseUrl.isBlank()) {
-            String errorMessage = "Jira base URL is not configured. Cannot list issues.";
+            String errorMessage = "Jira base URL is not configured in JiraConfig. Cannot list issues.";
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -208,9 +211,8 @@ public class JiraIssueService implements IssueService {
     public IssueDetails loadDetails(String issueId) throws IOException {
         logger.debug("Attempting to load Jira issue details for issueId: {}", issueId);
 
-        IssueProvider provider = project.getIssuesProvider();
-        if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called (loadDetails) with non-Jira or misconfigured provider. Type: " + provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage = "JiraIssueService called (loadDetails) with non-Jira or misconfigured provider. Type: " + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -374,16 +376,15 @@ public class JiraIssueService implements IssueService {
         }
 
         logger.debug("Fetching available statuses from Jira API.");
-        IssueProvider provider = project.getIssuesProvider();
-        if (provider.type() != IssueProviderType.JIRA || !(provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
-            String errorMessage = "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: " + provider.type();
+        if (this.provider.type() != IssueProviderType.JIRA || !(this.provider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig)) {
+            String errorMessage = "JiraIssueService called (listAvailableStatuses) with non-Jira or misconfigured provider. Type: " + this.provider.type();
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
 
         String baseUrl = jiraConfig.baseUrl();
         if (baseUrl.isBlank()) {
-            String errorMessage = "Jira base URL is not configured. Cannot list statuses.";
+            String errorMessage = "Jira base URL is not configured in JiraConfig. Cannot list statuses.";
             logger.error(errorMessage);
             throw new IOException(errorMessage);
         }
@@ -429,7 +430,7 @@ public class JiraIssueService implements IssueService {
                     }
                 }
                 logger.info("Successfully fetched {} Jira statuses.", statusNames.size());
-                this.availableStatusesCache = Collections.unmodifiableList(new ArrayList<>(statusNames)); // Cache a copy
+                this.availableStatusesCache = List.copyOf(statusNames); // Cache a copy
                 return this.availableStatusesCache;
             } else {
                 logger.error("Jira /status response is not a JSON array as expected. Body: {}", responseBodyString);

@@ -8,10 +8,13 @@ import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.*;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.ImageUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 
 import java.io.IOException;
@@ -19,7 +22,7 @@ import java.io.UncheckedIOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 
 /**
@@ -39,7 +42,7 @@ public abstract class CodePrompts {
             Avoid changing code or comments that are not directly related to the request.
 
             Do not comment on your modifications, only on the resulting code in isolation.
-            You must never output any comments about the progress or type of changes of your refactoring or generation. 
+            You must never output any comments about the progress or type of changes of your refactoring or generation.
             For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
             """.stripIndent();
 
@@ -57,6 +60,45 @@ public abstract class CodePrompts {
                 : OVEREAGER_REMINDER;
     }
 
+    /**
+     * Redacts SEARCH/REPLACE blocks from an AiMessage.
+     * If the message contains S/R blocks, they are replaced with "[elided SEARCH/REPLACE block]".
+     * If the message does not contain S/R blocks, or if the redacted text is blank, Optional.empty() is returned.
+     *
+     * @param aiMessage The AiMessage to process.
+     * @param parser    The EditBlockParser to use for parsing.
+     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
+     */
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
+        // Pass an empty set for trackedFiles as it's not needed for redaction.
+        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
+        // Check if there are actual S/R block objects, not just text parts
+        boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
+
+        if (!hasSrBlocks) {
+            // No S/R blocks, return message as is (if not blank)
+            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
+        } else {
+            // Contains S/R blocks, needs redaction
+            var blocks = parsedResult.blocks();
+            var sb = new StringBuilder();
+            for (int i = 0; i < blocks.size(); i++) {
+                var ob = blocks.get(i);
+                if (ob.block() == null) { // Plain text part
+                    sb.append(ob.text());
+                } else { // An S/R block
+                    sb.append("[elided SEARCH/REPLACE block]");
+                    // If the next output block is also an S/R block, add a newline
+                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
+                        sb.append('\n');
+                    }
+                }
+            }
+            String redactedText = sb.toString();
+            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
+        }
+    }
+
     public final List<ChatMessage> collectCodeMessages(IContextManager cm,
                                                        StreamingChatLanguageModel model,
                                                        EditBlockParser parser,
@@ -70,10 +112,10 @@ public abstract class CodePrompts {
         var reminder = reminderForModel(cm.getService(), model);
 
         messages.add(systemMessage(cm, reminder));
-        messages.addAll(cm.getWorkspaceReadOnlyMessages());
+        messages.addAll(getWorkspaceReadOnlyMessages(cm.liveContext()));
         messages.addAll(originalWorkspaceEditableMessages);
         messages.addAll(parser.exampleMessages());
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(getHistoryMessages(cm.liveContext()));
         messages.addAll(taskMessages);
         messages.addAll(getCurrentChangedFilesMessages(cm, changedFiles));
         messages.add(request);
@@ -88,7 +130,6 @@ public abstract class CodePrompts {
                                                          UserMessage request,
                                                          Set<ProjectFile> changedFiles,
                                                          List<ChatMessage> originalWorkspaceEditableMessages)
-    throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
 
@@ -116,8 +157,8 @@ public abstract class CodePrompts {
         var messages = new ArrayList<ChatMessage>();
 
         messages.add(systemMessage(cm, ""));
-        messages.addAll(cm.getWorkspaceContentsMessages());
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
+        messages.addAll(getHistoryMessages(cm.topContext()));
         messages.add(askRequest(input));
 
         return messages;
@@ -170,7 +211,7 @@ public abstract class CodePrompts {
         """.stripIndent().formatted(reminder);
     }
 
-    public UserMessage codeRequest(String input, String reminder, EditBlockParser parser) {
+    public UserMessage codeRequest(String input, String reminder, EditBlockParser parser, @Nullable ProjectFile file) {
         var instructions = """
         <instructions>
         Think about this request for changes to the supplied code.
@@ -196,7 +237,7 @@ public abstract class CodePrompts {
         
         If you are struggling to use a dependency or API correctly, stop and ask the user for help.
         """;
-        return new UserMessage(instructions + parser.instructions(input, reminder));
+        return new UserMessage(instructions + parser.instructions(input, file, reminder));
     }
 
     public UserMessage askRequest(String input) {
@@ -345,9 +386,9 @@ public abstract class CodePrompts {
      */
     public List<ChatMessage> collectFullFileReplacementMessages(IContextManager cm,
                                                                 ProjectFile targetFile,
+                                                                List<EditBlock.FailedBlock> failures,
                                                                 String goal,
                                                                 List<ChatMessage> taskMessages)
-    throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
 
@@ -356,21 +397,39 @@ public abstract class CodePrompts {
         // 2. No examples provided for full-file replacement
 
         // 3. History Messages (provides conversational context)
-        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(getHistoryMessages(cm.liveContext()));
 
         // 4. Workspace
-        messages.addAll(cm.getWorkspaceContentsMessages());
+        messages.addAll(getWorkspaceContentsMessages(cm.liveContext()));
 
         // 5. task-messages-so-far
         messages.addAll(taskMessages);
 
-        // 5. Target File Content + Goal
+        // 5. Target File Content + Goal + Failed Blocks
         String currentContent;
         try {
             currentContent = targetFile.read();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
         }
+
+        var failedBlocksText = failures.stream()
+                .map(f -> {
+                    var commentaryText = f.commentary().isBlank() ? "" : """
+                            <commentary>
+                            %s
+                            </commentary>
+                            """.formatted(f.commentary());
+                    return """
+                            <failed_block reason="%s">
+                            <block>
+                            %s
+                            </block>
+                            %s
+                            </failed_block>
+                            """.formatted(f.reason(), f.block().toString(), commentaryText);
+                })
+                .collect(Collectors.joining("\n"));
 
         var userMessage = """
             You are now performing a full-file replacement because previous edits failed.
@@ -385,7 +444,12 @@ public abstract class CodePrompts {
             %s
             </file>
             
-            Review the conversation history, workspace contents, and the current source code.
+            Here are the specific edit blocks that failed to apply:
+            <failed_blocks>
+            %s
+            </failed_blocks>
+            
+            Review the conversation history, workspace contents, the current source code, and the failed edit blocks.
             Figure out what changes we are trying to make to implement the goal,
             then provide the *complete and updated* new content for the entire file,
             fenced with triple backticks. Omit language identifiers or other markdown options.
@@ -393,59 +457,7 @@ public abstract class CodePrompts {
             You MUST include the backtick fences, even if the correct content is an empty file.
             DO NOT modify the file except for the changes pertaining to the goal!
             DO NOT use the SEARCH/REPLACE format you see earlier -- that didn't work!
-            """.formatted(goal, targetFile, currentContent);
-        messages.add(new UserMessage(userMessage));
-
-        return messages;
-    }
-
-    public List<ChatMessage> getSimpleFileReplaceMessages(IProject project, ProjectFile targetFile, String goal) {
-        var messages = new ArrayList<ChatMessage>();
-        var styleGuide = project.getStyleGuide();
-
-        // 1. System Intro + Style Guide
-        var text = """
-          <instructions>
-          %s
-          </instructions>
-          <style_guide>
-          %s
-          </style_guide>
-          """.stripIndent().formatted(systemIntro(LAZY_REMINDER), styleGuide).trim();
-        messages.add(new SystemMessage(text));
-
-        // 2. Target File Content + Goal
-        String currentContent;
-        try {
-            currentContent = targetFile.read();
-        } catch (IOException e) {
-            throw new UncheckedIOException("Failed to read target file for full replacement prompt: " + targetFile, e);
-        }
-
-        var userMessage = """
-            You are now performing a full-file replacement of a single file.
-            
-            Here is your goal:
-            <goal>
-            %s
-            </goal>
-            
-            Here is the current content of the file:
-            <file source="%s">
-            %s
-            </file>
-            
-            Figure out the necessary changes to implement the goal,
-            then provide the *complete and updated* new content for the entire file,
-            fenced with triple backticks. Omit language identifiers or other markdown options.
-
-            Think about your answer before starting to edit.
-            You MUST include the backtick fences, even if the correct content is an empty file.
-            DO NOT modify the file except for the changes pertaining to the goal!
-            
-            As a special case, if no changes are required, then give the special marker BRK_NO_CHANGES_REQUIRED
-            and do not repeat the file contents.
-            """.formatted(goal, targetFile, currentContent);
+            """.formatted(goal, targetFile, currentContent, failedBlocksText);
         messages.add(new UserMessage(userMessage));
 
         return messages;
@@ -455,19 +467,18 @@ public abstract class CodePrompts {
      * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.).
      * Does not include editable content or related classes.
      */
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(IContextManager cm) throws InterruptedException {
-        var c = cm.liveContext();
+    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(Context ctx) {
         var allContents = new ArrayList<Content>();
 
         // --- Process Read-Only Fragments from liveContext (Files, Virtual, AutoContext) ---
         var readOnlyTextFragments = new StringBuilder();
         var readOnlyImageFragments = new ArrayList<ImageContent>();
-        c.getReadOnlyFragments()
+        ctx.getReadOnlyFragments()
                 .forEach(fragment -> {
                     if (fragment.isText()) {
                         // Handle text-based fragments
                         String formatted = fragment.format(); // No analyzer
-                        if (formatted != null && !formatted.isBlank()) {
+                        if (!formatted.isBlank()) {
                             readOnlyTextFragments.append(formatted).append("\n\n");
                         }
                     } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE ||
@@ -488,7 +499,7 @@ public abstract class CodePrompts {
                         // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
                         // Just add their formatted representation as text
                         String formatted = fragment.format(); // No analyzer
-                        if (formatted != null && !formatted.isBlank()) {
+                        if (!formatted.isBlank()) {
                             readOnlyTextFragments.append(formatted).append("\n\n");
                         }
                     }
@@ -521,14 +532,12 @@ public abstract class CodePrompts {
      * Returns messages containing only the editable workspace content.
      * Does not include read-only content or related classes.
      */
-    public final Collection<ChatMessage> getWorkspaceEditableMessages(IContextManager cm) throws InterruptedException {
-        var c = cm.liveContext();
-
+    public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
         // --- Process Editable Fragments ---
         var editableTextFragments = new StringBuilder();
-        c.getEditableFragments().forEach(fragment -> {
+        ctx.getEditableFragments().forEach(fragment -> {
             String formatted = fragment.format(); // format() on live fragment
-            if (formatted != null && !formatted.isBlank()) {
+            if (!formatted.isBlank()) {
                 editableTextFragments.append(formatted).append("\n\n");
             }
         });
@@ -559,12 +568,12 @@ public abstract class CodePrompts {
      *
      * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
      */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(IContextManager cm, boolean includeRelatedClasses) throws InterruptedException {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(cm);
-        var editableMessages = getWorkspaceEditableMessages(cm);
+    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx) {
+        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx);
+        var editableMessages = getWorkspaceEditableMessages(ctx);
 
         // If both are empty and no related classes requested, return empty
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && !includeRelatedClasses) {
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
             return List.of();
         }
 
@@ -605,51 +614,27 @@ public abstract class CodePrompts {
             }
         }
 
-        // optional: related classes
-        String topClassesText = "";
-        if (includeRelatedClasses && cm.getAnalyzerWrapper().isCpg()) {
-            var acFragment = cm.liveContext().buildAutoContext(10); // Assumes liveContext() is available on IContextManager
-            String topClassesRaw = acFragment.text();
-            if (!topClassesRaw.isBlank()) {
-                topClassesText = """
-                               <related_classes>
-                               Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
-                               If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                               visible to Code Agent. If they are not relevant, just ignore them.
-                               
-                               %s
-                               </related_classes>
-                               """.stripIndent().formatted(topClassesRaw);
-            }
-        }
-
         // Wrap everything in workspace tags
         var workspaceText = """
                            <workspace>
                            %s
                            </workspace>
-                           %s
-                           """.stripIndent().formatted(combinedText.toString().trim(), topClassesText);
+                           """.stripIndent().formatted(combinedText.toString().trim());
 
         // Add the workspace text as the first content
-        allContents.add(0, new TextContent(workspaceText));
+        allContents.addFirst(new TextContent(workspaceText));
 
         // Create the main UserMessage
         var workspaceUserMessage = UserMessage.from(allContents);
         return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
     }
-
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(IContextManager cm) throws InterruptedException {
-        return getWorkspaceContentsMessages(cm, false);
-    }
-
+    
     /**
      * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
-    public final Collection<ChatMessage> getWorkspaceSummaryMessages(IContextManager cm) {
-        var c = requireNonNull(cm.topContext());
-        var summaries = Streams.concat(c.getReadOnlyFragments(), c.getEditableFragments())
+    public final Collection<ChatMessage> getWorkspaceSummaryMessages(Context ctx) {
+        var summaries = Streams.concat(ctx.getReadOnlyFragments(), ctx.getEditableFragments())
                 .map(ContextFragment::formatSummary)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
@@ -695,7 +680,11 @@ public abstract class CodePrompts {
                               """.stripIndent().formatted(originalWorkspaceEditableContent);
 
         var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+        return List.of(editableUserMessage, getAiWorkspaceResponse());
+    }
+
+    private static @NotNull AiMessage getAiWorkspaceResponse() {
+        return new AiMessage("Thank you for the original editable Workspace state.\n\nIMPORTANT SYSTEM NOTE: I WILL NOW INJECT TWO EXAMPLES OF HYPOTHETICAL USER REQUESTS AND AI RESPONSES TO ILLUSTRATE PROPER *SEARCH/REPLACE* BLOCK GENERATION. MESSAGES AFTER THOSE WILL BE REAL.");
     }
 
     public List<ChatMessage> getSingleFileEditableMessage(ProjectFile file) {
@@ -714,7 +703,7 @@ public abstract class CodePrompts {
                                   </workspace_editable_original>
                                   """.stripIndent().formatted(file.toString(), file.read());
             var editableUserMessage = new UserMessage(editableText);
-            return List.of(editableUserMessage, new AiMessage("Thank you for the original editable Workspace state."));
+            return List.of(editableUserMessage, getAiWorkspaceResponse());
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -775,5 +764,53 @@ public abstract class CodePrompts {
 
         var currentStateUserMessage = new UserMessage(currentStateText);
         return List.of(currentStateUserMessage, new AiMessage("Thank you for the current state of the file."));
+    }
+
+    public List<ChatMessage> getHistoryMessages(Context ctx) {
+        var taskHistory = ctx.getTaskHistory();
+        var messages = new ArrayList<ChatMessage>();
+        EditBlockParser parser = getParser(ctx);
+
+        // Merge compressed messages into a single taskhistory message
+        var compressed = taskHistory.stream()
+                .filter(TaskEntry::isCompressed)
+                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
+                .collect(Collectors.joining("\n\n"));
+        if (!compressed.isEmpty()) {
+            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
+            messages.add(new AiMessage("Ok, I see the history."));
+        }
+
+        // Uncompressed messages: process for S/R block redaction
+        taskHistory.stream()
+                .filter(e -> !e.isCompressed())
+                .forEach(e -> {
+                    var entryRawMessages = castNonNull(e.log()).messages();
+                    // Determine the messages to include from the entry
+                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
+                                                ? entryRawMessages
+                                                : entryRawMessages.subList(0, entryRawMessages.size() - 1);
+
+                    List<ChatMessage> processedMessages = new ArrayList<>();
+                    for (var chatMessage : relevantEntryMessages) {
+                        if (chatMessage instanceof AiMessage aiMessage) {
+                            redactAiMessage(aiMessage, parser).ifPresent(processedMessages::add);
+                        } else {
+                            // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
+                            processedMessages.add(chatMessage);
+                        }
+                    }
+                    messages.addAll(processedMessages);
+                });
+
+        return messages;
+    }
+
+    public EditBlockParser getParser(Context ctx) {
+        var allText = ctx.allFragments()
+                .filter(ContextFragment::isText)
+                .map(ContextFragment::text)
+                .collect(Collectors.joining("\n"));
+        return EditBlockParser.getParserFor(allText);
     }
 }

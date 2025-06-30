@@ -31,18 +31,6 @@ public interface IContextManager {
         return List.of();
     }
 
-    default Collection<? extends ChatMessage> getWorkspaceContentsMessages() throws InterruptedException {
-        return List.of();
-    }
-
-    default Collection<ChatMessage> getWorkspaceReadOnlyMessages() throws InterruptedException {
-        return List.of();
-    }
-
-    default Collection<ChatMessage> getWorkspaceEditableMessages() throws InterruptedException {
-        return List.of();
-    }
-
     default String getEditableSummary() {
         return "";
     }
@@ -98,7 +86,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Set<BrokkFile> getReadonlyFiles() {
+    default Set<BrokkFile> getReadonlyProjectFiles() {
         throw new UnsupportedOperationException();
     }
 

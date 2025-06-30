@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import io.github.jbellis.brokk.Service.ModelConfig;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -25,6 +26,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -39,6 +41,8 @@ public final class MainProject extends AbstractProject {
     private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path reviewGuidePath;
+    private final Path mainWorkspacePropertiesPath;
+    private final Properties mainWorkspaceProps;
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
@@ -86,7 +90,6 @@ public final class MainProject extends AbstractProject {
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
 
     private final Path sessionsDir;
-    private final Path legacySessionsIndexPath;
 
     public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
 
@@ -106,6 +109,8 @@ public final class MainProject extends AbstractProject {
             - what parts are the trickiest and how could they be simplified
             """.stripIndent();
 
+    private final Map<UUID, SessionInfo> sessionsCache;
+
     public record ProjectPersistentInfo(long lastOpened, List<String> openWorktrees) {
         public ProjectPersistentInfo {
         }
@@ -122,7 +127,8 @@ public final class MainProject extends AbstractProject {
         this.styleGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("style.md");
         this.reviewGuidePath = this.masterRootPathForConfig.resolve(".brokk").resolve("review.md");
         this.sessionsDir = this.masterRootPathForConfig.resolve(".brokk").resolve("sessions");
-        this.legacySessionsIndexPath = this.sessionsDir.resolve("sessions.jsonl");
+        this.mainWorkspacePropertiesPath = this.root.resolve(".brokk").resolve("workspace.properties");
+        this.mainWorkspaceProps = new Properties();
 
         this.projectProps = new Properties();
 
@@ -131,17 +137,79 @@ public final class MainProject extends AbstractProject {
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
                     projectProps.load(reader);
                 }
-                var bd = loadBuildDetailsInternal(); // Uses projectProps
-                if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
-                    this.detailsFuture.complete(bd);
-                }
             }
         } catch (IOException e) {
             logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
             projectProps.clear();
         }
+
+        try {
+            if (Files.exists(mainWorkspacePropertiesPath)) {
+                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
+                    mainWorkspaceProps.load(reader);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Error loading workspace properties from {}: {}", mainWorkspacePropertiesPath, e.getMessage());
+            mainWorkspaceProps.clear();
+        }
+
+        // Migrate Architect options from projectProps to workspaceProps
+        boolean migratedArchitectSettings = false;
+        if (projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY) ||
+                !mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY).equals(projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY))) {
+                 mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY));
+                 migratedArchitectSettings = true;
+            }
+            projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY);
+            // Ensure projectProps is saved if a key is removed, even if not transferred (e.g. already in workspace)
+            // This flag will trigger saveProjectProperties if any key was removed.
+            // migratedArchitectSettings specifically tracks if data was written to workspaceProps.
+            if (!migratedArchitectSettings && mainWorkspaceProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY)) {
+                 // Key was in projectProps, removed, but already existed (maybe identically) in workspaceProps.
+                 // We still need to save projectProps due to removal.
+                 // Let's use a broader flag for saving projectProps.
+            }
+        }
+        // boolean projectPropsChangedByMigration = projectProps.containsKey(ARCHITECT_OPTIONS_JSON_KEY); // This variable is not used
+
+        if (projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY)) {
+            if (!mainWorkspaceProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY) ||
+                !mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY).equals(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY))) {
+                mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY));
+                migratedArchitectSettings = true;
+            }
+            projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY);
+            // projectPropsChangedByMigration = projectPropsChangedByMigration || projectProps.containsKey(ARCHITECT_RUN_IN_WORKTREE_KEY); // This variable is not used
+        }
+        
+        // Determine if projectProps needs saving due to removal of architect keys.
+        boolean removedKey1 = projectProps.remove(ARCHITECT_OPTIONS_JSON_KEY) != null;
+        boolean removedKey2 = projectProps.remove(ARCHITECT_RUN_IN_WORKTREE_KEY) != null;
+        boolean needsProjectSave = removedKey1 || removedKey2;
+
+
+        if (migratedArchitectSettings) { // Data was written to workspaceProps
+            persistWorkspacePropertiesFile();
+            logger.info("Migrated Architect options from project.properties to workspace.properties for {}", root.getFileName());
+        }
+        if (needsProjectSave) { // Keys were removed from projectProps
+            saveProjectProperties();
+            if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in workspace)
+                 logger.info("Removed Architect options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
+            }
+        }
+        
+        // Load build details AFTER projectProps might have been modified by migration (though build details keys are not affected here)
+        var bd = loadBuildDetailsInternal(); // Uses projectProps
+        if (!bd.equals(BuildAgent.BuildDetails.EMPTY)) {
+            this.detailsFuture.complete(bd);
+        }
+
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
+        this.sessionsCache = loadSessions();
     }
 
     @Override
@@ -458,10 +526,10 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
-    @Nullable private volatile io.github.jbellis.brokk.IssueProvider issuesProviderCache = null;
+    @Nullable private volatile IssueProvider issuesProviderCache = null;
 
     @Override
-    public io.github.jbellis.brokk.IssueProvider getIssuesProvider() {
+    public IssueProvider getIssuesProvider() {
         if (issuesProviderCache != null) {
             return issuesProviderCache;
         }
@@ -469,40 +537,20 @@ public final class MainProject extends AbstractProject {
         String json = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
-                issuesProviderCache = objectMapper.readValue(json, io.github.jbellis.brokk.IssueProvider.class);
+                issuesProviderCache = objectMapper.readValue(json, IssueProvider.class);
                 return issuesProviderCache;
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize IssueProvider from JSON: {}. Will attempt migration or default.", json, e);
             }
         }
-
-        // Migration from old properties
-        String oldProviderEnumName = projectProps.getProperty(OLD_ISSUE_PROVIDER_ENUM_KEY);
-        if (oldProviderEnumName != null) {
-            io.github.jbellis.brokk.issues.IssueProviderType oldType = io.github.jbellis.brokk.issues.IssueProviderType.fromString(oldProviderEnumName);
-            if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.JIRA) {
-                String baseUrl = projectProps.getProperty(JIRA_PROJECT_BASE_URL_KEY, "");
-                String apiToken = projectProps.getProperty(JIRA_PROJECT_API_TOKEN_KEY, "");
-                String projectKey = projectProps.getProperty(JIRA_PROJECT_KEY_KEY, "");
-                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.jira(baseUrl, apiToken, projectKey);
-            } else if (oldType == io.github.jbellis.brokk.issues.IssueProviderType.GITHUB) {
-                // Old GitHub had no specific config, so it's the default GitHub config
-                issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
-            }
-            // If migrated, save new format and remove old keys
-            if (issuesProviderCache != null) {
-                setIssuesProvider(issuesProviderCache); // This will save and clear old keys
-                logger.info("Migrated issue provider settings from old format for project {}", getRoot().getFileName());
-                return issuesProviderCache;
-            }
-        }
-
+        
         // Defaulting logic if no JSON and no old properties
         if (isGitHubRepo()) {
-            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.github();
+            issuesProviderCache = IssueProvider.github();
         } else {
-            issuesProviderCache = io.github.jbellis.brokk.IssueProvider.none();
+            issuesProviderCache = IssueProvider.none();
         }
+
         // Save the default so it's persisted
         setIssuesProvider(issuesProviderCache);
         logger.info("Defaulted issue provider to {} for project {}", issuesProviderCache.type(), getRoot().getFileName());
@@ -510,11 +558,31 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public void setIssuesProvider(io.github.jbellis.brokk.IssueProvider provider) {
+    public void setIssuesProvider(IssueProvider provider) {
+        IssueProvider oldProvider = this.issuesProviderCache;
+        IssueProviderType oldType = null;
+        if (oldProvider != null) {
+            oldType = oldProvider.type();
+        } else {
+            // Attempt to load from props if cache is null to get a definitive "before" type
+            String currentJsonInProps = projectProps.getProperty(ISSUES_PROVIDER_JSON_KEY);
+            if (currentJsonInProps != null && !currentJsonInProps.isBlank()) {
+                try {
+                    IssueProvider providerFromProps = objectMapper.readValue(currentJsonInProps, IssueProvider.class);
+                    oldType = providerFromProps.type();
+                } catch (JsonProcessingException e) {
+                    // Log or ignore, oldType remains null or determined by migration if applicable
+                    logger.debug("Could not parse existing IssueProvider JSON from properties while determining old type: {}", e.getMessage());
+                }
+            }
+        }
+
+        var newType = provider.type();
+
         try {
             String json = objectMapper.writeValueAsString(provider);
             projectProps.setProperty(ISSUES_PROVIDER_JSON_KEY, json);
-            issuesProviderCache = provider;
+            this.issuesProviderCache = provider; // Update cache
 
             // Remove old keys after successful new key storage
             boolean removedOld = projectProps.remove(OLD_ISSUE_PROVIDER_ENUM_KEY) != null;
@@ -527,6 +595,12 @@ public final class MainProject extends AbstractProject {
 
             saveProjectProperties();
             logger.info("Set issue provider to type '{}' for project {}", provider.type(), getRoot().getFileName());
+
+            // Notify listeners if the provider *type* has changed.
+            if (oldType != newType) {
+                logger.debug("Issue provider type changed from {} to {}. Notifying listeners.", oldType, newType);
+                notifyIssueProviderChanged();
+            }
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize IssueProvider to JSON: {}. Settings not saved.", provider, e);
             throw new RuntimeException("Failed to serialize IssueProvider", e);
@@ -539,19 +613,37 @@ public final class MainProject extends AbstractProject {
         // For now, keep local implementation matching AbstractProject's logic.
         try {
             Files.createDirectories(propertiesFile.getParent());
+            Properties existingProps = new Properties();
             if (Files.exists(propertiesFile)) {
-                Properties existingProps = new Properties();
                 try (var reader = Files.newBufferedReader(propertiesFile)) {
                     existingProps.load(reader);
-                } catch (IOException e) { /* ignore */ }
+                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+            }
 
-                if (Objects.equals(existingProps, projectProps)) { // Use AbstractProject.propsEqual
-                    return;
-                }
+            if (Objects.equals(existingProps, projectProps)) {
+                return;
             }
             AtomicWrites.atomicSaveProperties(propertiesFile, projectProps, "Brokk project configuration");
         } catch (IOException e) {
             logger.error("Error saving properties to {}: {}", propertiesFile, e.getMessage());
+        }
+    }
+
+    private void persistWorkspacePropertiesFile() {
+        try {
+            Files.createDirectories(mainWorkspacePropertiesPath.getParent());
+            Properties existingProps = new Properties();
+            if (Files.exists(mainWorkspacePropertiesPath)) {
+                try (var reader = Files.newBufferedReader(mainWorkspacePropertiesPath)) {
+                    existingProps.load(reader);
+                } catch (IOException e) { /* ignore loading error, will attempt to save anyway */ }
+            }
+            if (Objects.equals(existingProps, mainWorkspaceProps)) {
+                return;
+            }
+            AtomicWrites.atomicSaveProperties(mainWorkspacePropertiesPath, mainWorkspaceProps, "Brokk workspace configuration");
+        } catch (IOException e) {
+            logger.error("Error saving workspace properties to {}: {}", mainWorkspacePropertiesPath, e.getMessage());
         }
     }
 
@@ -666,6 +758,7 @@ public final class MainProject extends AbstractProject {
             logger.error("Error writing manifest.json to {}: {}", zipPath.getFileName(), e.getMessage());
             throw e;
         }
+        sessionsCache.put(sessionInfo.id(), sessionInfo);
     }
 
     @Override
@@ -802,6 +895,16 @@ public final class MainProject extends AbstractProject {
         notifyGitHubTokenChanged();
     }
 
+    private static void notifyIssueProviderChanged() {
+        for (SettingsChangeListener listener : settingsChangeListeners) {
+            try {
+                listener.issueProviderChanged();
+            } catch (Exception e) {
+                logger.error("Error notifying listener of issue provider change", e);
+            }
+        }
+    }
+
     private static void notifyGitHubTokenChanged() {
         for (SettingsChangeListener listener : settingsChangeListeners) {
             try {
@@ -814,12 +917,12 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public ArchitectAgent.ArchitectOptions getArchitectOptions() {
-        String json = projectProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
+        String json = mainWorkspaceProps.getProperty(ARCHITECT_OPTIONS_JSON_KEY);
         if (json != null && !json.isBlank()) {
             try {
                 return objectMapper.readValue(json, ArchitectAgent.ArchitectOptions.class);
             } catch (JsonProcessingException e) {
-                logger.error("Failed to deserialize ArchitectOptions from JSON: {}. Returning defaults.", json, e);
+                logger.error("Failed to deserialize ArchitectOptions from workspace JSON: {}. Returning defaults.", json, e);
             }
         }
         return ArchitectAgent.ArchitectOptions.DEFAULTS;
@@ -827,19 +930,19 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean getArchitectRunInWorktree() {
-        return Boolean.parseBoolean(projectProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
+        return Boolean.parseBoolean(mainWorkspaceProps.getProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, "false"));
     }
 
     @Override
     public void setArchitectOptions(ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         try {
             String json = objectMapper.writeValueAsString(options);
-            projectProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
-            projectProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
-            saveProjectProperties();
-            logger.debug("Saved Architect options and worktree preference to project properties.");
+            mainWorkspaceProps.setProperty(ARCHITECT_OPTIONS_JSON_KEY, json);
+            mainWorkspaceProps.setProperty(ARCHITECT_RUN_IN_WORKTREE_KEY, String.valueOf(runInWorktree));
+            persistWorkspacePropertiesFile();
+            logger.debug("Saved Architect options and worktree preference to workspace properties.");
         } catch (JsonProcessingException e) {
-            logger.error("Failed to serialize ArchitectOptions to JSON: {}. Settings not saved.", options, e);
+            logger.error("Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
     }
@@ -1299,68 +1402,25 @@ public final class MainProject extends AbstractProject {
     }
 
 
-    @Override
-    public List<SessionInfo> listSessions() {
-        var sessions = new ArrayList<SessionInfo>();
-        var sessionIdsFromManifests = new HashSet<UUID>();
+    private Map<UUID, SessionInfo> loadSessions() {
+        var sessions = new ConcurrentHashMap<UUID, SessionInfo>();
         try {
             Files.createDirectories(sessionsDir);
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
                         .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
-                            sessions.add(sessionInfo);
-                            sessionIdsFromManifests.add(sessionInfo.id());
+                            sessions.put(sessionInfo.id(), sessionInfo);
                         }));
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
         }
-        var legacySessionIds = new HashSet<UUID>();
-        if (Files.exists(legacySessionsIndexPath)) {
-            logger.debug("Attempting to read legacy sessions from {}", legacySessionsIndexPath);
-            try {
-                var lines = Files.readAllLines(legacySessionsIndexPath);
-                for (String line : lines) {
-                    if (!line.trim().isEmpty()) {
-                        try {
-                            var legacySessionInfo = objectMapper.readValue(line, SessionInfo.class);
-                            legacySessionIds.add(legacySessionInfo.id());
-                            if (!sessionIdsFromManifests.contains(legacySessionInfo.id())) {
-                                Path correspondingZip = getSessionHistoryPath(legacySessionInfo.id());
-                                if (Files.exists(correspondingZip)) {
-                                    sessions.add(legacySessionInfo);
-                                    
-                                    // Migrate on the spot - write manifest to zip
-                                    try {
-                                        writeSessionInfoToZip(correspondingZip, legacySessionInfo);
-                                        sessionIdsFromManifests.add(legacySessionInfo.id());
-                                        logger.info("Migrated session {} into its zip manifest", legacySessionInfo.id());
-                                    } catch (IOException e) {
-                                        logger.warn("Unable to migrate legacy session {}: {}", legacySessionInfo.id(), e.getMessage());
-                                    }
-                                } else {
-                                    logger.warn("Orphaned session {} in legacy sessions.jsonl (no zip found), skipping.", legacySessionInfo.id());
-                                }
-                            }
-                        } catch (JsonProcessingException e) {
-                            logger.error("Failed to parse legacy SessionInfo from line: {}", line, e);
-                        }
-                    }
-                }
-                
-                // Delete legacy file if all sessions were successfully migrated
-                if (sessionIdsFromManifests.containsAll(legacySessionIds)) {
-                    try {
-                        Files.delete(legacySessionsIndexPath);
-                        logger.info("Successfully migrated all legacy sessions and deleted {}", legacySessionsIndexPath.getFileName());
-                    } catch (IOException e) {
-                        logger.warn("Could not delete legacy sessions.jsonl: {}", e.getMessage());
-                    }
-                }
-            } catch (IOException e) {
-                logger.error("Error reading legacy sessions index {}: {}", legacySessionsIndexPath, e.getMessage());
-            }
-        }
+        return sessions;
+    }
+
+    @Override
+    public List<SessionInfo> listSessions() {
+        var sessions = new ArrayList<>(sessionsCache.values());
         sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
         return sessions;
     }
@@ -1416,6 +1476,7 @@ public final class MainProject extends AbstractProject {
             } else {
                 logger.warn("Session zip {} not found for deletion, or already deleted.", historyZipPath.getFileName());
             }
+            sessionsCache.remove(sessionId);
         } catch (IOException e) {
             logger.error("Error deleting history zip for session {}: {}", sessionId, e.getMessage());
         }

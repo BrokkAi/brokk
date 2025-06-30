@@ -48,11 +48,6 @@ public final class ScrollingUtils {
      * Scrolls a component into view with a specified position ratio.
      */
     public static void scrollToComponent(JComponent component, double positionRatio) {
-        if (component == null) {
-            logger.trace("scrollToComponent called with null component.");
-            return;
-        }
-
         SwingUtilities.invokeLater(() -> {
             JScrollPane scrollPane = findParentScrollPane(component);
 
@@ -105,10 +100,6 @@ public final class ScrollingUtils {
      * Centers a rectangle in the viewport.
      */
     public static void centerRectInViewport(JViewport viewport, Rectangle targetRect, double positionRatio) {
-        if (viewport == null || targetRect == null) {
-            return;
-        }
-
         int viewportHeight = viewport.getHeight();
         int targetY = Math.max(0, (int)(targetRect.y - viewportHeight * positionRatio));
 

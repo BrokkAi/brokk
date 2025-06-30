@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.search;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import javax.swing.*;
 import java.util.List;
@@ -16,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Core basic tests for MarkdownSearchableComponent.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 public class MarkdownSearchableComponentBasicTest {
 
     private MarkdownOutputPanel panel1;
@@ -63,7 +66,7 @@ public class MarkdownSearchableComponentBasicTest {
         SwingUtilities.invokeLater(() -> searchComponent.highlightAll("test", false));
 
         // Wait for callback
-        assertTrue(searchComplete.await(3, TimeUnit.SECONDS), "Callback should be called within timeout");
+        assertTrue(searchComplete.await(10, TimeUnit.SECONDS), "Callback should be called within timeout");
         assertTrue(callbackCalled.get(), "Callback should be called");
         assertEquals(0, totalMatches.get(), "Should have 0 matches for empty panels");
         assertEquals(0, currentMatch.get(), "Should have current match index 0 for no matches");

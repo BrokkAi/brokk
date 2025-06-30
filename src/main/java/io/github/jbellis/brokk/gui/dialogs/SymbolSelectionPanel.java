@@ -1,13 +1,11 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.CompletionProvider;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 
@@ -17,7 +15,7 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
-import java.util.Locale; // Added import
+import java.util.Locale;
 import java.util.Set;
 
 /**

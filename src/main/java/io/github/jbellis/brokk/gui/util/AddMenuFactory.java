@@ -37,7 +37,7 @@ public final class AddMenuFactory {
             wp.performContextActionAsync(WorkspacePanel.ContextAction.EDIT, List.<ContextFragment>of());
         });
         // Only add Edit Files when git is present
-        if (wp.getContextManager() != null && wp.getContextManager().getProject() != null && wp.getContextManager().getProject().hasGit()) {
+        if (wp.getContextManager().getProject().hasGit()) {
             parent.add(editMenuItem);
         }
 

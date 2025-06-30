@@ -219,9 +219,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private void reDisplay()
     {
         for (var fp : filePanels.values()) {
-            if (fp != null) {
-                fp.reDisplay();
-            }
+            fp.reDisplay();
         }
         mainPanel.repaint();
     }
@@ -246,7 +244,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Fallback if diffNode or its name is not available
         var titles = new ArrayList<String>();
         for (var fp : filePanels.values()) {
-            if (fp == null) continue;
             var bd = fp.getBufferDocument();
             if (bd != null && !bd.getShortName().isBlank()) {
                 titles.add(bd.getShortName());
@@ -654,7 +651,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     public void doSave()
     {
         for (var fp : filePanels.values()) {
-            if (fp == null) continue;
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
 
@@ -723,7 +719,6 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Refresh RSyntax themes and highlights in each child FilePanel
         for (FilePanel fp : filePanels.values()) {
-            if (fp == null) continue;
             // Note: fp.applyTheme() already calls reDisplay()
             fp.applyTheme(guiTheme);
         }

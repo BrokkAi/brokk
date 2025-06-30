@@ -8,7 +8,10 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.IContextManager;
+import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
@@ -32,7 +35,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * The BuildAgent class is responsible for executing a process to gather and report build details
@@ -58,8 +60,6 @@ public class BuildAgent {
 
     public BuildAgent(IProject project, Llm llm, ToolRegistry toolRegistry) {
         this.project = project;
-        assert llm != null : "coder cannot be null";
-        assert toolRegistry != null : "toolRegistry cannot be null";
         this.llm = llm;
         this.toolRegistry = toolRegistry;
     }
@@ -145,11 +145,11 @@ public class BuildAgent {
             }
 
             if (result.error() != null) {
-                logger.error("LLM error in BuildInfoAgent: " + result.error().getMessage());
+                logger.error("LLM error in BuildInfoAgent: {}", result.error().getMessage());
                 return BuildDetails.EMPTY;
             }
 
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             chatHistory.add(aiMessage); // Add AI request message to history
 
             // 5. Process Tool Execution Requests
@@ -202,7 +202,7 @@ public class BuildAgent {
             // Only proceed if no terminal action was requested this turn
             for (var request : otherRequests) {
                 String toolName = request.name();
-                logger.trace(String.format("Agent action: %s (%s)", toolName, request.arguments()));
+                logger.trace("Agent action: {} ({})", toolName, request.arguments());
                 ToolExecutionResult execResult = toolRegistry.executeTool(this, request);
                 ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
 
@@ -364,6 +364,10 @@ public class BuildAgent {
             return details.buildLintCommand();
         }
 
+        return getBuildLintCommand(cm, details, workspaceTestFiles);
+    }
+
+    public static String getBuildLintCommand(IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {
         // Determine if template is files-based or classes-based
         String testSomeTemplate = details.testSomeCommand();
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
@@ -414,7 +418,7 @@ public class BuildAgent {
      * Supports {{files}} and {{classes}} variables with {{^-last}} separators.
      */
     private static String interpolateMustacheTemplate(String template, List<String> items, boolean isFilesBased) {
-        if (template == null || template.isEmpty()) {
+        if (template.isEmpty()) {
             return "";
         }
 

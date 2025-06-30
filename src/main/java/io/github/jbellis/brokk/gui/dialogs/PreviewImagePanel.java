@@ -15,6 +15,7 @@ import java.io.IOException;
 public class PreviewImagePanel extends JPanel {
     @Nullable
     private final BrokkFile file;
+    @Nullable
     private BufferedImage image;
 
     public PreviewImagePanel(@Nullable BrokkFile file) {
@@ -82,11 +83,8 @@ public class PreviewImagePanel extends JPanel {
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
 
         var project = contextManager.getProject();
-        assert project != null;
         var storedBounds = project.getPreviewWindowBounds();
-        if (storedBounds != null) {
-            frame.setBounds(storedBounds);
-        }
+        frame.setBounds(storedBounds);
 
         // Add listener to save bounds
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {

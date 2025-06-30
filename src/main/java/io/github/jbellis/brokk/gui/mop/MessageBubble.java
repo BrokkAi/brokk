@@ -155,46 +155,43 @@ public class MessageBubble extends JPanel {
         contentArea.setOpaque(false);
         contentArea.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        // Only add header if both title and iconText are not null
-        if (title != null && iconText != null) {
-            // Add a header row with icon and label
-            JPanel headerPanel = new JPanel(new BorderLayout());
-            headerPanel.setBackground(getBackground());
-            headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Add a header row with icon and label
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(getBackground());
+        headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-            // Create a simple panel with BoxLayout for the icon and title
-            JPanel iconTitlePanel = new JPanel();
-            iconTitlePanel.setLayout(new BoxLayout(iconTitlePanel, BoxLayout.X_AXIS));
-            iconTitlePanel.setOpaque(false);
+        // Create a simple panel with BoxLayout for the icon and title
+        JPanel iconTitlePanel = new JPanel();
+        iconTitlePanel.setLayout(new BoxLayout(iconTitlePanel, BoxLayout.X_AXIS));
+        iconTitlePanel.setOpaque(false);
 
-            // Icon
-            JLabel iconLabel = new JLabel(iconText);
-            iconLabel.setForeground(highlightColor);
-            iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD, 16f));
-            iconTitlePanel.add(iconLabel);
+        // Icon
+        JLabel iconLabel = new JLabel(iconText);
+        iconLabel.setForeground(highlightColor);
+        iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD, 16f));
+        iconTitlePanel.add(iconLabel);
 
-            // Title
-            JLabel titleLabel = new JLabel(" " + title);  // Add a space after the icon
-            titleLabel.setForeground(highlightColor);
-            titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
-            iconTitlePanel.add(titleLabel);
+        // Title
+        JLabel titleLabel = new JLabel(" " + title);  // Add a space after the icon
+        titleLabel.setForeground(highlightColor);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
+        iconTitlePanel.add(titleLabel);
 
-            // Add the panel with icon+title to the WEST position of the BorderLayout
-            headerPanel.add(iconTitlePanel, BorderLayout.WEST);
+        // Add the panel with icon+title to the WEST position of the BorderLayout
+        headerPanel.add(iconTitlePanel, BorderLayout.WEST);
 
-            // Set minimum and preferred size for header panel to ensure it spans the full width
-            headerPanel.setMinimumSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
-            headerPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
+        // Set minimum and preferred size for header panel to ensure it spans the full width
+        headerPanel.setMinimumSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
+        headerPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
 
-            // Add a horizontal glue to push everything to the left
-            headerPanel.add(Box.createHorizontalGlue(), BorderLayout.CENTER);
+        // Add a horizontal glue to push everything to the left
+        headerPanel.add(Box.createHorizontalGlue(), BorderLayout.CENTER);
 
-            // Add header to the content area
-            contentArea.add(headerPanel);
+        // Add header to the content area
+        contentArea.add(headerPanel);
 
-            // Add a small gap between header and content
-            contentArea.add(Box.createRigidArea(new Dimension(0, 5)));
-        }
+        // Add a small gap between header and content
+        contentArea.add(Box.createRigidArea(new Dimension(0, 5)));
 
         // Wrap the content component in our custom panel for rounded background + highlight
         int arcSize = 15;

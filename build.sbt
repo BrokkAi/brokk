@@ -4,13 +4,16 @@ import sbtbuildinfo.BuildInfoPlugin
 import sbtbuildinfo.BuildInfoPlugin.autoImport.*
 
 scalaVersion := "3.6.4"
-version := "0.11.0.rc1"
+version := "0.11.1"
 organization := "io.github.jbellis"
 name := "brokk"
 
+// Auto reload on build.sbt changes
+Global / onChangedBuildSource := ReloadOnSourceChanges
+
 // Add local Error Prone JAR and its dependencies to the compile classpath for javac -Xplugin:ErrorProne
 Compile / unmanagedJars ++= Seq(
-  baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
+  baseDirectory.value / "errorprone" / "error_prone_core-brokk_build-with-dependencies.jar",
   baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
   baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
   baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
@@ -20,7 +23,7 @@ Compile / unmanagedJars ++= Seq(
 // also add to javac’s annotation-processor classpath
 Compile / javacOptions ++= {
   val pluginJars = Seq(
-    baseDirectory.value / "errorprone" / "error_prone_core-2.38.0-with-dependencies.jar",
+    baseDirectory.value / "errorprone" / "error_prone_core-brokk_build-with-dependencies.jar",
     baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
     baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
     baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
@@ -45,6 +48,7 @@ javacOptions := {
       "-Xep:MissingSummary:OFF " +
       "-Xep:EmptyBlockTag:OFF " +
       "-Xep:NonCanonicalType:OFF " +
+      "-Xep:RedundantNullCheck " +
       "-Xep:NullAway:ERROR " +
       "-XepOpt:NullAway:AnnotatedPackages=io.github.jbellis.brokk " +
       "-XepOpt:NullAway:ExcludedFieldAnnotations=org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test " +
@@ -98,7 +102,7 @@ resolvers ++= Seq(
 libraryDependencies ++= Seq(
   // NullAway - version must match local jar version
   "com.uber.nullaway" % "nullaway" % "0.12.7",
-  
+
   // LangChain4j dependencies
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
@@ -181,8 +185,6 @@ javaOptions ++= Seq(
   "-ea",
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
-  "-Dbrokk.prtab=true",
-  "-Dbrokk.issuetab=true",
   "-Dbrokk.upgradeagenttab=true"
 )
 

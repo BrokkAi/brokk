@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import io.github.jbellis.brokk.IssueProvider;
+import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import io.github.jbellis.brokk.issues.JiraFilterOptions;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.IProject;
@@ -14,7 +16,6 @@ import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -28,7 +29,6 @@ import io.github.jbellis.brokk.issues.JiraIssueService;
 import io.github.jbellis.brokk.issues.FilterOptions;
 
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.stream.Stream;
 import javax.swing.UIManager;
 import javax.swing.BorderFactory;
@@ -169,7 +169,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             buildProgressBar.setVisible(true);
             inferBuildDetailsButton.setEnabled(false);
 
-            project.getBuildDetailsFuture().whenCompleteAsync((detailsResult, ex) -> {
+            project.getBuildDetailsFuture().whenCompleteAsync((@Nullable BuildAgent.BuildDetails detailsResult, @Nullable Throwable ex) -> {
                 SwingUtilities.invokeLater(() -> {
                     projectSubTabbedPane.setEnabledAt(BUILD_TAB_INDEX, true);
                     buildProgressBar.setVisible(false);
@@ -248,7 +248,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         gbc.insets = new Insets(2, 2, 2, 2);
 
         var project = chrome.getProject();
-        boolean showReviewGuide = project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab");
+        boolean showReviewGuide = project.isGitHubRepo();
 
         if (showReviewGuide) {
             gbc.gridx = 0; gbc.gridy = row; gbc.weightx = 0.0;
@@ -468,20 +468,22 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                                           JOptionPane.WARNING_MESSAGE);
             return;
         }
-
-        IProject tempProject = new IProject() {
-            @Override public Path getRoot() { return Path.of("."); } // Dummy
-        };
-
+        
         testJiraConnectionButton.setEnabled(false);
         SwingWorker<String, Void> worker = new SwingWorker<>() {
             @Override
-            protected String doInBackground() throws Exception {
-                JiraIssueService testService = new JiraIssueService(tempProject);
+            protected String doInBackground() {
+                String currentBaseUrl = jiraBaseUrlField.getText().trim();
+                String currentApiToken = new String(jiraApiTokenField.getPassword()).trim();
+                String currentProjectKey = jiraProjectKeyField.getText().trim(); // Needed for listIssues
+
+                var jiraConfig = new IssuesProviderConfig.JiraConfig(currentBaseUrl, currentApiToken, currentProjectKey);
+                var testProvider = new IssueProvider(io.github.jbellis.brokk.issues.IssueProviderType.JIRA, jiraConfig);
+
+                JiraIssueService testService = new JiraIssueService(testProvider, chrome.getProject());
                 try {
-                    // Use a concrete FilterOptions implementation, e.g., JiraFilterOptions with nulls for a basic check
                     FilterOptions filterOptions = new JiraFilterOptions(null, null, null, null, null, null);
-                    testService.listIssues(filterOptions); // This might fetch issues, confirming connection and auth
+                    testService.listIssues(filterOptions); // This will use the temporary provider
                     return "Connection successful!";
                 } catch (IOException ioException) {
                     logger.warn("Jira connection test failed: {}", ioException.getMessage());
@@ -868,7 +870,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         }
 
         // Issues Tab
-        io.github.jbellis.brokk.IssueProvider currentProvider = project.getIssuesProvider();
+        IssueProvider currentProvider = project.getIssuesProvider();
         issueProviderTypeComboBox.setSelectedItem(currentProvider.type());
 
         githubOwnerField.setEnabled(false); // Default state
@@ -878,7 +880,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         switch (currentProvider.type()) {
             case JIRA:
-                if (currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.JiraConfig jiraConfig) {
+                if (currentProvider.config() instanceof IssuesProviderConfig.JiraConfig jiraConfig) {
                     jiraBaseUrlField.setText(jiraConfig.baseUrl());
                     jiraApiTokenField.setText(jiraConfig.apiToken());
                     jiraProjectKeyField.setText(jiraConfig.projectKey());
@@ -886,7 +888,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                 issueProviderCardLayout.show(issueProviderConfigPanel, JIRA_CARD);
                 break;
             case GITHUB:
-                if (currentProvider.config() instanceof io.github.jbellis.brokk.issues.IssuesProviderConfig.GithubConfig githubConfig) {
+                if (currentProvider.config() instanceof IssuesProviderConfig.GithubConfig githubConfig) {
                     if (!githubConfig.isDefault()) {
                         githubOwnerField.setText(githubConfig.owner());
                         githubRepoField.setText(githubConfig.repo());
@@ -969,14 +971,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Issues Tab
         io.github.jbellis.brokk.issues.IssueProviderType selectedType = (io.github.jbellis.brokk.issues.IssueProviderType) issueProviderTypeComboBox.getSelectedItem();
-        io.github.jbellis.brokk.IssueProvider newProviderToSet;
+        IssueProvider newProviderToSet;
 
         switch (selectedType) {
             case JIRA:
                 String baseUrl = jiraBaseUrlField.getText().trim();
                 String apiToken = new String(jiraApiTokenField.getPassword()).trim();
                 String projectKey = jiraProjectKeyField.getText().trim();
-                newProviderToSet = io.github.jbellis.brokk.IssueProvider.jira(baseUrl,
+                newProviderToSet = IssueProvider.jira(baseUrl,
                                                                               apiToken,
                                                                               projectKey);
                 break;
@@ -985,16 +987,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     String owner = githubOwnerField.getText().trim();
                     String repo = githubRepoField.getText().trim();
                     String host = githubHostField.getText().trim();
-                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(owner,
+                    newProviderToSet = IssueProvider.github(owner,
                                                                                     repo,
                                                                                     host);
                 } else {
-                    newProviderToSet = io.github.jbellis.brokk.IssueProvider.github(); // Default GitHub (empty owner, repo, host)
+                    newProviderToSet = IssueProvider.github(); // Default GitHub (empty owner, repo, host)
                 }
                 break;
             case NONE:
             default:
-                newProviderToSet = io.github.jbellis.brokk.IssueProvider.none();
+                newProviderToSet = IssueProvider.none();
                 break;
         }
         project.setIssuesProvider(newProviderToSet);

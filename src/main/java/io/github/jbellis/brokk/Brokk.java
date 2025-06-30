@@ -599,7 +599,7 @@ public class Brokk {
                     }
 
                     // Chain initialTask execution to guiFuture's completion
-                    guiFuture.whenCompleteAsync((result, guiEx) -> {
+                    guiFuture.whenCompleteAsync((Void result, @Nullable Throwable guiEx) -> {
                         if (guiEx != null) {
                             // if we have a half-finished gui we're kind of screwed
                             throw new RuntimeException(guiEx);
@@ -689,7 +689,7 @@ public class Brokk {
                         return null;
                     });
 
-            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((success, reopenEx) -> {
+            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((@Nullable Boolean success, @Nullable Throwable reopenEx) -> {
                 reOpeningProjects.remove(projectPath);
                 if (reopenEx != null) {
                     logger.error("Exception occurred while trying to reopen project: {}", projectPath, reopenEx);
@@ -828,7 +828,7 @@ public class Brokk {
             frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
         } else {
             // If not open, just open it directly.
-            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((success, ex) -> {
+            new OpenProjectBuilder(projectPath).open().whenCompleteAsync((@Nullable Boolean success, @Nullable Throwable ex) -> {
                 if (ex != null) {
                     logger.error("Error reopening project {}: {}", projectPath, ex);
                 } else if (success == null || !success) {

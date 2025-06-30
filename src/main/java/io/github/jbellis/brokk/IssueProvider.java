@@ -28,14 +28,7 @@ public record IssueProvider(IssueProviderType type, IssuesProviderConfig config)
         return new IssueProvider(IssueProviderType.JIRA, new IssuesProviderConfig.JiraConfig(baseUrl, apiToken, projectKey));
     }
 
-    // Default constructor for ObjectMapper, etc.
-    public IssueProvider {
-        // Canonical constructor for records automatically handles assignment
-        // No custom validation needed here for now.
-    }
-    
-    // Convenience default for when no specific configuration is known yet, or for a default state.
-    // This effectively means "no issue provider configured".
+    // Returns an empty issue provider configuration
     public static IssueProvider empty() {
         return none();
     }

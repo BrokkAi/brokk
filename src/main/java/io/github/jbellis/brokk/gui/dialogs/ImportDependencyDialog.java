@@ -336,11 +336,6 @@ public class ImportDependencyDialog {
             importButton.setEnabled(false);
             previewArea.setText(""); // Clear previous preview
 
-            if (file == null || file.absPath() == null) {
-                 previewArea.setText(""); // Clear preview for invalid file selection
-                 return;
-            }
-
             Path path = file.absPath();
             if (!Files.exists(path)) {
                 previewArea.setText("");

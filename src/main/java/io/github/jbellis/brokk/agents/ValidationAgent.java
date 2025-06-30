@@ -1,7 +1,5 @@
 package io.github.jbellis.brokk.agents;
 
-// Added import for Coder
-
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.Llm;
@@ -14,8 +12,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.util.List;
 import java.util.stream.Collectors;
-
-import static java.util.Objects.requireNonNull;
 
 /**
  * Agent responsible for identifying relevant test files for a given task.

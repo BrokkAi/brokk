@@ -334,10 +334,8 @@ public class EditBlockConflictsParser extends EditBlockParser {
         for (var ln : beforeLines) {
             leftover.append(ln).append("\n");
         }
-        if (afterLines != null) {
-            for (var ln : afterLines) {
-                leftover.append(ln).append("\n");
-            }
+        for (var ln : afterLines) {
+            leftover.append(ln).append("\n");
         }
     }
 

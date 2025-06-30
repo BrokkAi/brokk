@@ -1,10 +1,8 @@
 package io.github.jbellis.brokk.difftool.node;
 
 import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
-import java.util.stream.Collectors;
 import io.github.jbellis.brokk.difftool.doc.BufferDocumentIF;
 import io.github.jbellis.brokk.difftool.doc.StringDocument;
 import org.jetbrains.annotations.Nullable;
@@ -73,10 +71,6 @@ public class JMDiffNode implements TreeNode
         // Get documents, providing an empty placeholder if a node is null
         BufferDocumentIF leftDoc = (nodeLeft != null) ? nodeLeft.getDocument() : EMPTY_DOC;
         BufferDocumentIF rightDoc = (nodeRight != null) ? nodeRight.getDocument() : EMPTY_DOC;
-
-        // Assert that the documents (or placeholders) are non-null
-        assert leftDoc != null : "Left document is unexpectedly null after retrieval/placeholder assignment";
-        assert rightDoc != null : "Right document is unexpectedly null after retrieval/placeholder assignment";
 
         // Get line lists. getLineList() should be safe now due to eager initialization.
         var leftLines = leftDoc.getLineList();

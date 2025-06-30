@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.apache.logging.log4j.LogManager;
@@ -14,6 +15,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
@@ -22,8 +24,12 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.geom.Path2D;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
@@ -43,6 +49,7 @@ public class HistoryOutputPanel extends JPanel {
     private final JComboBox<MainProject.SessionInfo> sessionComboBox;
     private final JButton newSessionButton;
     private final JButton manageSessionsButton;
+    private ResetArrowLayerUI arrowLayerUI;
 
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
@@ -86,6 +93,7 @@ public class HistoryOutputPanel extends JPanel {
             }
         };
         this.historyTable = new JTable(this.historyModel);
+        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable, this.historyModel);
         this.undoButton = new JButton("Undo");
         this.redoButton = new JButton("Redo");
         this.sessionComboBox = new JComboBox<>();
@@ -93,7 +101,7 @@ public class HistoryOutputPanel extends JPanel {
         this.manageSessionsButton = new JButton("Manage");
 
         var sessionControlsPanel = buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
-        var activityPanel = buildActivityPanel(this.historyTable, this.historyModel, this.undoButton, this.redoButton);
+        var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
         // Create main history panel with session controls above activity
         var historyPanel = new JPanel(new BorderLayout());
@@ -178,12 +186,10 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Buttons panel
-        var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
+        // Use GridLayout to make buttons share width equally
+        var buttonsPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
 
-        var newSessionSize = new Dimension(100, newSessionButton.getPreferredSize().height);
-        newSessionButton.setPreferredSize(newSessionSize);
-        newSessionButton.setMinimumSize(newSessionSize);
-        newSessionButton.setMaximumSize(newSessionSize);
+        // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
         newSessionButton.addActionListener(e -> {
             contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
@@ -191,10 +197,7 @@ public class HistoryOutputPanel extends JPanel {
             );
         });
 
-        var manageSessionSize = new Dimension(100, manageSessionsButton.getPreferredSize().height);
-        manageSessionsButton.setPreferredSize(manageSessionSize);
-        manageSessionsButton.setMinimumSize(manageSessionSize);
-        manageSessionsButton.setMaximumSize(manageSessionSize);
+        // Tooltip and action listener for the manage sessions button
         manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
         manageSessionsButton.addActionListener(e -> {
             var dialog = new SessionsDialog(this, chrome, contextManager);
@@ -253,7 +256,7 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Builds the Activity history panel that shows past contexts
      */
-    private JPanel buildActivityPanel(JTable historyTable, DefaultTableModel historyModel, JButton undoButton, JButton redoButton) {
+    private JPanel buildActivityPanel(JTable historyTable, JButton undoButton, JButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
@@ -273,7 +276,7 @@ public class HistoryOutputPanel extends JPanel {
         // Set up tooltip renderer for description column (index 1)
         historyTable.getColumnModel().getColumn(1).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
+            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
                                                           boolean isSelected, boolean hasFocus, int row, int column) {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
@@ -290,7 +293,7 @@ public class HistoryOutputPanel extends JPanel {
         // Set up icon renderer for first column
         historyTable.getColumnModel().getColumn(0).setCellRenderer(new DefaultTableCellRenderer() {
             @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
+            public Component getTableCellRendererComponent(JTable table, @Nullable Object value,
                                                           boolean isSelected, boolean hasFocus, int row, int column) {
                 JLabel label = (JLabel)super.getTableCellRendererComponent(
                         table, value, isSelected, hasFocus, row, column);
@@ -317,6 +320,7 @@ public class HistoryOutputPanel extends JPanel {
                     // Get the context object from the hidden third column
                     var ctx = (Context) historyModel.getValueAt(row, 2);
                     contextManager.setSelectedContext(ctx);
+                    // setContext is for *previewing* a context without changing selection state in the manager
                     chrome.setContext(ctx);
                 }
             }
@@ -367,6 +371,8 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add table to scroll pane with AutoScroller
         var scrollPane = new JScrollPane(historyTable);
+        var layer = new JLayer<>(scrollPane, arrowLayerUI);
+        scrollPane.getViewport().addChangeListener(e -> layer.repaint());
         scrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         AutoScroller.install(scrollPane);
         BorderUtils.addFocusBorder(scrollPane, historyTable);
@@ -382,37 +388,26 @@ public class HistoryOutputPanel extends JPanel {
         });
 
         // Add undo/redo buttons at the bottom, side by side
-        var buttonPanel = new JPanel();
-        buttonPanel.setLayout(new BoxLayout(buttonPanel, BoxLayout.X_AXIS)); // Horizontal layout
-        buttonPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
-        buttonPanel.add(Box.createHorizontalGlue()); // Push buttons to center
+        // Use GridLayout to make buttons share width equally
+        var buttonPanel = new JPanel(new GridLayout(1, 2, 5, 0)); // 1 row, 2 columns, 5px hgap
+        buttonPanel.setBorder(new EmptyBorder(5, 0, 0, 0)); // Add top padding
 
         undoButton.setMnemonic(KeyEvent.VK_Z);
         undoButton.setToolTipText("Undo the most recent history entry");
-        var undoSize = new Dimension(100, undoButton.getPreferredSize().height);
-        undoButton.setPreferredSize(undoSize);
-        undoButton.setMinimumSize(undoSize);
-        undoButton.setMaximumSize(undoSize);
         undoButton.addActionListener(e -> {
             contextManager.undoContextAsync();
         });
 
         redoButton.setMnemonic(KeyEvent.VK_Y);
         redoButton.setToolTipText("Redo the most recently undone entry");
-        var redoSize = new Dimension(100, redoButton.getPreferredSize().height);
-        redoButton.setPreferredSize(redoSize);
-        redoButton.setMinimumSize(redoSize);
-        redoButton.setMaximumSize(redoSize);
         redoButton.addActionListener(e -> {
             contextManager.redoContextAsync();
         });
 
         buttonPanel.add(undoButton);
-        buttonPanel.add(Box.createRigidArea(new Dimension(5, 0))); // Add spacing
         buttonPanel.add(redoButton);
-        buttonPanel.add(Box.createHorizontalGlue()); // Push buttons to center
 
-        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(layer, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
 
         // Calculate preferred width for the history panel
@@ -480,9 +475,7 @@ public class HistoryOutputPanel extends JPanel {
         popup.add(newSessionFromWorkspaceItem);
 
         // Register popup with theme manager
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popup);
-        }
+        chrome.themeManager.registerPopupMenu(popup);
 
         // Show popup menu
         popup.show(historyTable, e.getX(), e.getY());
@@ -557,6 +550,8 @@ public class HistoryOutputPanel extends JPanel {
 
             // Update session combo box after table update
             updateSessionComboBox();
+            var resetEdges = contextManager.getContextHistory().getResetEdges();
+            arrowLayerUI.setResetEdges(resetEdges);
         });
     }
 
@@ -644,7 +639,7 @@ public class HistoryOutputPanel extends JPanel {
                 List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
                 var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
                 String titleHint = lastSpinnerMessage;
-                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, titleHint, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), true);
+                OutputWindow newStreamingWindow = new OutputWindow(this, tempFragment, titleHint, chrome.themeManager.isDarkTheme(), true);
                 if (lastSpinnerMessage != null) {
                     newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
                 }
@@ -664,7 +659,7 @@ public class HistoryOutputPanel extends JPanel {
                 var output = context.getParsedOutput();
                 if (output != null) {
                     String titleHint = context.getAction();
-                    new OutputWindow(this, output, titleHint, chrome.themeManager != null && chrome.themeManager.isDarkTheme(), false);
+                    new OutputWindow(this, output, titleHint, chrome.themeManager.isDarkTheme(), false);
                 }
             }
         });
@@ -733,9 +728,7 @@ public class HistoryOutputPanel extends JPanel {
      * Shows the loading spinner with a message in the Markdown area.
      */
     public void showSpinner(String message) {
-        if (llmStreamArea != null) {
-            llmStreamArea.showSpinner(message);
-        }
+        llmStreamArea.showSpinner(message);
         lastSpinnerMessage = message;
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
@@ -744,9 +737,7 @@ public class HistoryOutputPanel extends JPanel {
      * Hides the loading spinner in the Markdown area.
      */
     public void hideSpinner() {
-        if (llmStreamArea != null) {
-            llmStreamArea.hideSpinner();
-        }
+        llmStreamArea.hideSpinner();
         lastSpinnerMessage = null;
         activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
@@ -772,14 +763,10 @@ public class HistoryOutputPanel extends JPanel {
      * @param blocked true to prevent clear/reset, false otherwise.
      */
     public void setMarkdownOutputPanelBlocking(boolean blocked) {
-        if (llmStreamArea != null) {
-            llmStreamArea.setBlocking(blocked);
-            if (!blocked) {
-                activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setBlocking(false));
-                activeStreamingWindows.clear();
-            }
-        } else {
-            logger.warn("Attempted to set blocking state on null llmStreamArea");
+        llmStreamArea.setBlocking(blocked);
+        if (!blocked) {
+            activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setBlocking(false));
+            activeStreamingWindows.clear();
         }
     }
 
@@ -959,5 +946,106 @@ public class HistoryOutputPanel extends JPanel {
             historyTable.setForeground(UIManager.getColor("Table.foreground"));
             historyTable.setBackground(UIManager.getColor("Table.background"));
         });
+    }
+
+    /**
+     * A LayerUI that paints reset-from-history arrows over the history table.
+     */
+    private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
+        private final JTable table;
+        private final DefaultTableModel model;
+        private List<ContextHistory.ResetEdge> resetEdges = List.of();
+
+        public ResetArrowLayerUI(JTable table, DefaultTableModel model) {
+            this.table = table;
+            this.model = model;
+        }
+
+        public void setResetEdges(List<ContextHistory.ResetEdge> edges) {
+            this.resetEdges = edges;
+            firePropertyChange("resetEdges", null, edges); // Triggers repaint for the JLayer
+        }
+
+        @Override
+        public void paint(Graphics g, JComponent c) {
+            super.paint(g, c);
+            if (resetEdges.isEmpty()) {
+                return;
+            }
+
+            // Build a map from Context UUID to table row index for efficient lookup
+            Map<UUID, Integer> contextIdToRow = new HashMap<>();
+            for (int i = 0; i < model.getRowCount(); i++) {
+                Context ctx = (Context) model.getValueAt(i, 2);
+                if (ctx != null) {
+                    contextIdToRow.put(ctx.id(), i);
+                }
+            }
+
+            Graphics2D g2 = (Graphics2D) g.create();
+            try {
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.setColor(chrome.getTheme().isDarkTheme() ? Color.LIGHT_GRAY : Color.DARK_GRAY);
+
+                for (var edge : resetEdges) {
+                    Integer sourceRow = contextIdToRow.get(edge.sourceId());
+                    Integer targetRow = contextIdToRow.get(edge.targetId());
+
+                    if (sourceRow != null && targetRow != null) {
+                        drawArrow(g2, c, sourceRow, targetRow);
+                    }
+                }
+            } finally {
+                g2.dispose();
+            }
+        }
+
+        private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
+            Rectangle sourceRect = table.getCellRect(sourceRow, 0, true);
+            Rectangle targetRect = table.getCellRect(targetRow, 0, true);
+
+            // Convert cell rectangles to the JLayer's coordinate system
+            Point sourcePoint = SwingUtilities.convertPoint(table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
+            Point targetPoint = SwingUtilities.convertPoint(table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
+
+            // Don't draw if either point is outside the visible viewport
+            if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
+                 // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
+                if (c.getVisibleRect().contains(sourcePoint) || c.getVisibleRect().contains(targetPoint)) {
+                    // one is visible, fall through
+                } else {
+                    return;
+                }
+            }
+
+            int xOffset = 15; // Horizontal offset inside the first column
+            int arrowHeadLength = 8;
+
+            // Define the path for the arrow
+            Path2D.Double path = new Path2D.Double();
+            path.moveTo(sourcePoint.x + xOffset + arrowHeadLength, sourcePoint.y);                              // start at source
+            path.lineTo(sourcePoint.x + xOffset, sourcePoint.y);                    // horizontal into column
+            path.lineTo(sourcePoint.x + xOffset, targetPoint.y);                    // vertical toward target
+            path.lineTo(sourcePoint.x + xOffset + arrowHeadLength, targetPoint.y);  // horizontal to arrow-tip
+            g2.draw(path);
+
+            // Draw the arrowhead at the target, pointing left-to-right
+            drawArrowHead(g2,
+                          new Point(sourcePoint.x + xOffset, targetPoint.y),
+                          new Point(sourcePoint.x + xOffset + arrowHeadLength, targetPoint.y),
+                          arrowHeadLength);
+        }
+
+        private void drawArrowHead(Graphics2D g2, Point from, Point to, int size) {
+            double angle = Math.atan2(to.y - from.y, to.x - from.x);
+            long x1 = Math.round(to.x - size * Math.cos(angle - Math.PI / 6));
+            long y1 = Math.round(to.y - size * Math.sin(angle - Math.PI / 6));
+            long x2 = Math.round(to.x - size * Math.cos(angle + Math.PI / 6));
+            long y2 = Math.round(to.y - size * Math.sin(angle + Math.PI / 6));
+
+            g2.drawLine(to.x, to.y, (int)x1, (int)y1);
+            g2.drawLine(to.x, to.y, (int)x2, (int)y2);
+        }
     }
 }

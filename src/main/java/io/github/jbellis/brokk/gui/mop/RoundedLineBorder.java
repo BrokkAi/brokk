@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.mop;
 
 import javax.swing.border.AbstractBorder;
 import java.awt.*;
-import java.awt.geom.RoundRectangle2D;
 import org.jetbrains.annotations.Nullable;
 
 /**

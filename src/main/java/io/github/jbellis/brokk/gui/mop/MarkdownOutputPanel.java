@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.mop.stream.IncrementalBlockRenderer;
-import io.github.jbellis.brokk.gui.mop.stream.TextNodeMarkerCustomizer;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.gui.mop.stream.HtmlCustomizer;
 import org.jetbrains.annotations.Nullable;
@@ -209,7 +208,6 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
      * @param type The type of message being appended
      */
     public void append(String text, ChatMessageType type, boolean isNewMessage) {
-        assert text != null && type != null;
         if (text.isEmpty()) {
             return;
         }
@@ -342,10 +340,6 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         }
         internalClear();
 
-        if (newOutput == null) {
-            return;
-        }
-
         setText(newOutput.messages());
     }
 
@@ -420,7 +414,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
      * Sets or clears a global HtmlCustomizer for all renderers.
      */
     public void setHtmlCustomizer(HtmlCustomizer customizer) {
-        this.htmlCustomizer = customizer == null ? HtmlCustomizer.DEFAULT : customizer;
+        this.htmlCustomizer = customizer;
         renderers().forEach(r -> {
             r.setHtmlCustomizer(this.htmlCustomizer);
             r.reprocessForCustomizer();           // Refresh already rendered content
@@ -432,7 +426,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
      * after the customizer has been applied and rendered.
      */
     public void setHtmlCustomizerWithCallback(HtmlCustomizer customizer, Runnable callback) {
-        this.htmlCustomizer = customizer == null ? HtmlCustomizer.DEFAULT : customizer;
+        this.htmlCustomizer = customizer;
         var renderersList = renderers().toList();
         renderersList.forEach(r -> {
             r.setHtmlCustomizer(this.htmlCustomizer);
@@ -699,7 +693,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
 
         // If no specific text component is focused, copy aggregated selected text
         String selectedText = getSelectedText(); // getSelectedText is already EDT-safe
-        if (selectedText != null && !selectedText.isEmpty()) {
+        if (!selectedText.isEmpty()) {
             var sel = new java.awt.datatransfer.StringSelection(selectedText);
             java.awt.Toolkit.getDefaultToolkit().getSystemClipboard().setContents(sel, sel);
         }
@@ -771,7 +765,7 @@ public class MarkdownOutputPanel extends JPanel implements Scrollable, ThemeAwar
         bubbles.forEach(b -> b.worker().shutdown());
 
         // Shut down the compaction executor
-        if (compactExec != null && !compactExec.isShutdown()) {
+        if (!compactExec.isShutdown()) {
             compactExec.shutdownNow();
             try {
                 if (!compactExec.awaitTermination(500, TimeUnit.MILLISECONDS)) {

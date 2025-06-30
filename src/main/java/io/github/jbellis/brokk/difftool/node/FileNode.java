@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.difftool.doc.FileDocument;
 import org.jetbrains.annotations.Nullable;
 import java.io.File;
 import java.lang.ref.SoftReference;
-import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
 

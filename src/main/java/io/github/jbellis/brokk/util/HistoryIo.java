@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -29,10 +30,14 @@ public final class HistoryIo {
     private static final ObjectMapper objectMapper = new ObjectMapper()
             .configure(SerializationFeature.CLOSE_CLOSEABLE, false)
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-    private static final String V1_CONTEXTS_FILENAME = "contexts.jsonl"; // New JSONL file for contexts
-    private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json"; // New file for all fragments
-    private static final String IMAGES_DIR_PREFIX = "images/"; // Directory for images
-    private static final int V1_FORMAT_VERSION = 1; // Assuming DTOs have String IDs
+    private static final String V1_CONTEXTS_FILENAME = "contexts.jsonl";
+    private static final String V1_FRAGMENTS_FILENAME = "fragments-v1.json";
+    private static final String RESET_EDGES_FILENAME = "reset_edges.json";
+    private static final String IMAGES_DIR_PREFIX = "images/";
+    /* legacy format (no UUID / resetEdges) */
+    private static final int V1_FORMAT_VERSION = 1;
+    /* current format */
+    private static final int CURRENT_FORMAT_VERSION = 2;
 
     private HistoryIo() {}
 
@@ -73,6 +78,7 @@ public final class HistoryIo {
         AllFragmentsDto allFragmentsDto = null;
         java.util.List<String> compactContextDtoLines = new ArrayList<>();
         Map<String, byte[]> imageBytesMap = new HashMap<>();
+        List<ContextHistory.ResetEdge> resetEdges = new java.util.ArrayList<>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
@@ -81,8 +87,10 @@ public final class HistoryIo {
                     byte[] fragmentJsonBytes = zis.readAllBytes();
                     allFragmentsDto = objectMapper.readValue(fragmentJsonBytes, AllFragmentsDto.class);
                     // zis.closeEntry(); // Removed as per original V1 read logic structure
-                    if (allFragmentsDto.version() != V1_FORMAT_VERSION) {
-                        logger.error("Unsupported V1 fragments version: {}. Expected {}. Cannot load history.", allFragmentsDto.version(), V1_FORMAT_VERSION);
+                    if (allFragmentsDto.version() != V1_FORMAT_VERSION
+                        && allFragmentsDto.version() != CURRENT_FORMAT_VERSION)
+                    {
+                        logger.error("Unsupported fragments version: {}. Expected 1 or 2. Cannot load history.", allFragmentsDto.version());
                         return null;
                     }
                 } else if (entry.getName().equals(V1_CONTEXTS_FILENAME)) {
@@ -93,8 +101,16 @@ public final class HistoryIo {
                             compactContextDtoLines.add(line);
                         }
                     }
+                } else if (entry.getName().equals(RESET_EDGES_FILENAME)) {
+                    byte[] edgeBytes = zis.readAllBytes();
+                    record EdgeDto(String sourceId, String targetId) {
+                    }
+                    List<EdgeDto> list = List.of(objectMapper.readValue(edgeBytes, EdgeDto[].class));
+                    list.forEach(d -> resetEdges.add(new ContextHistory.ResetEdge(
+                            java.util.UUID.fromString(d.sourceId()),
+                            java.util.UUID.fromString(d.targetId()))));
                 } else if (entry.getName().startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
-                    String fragmentIdHash = idFromNameV1(entry.getName()); // Use V1 specific ID parsing
+                    String fragmentIdHash = idFromNameV1(entry.getName());
                     imageBytesMap.put(fragmentIdHash, zis.readAllBytes());
                 }
             }
@@ -143,7 +159,11 @@ public final class HistoryIo {
             return null;
         }
 
-        return new ContextHistory(contexts);
+        if (resetEdges.isEmpty()) {
+            return new ContextHistory(contexts);
+        } else {
+            return new ContextHistory(contexts, resetEdges);
+        }
     }
 
     private static String summarizeAction(Context ctx) {
@@ -233,7 +253,10 @@ public final class HistoryIo {
         }
 
         try (var zos = new ZipOutputStream(Files.newOutputStream(target))) {
-            var allFragmentsDto = new AllFragmentsDto(V1_FORMAT_VERSION, collectedReferencedDtos, collectedVirtualDtos, collectedTaskDtos);
+            var allFragmentsDto = new AllFragmentsDto(CURRENT_FORMAT_VERSION,
+                                                      collectedReferencedDtos,
+                                                      collectedVirtualDtos,
+                                                      collectedTaskDtos);
             byte[] fragmentsJsonBytes = objectMapper.writeValueAsBytes(allFragmentsDto);
             ZipEntry fragmentsEntry = new ZipEntry(V1_FRAGMENTS_FILENAME);
             zos.putNextEntry(fragmentsEntry);
@@ -242,20 +265,25 @@ public final class HistoryIo {
 
             var contextsJsonlContent = new StringBuilder();
             for (Context ctx : ch.getHistory()) {
-                // IDs are Strings
                 var editableIds = ctx.editableFiles().map(ContextFragment::id).toList();
                 var readonlyIds = ctx.readonlyFiles().map(ContextFragment::id).toList();
-                var virtualIds = ctx.virtualFragments().map(ContextFragment.VirtualFragment::id).toList();
+                var virtualIds  = ctx.virtualFragments().map(ContextFragment.VirtualFragment::id).toList();
                 var taskEntryRefs = ctx.getTaskHistory().stream()
                         .map(te -> new TaskEntryRefDto(
                                 te.sequence(),
-                                te.log() != null ? te.log().id() : null, // logId is String
+                                te.log() != null ? te.log().id() : null,
                                 te.summary()))
                         .toList();
-                String parsedOutputId = ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null; // parsedOutputId is String
+                String parsedOutputId = ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null;
 
                 var compactDto = new CompactContextDto(
-                        editableIds, readonlyIds, virtualIds, taskEntryRefs, parsedOutputId, summarizeAction(ctx));
+                        ctx.id().toString(),
+                        editableIds,
+                        readonlyIds,
+                        virtualIds,
+                        taskEntryRefs,
+                        parsedOutputId,
+                        summarizeAction(ctx));
                 contextsJsonlContent.append(objectMapper.writeValueAsString(compactDto)).append('\n');
             }
             byte[] contextsJsonlBytes = contextsJsonlContent.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -263,6 +291,19 @@ public final class HistoryIo {
             zos.putNextEntry(contextsEntry);
             zos.write(contextsJsonlBytes);
             zos.closeEntry();
+
+            /* -------- ResetEdges (V2) -------- */
+            if (!ch.getResetEdges().isEmpty()) {
+                record EdgeDto(String sourceId, String targetId) {}
+                var edgesJson = objectMapper.writeValueAsBytes(
+                        ch.getResetEdges().stream()
+                          .map(e -> new EdgeDto(e.sourceId().toString(), e.targetId().toString()))
+                          .toList());
+                ZipEntry edgeEntry = new ZipEntry(RESET_EDGES_FILENAME);
+                zos.putNextEntry(edgeEntry);
+                zos.write(edgesJson);
+                zos.closeEntry();
+            }
 
             for (FrozenFragment ff : imageDomainFragments) {
                 byte[] imageBytes = ff.imageBytesContent();

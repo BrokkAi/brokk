@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import com.github.difflib.DiffUtils;
 import com.github.difflib.UnifiedDiffUtils;
-import com.github.difflib.patch.Patch;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -12,7 +11,6 @@ import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.GuiTheme;
@@ -79,8 +77,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                             @Nullable ContextFragment fragment)
     {
         super(new BorderLayout());
-        assert contextManager != null;
-        assert guiTheme != null;
 
         this.contextManager = contextManager;
         this.file = file;
@@ -121,11 +117,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             var finalCaptureButton = captureButton; // Final reference for lambda
             captureButton.addActionListener(e -> {
                 // Add the GitHistoryFragment to the read-only context
-                contextManager.addReadOnlyFragment(ghf); // Use the new method
-                if (finalCaptureButton != null) {
-                    finalCaptureButton.setEnabled(false); // Disable after capture
-                    finalCaptureButton.setToolTipText("Revision captured");
-                }
+                contextManager.addReadOnlyFragmentAsync(ghf);
+                finalCaptureButton.setEnabled(false); // Disable after capture
+                finalCaptureButton.setToolTipText("Revision captured");
             });
             actionButtonPanel.add(captureButton); // Add capture button
         }
@@ -136,18 +130,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
             editButton = new JButton(text);
             var finalEditButton = editButton; // Final reference for lambda
             if (contextManager.getEditableFiles().contains(file)) {
-                if (finalEditButton != null) {
+                finalEditButton.setEnabled(false);
+                finalEditButton.setToolTipText("File is in Edit context");
+            } else {
+                finalEditButton.addActionListener(e -> {
+                    contextManager.editFiles(List.of(this.file));
                     finalEditButton.setEnabled(false);
                     finalEditButton.setToolTipText("File is in Edit context");
-                }
-            } else {
-                if (finalEditButton != null) {
-                    finalEditButton.addActionListener(e -> {
-                        contextManager.editFiles(List.of(this.file));
-                        finalEditButton.setEnabled(false);
-                        finalEditButton.setToolTipText("File is in Edit context");
-                    });
-                }
+                });
             }
             actionButtonPanel.add(editButton); // Add edit button to the action panel
         }
@@ -373,7 +363,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * @param selectedText The text currently selected in the preview
      */
     private void showQuickEditDialog(String selectedText) {
-        if (selectedText == null || selectedText.isEmpty()) {
+        if (selectedText.isEmpty()) {
             return;
         }
 
@@ -646,11 +636,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         // Submit the quick-edit session to a background future
         var future = contextManager.submitUserTask("Quick Edit", () -> {
             var agent = new CodeAgent(contextManager, contextManager.getService().quickModel());
-            if (file == null) {
-                // This should ideally not be reached if Quick Edit is only enabled for project files.
-                // However, as a safeguard:
-                throw new IllegalStateException("Quick Edit attempted on a non-project file or null file context.");
-            }
             return agent.runQuickTask(file,
                                        selectedText,
                                        instructions);
@@ -752,7 +737,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
 
         // If the LLM itself was not successful, return the error
         if (stopDetails.reason() != TaskResult.StopReason.SUCCESS) {
-            var explanation = stopDetails.explanation() != null ? stopDetails.explanation() : "LLM task failed with " + stopDetails.reason();
+            var explanation = stopDetails.explanation();
             logger.debug("Quick Edit LLM task failed: {}", explanation);
             return new QuickEditResult(null, Objects.toString(explanation, "LLM task failed without specific explanation."));
         }
@@ -874,7 +859,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
      * @return true if the save was successful, false otherwise.
      */
     private boolean performSave(@Nullable JButton buttonToDisable) {
-        assert file != null : "Attempted to save but no ProjectFile is associated with this panel.";
+        requireNonNull(file,"Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
 
         var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
@@ -885,7 +870,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var originalLines = contentBeforeSave.lines().collect(Collectors.toList());
                 var newLines = newContent.lines().collect(Collectors.toList());
                 var patch = DiffUtils.diff(originalLines, newLines);
-                var fileNameForDiff = file != null ? file.toString() : "untitled";
+                var fileNameForDiff = file.toString();
                 var unifiedDiff = UnifiedDiffUtils.generateUnifiedDiff(fileNameForDiff,
                                                                               fileNameForDiff,
                                                                               originalLines,
@@ -899,7 +884,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
                 var saveResult = new TaskResult(contextManager,
                                                 actionDescription,
                                                 messagesForHistory,
-                                                Map.of(file, contentBeforeSave),
+                                                Set.of(file),
                                                 TaskResult.StopReason.SUCCESS);
                 contextManager.addToHistory(saveResult, false); // Add the single entry
                 logger.debug("Added history entry for changes in: {}", file);
@@ -911,26 +896,16 @@ public class PreviewTextPanel extends JPanel implements ThemeAware {
         try {
             // Write the new content to the file, regardless of whether it matched initial content,
             // because saveButton being enabled implies it's different from last saved state.
-            if (file != null) {
-                file.write(newContent);
-                if (buttonToDisable != null) {
-                    buttonToDisable.setEnabled(false); // Disable after successful save
-                }
-                quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
-                logger.debug("File saved: " + file);
-                return true; // Save successful
-            } else {
-                // Should not happen if save button is only enabled for project files
-                logger.error("Attempted to save but no ProjectFile is associated with this panel.");
-                JOptionPane.showMessageDialog(this,
-                                              "Cannot save: No file context.",
-                                              "Save Error",
-                                              JOptionPane.ERROR_MESSAGE);
-                return false;
+            file.write(newContent);
+            if (buttonToDisable != null) {
+                buttonToDisable.setEnabled(false); // Disable after successful save
             }
+            quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+            logger.debug("File saved: " + file);
+            return true; // Save successful
         } catch (IOException ex) {
             // If save fails, button remains enabled and messages are not cleared.
-            logger.error("Error saving file {}", file != null ? file : "null", ex);
+            logger.error("Error saving file {}", file, ex);
             JOptionPane.showMessageDialog(this,
                                           "Error saving file: " + ex.getMessage(),
                                           "Save Error",

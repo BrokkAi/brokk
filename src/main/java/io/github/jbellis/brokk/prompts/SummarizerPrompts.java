@@ -18,7 +18,6 @@ public class SummarizerPrompts {
     private SummarizerPrompts() {}
 
     public List<ChatMessage> collectMessages(String actionTxt, int wordBudget) {
-        assert actionTxt != null;
         assert !actionTxt.isBlank();
         assert Set.of(WORD_BUDGET_3, WORD_BUDGET_5, WORD_BUDGET_12).contains(wordBudget) : wordBudget;
 

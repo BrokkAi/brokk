@@ -2,7 +2,6 @@ package io.github.jbellis.brokk.gui.util;
 
 import io.github.jbellis.brokk.AnalyzerWrapper;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.TableUtils;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
@@ -239,7 +238,7 @@ public final class ContextMenuUtils {
             }, "Edit files");
         });
         // Disable for dependency projects
-        if (cm.getProject() != null && !cm.getProject().hasGit()) {
+        if (!cm.getProject().hasGit()) {
             editItem.setEnabled(false);
             editItem.setToolTipText("Editing not available without Git");
         }

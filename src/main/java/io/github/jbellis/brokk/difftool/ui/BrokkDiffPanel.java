@@ -25,6 +25,7 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import java.util.ArrayList;
@@ -202,6 +203,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         started = true;
         getTabbedPane().setFocusable(false);
         setLayout(new BorderLayout());
+        KeyboardShortcutUtil.registerCloseEscapeShortcut(this, this::close);
         launchComparison();
 
         add(createToolbar(), BorderLayout.NORTH);
@@ -678,6 +680,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
         revalidate();
         repaint();
+    }
+
+    private void close() {
+        var window = SwingUtilities.getWindowAncestor(this);
+        if (window != null) {
+            window.dispose();
+        }
     }
 
     /**

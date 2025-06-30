@@ -278,15 +278,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         SwingUtilities.invokeLater(() -> {
-            if (chrome.getFrame() != null && chrome.getFrame().getRootPane() != null) {
+            if (chrome.getFrame().getRootPane() != null) {
                 chrome.getFrame().getRootPane().setDefaultButton(codeButton);
             }
         });
 
         // Add this panel as a listener to context changes, only if CM is available
-        if (this.contextManager != null) {
-            this.contextManager.addContextListener(this);
-        }
+        this.contextManager.addContextListener(this);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
@@ -611,48 +609,39 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         logger.trace("Showing history menu");
         JPopupMenu historyMenu = new JPopupMenu();
         var project = chrome.getProject();
-        if (project == null) {
-            logger.warn("Cannot show history menu: project is null");
-            JMenuItem errorItem = new JMenuItem("Project not loaded");
-            errorItem.setEnabled(false);
-            historyMenu.add(errorItem);
+        List<String> historyItems = project.loadTextHistory();
+        logger.trace("History items loaded: {}", historyItems.size());
+        if (historyItems.isEmpty()) {
+            JMenuItem emptyItem = new JMenuItem("(No history items)");
+            emptyItem.setEnabled(false);
+            historyMenu.add(emptyItem);
         } else {
-            List<String> historyItems = project.loadTextHistory();
-            logger.trace("History items loaded: {}", historyItems.size());
-            if (historyItems.isEmpty()) {
-                JMenuItem emptyItem = new JMenuItem("(No history items)");
-                emptyItem.setEnabled(false);
-                historyMenu.add(emptyItem);
-            } else {
-                for (int i = historyItems.size() - 1; i >= 0; i--) {
-                    String item = historyItems.get(i);
-                    String itemWithoutNewlines = item.replace('\n', ' ');
-                    String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
-                                         ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
-                                         : itemWithoutNewlines;
-                    String escapedItem = item.replace("&", "&amp;")
-                            .replace("<", "&lt;")
-                            .replace(">", "&gt;")
-                            .replace("\"", "&quot;");
-                    JMenuItem menuItem = new JMenuItem(displayText);
-                    menuItem.setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
-                    menuItem.addActionListener(event -> {
-                        // Hide overlay and enable input field and deep scan button
-                        commandInputOverlay.hideOverlay();
-                        setCommandInputAndDeepScanEnabled(true);
+            for (int i = historyItems.size() - 1; i >= 0; i--) {
+                String item = historyItems.get(i);
+                String itemWithoutNewlines = item.replace('\n', ' ');
+                String displayText = itemWithoutNewlines.length() > TRUNCATION_LENGTH
+                                     ? itemWithoutNewlines.substring(0, TRUNCATION_LENGTH) + "..."
+                                     : itemWithoutNewlines;
+                String escapedItem = item.replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                        .replace("\"", "&quot;");
+                JMenuItem menuItem = new JMenuItem(displayText);
+                menuItem.setToolTipText("<html><pre>" + escapedItem + "</pre></html>");
+                menuItem.addActionListener(event -> {
+                    // Hide overlay and enable input field and deep scan button
+                    commandInputOverlay.hideOverlay();
+                    setCommandInputAndDeepScanEnabled(true);
 
-                        // Set text and request focus
-                        instructionsArea.setText(item);
-                        commandInputUndoManager.discardAllEdits(); // Clear undo history for new text
-                        instructionsArea.requestFocusInWindow();
-                    });
-                    historyMenu.add(menuItem);
-                }
+                    // Set text and request focus
+                    instructionsArea.setText(item);
+                    commandInputUndoManager.discardAllEdits(); // Clear undo history for new text
+                    instructionsArea.requestFocusInWindow();
+                });
+                historyMenu.add(menuItem);
             }
         }
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(historyMenu);
-        }
+        chrome.themeManager.registerPopupMenu(historyMenu);
         historyMenu.setMinimumSize(new Dimension(DROPDOWN_MENU_WIDTH, 0));
         historyMenu.setPreferredSize(new Dimension(DROPDOWN_MENU_WIDTH, historyMenu.getPreferredSize().height));
         historyMenu.pack();
@@ -1013,7 +1002,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void triggerDeepScan(ActionEvent e) {
         var goal = getInstructions();
-        if (contextManager == null || contextManager.getProject() == null) {
+        if (contextManager == null) {
             chrome.toolError("Deep Scan requires a project and ContextManager to be active.");
             deepScanButton.setEnabled(false);
             return;
@@ -1021,7 +1010,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         deepScanButton.setLoading(true, "Scanning…");
 
         DeepScanDialog.triggerDeepScan(chrome, goal)
-            .whenComplete((v, throwable) -> {
+            .whenComplete((Void v, @Nullable Throwable throwable) -> {
                 // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
                 SwingUtilities.invokeLater(() -> {
                     deepScanButton.setLoading(false, null); // Restores button state
@@ -1131,8 +1120,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextManager.getAnalyzerWrapper().pause();
         try {
             var result = new CodeAgent(contextManager, model).runTask(input, false);
+            // code agent has displayed status in llmoutput
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                chrome.systemOutput("Code Agent cancelled!");
                 // Save the partial result (if we didn't interrupt before we got any replies)
                 if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
                     chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
@@ -1140,10 +1129,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 }
                 populateInstructionsArea(input);
             } else {
-                if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                    chrome.systemOutput("Code Agent complete!");
-                }
-                // Code agent has logged error to console already
                 chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(result, false);
             }
@@ -1176,7 +1161,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var sessionResult = new TaskResult(contextManager,
                                                    "Ask: " + question,
                                                    List.copyOf(chrome.getLlmRawMessages()),
-                                                   Map.of(), // No undo contents for Ask
+                                                   Set.of(), // No undo contents for Ask
                                                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
                 chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(sessionResult, false);
@@ -1194,7 +1179,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 logger.debug(action + " command cancelled with partial results");
                 var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
                                                    new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
-                                                   Map.of(),
+                                                   Set.of(),
                                                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
                 chrome.getContextManager().addToHistory(sessionResult, false);
             }
@@ -1238,7 +1223,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var contextManager = chrome.getContextManager();
             var agent = new SearchAgent(query, contextManager, model, contextManager.getToolRegistry(), 0);
             var result = agent.execute();
-            assert result != null;
             // Search does not stream to llmOutput, so add the final answer here
             
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
@@ -1400,9 +1384,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 MainProject mainProject = (currentProject instanceof MainProject mainProj)
                                                 ? mainProj
                                                 : (MainProject) currentProject.getParent();
-        assert mainProject != null;
 
-        new Brokk.OpenProjectBuilder(newWorktreePath)
+                new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProject)
                         .initialTask(initialArchitectTask)
                         .sourceContextForSession(cm.topContext())
@@ -1554,9 +1537,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             return;
         }
         chrome.getProject().addToInstructionsHistory(input, 20);
+
+        runRunCommand(input);
+    }
+
+    public void runRunCommand(String input) {
         clearCommandInput();
         disableButtons();
-        // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
@@ -1600,14 +1587,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void updateButtonStates() {
         SwingUtilities.invokeLater(() -> {
-            boolean projectLoaded = chrome.getProject() != null;
             boolean cmAvailable = this.contextManager != null;
-            boolean gitAvailable = projectLoaded && chrome.getProject().hasGit();
+            boolean gitAvailable = chrome.getProject().hasGit();
             // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
 
             // Architect Button
-            architectButton.setEnabled(projectLoaded && cmAvailable);
-            if (projectLoaded && cmAvailable) {
+            architectButton.setEnabled(cmAvailable);
+            if (cmAvailable) {
                  architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
             } else {
                  architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
@@ -1615,23 +1601,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Worktree option is now part of ArchitectOptionsDialog
 
             // Code Button
-            if (projectLoaded && !gitAvailable) {
+            if (!gitAvailable) {
                 codeButton.setEnabled(false);
                 codeButton.setToolTipText("Code feature requires Git integration for this project.");
             } else {
-                codeButton.setEnabled(projectLoaded && cmAvailable);
+                codeButton.setEnabled(cmAvailable);
                 // Default tooltip is set during initialization, no need to reset unless it changed
             }
 
-            askButton.setEnabled(projectLoaded && cmAvailable);
-            searchButton.setEnabled(projectLoaded && cmAvailable);
+            askButton.setEnabled(cmAvailable);
+            searchButton.setEnabled(cmAvailable);
             runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
             // Enable deepScanButton only if instructionsArea is also enabled
-            deepScanButton.setEnabled(projectLoaded && cmAvailable && instructionsArea.isEnabled());
+            deepScanButton.setEnabled(cmAvailable && instructionsArea.isEnabled());
             // Stop is only enabled when an action is running
             stopButton.setEnabled(false);
 
-            if (projectLoaded && cmAvailable) {
+            if (cmAvailable) {
                 chrome.enableHistoryPanel();
             } else {
                 chrome.disableHistoryPanel();
@@ -1694,6 +1680,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         this.deepScanButton.setEnabled(enabled);
     }
 
+    public VoiceInputButton getVoiceInputButton() {
+        return this.micButton;
+    }
+
     /**
      * Returns cosine similarity of two equal-length vectors.
      */
@@ -1741,9 +1731,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var item = new JMenuItem("Models unavailable (ContextManager not ready)");
             item.setEnabled(false);
             popupMenu.add(item);
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(popupMenu);
-            }
+            chrome.themeManager.registerPopupMenu(popupMenu);
             return popupMenu;
         }
 
@@ -1778,9 +1766,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         // Apply theme to the popup menu itself and its items
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(popupMenu);
-        }
+        chrome.themeManager.registerPopupMenu(popupMenu);
         return popupMenu;
     }
 
@@ -1873,9 +1859,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
                 });
 
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(popup);
-                }
+                chrome.themeManager.registerPopupMenu(popup);
                 popup.show(instructionsArea, r.x, r.y + r.height);
 
                 // Preselect the first item in the popup

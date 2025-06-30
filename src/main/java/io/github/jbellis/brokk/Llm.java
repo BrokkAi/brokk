@@ -31,6 +31,7 @@ import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -44,7 +45,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -187,7 +187,9 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        errorRef.set(new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)"));
+                        var ex = new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)");
+                        logger.debug(ex);
+                        errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
                         String tokens = response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
@@ -200,7 +202,8 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.toolError("LLM error: " + th.getMessage()); // Immediate feedback for user
+                    logger.debug(th);
+                    io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
                     latch.countDown();
                 });
@@ -346,7 +349,7 @@ public class Llm {
                 break;
             }
 
-            logger.debug("LLM error == {}, isEmpty == {}. Will retry. Attempt={}", lastError, response.isEmpty(), attempt);
+            logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
             if (attempt == maxAttempts) {
                 break; // done
             }
@@ -632,7 +635,7 @@ public class Llm {
                 .responseFormat(responseFormat)
                 .build();
 
-        Function<Throwable, String> retryInstructionsProvider = e -> """
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
                 %s
                 Please ensure you only return a JSON object matching the schema:
                   {
@@ -674,7 +677,7 @@ public class Llm {
                                                         ToolChoice toolChoice,
                                                         boolean echo) throws InterruptedException
     {
-        Function<Throwable, String> retryInstructionsProvider = e -> """
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
                 %s
                 Respond with a single JSON object containing a `tool_calls` array. Each entry in the array represents one invocation of a tool.
                 No additional keys or text are allowed outside of that JSON object.
@@ -883,7 +886,7 @@ public class Llm {
         return new NullSafeResponse(aiMessageText, toolExecutionRequests, result.originalResponse());
     }
 
-    private static String getInstructions(List<ToolSpecification> tools, Function<Throwable, String> retryInstructionsProvider) {
+    private static String getInstructions(List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
                     var parametersInfo = tool.parameters().properties().entrySet().stream()
@@ -993,10 +996,6 @@ public class Llm {
      * Writes history information to task-specific files.
      */
     private synchronized void logRequest(StreamingChatLanguageModel model, ChatRequest request, @Nullable StreamingResult result) {
-        if (taskHistoryDir == null) {
-            // History directory creation failed in constructor, do nothing.
-            return;
-        }
         try {
             var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
 
@@ -1044,6 +1043,10 @@ public class Llm {
 
         public boolean isEmpty() {
             return text.isEmpty() && toolRequests.isEmpty();
+        }
+
+        public AiMessage aiMessage() {
+            return toolRequests.isEmpty() ? new AiMessage(text) : new AiMessage(text, toolRequests);
         }
     }
 
@@ -1097,11 +1100,10 @@ public class Llm {
         }
 
         /**
-         * It is only valid to call this when no error is present,
-         * so we are guaranteed that chatResponse and cR.originalResponse are non-null
+         * Package-private since unless you are test code you should almost always call aiMessage() instead
          */
-        public AiMessage originalMessage() {
-            assert error == null : error;
+        @VisibleForTesting
+        AiMessage originalMessage() {
             return requireNonNull(requireNonNull(chatResponse).originalResponse).aiMessage();
         }
 
@@ -1112,13 +1114,29 @@ public class Llm {
             return chatResponse != null;
         }
 
+        /**
+         * @return the response text if a response is present; else throws
+         */
+        public AiMessage aiMessage() {
+            requireNonNull(chatResponse);
+            return chatResponse.aiMessage();
+        }
+
         public String formatted() {
             if (error != null) {
+                String contentToShow;
+                // text() helper method returns chatResponse.text() or "" if chatResponse is null.
+                if (!text().isEmpty()) {
+                    contentToShow = "[Partial response text]\n" + text();
+                } else {
+                    contentToShow = "[No response content available]";
+                }
                 return """
                        [Error: %s]
                        %s
-                       """.formatted(formatThrowable(error), originalResponse() == null ? "[Null response]" : originalResponse().toString());
+                       """.stripIndent().formatted(formatThrowable(error), contentToShow);
             }
+            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
             return castNonNull(originalResponse()).toString();
         }
 
@@ -1137,7 +1155,7 @@ public class Llm {
          */
         public String getDescription() {
             if (error != null) {
-                return Objects.toString(error.getMessage(), "Unknown error");
+                return requireNonNull(error.getMessage());
             }
 
             var cr = castNonNull(chatResponse);

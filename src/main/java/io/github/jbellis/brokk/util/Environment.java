@@ -16,9 +16,22 @@ import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+
 public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
+
+    @FunctionalInterface
+    public interface ShellCommandRunner {
+        String run(Consumer<String> outputConsumer) throws SubprocessException, InterruptedException;
+    }
+
+    // Default factory creates the real runner. Tests can replace this.
+    public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
+            (cmd, projectRoot) -> (outputConsumer) -> runShellCommandInternal(cmd, projectRoot, outputConsumer);
+
 
     @Nullable private TrayIcon brokkTrayIcon = null;
 
@@ -35,10 +48,15 @@ public class Environment {
      * @throws SubprocessException if the command fails to start, times out, or returns a non-zero exit code.
      * @throws InterruptedException if the thread is interrupted.
      */
-    public String runShellCommand(String command, Path root, java.util.function.Consumer<String> outputConsumer)
-    throws SubprocessException, InterruptedException
+    public String runShellCommand(String command, Path root, Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException
     {
-        logger.debug("Running `{}` in `{}`", command, root);
+        return shellCommandRunnerFactory.apply(command, root).run(outputConsumer);
+    }
+
+    private static String runShellCommandInternal(String command, Path root, Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException {
+        logger.debug("Running internal `{}` in `{}`", command, root);
         String shell = isWindows() ? "cmd.exe" : "/bin/sh";
         String[] shellCommand = isWindows()
                                 ? new String[]{"cmd.exe", "/c", command}
@@ -147,7 +165,7 @@ public class Environment {
 
         public SubprocessException(String message, String output) {
             super(message);
-            this.output = output == null ? "" : output;
+            this.output = output;
         }
 
         public String getOutput() {

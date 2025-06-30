@@ -31,6 +31,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
+import java.awt.event.*;
 import java.util.Arrays;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
@@ -39,9 +40,6 @@ import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
-import java.awt.event.ActionEvent;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -72,7 +70,7 @@ public class WorkspacePanel extends JPanel {
      * Enum representing the different types of context actions that can be performed.
      */
     public enum ContextAction {
-        EDIT, READ, SUMMARIZE, DROP, COPY, PASTE
+        EDIT, READ, SUMMARIZE, DROP, COPY, PASTE, RUN_TESTS
     }
 
     public enum PopupMenuMode { FULL, COPY_ONLY }
@@ -120,6 +118,12 @@ public class WorkspacePanel extends JPanel {
                     actions.add(WorkspaceAction.VIEW_HISTORY.createFileAction(panel, fileRef.getRepoFile()));
                 } else {
                     actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
+                }
+                if (ContextManager.isTestFile(fileRef.getRepoFile())) {
+                    actions.add(WorkspaceAction.RUN_TESTS.createFileRefAction(panel, fileRef));
+                } else {
+                    var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
+                    actions.add(disabledAction);
                 }
 
                 actions.add(null); // Separator
@@ -174,6 +178,16 @@ public class WorkspacePanel extends JPanel {
                 actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("View History is available only for single project files."));
             }
 
+            // Add Run Tests action if the fragment is associated with a test file
+            if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                    && fragment.files().stream().anyMatch(ContextManager::isTestFile))
+            {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, List.of(fragment)));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
+
             actions.add(null); // Separator
 
             // Edit/Read/Summarize
@@ -222,6 +236,13 @@ public class WorkspacePanel extends JPanel {
 
             actions.add(WorkspaceAction.SHOW_CONTENTS.createDisabledAction("Cannot view contents of multiple items at once."));
             actions.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
+            // Add Run Tests action if all selected fragment is associated with a test file
+            if (fragments.stream().flatMap(f -> f.files().stream()).allMatch(ContextManager::isTestFile)) {
+                actions.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(panel, fragments));
+            } else {
+                var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
+                actions.add(disabledAction);
+            }
 
             actions.add(null); // Separator
 
@@ -260,7 +281,8 @@ public class WorkspacePanel extends JPanel {
         DROP("Drop"),
         DROP_ALL("Drop All"),
         COPY_ALL("Copy All"),
-        PASTE("Paste text, images, urls");
+        PASTE("Paste text, images, urls"),
+        RUN_TESTS("Run Tests in Shell");
 
         private final String label;
 
@@ -277,6 +299,7 @@ public class WorkspacePanel extends JPanel {
                     case COPY_ALL -> panel.performContextActionAsync(ContextAction.COPY, List.of());
                     case PASTE -> panel.performContextActionAsync(ContextAction.PASTE, List.of());
                     case COMPRESS_HISTORY -> panel.contextManager.compressHistoryAsync();
+                    case RUN_TESTS -> panel.performContextActionAsync(ContextAction.RUN_TESTS, List.of());
                     default -> throw new UnsupportedOperationException("Action not implemented: " + WorkspaceAction.this);
                 }
             }
@@ -371,6 +394,7 @@ public class WorkspacePanel extends JPanel {
                         case SUMMARIZE_ALL_REFS -> ContextAction.SUMMARIZE;
                         case COPY -> ContextAction.COPY;
                         case DROP -> ContextAction.DROP;
+                        case RUN_TESTS -> ContextAction.RUN_TESTS;
                         default -> throw new UnsupportedOperationException("Fragments action not implemented: " + WorkspaceAction.this);
                     };
                     panel.performContextActionAsync(contextAction, fragments);
@@ -408,7 +432,7 @@ public class WorkspacePanel extends JPanel {
     ) {
         public DescriptionWithReferences {
             // Defensive copy for immutability
-            fileReferences = List.copyOf(fileReferences != null ? fileReferences : List.of());
+            fileReferences = List.copyOf(fileReferences);
         }
 
         @Override
@@ -530,9 +554,7 @@ public class WorkspacePanel extends JPanel {
         }
 
         public void show(Component invoker, int x, int y) {
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(popup);
-            }
+            chrome.themeManager.registerPopupMenu(popup);
             popup.show(invoker, x, y);
         }
     }
@@ -756,16 +778,7 @@ public class WorkspacePanel extends JPanel {
 
         // Create a single JPopupMenu for the table
         JPopupMenu contextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(contextMenu);
-        } else {
-            // Register this popup menu later when the theme manager is available
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(contextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(contextMenu);
 
         // Add a mouse listener so we control exactly when the popup shows
         contextTable.addMouseListener(new MouseAdapter() {
@@ -800,9 +813,7 @@ public class WorkspacePanel extends JPanel {
                 });
                 contextMenu.removeAll();
                         contextMenu.add(copyItem);
-                        if (chrome.themeManager != null) {
-                            chrome.themeManager.registerPopupMenu(contextMenu);
-                        }
+                        chrome.themeManager.registerPopupMenu(contextMenu);
                         contextMenu.show(contextTable, e.getX(), e.getY());
                     }
                     return;
@@ -821,9 +832,7 @@ public class WorkspacePanel extends JPanel {
                 // Show empty table menu if no selection
                 if (row < 0 || selectedFragments.isEmpty()) {
                     tablePopupMenu.show(contextTable, e.getX(), e.getY());
-                    if (chrome.themeManager != null) {
-                        chrome.themeManager.registerPopupMenu(tablePopupMenu);
-                    }
+                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
                     return;
                 }
 
@@ -900,15 +909,7 @@ public class WorkspacePanel extends JPanel {
         tablePopupMenu.add(pasteMenuItem);
 
         // Register the popup menu with the theme manager
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(tablePopupMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(tablePopupMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(tablePopupMenu);
 
         // Build summary panel
         var contextSummaryPanel = new JPanel(new BorderLayout());
@@ -939,8 +940,6 @@ public class WorkspacePanel extends JPanel {
         var tableScrollPane = new JScrollPane(contextTable, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         tableScrollPane.setPreferredSize(new Dimension(600, 150));
 
-        BorderUtils.addFocusBorder(tableScrollPane, contextTable);
-
         // Create gray semi-transparent overlay for history viewing that allows mouse clicks through
         workspaceOverlay = OverlayPanel.createNonBlockingGrayOverlay(
                 overlay -> {}, // No action on click - this overlay is not meant to be dismissed by user
@@ -952,8 +951,68 @@ public class WorkspacePanel extends JPanel {
         // Create layered pane to support overlay
         workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
 
-        // Add a mouse listener to the scroll pane for right-clicks on empty areas
-        tableScrollPane.addMouseListener(new MouseAdapter() {
+        // Create a focusable wrapper that provides consistent focus behavior across the workspace
+        var focusableWrapper = new JPanel(new BorderLayout()) {
+            @Override
+            public boolean requestFocusInWindow() {
+                boolean result = super.requestFocusInWindow();
+                if (!result) {
+                    requestFocus();
+                }
+                return true;
+            }
+        };
+        focusableWrapper.setFocusable(true);
+        focusableWrapper.setFocusTraversalKeysEnabled(true);
+        focusableWrapper.setOpaque(false); // Transparent so underlying components show through
+        focusableWrapper.add(workspaceLayeredPane, BorderLayout.CENTER);
+
+        // Add mouse listeners to key components to ensure focus
+        var focusMouseListener = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    SwingUtilities.invokeLater(() -> {
+                        focusableWrapper.requestFocusInWindow();
+                    });
+                }
+            }
+        };
+
+        // Add to the table (this should definitely work)
+        contextTable.addMouseListener(focusMouseListener);
+
+        // Add to the table header
+        if (contextTable.getTableHeader() != null) {
+            var tableHeader = contextTable.getTableHeader();
+            tableHeader.addMouseListener(focusMouseListener);
+
+            // Right-click popup menu on the header (same as title / empty areas)
+            MouseAdapter headerPopupListener = new MouseAdapter() {
+                @Override
+                public void mousePressed(MouseEvent e) {
+                    showPopup(e);
+                }
+                @Override
+                public void mouseReleased(MouseEvent e) {
+                    showPopup(e);
+                }
+                private void showPopup(MouseEvent e) {
+                    if (e.isPopupTrigger()) {
+                        tablePopupMenu.show(e.getComponent(), e.getX(), e.getY());
+                    }
+                }
+            };
+            tableHeader.addMouseListener(headerPopupListener);
+        }
+
+        // Add to the scroll pane viewport for empty areas
+        tableScrollPane.getViewport().addMouseListener(focusMouseListener);
+
+        BorderUtils.addFocusBorder(focusableWrapper, focusableWrapper);
+
+        // Add a mouse listener to the scroll pane *and its viewport* for right-clicks on empty areas
+        var emptyAreaPopupListener = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 handleScrollPanePopup(e);
@@ -984,26 +1043,17 @@ public class WorkspacePanel extends JPanel {
                     tablePopupMenu.show(scrollPane, e.getX(), e.getY());
                 }
             }
-        });
+        };
+        tableScrollPane.addMouseListener(emptyAreaPopupListener);
+        tableScrollPane.getViewport().addMouseListener(emptyAreaPopupListener);
 
-        tablePanel.add(workspaceLayeredPane, BorderLayout.CENTER);
+        tablePanel.add(focusableWrapper, BorderLayout.CENTER);
 
         setLayout(new BorderLayout());
 
         add(tablePanel, BorderLayout.CENTER);
 
         add(contextSummaryPanel, BorderLayout.SOUTH);
-
-        // Listener for layered pane (focus on click, specific popup for empty area)
-        workspaceLayeredPane.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                // Focus table when clicking on the layered pane
-                if (!e.isPopupTrigger() && SwingUtilities.isLeftMouseButton(e)) {
-                    contextTable.requestFocusInWindow();
-                }
-            }
-        });
 
         // Shared listener for panel-wide context menu and focus
         MouseAdapter panelPopupAndFocusListener = new MouseAdapter() {
@@ -1132,7 +1182,7 @@ public class WorkspacePanel extends JPanel {
         );
 
         for (var config : configuredModelChecks) {
-            if (config.name() == null || config.name().isBlank()) {
+            if (config.name().isBlank()) {
                 continue;
             }
             try {
@@ -1514,6 +1564,7 @@ public class WorkspacePanel extends JPanel {
                     case DROP -> doDropAction(selectedFragments);
                     case SUMMARIZE -> doSummarizeAction(selectedFragments);
                     case PASTE -> doPasteAction();
+                    case RUN_TESTS -> doRunTestsAction(selectedFragments);
                 }
             } catch (CancellationException cex) {
                 chrome.systemOutput(action + " canceled.");
@@ -1777,6 +1828,22 @@ public class WorkspacePanel extends JPanel {
         }
     }
 
+    private void doRunTestsAction(List<? extends ContextFragment> selectedFragments) {
+        var testFiles = selectedFragments.stream()
+                .flatMap(frag -> frag.files().stream())
+                .filter(ContextManager::isTestFile)
+                .collect(Collectors.toSet());
+
+        if (testFiles.isEmpty() && !selectedFragments.isEmpty()) {
+            chrome.toolError("No test files found in the selection to run.");
+            return;
+        }
+
+        contextManager.submitContextTask("Run selected tests", () -> {
+            RunTestsService.runTests(chrome, contextManager, testFiles);
+        });
+    }
+
     private void doSummarizeAction(List<? extends ContextFragment> selectedFragments) {
         var project = contextManager.getProject();
         if (!isAnalyzerReady()) {
@@ -1835,14 +1902,14 @@ public class WorkspacePanel extends JPanel {
      * Use with caution, only when external files are disallowed or handled separately.
      */
     private List<ProjectFile> toProjectFilesUnsafe(List<BrokkFile> files) {
-        return files == null ? List.of() : files.stream()
-                .map(f -> {
-                    if (f instanceof ProjectFile pf) {
-                        return pf;
-                    }
-                    throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
-                })
-                .toList();
+        return files.stream()
+                        .map(f -> {
+                            if (f instanceof ProjectFile pf) {
+                                return pf;
+                            }
+                            throw new ClassCastException("Expected only ProjectFile but got " + f.getClass().getName());
+                        })
+                        .toList();
     }
 
     /**
@@ -1908,7 +1975,7 @@ public class WorkspacePanel extends JPanel {
         );
 
         for (var config : configsToCheck) {
-            if (config.name() == null || config.name().isBlank() || seenModels.contains(config.name())) {
+            if (config.name().isBlank() || seenModels.contains(config.name())) {
                 continue; // Skip if model name is empty or already processed
             }
 
@@ -2016,11 +2083,9 @@ public class WorkspacePanel extends JPanel {
      */
     public void hideAnalyzerRebuildSpinner() {
         SwingUtilities.invokeLater(() -> {
-            if (analyzerRebuildPanel != null) {
-                analyzerRebuildPanel.setVisible(false);
-                analyzerRebuildPanel.revalidate();
-                analyzerRebuildPanel.repaint();
-            }
+            analyzerRebuildPanel.setVisible(false);
+            analyzerRebuildPanel.revalidate();
+            analyzerRebuildPanel.repaint();
         });
     }
 

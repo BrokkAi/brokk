@@ -1,37 +1,29 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
-import io.github.jbellis.brokk.prompts.CommitPrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
 import javax.swing.table.DefaultTableModel;
 import java.awt.*;
-import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.stream.Collectors;
 
 /**
- * Panel for the "Commit" tab in the Git Panel.
- * Handles uncommitted changes, staging, committing, and stashing.
+ * Panel for the "Changes" tab (formerly "Commit" tab) in the Git Panel.
+ * Handles displaying uncommitted changes, staging, committing, and stashing.
  */
 public class GitCommitTab extends JPanel {
 
@@ -40,12 +32,11 @@ public class GitCommitTab extends JPanel {
     private final Chrome chrome;
     private final ContextManager contextManager;
     private final GitPanel gitPanel; // Reference to parent GitPanel
+    private final GitWorkflowService workflowService;
 
     // Commit tab UI
     private JTable uncommittedFilesTable; // Initialized via fileStatusPane
     private FileStatusTable fileStatusPane;
-    private JButton suggestMessageButton;
-    private JTextArea commitMessageArea;
     private JButton commitButton;
     private JButton stashButton;
     @Nullable
@@ -56,11 +47,12 @@ public class GitCommitTab extends JPanel {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.gitPanel = gitPanel; // Store reference to parent
+        this.workflowService = new GitWorkflowService(contextManager);
         buildCommitTabUI();
     }
 
     /**
-     * Builds the Commit tab UI elements.
+     * Builds the Changes tab UI elements.
      */
     private void buildCommitTabUI()
     {
@@ -156,7 +148,7 @@ public class GitCommitTab extends JPanel {
 
         editFileItem.addActionListener(e -> {
             var selectedProjectFiles = getSelectedFilesFromTable();
-            GitUiUtil.editFiles(contextManager, selectedProjectFiles);
+            contextManager.editFiles(selectedProjectFiles);
             rightClickedFile = null; // Clear after use
         });
 
@@ -191,181 +183,92 @@ public class GitCommitTab extends JPanel {
         // FileStatusTable is itself a JScrollPane
         add(fileStatusPane, BorderLayout.CENTER);
 
-        // Commit message + bottom panel
-        JPanel commitBottomPanel = new JPanel(new BorderLayout());
-        JPanel messagePanel = new JPanel(new BorderLayout());
-        messagePanel.add(new JLabel("Commit/Stash Description:"), BorderLayout.NORTH);
-
-        commitMessageArea = new JTextArea(2, 50);
-        commitMessageArea.setLineWrap(true);
-        commitMessageArea.setWrapStyleWord(true);
-        messagePanel.add(new JScrollPane(commitMessageArea), BorderLayout.CENTER);
-
-        commitBottomPanel.add(messagePanel, BorderLayout.CENTER);
+        // Bottom panel for buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-        suggestMessageButton = new JButton("Suggest Message");
-        suggestMessageButton.setToolTipText("Suggest a commit message for the selected files");
-        suggestMessageButton.setEnabled(false);
-        suggestMessageButton.addActionListener(e -> {
-            suggestMessageButton.setEnabled(false); // Disable button immediately
-            List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
-            CompletableFuture<String> suggestionFuture = suggestMessageAsync(selectedFiles);
-
-            suggestionFuture.whenComplete((suggestedMessage, throwable) ->
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        if (throwable == null) {
-                            setCommitMessageText(suggestedMessage);
-                        } else {
-                            // Handle exceptions, e.g., log them or show an error to the user
-                            logger.error("Error suggesting commit message:", throwable);
-                            // Optionally inform the user via chrome.toolError or similar
-                            String rootCauseMessage = throwable.getCause() != null ? throwable.getCause().getMessage() : throwable.getMessage();
-                            chrome.toolError("Failed to suggest commit message: " + rootCauseMessage, "Suggestion Error");
-                        }
-                    } finally {
-                        suggestMessageButton.setEnabled(true); // Re-enable button in all cases
-                    }
-                })
-            );
-        });
-        buttonPanel.add(suggestMessageButton);
-
-        stashButton = new JButton("Stash All");
+        // Stash Button
+        stashButton = new JButton("Stash All"); // Default label
         stashButton.setToolTipText("Save your changes to the stash");
         stashButton.setEnabled(false);
         stashButton.addActionListener(e -> {
-            String userMessage = commitMessageArea.getText().trim();
             List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
-
-            if (userMessage.isEmpty()) {
-                // No message provided, suggest one and stash
-                contextManager.submitUserTask("Suggesting message and stashing", () -> {
-                    try {
-                        Future<String> suggestionFuture = suggestMessageAsync(selectedFiles);
-                        String suggestedMessage = suggestionFuture.get(); // Wait for suggestion
-                        if (suggestedMessage.isBlank()) {
-                            logger.warn("No suggested commit message found");
-                            suggestedMessage = "Stash created by Brokk"; // Fallback
-                        }
-                        String finalStashDescription = suggestedMessage;
-                        // Perform stash with suggested message
-                        performStash(selectedFiles, finalStashDescription);
-                    } catch (GitAPIException ex) {
-                        logger.error("Error stashing changes:", ex);
-                        SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage()));
-                    } catch (ExecutionException | InterruptedException ex) {
-                        throw new RuntimeException(ex);
-                    }
-                });
-            } else {
-                // Message provided, use it
-                String stashDescription = java.util.Arrays.stream(userMessage.split("\n"))
-                        .filter(line -> !line.trim().startsWith("#"))
-                        .collect(Collectors.joining("\n"))
-                        .trim();
-                contextManager.submitUserTask("Stashing changes", () -> {
-                    try {
-                        performStash(selectedFiles, stashDescription.isEmpty() ? "Stash created by Brokk" : stashDescription);
-                    } catch (GitAPIException ex) {
-                        logger.error("Error stashing changes:", ex);
-                        SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage()));
-                    }
-                });
-            }
-        });
-        buttonPanel.add(stashButton);
-
-        commitButton = new JButton("Commit All");
-        commitButton.setToolTipText("Commit files with the message");
-        commitButton.setEnabled(false);
-        commitButton.addActionListener(e -> {
-            List<ProjectFile> selectedFiles = getSelectedFilesFromTable();
-            String msg = commitMessageArea.getText().trim();
-            if (msg.isEmpty()) {
-                return;
-            }
-            contextManager.submitUserTask("Committing files", () -> {
+            // Stash without asking for a message, using a default one.
+            String stashMessage = "Stash created by Brokk";
+            contextManager.submitUserTask("Stashing changes", () -> {
                 try {
-                    if (selectedFiles.isEmpty()) {
-                        var allDirtyFileStatuses = getRepo().getModifiedFiles();
-                        var allDirtyFiles = allDirtyFileStatuses.stream()
-                                .map(GitRepo.ModifiedFile::file)
-                                .collect(Collectors.toList());
-                        getRepo().commitFiles(allDirtyFiles, msg);
-                    } else {
-                        getRepo().commitFiles(selectedFiles, msg);
-                    }
-                    SwingUtilities.invokeLater(() -> {
-                        try {
-                            String shortHash = GitUiUtil.shortenCommitId(getRepo().getCurrentCommitId());
-                            String firstLine = msg.contains("\n") ? msg.substring(0, msg.indexOf('\n')) : msg;
-                            chrome.systemOutput("Committed " + shortHash + ": " + firstLine);
-                        } catch (Exception ex) {
-                            chrome.systemOutput("Changes committed successfully");
-                        }
-                        commitMessageArea.setText("");
-                        updateCommitPanel();
-                        gitPanel.updateLogTab();
-                        gitPanel.selectCurrentBranchInLogTab();
-                    });
-                } catch (Exception ex) {
-                    logger.error("Error committing files:", ex);
-                    SwingUtilities.invokeLater(() -> chrome.toolError("Error committing files: " + ex.getMessage()));
+                    performStash(selectedFiles, stashMessage);
+                } catch (GitAPIException ex) {
+                    logger.error("Error stashing changes:", ex);
+                    SwingUtilities.invokeLater(() -> chrome.toolError("Error stashing changes: " + ex.getMessage(), "Stash Error"));
                 }
             });
         });
+        buttonPanel.add(stashButton);
+
+        // Commit Button
+        commitButton = new JButton("Commit All..."); // Default label with ellipsis
+        commitButton.setToolTipText("Commit files...");
+        commitButton.setEnabled(false);
+        commitButton.addActionListener(e -> {
+            List<ProjectFile> filesToCommit;
+            if (uncommittedFilesTable.getSelectedRowCount() > 0) {
+                filesToCommit = getSelectedFilesFromTable();
+            } else {
+                filesToCommit = getAllFilesFromTable();
+            }
+
+            if (filesToCommit.isEmpty()) {
+                chrome.toolError("No files to commit.", "Commit Error");
+                return;
+            }
+
+            CommitDialog dialog = new CommitDialog(
+                    (Frame) SwingUtilities.getWindowAncestor(this),
+                    chrome,
+                    contextManager,
+                    workflowService,
+                    filesToCommit,
+                    commitResult -> { // This is the onCommitSuccessCallback
+                        chrome.systemOutput("Committed "
+                                + GitUiUtil.shortenCommitId(commitResult.commitId())
+                                + ": " + commitResult.firstLine());
+                        updateCommitPanel(); // Refresh file list
+                        gitPanel.updateLogTab();
+                        gitPanel.selectCurrentBranchInLogTab();
+                    }
+            );
+            dialog.setVisible(true);
+        });
         buttonPanel.add(commitButton);
 
-        // "Create PR" button has been moved to GitCommitBrowserPanel.
 
-        // Commit message area => enable/disable commit/stash buttons
-        commitMessageArea.getDocument().addDocumentListener(new DocumentListener() {
-            @Override
-            public void insertUpdate(DocumentEvent e) {
-                updateCommitButtonState();
-            }
-
-            @Override
-            public void removeUpdate(DocumentEvent e) {
-                updateCommitButtonState();
-            }
-
-            @Override
-            public void changedUpdate(DocumentEvent e) {
-                updateCommitButtonState();
-            }
-
-            private void updateCommitButtonState() {
-                // Enablement depends on whether there are changes (indicated by suggest button)
-                boolean hasChanges = suggestMessageButton.isEnabled();
-                stashButton.setEnabled(hasChanges);
-
-                // Commit button still requires a message
-                String text = commitMessageArea.getText().trim();
-                boolean hasNonCommentText = Arrays.stream(text.split("\n"))
-                        .anyMatch(line -> !line.trim().isEmpty()
-                                && !line.trim().startsWith("#"));
-                commitButton.setEnabled(hasNonCommentText && hasChanges);
-            }
-        });
-
-        // Table selection => update commit button text
+        // Table selection => update commit button text and enable/disable buttons
         uncommittedFilesTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) updateCommitButtonText();
+            if (!e.getValueIsAdjusting()) {
+                updateCommitButtonText(); // Updates commit button label
+                updateButtonEnablement(); // Updates general button enablement
+            }
         });
 
-        commitBottomPanel.add(buttonPanel, BorderLayout.SOUTH);
-        add(commitBottomPanel, BorderLayout.SOUTH);
+        add(buttonPanel, BorderLayout.SOUTH);
     }
+
+    /**
+     * Updates the enabled state of commit and stash buttons based on file changes.
+     */
+    private void updateButtonEnablement() {
+        // Enablement depends on whether there are changes in the table
+        boolean hasChanges = uncommittedFilesTable.getRowCount() > 0;
+        commitButton.setEnabled(hasChanges);
+        stashButton.setEnabled(hasChanges);
+    }
+
 
     /**
      * Returns the current GitRepo from ContextManager.
      */
     private GitRepo getRepo() {
         var repo = contextManager.getProject().getRepo();
-        assert repo != null;
         return (GitRepo) repo;
     }
 
@@ -403,41 +306,33 @@ public class GitCommitTab extends JPanel {
                     // This also populates the statusMap within FileStatusTable
                     fileStatusPane.setFiles(uncommittedFilesList);
 
-        if (uncommittedFilesList.isEmpty()) {
-            logger.trace("No uncommitted files found");
-            suggestMessageButton.setEnabled(false);
-            commitButton.setEnabled(false);
-            stashButton.setEnabled(false);
-        } else {
-            logger.trace("Found {} uncommitted files to display", uncommittedFilesList.size());
+                    // Restore selection
+                    List<Integer> rowsToSelect = new ArrayList<>();
+                    var model = (DefaultTableModel) uncommittedFilesTable.getModel();
+                    for (int i = 0; i < model.getRowCount(); i++) {
+                        if (previouslySelectedFiles.contains(model.getValueAt(i, 2))) {
+                            rowsToSelect.add(i);
+                        }
+                    }
 
-            // Restore selection for any rows that were previously selected
-            for (int i = 0; i < uncommittedFilesList.size(); i++) {
-                var pf = uncommittedFilesList.get(i).file();
-                if (previouslySelectedFiles.contains(pf)) {
-                    uncommittedFilesTable.addRowSelectionInterval(i, i);
-                }
-            }
+                    if (!rowsToSelect.isEmpty()) {
+                        for (int rowIndex : rowsToSelect) {
+                            uncommittedFilesTable.addRowSelectionInterval(rowIndex, rowIndex);
+                        }
+                    }
 
-            suggestMessageButton.setEnabled(true);
-
-            var text = commitMessageArea.getText().trim();
-            var hasNonCommentText = Arrays.stream(text.split("\n"))
-                    .anyMatch(line -> !line.trim().isEmpty()
-                            && !line.trim().startsWith("#"));
-            commitButton.setEnabled(hasNonCommentText);
-            stashButton.setEnabled(true);
-        }
-        updateCommitButtonText();
+                    updateButtonEnablement(); // General button enablement based on table content
+                    updateCommitButtonText(); // Updates commit button label specifically
                 });
             } catch (Exception e) {
                 logger.error("Error fetching uncommitted files:", e);
                 SwingUtilities.invokeLater(() -> {
-                    logger.debug("Disabling commit buttons due to error");
-                    suggestMessageButton.setEnabled(false);
+                    logger.debug("Disabling commit/stash buttons due to error");
                     commitButton.setEnabled(false);
-                    stashButton.setEnabled(false); // Also disable stash on error
-                    ((DefaultTableModel) uncommittedFilesTable.getModel()).setRowCount(0); // Clear table on error
+                    stashButton.setEnabled(false);
+                    if (uncommittedFilesTable.getModel() instanceof DefaultTableModel dtm) {
+                        dtm.setRowCount(0); // Clear table on error
+                    }
                 });
             }
             return null;
@@ -445,20 +340,20 @@ public class GitCommitTab extends JPanel {
     }
 
     /**
-     * Adjusts the commit/stash button label/text depending on selected vs all.
+     * Adjusts the commit and stash button labels depending on file selection.
      */
     private void updateCommitButtonText() {
-        int[] selectedRows = uncommittedFilesTable.getSelectedRows();
-        if (selectedRows.length > 0) {
-            commitButton.setText("Commit Selected");
-            commitButton.setToolTipText("Commit the selected files with the message");
+        int selectedRowCount = uncommittedFilesTable.getSelectedRowCount();
+        if (selectedRowCount > 0) {
+            commitButton.setText("Commit Selected...");
+            commitButton.setToolTipText("Commit the selected files...");
             stashButton.setText("Stash Selected");
-            stashButton.setToolTipText("Save your selected changes to the stash");
+            stashButton.setToolTipText("Save selected changes to the stash");
         } else {
-            commitButton.setText("Commit All");
-            commitButton.setToolTipText("Commit all files with the message");
+            commitButton.setText("Commit All...");
+            commitButton.setToolTipText("Commit all files...");
             stashButton.setText("Stash All");
-            stashButton.setToolTipText("Save all your changes to the stash");
+            stashButton.setToolTipText("Save all changes to the stash");
         }
     }
 
@@ -611,9 +506,7 @@ public class GitCommitTab extends JPanel {
                     String headContent = "";
                     try {
                         var repo = contextManager.getProject().getRepo();
-                        if (repo != null) {
-                            headContent = repo.getFileContent("HEAD", file);
-                        }
+                        headContent = repo.getFileContent("HEAD", file);
                     } catch (Exception ex) {
                         // new file or retrieval error – treat as empty
                         headContent = "";
@@ -642,22 +535,13 @@ public class GitCommitTab extends JPanel {
     private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
             chrome.toolError("No files selected for rollback");
-            return;
+return;
         }
 
         contextManager.submitUserTask("Rolling back files", () -> {
             try {
                 // Add files to context first (this ensures they can be restored)
                 contextManager.editFiles(selectedFiles);
-                // Capture original file contents for the task history
-                var originalContents = new HashMap<ProjectFile, String>();
-                for (var file : selectedFiles) {
-                    try {
-                        originalContents.put(file, file.read());
-                    } catch (IOException e) {
-                        logger.warn("Could not read original content of {}: {}", file, e.getMessage());
-                    }
-                }
 
                 // Take a snapshot of the current state before rollback
                 var frozen = contextManager.liveContext().freezeAndCleanup();
@@ -673,7 +557,7 @@ public class GitCommitTab extends JPanel {
                 var taskResult = new TaskResult(
                     rollbackDescription,
                     new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                    originalContents,
+                    new HashSet<>(selectedFiles),
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
                 );
                 contextManager.addToHistory(taskResult, false);
@@ -715,76 +599,9 @@ public class GitCommitTab extends JPanel {
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
                 chrome.systemOutput("Stashed " + fileList + ": " + stashDescription);
             }
-            commitMessageArea.setText("");
-            updateCommitPanel();
-            gitPanel.updateLogTab();
+            updateCommitPanel(); // Refresh file list
+            gitPanel.updateLogTab(); // Refresh log
         });
-    }
-
-    /**
-     * Asynchronously suggests a commit message based on selected files or all changes.
-     *
-     * @param selectedFiles List of files to diff, or empty to diff all changes.
-     * @return A Future containing the suggested message, or an empty string if no changes or an error occurred.
-     */
-    private CompletableFuture<String> suggestMessageAsync(List<ProjectFile> selectedFiles) {
-        // Submit the Callable to a background task executor managed by ContextManager
-        // We use submitBackgroundTask to ensure it runs off the EDT and provides user feedback
-        return contextManager.submitBackgroundTask("Suggesting commit message", () -> {
-            String diff;
-            try {
-                diff = selectedFiles.isEmpty()
-                        ? getRepo().diff()
-                        : getRepo().diffFiles(selectedFiles);
-            } catch (GitAPIException e) {
-                logger.error("Git diff operation failed while suggesting commit message", e);
-                throw new RuntimeException("Failed to generate diff for commit message suggestion", e);
-            }
-
-            if (diff.isEmpty()) {
-                SwingUtilities.invokeLater(() -> chrome.systemOutput("No changes detected"));
-                return ""; // Return empty string instead of null
-            }
-            // Call the LLM logic
-            return inferCommitMessage(contextManager.getProject(), diff);
-        });
-    }
-
-    /**
-     * Infers a commit message based on the provided diff text using the quickest model.
-     * This method performs the synchronous LLM call.
-     *
-     * @param project  The current project, used to get configuration like commit format.
-     * @param diffText The text difference to analyze for the commit message.
-     * @return The inferred commit message string, or an empty string if no message could be generated or an error occurred.
-     */
-    private String inferCommitMessage(IProject project, String diffText) {
-        var messages = CommitPrompts.instance.collectMessages(project, diffText);
-        if (messages.isEmpty()) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("Nothing to commit for suggestion"));
-            return ""; // Return empty string instead of null
-        }
-
-        Llm.StreamingResult result;
-        try {
-            result = contextManager.getLlm(contextManager.getService().quickestModel(), "Infer commit message").sendRequest(messages);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
-
-        if (result.error() != null || result.isEmpty()) {
-            SwingUtilities.invokeLater(() -> chrome.systemOutput("LLM did not provide a commit message."));
-            return "";
-        }
-
-        return result.text();
-    }
-
-    /**
-     * Sets the text in the commit message area (used by LLM suggestions).
-     */
-    public void setCommitMessageText(String message) {
-        SwingUtilities.invokeLater(() -> commitMessageArea.setText(message));
     }
 
     public void disableButtons() {

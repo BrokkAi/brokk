@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * A custom tree component for displaying project files with lazy loading,
@@ -192,9 +193,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     private JPopupMenu getOrCreateContextMenu() {
         if (currentContextMenu == null) {
             currentContextMenu = new JPopupMenu();
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(currentContextMenu);
-            }
+            chrome.themeManager.registerPopupMenu(currentContextMenu);
         }
         return currentContextMenu;
     }
@@ -246,6 +245,31 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
             });
         });
         contextMenu.add(summarizeItem);
+
+        contextMenu.addSeparator();
+        // Add "Run Tests in Shell" item
+        JMenuItem runTestsItem = new JMenuItem("Run Tests in Shell");
+        boolean hasTestFiles = selectedFiles.stream().allMatch(ContextManager::isTestFile);
+        runTestsItem.setEnabled(hasTestFiles);
+        if (!hasTestFiles) {
+            runTestsItem.setToolTipText("Non-test files in selection");
+        }
+
+        runTestsItem.addActionListener(ev -> {
+            contextManager.submitContextTask("Run selected tests", () -> {
+                var testProjectFiles = selectedFiles.stream()
+                        .filter(ContextManager::isTestFile)
+                        .collect(Collectors.toSet());
+
+                if (!testProjectFiles.isEmpty()) {
+                    RunTestsService.runTests(chrome, contextManager, testProjectFiles);
+                } else {
+                    // This case might occur if selection changes between menu population and action
+                    chrome.toolError("No test files were selected to run");
+                }
+            });
+        });
+        contextMenu.add(runTestsItem);
     }
 
     private @NotNull JMenuItem getHistoryMenuItem(List<ProjectFile> selectedFiles) {
@@ -469,7 +493,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
                     } else if (!pathsToSelect.isEmpty()) {
                          scrollPathToVisible(pathsToSelect.get(0));
                     }
-                    requestFocusInWindow(); // Ensure tree has focus to see selection
                 }
             }
             logger.trace("ProjectTree refresh complete.");

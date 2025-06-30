@@ -125,7 +125,7 @@ public class MultiAnalyzer implements IAnalyzer {
         for (var delegate : delegates.values()) {
             try {
                 var source = delegate.getClassSource(fqcn);
-                if (!source.isEmpty()) {
+                if (source != null && !source.isEmpty()) {
                     return source;
                 }
             } catch (SymbolNotFoundException e) {

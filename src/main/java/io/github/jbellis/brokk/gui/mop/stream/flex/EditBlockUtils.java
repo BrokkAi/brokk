@@ -62,7 +62,7 @@ public final class EditBlockUtils {
         String[] lines = block.split("\n", -1);
 
         // If first line ends with the filename's filename
-        if (fname != null && lines.length > 0) {
+        if (!fname.isBlank() && lines.length > 0) {
             String fn = new File(fname).getName();
             if (lines[0].trim().endsWith(fn)) {
                 lines = Arrays.copyOfRange(lines, 1, lines.length);

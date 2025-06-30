@@ -37,7 +37,7 @@ import java.util.zip.GZIPOutputStream;
  * This is intended to be immutable -- we handle changes by wrapping this in a ServiceWrapper that
  * knows how to reload the Service.
  */
-public final class Service {
+public class Service {
     public static final String TOP_UP_URL = "https://brokk.ai/dashboard";
     public static float MINIMUM_PAID_BALANCE = 0.20f;
     public static float LOW_BALANCE_WARN_AT = 2.00f;
@@ -200,7 +200,7 @@ public final class Service {
     // Model name constants
     public static final String O3 = "o3";
     public static final String GEMINI_2_5_PRO = "gemini-2.5-pro";
-    public static final String GROK_3_MINI = "grok-3-mini";
+    public static final String GROK_3_MINI = "grok-3-mini-beta";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -395,7 +395,7 @@ public final class Service {
      * @param infoTarget The map to populate with model locations to their info.
      * @throws IOException If network or parsing errors occur.
      */
-    private void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
+    protected void fetchAvailableModels(MainProject.DataRetentionPolicy policy,
                                       Map<String, String> locationsTarget,
                                       Map<String, Map<String, Object>> infoTarget) throws IOException
     {
@@ -808,12 +808,10 @@ public final class Service {
     }
 
     public StreamingChatLanguageModel quickestModel() {
-        assert quickestModel != null;
         return quickestModel;
     }
 
     public StreamingChatLanguageModel quickModel() {
-        assert quickModel != null;
         return quickModel;
     }
 
@@ -821,10 +819,6 @@ public final class Service {
      * Returns the default speech-to-text model instance.
      */
     public SpeechToTextModel sttModel() {
-        if (sttModel == null) {
-            logger.warn("sttModel accessed before initialization, returning UnavailableSTT.");
-            return new UnavailableSTT();
-        }
         return sttModel;
     }
 

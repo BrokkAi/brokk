@@ -24,9 +24,6 @@ public class CompositeHighlighter extends RSyntaxTextAreaHighlighter implements 
     public CompositeHighlighter(Highlighter secondaryHighlighter)
     {
         super();
-        if (secondaryHighlighter == null) {
-            throw new IllegalArgumentException("Secondary highlighter cannot be null");
-        }
         this.secondary = secondaryHighlighter;
     }
 

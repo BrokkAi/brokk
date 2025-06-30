@@ -2,13 +2,18 @@ package io.github.jbellis.brokk.gui;
 
 import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitRepo.MergeMode;
 import io.github.jbellis.brokk.git.ICommitInfo;
+import io.github.jbellis.brokk.gui.components.LoadingButton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.ProgressMonitor;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -32,6 +37,7 @@ public class GitLogTab extends JPanel {
     // Methods to expose to GitPanel for finding and selecting commits by ID
 
     private static final Logger logger = LogManager.getLogger(GitLogTab.class);
+    private static final String STASHES_VIRTUAL_BRANCH = "stashes";
 
     private final Chrome chrome;
     private final ContextManager contextManager;
@@ -58,7 +64,7 @@ public class GitLogTab extends JPanel {
 
         var project = contextManager.getProject();
         // Determine if the "Create PR" button should be shown, mirroring logic in GitPanel for the PR tab.
-        var showCreatePrButton = project.isGitHubRepo() && Boolean.getBoolean("brokk.prtab");
+        var showCreatePrButton = project.isGitHubRepo() && GitHubAuth.tokenPresent(project);
         var panelOptions = new GitCommitBrowserPanel.Options(true, true, showCreatePrButton);
 
         this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
@@ -107,7 +113,7 @@ public class GitLogTab extends JPanel {
                 Component c = super.prepareRenderer(renderer, row, column);
                 if (column == 1 && row >= 0 && row < getRowCount()) {
                     String branchName = (String) getValueAt(row, 1);
-                    if ("stashes".equals(branchName)) {
+                    if (STASHES_VIRTUAL_BRANCH.equals(branchName)) {
                         c.setFont(new Font(Font.MONOSPACED, Font.ITALIC, 13));
                     } else {
                         c.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
@@ -159,10 +165,34 @@ public class GitLogTab extends JPanel {
         branchesPanel.add(branchTabbedPane, BorderLayout.CENTER);
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton refreshBranchesButton = new JButton("Refresh");
-        refreshBranchesButton.addActionListener(e -> update());
-        branchButtonPanel.add(refreshBranchesButton);
+        var fetchButton = new LoadingButton("Fetch",
+                                            null, // no idle icon
+                                            chrome,
+                                            null); // ActionListener added below
+        branchButtonPanel.add(fetchButton);
         branchesPanel.add(branchButtonPanel, BorderLayout.SOUTH);
+
+        fetchButton.addActionListener(e -> {
+            // Immediate visual feedback
+            fetchButton.setLoading(true, "Fetching…");
+
+            contextManager.submitBackgroundTask("Fetching all remotes", () -> {
+                try {
+                    var pm = new IoProgressMonitor(contextManager.getIo());
+                    getRepo().fetchAll(pm); // network call
+                    contextManager.getIo().systemOutput("Fetch finished");
+                } catch (GitAPIException ex) {
+                    contextManager.getIo().systemOutput("Fetch failed: " + ex.getMessage());
+                    logger.warn("Fetch failed", ex);
+                } finally {
+                    SwingUtilities.invokeLater(() -> {
+                        fetchButton.setLoading(false, null); // restore label + enable
+                        update();                            // local rescan
+                    });
+                }
+                return null;       // submitBackgroundTask expects a Callable result
+            });
+        });
 
         // The GitCommitBrowserPanel (this.gitCommitBrowserPanel) now handles commits, search, changes tree, and related actions.
         // The old code for "Commits Panel" and "Changes Panel" that was here is removed.
@@ -186,7 +216,7 @@ public class GitLogTab extends JPanel {
                 String branchName = (String) branchTableModel.getValueAt(branchTable.getSelectedRow(), 1);
                 remoteBranchTable.clearSelection();
                 updateCommitsForBranch(branchName);
-                if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
             }
         });
         remoteBranchTable.getSelectionModel().addListSelectionListener(e -> {
@@ -194,21 +224,13 @@ public class GitLogTab extends JPanel {
                 String branchName = (String) remoteBranchTableModel.getValueAt(remoteBranchTable.getSelectedRow(), 0);
                 branchTable.clearSelection();
                 updateCommitsForBranch(branchName);
-                if (gitCommitBrowserPanel != null) gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
             }
         });
 
         // Local branch context menu
         JPopupMenu branchContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(branchContextMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(branchContextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(branchContextMenu);
         JMenuItem checkoutItem = new JMenuItem("Checkout");
         JMenuItem newBranchItem = new JMenuItem("New Branch From This");
         JMenuItem mergeItem = new JMenuItem("Merge into HEAD");
@@ -269,15 +291,19 @@ public class GitLogTab extends JPanel {
         mergeItem.addActionListener(e -> {
             int selectedRow = branchTable.getSelectedRow();
             if (selectedRow != -1) {
-                String branchDisplay = (String) branchTableModel.getValueAt(selectedRow, 1);
-                mergeBranchIntoHead(branchDisplay);
+                String branchToMerge = (String) branchTableModel.getValueAt(selectedRow, 1);
+                if (STASHES_VIRTUAL_BRANCH.equals(branchToMerge)) {
+                    chrome.toolError("Cannot merge the '" + STASHES_VIRTUAL_BRANCH + "' virtual entry.", "Merge Error");
+                    return;
+                }
+                showMergeDialog(branchToMerge);
             }
         });
         captureDiffVsBranchItem.addActionListener(e -> {
             int row = branchTable.getSelectedRow();
             if (row != -1) {
                 String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
-                if ("stashes".equals(selectedBranch)) return;
+                if (STASHES_VIRTUAL_BRANCH.equals(selectedBranch)) return;
 
                 String currentActualBranch;
                 try {
@@ -310,16 +336,16 @@ public class GitLogTab extends JPanel {
         // Remote branch context menu
         JPopupMenu remoteBranchContextMenu = new JPopupMenu();
         SwingUtilities.invokeLater(() -> {
-            if (chrome.themeManager != null) {
-                chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
-            }
+            chrome.themeManager.registerPopupMenu(remoteBranchContextMenu);
         });
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
+        JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
         JMenuItem remoteDiffItem = new JMenuItem("Capture Diff vs Branch");
 
         remoteBranchContextMenu.add(remoteCheckoutItem);
         remoteBranchContextMenu.add(remoteNewBranchItem);
+        remoteBranchContextMenu.add(remoteMergeItem);
         remoteBranchContextMenu.add(remoteDiffItem);
 
         remoteBranchTable.addMouseListener(new MouseAdapter() {
@@ -339,6 +365,20 @@ public class GitLogTab extends JPanel {
                     if (row >= 0 && !remoteBranchTable.isRowSelected(row)) {
                         remoteBranchTable.setRowSelectionInterval(row, row);
                     }
+                    String currentBranch = null;
+                    try {
+                        currentBranch = getRepo().getCurrentBranch();
+                    } catch (Exception ex) {
+                        logger.error("Could not get current branch for remote context menu", ex);
+                        // currentBranch remains null
+                    }
+                    if (row >= 0 && currentBranch != null) {
+                        remoteMergeItem.setText("Merge into " + currentBranch);
+                        remoteMergeItem.setEnabled(true);
+                    } else {
+                        remoteMergeItem.setText("Merge into...");
+                        remoteMergeItem.setEnabled(false);
+                    }
                     SwingUtilities.invokeLater(() -> {
                         remoteBranchContextMenu.show(remoteBranchTable, e.getX(), e.getY());
                     });
@@ -348,6 +388,7 @@ public class GitLogTab extends JPanel {
 
         remoteCheckoutItem.addActionListener(e -> performRemoteBranchAction(this::checkoutBranch));
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
+        remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
         remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
     }
 
@@ -385,15 +426,15 @@ public class GitLogTab extends JPanel {
                 int targetSelectionIndex = -1; // Index to select after update
                 String targetBranchToSelect = previouslySelectedBranch; // Prioritize previous selection
 
-                // Add virtual "stashes" entry first if stashes exist
+                // Add virtual stashes entry first if stashes exist
                 boolean hasStashes = false;
                 try {
                     // Just check if the list is non-empty, avoid fetching full info yet
                     hasStashes = !getRepo().listStashes().isEmpty();
                     if (hasStashes) {
-                        localBranchRows.add(new Object[]{"", "stashes"});
-                        if ("stashes".equals(targetBranchToSelect)) {
-                            targetSelectionIndex = 0; // If 'stashes' was selected, mark its index
+                        localBranchRows.add(new Object[]{"", STASHES_VIRTUAL_BRANCH});
+                        if (STASHES_VIRTUAL_BRANCH.equals(targetBranchToSelect)) {
+                            targetSelectionIndex = 0; // If stashes was selected, mark its index
                         }
                     }
                 } catch (GitAPIException e) {
@@ -490,7 +531,7 @@ public class GitLogTab extends JPanel {
                 boolean canPull = false;
 
                 // Special handling for stashes virtual branch
-                if ("stashes".equals(branchName)) {
+                if (STASHES_VIRTUAL_BRANCH.equals(branchName)) {
                     try {
                         // Directly call listStashes which now returns List<CommitInfo>
                         commits = getRepo().listStashes();
@@ -561,40 +602,73 @@ public class GitLogTab extends JPanel {
         });
     }
 
-    /**
-     * Merge a branch into HEAD.
-     */
-    private void mergeBranchIntoHead(String branchName) {
-        contextManager.submitUserTask("Merging branch: " + branchName, () -> {
-            try {
-                MergeResult mergeResult = getRepo().mergeIntoHead(branchName);
-                MergeResult.MergeStatus status = mergeResult.getMergeStatus();
+    private void showMergeDialog(String branchToMerge) {
+        String currentBranch;
+        try {
+            currentBranch = getRepo().getCurrentBranch();
+        } catch (GitAPIException e) {
+            logger.error("Could not get current branch for merge dialog", e);
+            chrome.toolError("Could not determine current branch: " + e.getMessage(), "Merge Error");
+            return;
+        }
 
-                if (status.isSuccessful()) {
-                    if (status == MergeResult.MergeStatus.ALREADY_UP_TO_DATE) {
-                        chrome.systemOutput("Branch '" + branchName + "' is already up-to-date with HEAD.");
-                    } else {
-                        chrome.systemOutput("Branch '" + branchName + "' was successfully merged into HEAD.");
-                    }
+        if (branchToMerge.equals(currentBranch)) {
+            chrome.systemNotify("Cannot merge '" + branchToMerge + "' into itself.", "Merge Info", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        var parentFrame = (Frame) SwingUtilities.getWindowAncestor(this);
+        var dialogPanel = new MergeBranchDialogPanel(parentFrame, branchToMerge, currentBranch);
+        var result = dialogPanel.showDialog(getRepo(), contextManager);
+
+        if (result.confirmed()) {
+            if (!result.hasConflicts()) {
+                mergeBranchIntoHead(branchToMerge, result.mergeMode());
+            } else {
+                chrome.toolError("Merge cancelled due to conflicts or error: " + result.conflictMessage(), "Merge Cancelled");
+            }
+        }
+    }
+
+    /**
+     * Merge a branch into HEAD using the specified mode.
+     */
+    private void mergeBranchIntoHead(String branchName, MergeMode mode) {
+        contextManager.submitUserTask("Merging branch: " + branchName + " (" + mode + ")", () -> {
+            var repo = getRepo();
+
+            try {
+                String targetBranch = repo.getCurrentBranch();
+                var mergeResult = repo.performMerge(branchName, mode);
+                var status = mergeResult.getMergeStatus();
+
+                if (GitRepo.isMergeSuccessful(mergeResult, mode)) {
+                    String modeDescription = switch (mode) {
+                        case MERGE_COMMIT -> "merged";
+                        case SQUASH_COMMIT -> "squash merged";
+                        case REBASE_MERGE -> "rebase-merged";
+                    };
+                    chrome.systemOutput("Branch '" + branchName + "' successfully " + modeDescription + " into '" + targetBranch + "'.");
                 } else if (status == MergeResult.MergeStatus.CONFLICTING) {
-                    String conflictingFiles = mergeResult.getConflicts().keySet().stream()
+                    String conflictingFiles = Objects.requireNonNull(mergeResult.getConflicts()).keySet().stream()
                             .map(s -> "  - " + s)
                             .collect(Collectors.joining("\n"));
-                    chrome.toolError("Merge conflicts detected for branch '" + branchName + "'.\n" +
-                                        "Please resolve conflicts manually and then commit.\n" +
-                                        "Conflicting files:\n" + conflictingFiles, "Merge Conflict");
+                    chrome.toolError("Merge conflicts for '" + branchName + "' into '" + targetBranch + "'.\n" +
+                                     "Resolve manually and commit.\nConflicting files:\n" + conflictingFiles, "Merge Conflict");
                 } else {
-                    // For other non-successful statuses like FAILED, ABORTED etc.
-                    chrome.toolError("Merge of branch '" + branchName + "' failed with error: " + status, "Merge Error");
+                    chrome.toolError("Merge of '" + branchName + "' into '" + targetBranch + "' failed: " + status, "Merge Error");
                 }
-                update(); // Refresh UI to reflect new state (merged, conflicting, or failed)
+
+                update(); // Refresh UI to reflect new state
             } catch (GitAPIException e) {
-                logger.error("Error merging branch: {}", branchName, e);
-                chrome.toolError("Error merging branch '" + branchName + "': " + e.getMessage(), "Merge Error");
-                update(); // Refresh UI to show current state after error
+                logger.error("Error merging branch '{}' with mode {}: {}", branchName, mode, e.getMessage(), e);
+                chrome.toolError("Error merging branch: " + e.getMessage(), "Merge Error");
+                update(); // Refresh UI
             }
+            return null;
         });
     }
+
 
     /**
      * Creates a new branch from an existing one and checks it out.
@@ -799,7 +873,7 @@ public class GitLogTab extends JPanel {
         }
 
         // renameItem and deleteItem checks
-        boolean isStashesSelected = "stashes".equals(selectedBranchName);
+        boolean isStashesSelected = STASHES_VIRTUAL_BRANCH.equals(selectedBranchName);
         menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
         menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 
@@ -891,5 +965,50 @@ public class GitLogTab extends JPanel {
         gitCommitBrowserPanel.selectCommitById(commitId);
     }
 
-    // The orphaned line "chrome.systemOutput(...)" and extra brace were removed from here.
+    /**
+     * A JGit ProgressMonitor that sends updates to an IConsoleIO systemOutput.
+     * This class is nested here as it's closely tied to UI feedback via IConsoleIO,
+     * often provided by UI components like Chrome.
+     */
+    public static final class IoProgressMonitor implements ProgressMonitor {
+        private final IConsoleIO io;
+
+        /**
+         * Constructs a new IoProgressMonitor.
+         * @param io The IConsoleIO instance to output progress messages to. Must not be null.
+         */
+        public IoProgressMonitor(IConsoleIO io) {
+            this.io = Objects.requireNonNull(io, "IConsoleIO cannot be null");
+        }
+
+        @Override
+        public void start(int totalTasks) {
+            // This basic monitor does not use this information.
+        }
+
+        @Override
+        public void beginTask(String title, int totalWork) {
+            io.systemOutput("Fetch: " + title);
+        }
+
+        @Override
+        public void update(int completed) {
+            // This basic monitor does not report granular updates.
+        }
+
+        @Override
+        public void endTask() {
+            // This basic monitor does not use this information.
+        }
+
+        @Override
+        public boolean isCancelled() {
+            return false; // This monitor does not support cancellation.
+        }
+
+        @Override
+        public void showDuration(boolean enabled) {
+            // This basic monitor does not use this information.
+        }
+    }
 }

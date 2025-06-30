@@ -8,20 +8,24 @@ import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.TaskEntry;
-import io.github.jbellis.brokk.TaskResult;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.GitHubAuth;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.prompts.ArchitectPrompts;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.Callable;
@@ -45,10 +49,13 @@ public class ArchitectAgent {
             boolean includeAnalyzerTools,
             boolean includeWorkspaceTools,
             boolean includeCodeAgent,
-            boolean includeSearchAgent
+            boolean includeSearchAgent,
+            boolean includeAskHuman,
+            boolean includeGitCommit,
+            boolean includeGitCreatePr
     ) {
-        /** Default options (all enabled). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true);
+        /** Default options (all enabled, except Git tools). */
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false, false);
     }
 
     private final IConsoleIO io;
@@ -67,6 +74,7 @@ public class ArchitectAgent {
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
     private final AtomicInteger searchAgentId = new AtomicInteger(1);
+    private final AtomicInteger planningStep = new AtomicInteger(1);
     private boolean offerUndoToolNext = false;
 
     /**
@@ -151,16 +159,20 @@ public class ArchitectAgent {
             }
         }
 
+        var cursor = messageCursor();
         // TODO label this Architect
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
         var agent = new CodeAgent(contextManager, contextManager.getCodeModel());
         var result = agent.runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
-        var entry = contextManager.addToHistory(result, true);
+
+        var newMessages = messagesSince(cursor);
+        var historyResult = new TaskResult(result, newMessages, contextManager);
+        var entry = contextManager.addToHistory(historyResult, true);
 
         if (reason == TaskResult.StopReason.SUCCESS) {
-            var entrySummary = entry != null ? entry.summary() : "CodeAgent completed with no specific summary.";
+            var entrySummary = entry.summary();
             var summary = """
                     CodeAgent success!
                     <summary>
@@ -193,9 +205,136 @@ public class ArchitectAgent {
                 <stop-details>
                 %s
                 </stop-details>
-                """.stripIndent().formatted(entry != null ? entry.summary() : "CodeAgent failed with no specific summary.", stopDetails);
+                """.stripIndent().formatted(entry.summary(), stopDetails);
         logger.debug("Summary for failed callCodeAgent (undo will be offered): {}", summary);
         return summary;
+    }
+
+    @Tool("Create a local commit containing ALL current changes. " +
+          "If the message is empty, a message will be generated.")
+    public String commitChanges(
+            @Nullable @P("Commit message in imperative form (≤ 80 chars). " +
+               "Leave blank to auto-generate.") String message
+    ) {
+        var cursor = messageCursor();
+        io.llmOutput("Git committing changes...\n", ChatMessageType.CUSTOM, true);
+        try {
+            // --- Guards ----------------------------------------------------------
+            var project = contextManager.getProject();
+            if (!project.hasGit()) {
+                throw new IllegalStateException("Project is not a Git repository.");
+            }
+
+
+            // --------------------------------------------------------------------
+            var gws = new GitWorkflowService(contextManager);
+            var result = gws.commit(List.of(), message == null ? "" : message.trim());
+
+            var summary = "Committed %s - \"%s\"".formatted(result.commitId(), result.firstLine());
+            io.llmOutput(summary, ChatMessageType.CUSTOM);
+            logger.info(summary);
+
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git commit",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
+
+            return summary;
+        } catch (Exception e) {
+            var errorMessage = "Commit failed: " + e.getMessage();
+            logger.error(errorMessage, e);
+            io.llmOutput("Commit failed. See the build log for details.", ChatMessageType.CUSTOM);
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git commit",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.TOOL_ERROR);
+            contextManager.addToHistory(tr, false);
+            return errorMessage;
+        }
+    }
+
+    @Tool("Create a GitHub pull-request for the current branch. " +
+          "This implicitly pushes the branch and sets upstream when needed.")
+    public String createPullRequest(
+            @P("PR title.") String title,
+            @P("PR description in Markdown.") String body
+    )
+    {
+        var cursor = messageCursor();
+        io.llmOutput("Creating pull request…\n", ChatMessageType.CUSTOM, true);
+
+        try {
+            var project = contextManager.getProject();
+            if (!project.hasGit()) {
+                throw new IllegalStateException("Not a Git repository.");
+            }
+
+            var repo = (GitRepo) project.getRepo();
+            var defaultBranch = repo.getDefaultBranch();
+            var currentBranch = repo.getCurrentBranch();
+            if (Objects.equals(currentBranch, defaultBranch)) {
+                throw new IllegalStateException("Refusing to open PR from default branch (" + defaultBranch + ")");
+            }
+
+            if (!repo.getModifiedFiles().isEmpty()) {
+                throw new IllegalStateException("Uncommitted changes present; commit first.");
+            }
+
+            if (!GitHubAuth.tokenPresent(project)) {
+                throw new IllegalStateException("No GitHub credentials configured (e.g. GITHUB_TOKEN environment variable).");
+            }
+
+            if (repo.getRemoteUrl("origin") == null) {
+                throw new IllegalStateException("No 'origin' remote configured for this repository.");
+            }
+
+            var gws = new GitWorkflowService(contextManager);
+
+            // Auto-generate title/body if blank
+            if (title.isBlank() || body.isBlank()) {
+                var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+                if (title.isBlank()) {
+                    title = suggestion.title();
+                }
+                if (body.isBlank()) {
+                    body = suggestion.description();
+                }
+            }
+
+            var prUrl = gws.createPullRequest(currentBranch, defaultBranch, title.trim(), body.trim());
+            var msg = "Opened PR: \"%s\" \n[%s](%s)".formatted(title.trim(), prUrl, prUrl);
+            io.llmOutput(msg, ChatMessageType.CUSTOM);
+            logger.info(msg);
+
+            // Persist result to history
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git create PR",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
+
+            return msg;
+        } catch (Exception e) {
+            var err = "Create PR failed: " + e.getMessage();
+            io.llmOutput(err, ChatMessageType.CUSTOM);
+            logger.error(err, e);
+
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Git create PR",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.TOOL_ERROR);
+            contextManager.addToHistory(tr, false);
+            return err;
+        }
     }
 
     @Tool("Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
@@ -229,6 +368,7 @@ public class ArchitectAgent {
         logger.debug("callSearchAgent invoked with query: {}", query);
 
         // Instantiate and run SearchAgent
+        var cursor = messageCursor();
         io.llmOutput("Search Agent engaged: " +query, ChatMessageType.CUSTOM);
         var searchAgent = new SearchAgent(query,
                                     contextManager,
@@ -236,6 +376,11 @@ public class ArchitectAgent {
                                     toolRegistry,
                                     searchAgentId.getAndIncrement());
         var result = searchAgent.execute();
+
+        var newMessages = messagesSince(cursor);
+        var historyResult = new TaskResult(result, newMessages, contextManager);
+        contextManager.addToHistory(historyResult, false);
+
         if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
             throw new FatalLlmException(result.stopDetails().explanation());
         }
@@ -253,10 +398,47 @@ public class ArchitectAgent {
                 
                 Full list of potentially relevant classes:
                 %s
-                """.stripIndent().formatted(TaskEntry.formatMessages(result.output().messages()), relevantClasses);
+                """.stripIndent().formatted(TaskEntry.formatMessages(historyResult.output().messages()), relevantClasses);
         logger.debug(stringResult);
 
         return stringResult;
+    }
+
+    @Tool("Escalate to a human for guidance. The model should call this " +
+            "when it is stuck or unsure how to proceed. The argument is a question to show the human.")
+    @Nullable
+    public String askHumanQuestion(
+            @P("The question you would like the human to answer. Make sure to provide any necessary background for the human to quickly and completely understand what you need and why. Use Markdown formatting where appropriate.") String question
+    ) throws InterruptedException {
+        var cursor = messageCursor();
+        logger.debug("askHumanQuestion invoked with question: {}", question);
+        io.llmOutput("Ask the user: " + question, ChatMessageType.CUSTOM, true);
+
+        String answer = SwingUtil.runOnEdt(() -> AskHumanDialog.ask((Chrome) this.io, question), null);
+
+        if (answer == null) {
+            logger.info("Human cancelled the dialog for question: {}", question);
+            io.systemOutput("Human interaction cancelled.");
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Ask human",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.INTERRUPTED);
+            contextManager.addToHistory(tr, false);
+            throw new InterruptedException();
+        } else {
+            logger.debug("Human responded: {}", answer);
+            io.llmOutput(answer, ChatMessageType.USER, true);
+            var newMessages = messagesSince(cursor);
+            var tr = new TaskResult(contextManager,
+                                    "Ask human",
+                                    newMessages,
+                                    Set.of(),
+                                    TaskResult.StopReason.SUCCESS);
+            contextManager.addToHistory(tr, false);
+            return answer;
+        }
     }
 
     /**
@@ -279,6 +461,7 @@ public class ArchitectAgent {
         var modelsService = contextManager.getService();
 
         while (true) {
+            var planningCursor = messageCursor();
             io.llmOutput("\n# Planning", ChatMessageType.AI, true);
 
             // Determine active models and their minimum input token limit
@@ -302,7 +485,7 @@ public class ArchitectAgent {
             }
 
             // Calculate current workspace token size
-            var workspaceContentMessages = new ArrayList<>(contextManager.getWorkspaceContentsMessages(true));
+            var workspaceContentMessages = new ArrayList<>(CodePrompts.instance.getWorkspaceContentsMessages(contextManager.liveContext()));
             int workspaceTokenSize = Messages.getApproximateTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings
@@ -355,6 +538,15 @@ public class ArchitectAgent {
                 if (options.includeSearchAgent()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("callSearchAgent")));
                 }
+                if (options.includeAskHuman()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("askHumanQuestion")));
+                }
+                if (options.includeGitCommit()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("commitChanges")));
+                }
+                if (options.includeGitCreatePr()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("createPullRequest")));
+                }
                 toolSpecs.addAll(toolRegistry.getTools(this, List.of("projectFinished", "abortProject")));
             }
 
@@ -385,7 +577,7 @@ public class ArchitectAgent {
 
             totalUsage = TokenUsage.sum(totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
-            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.originalMessage());
+            var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             architectMessages.add(messages.getLast());
             architectMessages.add(aiMessage);
 
@@ -393,13 +585,21 @@ public class ArchitectAgent {
             logger.debug("Unique tool requests are {}", deduplicatedRequests);
             io.llmOutput("\nTool call(s): %s".formatted(deduplicatedRequests.stream().map(req -> "`" + req.name() + "`").collect(Collectors.joining(", "))), ChatMessageType.AI);
 
+            var planningMessages = messagesSince(planningCursor);
+            contextManager.addToHistory(new TaskResult(contextManager,
+                                                        "Architect planning step " + planningStep.getAndIncrement(),
+                                                        planningMessages,
+                                                        Set.of(),
+                                                        TaskResult.StopReason.SUCCESS),
+                                        false);
+
             // execute tool calls in the following order:
             // 1. projectFinished
             // 2. abortProject
             // 4. (everything else)
             // 5. searchAgent
             // 6. codeAgent
-            ToolExecutionRequest answerReq = null, abortReq = null;
+            ToolExecutionRequest answerReq = null, abortReq = null, askReq = null;
             var searchAgentReqs = new ArrayList<ToolExecutionRequest>();
             var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
             var otherReqs = new ArrayList<ToolExecutionRequest>();
@@ -407,13 +607,14 @@ public class ArchitectAgent {
                 switch (req.name()) {
                     case "projectFinished" -> answerReq = req;
                     case "abortProject" -> abortReq = req;
+                    case "askHumanQuestion" -> askReq = req;
                     case "callSearchAgent" -> searchAgentReqs.add(req);
                     case "callCodeAgent" -> codeAgentReqs.add(req);
                     default -> otherReqs.add(req);
                 }
             }
 
-            // 6) If we see "projectFinished" or "abortProject", handle it and then exit
+            // If we see "projectFinished" or "abortProject", handle it and then exit
             if (answerReq != null) {
                 logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                 var toolResult = toolRegistry.executeTool(this, answerReq);
@@ -422,7 +623,7 @@ public class ArchitectAgent {
                                                                 List.of(new AiMessage(toolResult.resultText())),
                                                                 goal);
                 var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
+                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
             }
             if (abortReq != null) {
                 logger.debug("LLM decided to abortProject. We'll finalize and stop");
@@ -432,10 +633,17 @@ public class ArchitectAgent {
                                                                   List.of(new AiMessage(toolResult.resultText())),
                                                                   goal);
                 var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, toolResult.resultText());
-                return new TaskResult("Architect: " + goal, fragment, Map.of(), stopDetails);
+                return new TaskResult("Architect: " + goal, fragment, Set.of(), stopDetails);
             }
 
-            // 7) Execute remaining tool calls in the desired order:
+            // Execute askHumanQuestion if present
+            if (askReq != null) {
+                var toolResult = toolRegistry.executeTool(this, askReq);
+                architectMessages.add(ToolExecutionResultMessage.from(askReq, toolResult.resultText()));
+                logger.debug("Executed tool '{}' => result: {}", askReq.name(), toolResult.resultText());
+            }
+
+            // Execute remaining tool calls in the desired order:
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 var toolResult = toolRegistry.executeTool(this, req);
@@ -510,7 +718,7 @@ public class ArchitectAgent {
         return new TaskResult(contextManager,
                               "Architect: " + goal,
                               List.of(),
-                              Map.of(),
+                              Set.of(),
                               new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR));
     }
 
@@ -523,8 +731,21 @@ public class ArchitectAgent {
             case "dropFragments" -> 1;
             case "addReadOnlyFiles" -> 2;
             case "addEditableFilesToWorkspace" -> 3;
-            default -> 4; // all other tools have lowest priority
+            case "commitChanges" -> 4;
+            case "createPullRequest" -> 5;
+            default -> 6; // all other tools have lowest priority
         };
+    }
+
+    /** Returns a cursor that represents the current end of the LLM output message list. */
+    private int messageCursor() {
+        return io.getLlmRawMessages().size();
+    }
+
+    /** Returns a copy of new messages added to the LLM output after the given cursor. */
+    private List<ChatMessage> messagesSince(int cursor) {
+        var raw = io.getLlmRawMessages();
+        return List.copyOf(raw.subList(cursor, raw.size()));
     }
 
     /**
@@ -535,12 +756,31 @@ public class ArchitectAgent {
     private List<ChatMessage> buildPrompt(int workspaceTokenSize,
                                           int minInputTokenLimit,
                                           List<ChatMessage> precomputedWorkspaceMessages)
+    throws InterruptedException
     {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
         messages.add(ArchitectPrompts.instance.systemMessage(contextManager, CodePrompts.ARCHITECT_REMINDER));
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
+
+        // Add auto-context as a separate message/ack pair
+        var acFragment = contextManager.liveContext().buildAutoContext(10);
+        String topClassesRaw = acFragment.text();
+        if (!topClassesRaw.isBlank()) {
+            var topClassesText = """
+                           <related_classes>
+                           Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
+                           If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
+                           visible to Code Agent. If they are not relevant, just ignore them.
+                           
+                           %s
+                           </related_classes>
+                           """.stripIndent().formatted(topClassesRaw);
+            messages.add(new UserMessage(topClassesText));
+            messages.add(new AiMessage("Okay, I will consider these related classes."));
+        }
+
         // History from previous tasks/sessions
         messages.addAll(contextManager.getHistoryMessages());
         // This agent's own conversational history for the current goal

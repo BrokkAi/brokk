@@ -312,7 +312,7 @@ public class WorkspaceTools {
     )
     {
         assert getAnalyzer().isCpg() : "Cannot add method sources: Code Intelligence is not available.";
-        if (methodNames == null || methodNames.isEmpty()) {
+        if (methodNames.isEmpty()) {
             return "Cannot add method sources: method names list is empty";
         }
 

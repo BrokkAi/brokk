@@ -115,7 +115,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             Set.of(InterruptedException.class));
 
     private final ServiceWrapper service;
-    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") // Finnish comment, keep as is
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
     private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
@@ -284,7 +284,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getRepo().refresh();
                 var fr = liveContext.freezeAndCleanup();
                 // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                if (!topContext().workspaceEquals(fr.frozenContext())) {
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                     processExternalFileChanges(fr);
                 }
                 // analyzer refresh will call this too, but it will be delayed
@@ -311,7 +311,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // possible for analyzer build to finish before context load does
                     var fr = liveContext.freezeAndCleanup();
                     // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                    if (!topContext().workspaceEquals(fr.frozenContext())) {
+                    if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                         processExternalFileChanges(fr);
                     }
                     io.updateWorkspace();
@@ -840,7 +840,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, currentLiveCtx.getTaskHistory()));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, liveContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace canceled.");
@@ -855,7 +862,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context and history", () -> {
             try {
-                pushContext(currentLiveCtx -> Context.createFrom(targetFrozenContext, currentLiveCtx, targetFrozenContext.getTaskHistory()));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, targetFrozenContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace and history canceled.");
@@ -995,29 +1009,26 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param fragment The PathFragment to add.
      */
-    public void addReadOnlyFragment(PathFragment fragment) {
-        pushContext(currentLiveCtx -> currentLiveCtx.addReadonlyFiles(List.of(fragment)));
+    public void addReadOnlyFragmentAsync(PathFragment fragment) {
+        submitContextTask("Capture file revision", () -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.addReadonlyFiles(List.of(fragment)));
+        });
     }
-
 
     /**
      * Captures text from the LLM output area and adds it to the context.
      * Called from Chrome's capture button.
      */
     public void captureTextFromContextAsync() {
-        contextActionExecutor.submit(() -> {
-            try {
-                // Capture from the selected *frozen* context in history view
-                var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
-                if (selectedFrozenCtx.getParsedOutput() != null) {
-                    // Add the captured (TaskFragment, which is Virtual) to the *live* context
-                    addVirtualFragment(selectedFrozenCtx.getParsedOutput());
-                    io.systemOutput("Content captured from output");
-                } else {
-                    io.systemOutput("No content to capture");
-                }
-            } catch (CancellationException cex) {
-                io.systemOutput("Capture canceled.");
+        submitContextTask("Capture output", () -> {
+            // Capture from the selected *frozen* context in history view
+            var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
+            if (selectedFrozenCtx.getParsedOutput() != null) {
+                // Add the captured (TaskFragment, which is Virtual) to the *live* context
+                addVirtualFragment(selectedFrozenCtx.getParsedOutput());
+                io.systemOutput("Content captured from output");
+            } else {
+                io.systemOutput("No content to capture");
             }
         });
     }
@@ -1151,91 +1162,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public List<ChatMessage> getHistoryMessages() {
-        var taskHistory = topContext().getTaskHistory();
-        var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = getParserForWorkspace();
-
-        // Merge compressed messages into a single taskhistory message
-        var compressed = taskHistory.stream()
-                .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
-                .collect(Collectors.joining("\n\n"));
-        if (!compressed.isEmpty()) {
-            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
-            messages.add(new AiMessage("Ok, I see the history."));
-        }
-
-        // Uncompressed messages: process for S/R block redaction
-        taskHistory.stream()
-                .filter(e -> !e.isCompressed())
-                .forEach(e -> {
-                    var entryRawMessages = castNonNull(e.log()).messages();
-                    // Determine the messages to include from the entry
-                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                                                ? entryRawMessages
-                                                : entryRawMessages.subList(0, entryRawMessages.size() - 1);
-
-                    List<ChatMessage> processedMessages = new ArrayList<>();
-                    for (var chatMessage : relevantEntryMessages) {
-                        if (chatMessage instanceof AiMessage aiMessage) {
-                            redactAiMessage(aiMessage, parser).ifPresent(processedMessages::add);
-                        } else {
-                            // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
-                            processedMessages.add(chatMessage);
-                        }
-                    }
-                    messages.addAll(processedMessages);
-                });
-
-        return messages;
-    }
-
-    /**
-     * Redacts SEARCH/REPLACE blocks from an AiMessage.
-     * If the message contains S/R blocks, they are replaced with "[elided edits for file %s]".
-     * If the message does not contain S/R blocks, or if the redacted text is blank, Optional.empty() is returned.
-     *
-     * @param aiMessage The AiMessage to process.
-     * @param parser    The EditBlockParser to use for parsing.
-     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
-     */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
-        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
-        boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
-
-        if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
-        } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                EditBlock.SearchReplaceBlock block = ob.block();
-                if (block == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    if (block.filename() == null) {
-                        sb.append("[elided edits]");
-                    } else {
-                        sb.append("[elided edits for file %s]".formatted(block.filename()));
-                    }
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
-                }
-            }
-            String redactedText = sb.toString();
-            redactedText = redactedText
-                    .replace("SEARCH/REPLACE block", "edit")
-                    .replace("*SEARCH/REPLACE* block", "edit")
-                    .replace("`SEARCH/REPLACE` block", "edit");
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
-        }
+        return CodePrompts.instance.getHistoryMessages(topContext());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {
@@ -1301,47 +1228,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.).
-     * Does not include editable content or related classes.
-     */
-    @Override
-    public Collection<ChatMessage> getWorkspaceReadOnlyMessages() throws InterruptedException {
-        return CodePrompts.instance.getWorkspaceReadOnlyMessages(this);
-    }
-
-    /**
-     * Returns messages containing only the editable workspace content.
-     * Does not include read-only content or related classes.
-     */
-    @Override
-    public Collection<ChatMessage> getWorkspaceEditableMessages() throws InterruptedException {
-        return CodePrompts.instance.getWorkspaceEditableMessages(this);
-    }
-
-    /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable files/fragments).
-     * Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
-     */
-    public Collection<ChatMessage> getWorkspaceContentsMessages(boolean includeRelatedClasses) throws InterruptedException {
-        return CodePrompts.instance.getWorkspaceContentsMessages(this, includeRelatedClasses);
-    }
-
-    @Override
-    public Collection<ChatMessage> getWorkspaceContentsMessages() throws InterruptedException {
-        return CodePrompts.instance.getWorkspaceContentsMessages(this, false);
-    }
-
-    /**
-     * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
-     * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
-     */
-    public Collection<ChatMessage> getWorkspaceSummaryMessages() {
-        return CodePrompts.instance.getWorkspaceSummaryMessages(this);
-    }
-
-    /**
      * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
@@ -1400,11 +1286,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    public Set<BrokkFile> getReadonlyFiles() {
+    public Set<BrokkFile> getReadonlyProjectFiles() {
         return topContext().readonlyFiles()
-                .filter(ContextFragment.PathFragment.class::isInstance)
-                .map(ContextFragment.PathFragment.class::cast)
-                .map(ContextFragment.PathFragment::file)
+                .filter(pf -> pf instanceof ContextFragment.ProjectPathFragment)
+                .map(pf -> ((ContextFragment.ProjectPathFragment) pf).file())
                 .collect(Collectors.toSet());
     }
 
@@ -1461,7 +1346,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(liveContext);
         assert !updatedLiveContext.containsFrozenFragments() : updatedLiveContext;
-        if (updatedLiveContext == liveContext) {
+        if (liveContext.workspaceContentEquals(updatedLiveContext)) {
             // No change occurred
             return liveContext;
         }
@@ -1685,12 +1570,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public EditBlockParser getParserForWorkspace() {
-        // text() on live fragment
-        var allText = topContext().allFragments()
-                .filter(ContextFragment::isText)
-                .map(ContextFragment::text)
-                .collect(Collectors.joining("\n"));
-        return EditBlockParser.getParserFor(allText);
+        return CodePrompts.instance.getParser(topContext());
     }
 
     public void reloadModelsAsync() {
@@ -1790,7 +1670,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return null;
                 }
                 var styleGuide = result.text();
-                if (styleGuide == null || styleGuide.isBlank()) {
+                if (styleGuide.isBlank()) {
                     io.systemOutput("LLM returned empty style guide.");
                     project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
                     return null;
@@ -1862,14 +1742,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * returns null if the session is empty, otherwise returns the new TaskEntry
      */
     public TaskEntry addToHistory(TaskResult result, boolean compress) {
-        if (result.output().messages().isEmpty() && result.originalContents().isEmpty()) {
+        if (result.output().messages().isEmpty() && result.changedFiles().isEmpty()) {
             throw new IllegalStateException();
         }
 
-        var originalContents = result.originalContents();
         var action = result.actionDescription();
-
-        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, originalContents.size(), result.stopDetails());
+        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, result.changedFiles(), result.stopDetails());
 
         // Create TaskEntry based on the current liveContext
         TaskEntry newEntry = liveContext.createTaskEntry(result);
@@ -1987,6 +1865,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // 3. Initialize the ContextManager's history for the new session with this single context.
             this.contextHistory.setInitialContext(initialContextForNewSession);
+            contextHistory.addResetEdge(sourceFrozenContext, initialContextForNewSession);
 
             // 4. Update the ContextManager's liveContext by unfreezing this initial context.
             this.liveContext = Context.unfreeze(initialContextForNewSession);

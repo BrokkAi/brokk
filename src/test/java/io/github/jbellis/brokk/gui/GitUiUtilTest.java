@@ -16,12 +16,6 @@ public class GitUiUtilTest {
     Path tempDir;
     
     @Test
-    void testFormatFileList_NullList() {
-        String result = GitUiUtil.formatFileList(null);
-        assertEquals("no files", result);
-    }
-    
-    @Test
     void testFormatFileList_EmptyList() {
         String result = GitUiUtil.formatFileList(new ArrayList<>());
         assertEquals("no files", result);
@@ -87,12 +81,6 @@ public class GitUiUtilTest {
         );
         String result = GitUiUtil.formatFileList(files);
         assertEquals("File.java, File.java", result);
-    }
-    
-    @Test
-    void testShortenCommitId_NullInput() {
-        String result = GitUiUtil.shortenCommitId(null);
-        assertNull(result);
     }
     
     @Test

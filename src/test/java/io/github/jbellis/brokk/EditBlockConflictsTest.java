@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.git.InMemoryRepo;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
+import io.github.jbellis.brokk.testutil.TestConsoleIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

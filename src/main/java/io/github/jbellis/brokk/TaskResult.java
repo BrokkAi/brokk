@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * Represents the outcome of a CodeAgent session, containing all necessary information
@@ -13,36 +13,40 @@ import java.util.Map;
  */
 public record TaskResult(String actionDescription,
                          ContextFragment.TaskFragment output,
-                         Map<ProjectFile, String> originalContents, // for undo
+                         Set<ProjectFile> changedFiles,
                          StopDetails stopDetails)
 {
-    public TaskResult {
-        assert actionDescription != null;
-        assert originalContents != null;
-        assert output != null;
-        assert stopDetails != null;
-    }
-
     public TaskResult(IContextManager contextManager, String actionDescription,
                       List<ChatMessage> uiMessages,
-                      Map<ProjectFile, String> originalContents,
+                      Set<ProjectFile> changedFiles,
                       StopDetails stopDetails)
     {
         this(actionDescription,
              new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-             originalContents,
+             changedFiles,
              stopDetails);
     }
 
     public TaskResult(IContextManager contextManager, String actionDescription,
                       List<ChatMessage> uiMessages,
-                      Map<ProjectFile, String> originalContents,
+                      Set<ProjectFile> changedFiles,
                       StopReason simpleReason)
     {
         this(actionDescription,
              new ContextFragment.TaskFragment(contextManager, uiMessages, actionDescription),
-             originalContents,
+             changedFiles,
              new StopDetails(simpleReason));
+    }
+
+    /**
+     * Creates a new TaskResult by replacing the messages in an existing one.
+     */
+    public TaskResult(TaskResult base, List<ChatMessage> newMessages, IContextManager contextManager)
+    {
+        this(base.actionDescription(),
+             new ContextFragment.TaskFragment(contextManager, newMessages, base.actionDescription()),
+             base.changedFiles(),
+             base.stopDetails());
     }
 
     /**
@@ -93,14 +97,13 @@ public record TaskResult(String actionDescription,
          * the LLM determined that it was not possible to fulfil the request
          */
         LLM_ABORTED,
+        /**
+         * an error occurred while executing a tool
+         */
+        TOOL_ERROR
     }
 
     public record StopDetails(StopReason reason, String explanation) {
-        public StopDetails {
-            assert reason != null;
-            assert explanation != null;
-        }
-
         public StopDetails(StopReason reason) {
             this(reason, "");
         }

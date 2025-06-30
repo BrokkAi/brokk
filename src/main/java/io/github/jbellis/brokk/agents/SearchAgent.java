@@ -10,7 +10,6 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -33,9 +32,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
-import static java.lang.Math.min;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
@@ -323,7 +320,7 @@ public class SearchAgent {
                 ToolExecutionResult execResult = requireNonNull(firstResult.execResult, "execResult should be non-null for answerSearch");
                 // Validate explanation before creating fragment
                 String explanation = execResult.resultText();
-                if (explanation == null || explanation.isBlank() || explanation.split("\\s").length < 5) {
+                if (explanation.isBlank() || explanation.split("\\s").length < 5) {
                     logger.error("LLM provided blank explanation for 'answer' tool.");
                     return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.SEARCH_INVALID_ANSWER));
                 }
@@ -334,7 +331,7 @@ public class SearchAgent {
                 ToolExecutionResult execResult = requireNonNull(firstResult.execResult, "execResult should be non-null for abortSearch");
                 // Validate explanation before creating fragment
                 String explanation = execResult.resultText();
-                if (explanation == null || explanation.isBlank() || explanation.equals("Success")) {
+                if (explanation.isBlank() || explanation.equals("Success")) {
                     explanation = "No explanation provided by agent.";
                     logger.warn("LLM provided blank explanation for 'abort' tool. Using default.");
                 }
@@ -370,7 +367,7 @@ public class SearchAgent {
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) {
-        String explanation = details.explanation() != null ? details.explanation() :
+        String explanation = !details.explanation().isBlank() ? details.explanation() :
                              switch (details.reason()) {
                                  case INTERRUPTED -> "Search was interrupted.";
                                  case LLM_ERROR -> "An error occurred interacting with the language model.";
@@ -384,7 +381,8 @@ public class SearchAgent {
 
     private TaskResult errorResult(TaskResult.StopDetails details, String explanation) {
         return new TaskResult("Search: " + query,
-                              new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage(query), new AiMessage(explanation)), query), Map.of(),
+                              new ContextFragment.TaskFragment(contextManager, List.of(new UserMessage(query), new AiMessage(explanation)), query), 
+                              Set.of(),
                               details);
     }
 
@@ -1042,7 +1040,7 @@ public class SearchAgent {
      * Formats symbols for display, applying compression.
      */
     private String formatCompressedSymbolsForDisplay(String label, List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) {
+        if (symbols.isEmpty()) {
             return label + ": None found";
         }
         var compressionResult = SearchTools.compressSymbolsWithPackagePrefix(symbols);
@@ -1089,7 +1087,7 @@ public class SearchAgent {
      * Implementation needs to be robust to different tool output formats.
      */
     private void trackClassNamesFromResult(String resultText) {
-        if (resultText == null || resultText.isBlank() || resultText.startsWith("No ") || resultText.startsWith("Error:")) {
+        if (resultText.isBlank() || resultText.startsWith("No ") || resultText.startsWith("Error:")) {
             return;
         }
 
@@ -1157,7 +1155,7 @@ public class SearchAgent {
 
         assert request.name().equals("answerSearch") : "createFinalFragment called with wrong tool: " + request.name();
         assert execResult.status() == ToolExecutionResult.Status.SUCCESS : "createFinalFragment called with failed step";
-        assert explanationText != null && !explanationText.isBlank() && !explanationText.equals("Success") : "createFinalFragment called with blank/default explanation";
+        assert !explanationText.isBlank() && !explanationText.equals("Success") : "createFinalFragment called with blank/default explanation";
 
         var arguments = finalStep.argumentsMap();
         List<String> classNames = Optional.ofNullable(arguments.get("classNames"))
@@ -1187,7 +1185,8 @@ public class SearchAgent {
         var sessionName = "Search: " + query;
         var fragment = new ContextFragment.SearchFragment(contextManager, sessionName, List.copyOf(io.getLlmRawMessages()), coalesced);
         return new TaskResult(sessionName,
-                              fragment, Map.of(),
+                              fragment, 
+                              Set.of(),
                               new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 

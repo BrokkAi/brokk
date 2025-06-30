@@ -5,6 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -15,7 +16,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.ContextFragment;
-import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -23,7 +23,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
-import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -264,9 +263,10 @@ public class ContextAgent {
      * @return A RecommendationResult containing success status, fragments, and reasoning.
      */
     public RecommendationResult getRecommendations(boolean allowSkipPruning) throws InterruptedException {
-        Collection<ChatMessage> workspaceRepresentation = deepScan
-                                                          ? contextManager.getWorkspaceContentsMessages()
-                                                          : contextManager.getWorkspaceSummaryMessages();
+        Collection<ChatMessage> workspaceRepresentation;
+        workspaceRepresentation = deepScan 
+                                  ? CodePrompts.instance.getWorkspaceContentsMessages(contextManager.liveContext()) 
+                                  : CodePrompts.instance.getWorkspaceSummaryMessages(contextManager.liveContext());
         var allFiles = contextManager.getProject().getAllFiles().stream().sorted().toList();
 
         // try single-pass mode first
@@ -488,7 +488,7 @@ public class ContextAgent {
 
     private boolean isFileInWorkspace(ProjectFile file) {
         return contextManager.getEditableFiles().contains(file) ||
-                contextManager.getReadonlyFiles().contains(file);
+                contextManager.getReadonlyProjectFiles().contains(file);
     }
 
     private boolean isClassInWorkspace(CodeUnit cls) {
@@ -784,8 +784,7 @@ public class ContextAgent {
                                                          boolean allowSkipPruning) throws InterruptedException
     {
         // If the workspace isn't empty and we have no analyzer, don't suggest adding whole files.
-        // Allow proceeding if analyzer *is* present but summary step failed (e.g., too large).
-        if (analyzer.isEmpty() && (!contextManager.getEditableFiles().isEmpty() || !contextManager.getReadonlyFiles().isEmpty())) {
+        if (analyzer.isEmpty() && !contextManager.getEditableFiles().isEmpty()) {
             debug("Non-empty context and no analyzer present, skipping file content suggestions");
             return new RecommendationResult(true, List.of(), "Skipping file content suggestions for non-empty context without analyzer.");
         }

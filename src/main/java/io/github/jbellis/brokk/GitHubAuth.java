@@ -5,9 +5,6 @@ import org.apache.logging.log4j.Logger;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHPullRequest;
 import io.github.jbellis.brokk.git.GitRepo;
-import io.github.jbellis.brokk.IssueProvider;
-import io.github.jbellis.brokk.issues.IssueProviderType;
-import io.github.jbellis.brokk.issues.IssuesProviderConfig;
 import org.kohsuke.github.GHIssue;
 import org.kohsuke.github.GHPullRequestCommitDetail;
 import org.kohsuke.github.GHRepository;
@@ -83,14 +80,6 @@ public class GitHubAuth
         // derive from git remote. Host remains null (meaning github.com) unless explicitly set by override.
         if (!usingOverride || (effectiveOwner == null || effectiveOwner.isBlank()) || (effectiveRepoName == null || effectiveRepoName.isBlank())) {
             var repo = (GitRepo) project.getRepo();
-            if (repo == null) {
-                if (instance != null) {
-                    logger.info("Git repository not available for project '{}' (when attempting to use git remote). Invalidating GitHubAuth instance for {}/{}.",
-                                project.getRoot().getFileName().toString(), instance.getOwner(), instance.getRepoName());
-                }
-                instance = null; // Ensure instance is null if repo is null
-                throw new IOException("Git repository not available from project '" + project.getRoot().getFileName().toString() + "' for GitHubAuth (when attempting to use git remote).");
-            }
 
             var remoteUrl = repo.getRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
@@ -165,6 +154,19 @@ public class GitHubAuth
         }
     }
 
+    /**
+     * Checks if a GitHub token is configured, without performing network I/O.
+     * This is suitable for UI checks to enable/disable features.
+     *
+     * @param project The current project (reserved for future use, e.g., project-specific tokens).
+     * @return true if a non-blank token is present.
+     */
+    public static boolean tokenPresent(IProject project)
+    {
+        var token = MainProject.getGitHubToken();
+        return !token.isBlank();
+    }
+
     public String getOwner()
     {
         return owner;
@@ -195,7 +197,7 @@ public class GitHubAuth
         }
 
 
-        if (token != null && !token.isBlank()) {
+        if (!token.isBlank()) {
             try {
                 logger.debug("Attempting GitHub connection with token for {}/{} on host {}", owner, repoName, targetHostDisplay);
                 builder.withOAuthToken(token);
@@ -310,7 +312,7 @@ public class GitHubAuth
                 .followRedirects(true);
 
         var token = MainProject.getGitHubToken();
-        if (token != null && !token.isBlank()) {
+        if (!token.isBlank()) {
             builder.addInterceptor(chain -> {
                 Request originalRequest = chain.request();
                 Request authenticatedRequest = originalRequest.newBuilder()

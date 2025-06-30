@@ -90,13 +90,19 @@ public class DtoMapper {
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
 
-        return new Context(mgr,
-                           editableFragments,
-                           readonlyFragments,
-                           virtualFragments,
-                           taskHistory,
-                           parsedOutputFragment,
-                           actionFuture);
+        // Preserve UUID if present (V2); otherwise generate a new one (V1)
+        java.util.UUID ctxId = dto.id() != null
+                ? java.util.UUID.fromString(dto.id())
+                : java.util.UUID.randomUUID();
+
+        return Context.createWithId(ctxId,
+                                    mgr,
+                                    editableFragments,
+                                    readonlyFragments,
+                                    virtualFragments,
+                                    taskHistory,
+                                    parsedOutputFragment,
+                                    actionFuture);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
@@ -268,16 +274,14 @@ public class DtoMapper {
 private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextManager mgr) {
         Path path = Path.of(ifd.absPath());
         // Assuming IProject has a getRoot() method similar to ProjectFile that returns Path
-        if (mgr != null && mgr.getProject() != null && mgr.getProject().getRoot() != null) { 
-            Path projectRoot = mgr.getProject().getRoot(); 
-            if (path.startsWith(projectRoot)) {
-                try {
-                    Path relPath = projectRoot.relativize(path);
-                    return new ProjectFile(projectRoot, relPath);
-                } catch (IllegalArgumentException e) {
-                    // Path cannot be relativized, treat as external
-                    return new ExternalFile(path);
-                }
+        Path projectRoot = mgr.getProject().getRoot(); 
+        if (path.startsWith(projectRoot)) {
+            try {
+                Path relPath = projectRoot.relativize(path);
+                return new ProjectFile(projectRoot, relPath);
+            } catch (IllegalArgumentException e) {
+                // Path cannot be relativized, treat as external
+                return new ExternalFile(path);
             }
         }
         return new ExternalFile(path);

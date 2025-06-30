@@ -6,12 +6,15 @@ import io.github.jbellis.brokk.difftool.ui.BrokkDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.BufferSource;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.GitWorkflowService;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.GitCommitBrowserPanel;
+import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.widgets.FileStatusTable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,20 +26,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executors;
-import io.github.jbellis.brokk.prompts.SummarizerPrompts;
-import io.github.jbellis.brokk.GitHubAuth;
-import io.github.jbellis.brokk.gui.components.LoadingButton;
-import java.awt.Desktop;
-import dev.langchain4j.data.message.ChatMessage;
-
-
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Supplier;
-
-import org.jetbrains.annotations.Nullable;
 
 
 public class CreatePullRequestDialog extends JDialog {
@@ -45,10 +38,12 @@ public class CreatePullRequestDialog extends JDialog {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final GitWorkflowService workflowService;
     private JComboBox<String> sourceBranchComboBox;
     private JComboBox<String> targetBranchComboBox;
     private JTextField titleField;
     private JTextArea descriptionArea;
+    private JLabel descriptionHintLabel; // Hint for description generation source
     private GitCommitBrowserPanel commitBrowserPanel;
     private FileStatusTable fileStatusTable;
     private JLabel branchFlowLabel;
@@ -71,6 +66,7 @@ public class CreatePullRequestDialog extends JDialog {
         super(owner, "Create a Pull Request", false);
         this.chrome = chrome;
         this.contextManager = contextManager;
+        this.workflowService = new GitWorkflowService(contextManager);
         this.preselectedSourceBranch = preselectedSourceBranch;
 
         initializeDialog();
@@ -78,9 +74,7 @@ public class CreatePullRequestDialog extends JDialog {
     }
 
     @Nullable
-    private PrDescriptionWorker currentDescriptionWorker;
-    @Nullable
-    private ContextManager.SummarizeWorker currentTitleWorker;
+    private SuggestPrDetailsWorker currentSuggestPrDetailsWorker;
 
     @Nullable
     private ScheduledFuture<?> pendingDebounceTask;
@@ -110,11 +104,8 @@ public class CreatePullRequestDialog extends JDialog {
 
     @Override
     public void dispose() {
-        if (currentDescriptionWorker != null) {
-            currentDescriptionWorker.cancel(true);
-        }
-        if (currentTitleWorker != null) {
-            currentTitleWorker.cancel(true);
+        if (currentSuggestPrDetailsWorker != null) {
+            currentSuggestPrDetailsWorker.cancel(true);
         }
         debounceExec.shutdownNow();
         super.dispose();
@@ -223,6 +214,17 @@ public class CreatePullRequestDialog extends JDialog {
         descriptionArea = new JTextArea(10, 20); // Initial rows and columns
         var scrollPane = new JScrollPane(descriptionArea);
         panel.add(scrollPane, gbc);
+
+        // Hint label for description generation source
+        descriptionHintLabel = new JLabel("<html>Description generated from commit messages as the diff was too large.</html>");
+        descriptionHintLabel.setFont(descriptionHintLabel.getFont().deriveFont(Font.ITALIC, descriptionHintLabel.getFont().getSize() * 0.9f));
+        descriptionHintLabel.setVisible(false); // Initially hidden
+        gbc.gridx = 1;
+        gbc.gridy = 2; // Position below the description area
+        gbc.weighty = 0; // Don't take extra vertical space
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.anchor = GridBagConstraints.NORTHWEST; // Align to top-left of its cell
+        panel.add(descriptionHintLabel, gbc);
         
         return panel;
     }
@@ -274,21 +276,6 @@ public class CreatePullRequestDialog extends JDialog {
     /**
      * Simple immutable holder for commits and changed files between two branches.
      */
-    private record BranchDiff(List<CommitInfo> commits,
-                              List<GitRepo.ModifiedFile> changedFiles) {}
-
-    /**
-     * Collects both commits and changed files between the given branches.
-     */
-    private BranchDiff getBranchDiff(GitRepo gitRepo,
-                                     String sourceBranch,
-                                     String targetBranch) throws GitAPIException {
-        assert gitRepo != null;
-        var commits = gitRepo.listCommitsBetweenBranches(sourceBranch, targetBranch, true);
-        var files   = gitRepo.listFilesChangedBetweenBranches(sourceBranch, targetBranch);
-        return new BranchDiff(commits, files);
-    }
-
     // Fix the UnnecessaryLambda warning by implementing updateBranchFlow as a method
     private void updateBranchFlow() {
         var target = (String) targetBranchComboBox.getSelectedItem();
@@ -318,9 +305,7 @@ public class CreatePullRequestDialog extends JDialog {
         ActionListener branchChangedListener = e -> {
             // Immediately update flow label for responsiveness before async refresh.
             this.currentCommits = Collections.emptyList();
-            if (this.flowUpdater != null) {
-                this.flowUpdater.run();
-            }
+            this.flowUpdater.run();
             // Full UI update, including button state, will be handled by refreshCommitList.
             refreshCommitList();
         };
@@ -332,12 +317,8 @@ public class CreatePullRequestDialog extends JDialog {
         Collections.reverse(newCommits);
         this.currentCommits = newCommits;
         commitBrowserPanel.setCommits(newCommits, Set.of(), false, false, commitPanelMessage);
-        if (fileStatusTable != null) {
-            fileStatusTable.setFiles(newFiles == null ? Collections.emptyList() : newFiles);
-        }
-        if (this.flowUpdater != null) {
-            this.flowUpdater.run();
-        }
+        fileStatusTable.setFiles(newFiles);
+        this.flowUpdater.run();
         updateCreatePrButtonState();
     }
 
@@ -370,90 +351,92 @@ public class CreatePullRequestDialog extends JDialog {
                     return Collections.emptyList();
                 }
 
-                // Calculate and store merge base
-                this.mergeBaseCommit = gitRepo.getMergeBase(sourceBranch, targetBranch);
+                // Use GitWorkflowService to get branch diff information
+                var branchDiff = workflowService.diffBetweenBranches(sourceBranch, targetBranch);
+                this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
                 logger.debug("Calculated merge base between {} and {}: {}", sourceBranch, targetBranch, this.mergeBaseCommit);
 
-                var branchDiffData = getBranchDiff(gitRepo, sourceBranch, targetBranch);
+                // Check if source branch needs push (for UI indicator)
                 this.sourceBranchNeedsPush = gitRepo.branchNeedsPush(sourceBranch);
 
-                if (branchDiffData.commits().isEmpty()) {
+                if (branchDiff.commits().isEmpty()) {
                     // Nothing to describe; stop any ongoing generation and clear fields.
                     cancelGenerationWorkersAndClearFields();
                 } else {
-                    if (this.mergeBaseCommit != null) {
-                        // Auto-generate title and description
-                        // This diff is for the LLM, not for display directly
-                        var diffText = gitRepo.showDiff(sourceBranch, this.mergeBaseCommit);
-                        var svc = contextManager.getService();
-                        int maxTokensInput = svc.getMaxInputTokens(svc.quickestModel());
-                        // Heuristic: ~3 characters per token for English text.
-                        // Multiply maxTokensInput by a safety factor (e.g., 0.9) to leave headroom.
-                        int estimatedTokens = diffText.length() / 3;
-                        boolean diffTooBig  = estimatedTokens > (maxTokensInput * 0.9);
-
-                        if (diffTooBig) {
-                            logger.info("Diff (approx. {} tokens) may exceed model's input budget ({} tokens); falling back to commit messages for PR description.",
-                                        estimatedTokens, maxTokensInput);
-                            var commitMsgs = gitRepo.getCommitMessagesBetween(sourceBranch, targetBranch);
-                            if (commitMsgs.isEmpty()) {
-                                logger.warn("Diff too big, and no commit messages found between {} and {}. Cannot generate PR description.", sourceBranch, targetBranch);
-                                cancelGenerationWorkersAndClearFields();
-                            } else {
-                                debounceGenerateFromCommitMessages(commitMsgs);
-                            }
-                        } else {
-                            debounceGenerateFromDiff(diffText);
-                        }
-                    } else {
-                        // No merge base, cannot generate diff for description.
-                        logger.warn("No merge base found between {} and {}, cannot generate PR description.", sourceBranch, targetBranch);
-                        cancelGenerationWorkersAndClearFields(); // Clear any pending/optimistic UI
-                        // Optionally, set a specific message in descriptionArea
-                        SwingUtilities.invokeLater(() -> {
-                            descriptionArea.setText("(Could not determine changes: no common merge base found)");
-                            titleField.setText(""); // Also clear title
-                        });
-                    }
+                    // If commits exist, trigger debounced PR suggestion
+                    debounceSuggestPrDetails(sourceBranch, targetBranch);
                 }
 
-                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiffData.commits(),
-                                                                       branchDiffData.changedFiles(),
+                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(branchDiff.commits(),
+                                                                       branchDiff.files(),
                                                                        contextName));
-                return branchDiffData.commits();
+                return branchDiff.commits();
             } catch (Exception e) {
-                logger.error("Error fetching commits, changed files, merge base, or full diff for " + contextName, e);
-                SwingUtilities.invokeLater(() -> updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)"));
+                logger.error("Error fetching branch diff or suggesting PR details for " + contextName, e);
+                SwingUtilities.invokeLater(() -> {
+                    updateCommitRelatedUI(Collections.emptyList(), Collections.emptyList(), contextName + " (error)");
+                    cancelGenerationWorkersAndClearFields(); // Also clear fields on error
+                    descriptionArea.setText("(Could not generate PR details due to error)");
+                    titleField.setText("");
+                });
                 throw e;
             }
         });
     }
 
     private void updateCreatePrButtonState() {
-        if (createPrButton != null) {
-            createPrButton.setEnabled(isCreatePrReady());
+        List<String> blockers = getCreatePrBlockers();
+        createPrButton.setEnabled(blockers.isEmpty());
+        createPrButton.setToolTipText(blockers.isEmpty() ? null : formatBlockersTooltip(blockers));
+    }
+
+    private List<String> getCreatePrBlockers() {
+        var blockers = new ArrayList<String>();
+        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
+
+        if (currentCommits.isEmpty()) {
+            blockers.add("No commits to include in the pull request.");
         }
+        if (sourceBranch == null) {
+            blockers.add("Source branch not selected.");
+        }
+        if (targetBranch == null) {
+            blockers.add("Target branch not selected.");
+        }
+        // This check should only be added if both branches are selected, otherwise it's redundant.
+        if (sourceBranch != null && sourceBranch.equals(targetBranch)) {
+            blockers.add("Source and target branches cannot be the same.");
+        }
+        if (titleField.getText() == null || titleField.getText().trim().isEmpty()) {
+            blockers.add("Title cannot be empty.");
+        }
+        if (descriptionArea.getText() == null || descriptionArea.getText().trim().isEmpty()) {
+            blockers.add("Description cannot be empty.");
+        }
+        if (sourceBranchNeedsPush) {
+            blockers.add("Local branch is ahead of its remote – push first.");
+        }
+        return List.copyOf(blockers);
+    }
+
+    private @Nullable String formatBlockersTooltip(List<String> blockers) {
+        if (blockers.isEmpty()) {
+            return null;
+        }
+        var sb = new StringBuilder("<html>");
+        for (String blocker : blockers) {
+            sb.append("• ").append(blocker).append("<br>");
+        }
+        sb.append("</html>");
+        return sb.toString();
     }
 
     /**
      * Checks whether the dialog has sufficient information to enable PR creation.
      */
     private boolean isCreatePrReady() {
-        var title = titleField.getText();
-        var description = descriptionArea.getText();
-        var sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
-        var targetBranch = (String) targetBranchComboBox.getSelectedItem();
-
-        var branchesDifferentAndSelected = sourceBranch != null
-                                           && targetBranch != null
-                                           && !sourceBranch.equals(targetBranch);
-        var prInfoFilled = title != null && !title.trim().isEmpty()
-                           && description != null && !description.trim().isEmpty();
-
-        return !currentCommits.isEmpty()
-               && branchesDifferentAndSelected
-               && prInfoFilled
-               && !sourceBranchNeedsPush;
+        return getCreatePrBlockers().isEmpty();
     }
     
     private void setupInputListeners() {
@@ -525,7 +508,7 @@ public class CreatePullRequestDialog extends JDialog {
             // Listeners must be set up AFTER default items are selected to avoid premature firing.
             setupBranchListeners();
 
-            if (this.flowUpdater != null) this.flowUpdater.run(); // Update label based on defaults
+            this.flowUpdater.run(); // Update label based on defaults
             refreshCommitList();   // Load commits based on defaults, which will also call flowUpdater and update button state
             // updateCreatePrButtonState(); // No longer needed here, refreshCommitList handles it
         } catch (GitAPIException e) {
@@ -577,7 +560,7 @@ public class CreatePullRequestDialog extends JDialog {
     
     private void selectDefaultSourceBranch(GitRepo gitRepo, List<String> sourceBranches, List<String> localBranches) throws GitAPIException {
         var currentBranch = gitRepo.getCurrentBranch();
-        if (currentBranch != null && sourceBranches.contains(currentBranch)) {
+        if (sourceBranches.contains(currentBranch)) {
             sourceBranchComboBox.setSelectedItem(currentBranch);
         } else if (!localBranches.isEmpty()) {
             sourceBranchComboBox.setSelectedItem(localBranches.getFirst());
@@ -702,60 +685,72 @@ public class CreatePullRequestDialog extends JDialog {
         });
     }
 
-    private class PrDescriptionWorker extends SwingWorker<String, Void> {
-        private final ContextManager cm;
-        private final Supplier<List<ChatMessage>> promptSupplier;
+    /**
+     * SwingWorker to suggest PR title and description using GitWorkflowService.
+     */
+    private class SuggestPrDetailsWorker extends SwingWorker<GitWorkflowService.PrSuggestion, Void> {
+        private final String sourceBranch;
+        private final String targetBranch;
 
-        PrDescriptionWorker(ContextManager cm, Supplier<List<ChatMessage>> promptSupplier) {
-            this.cm = cm;
-            this.promptSupplier = promptSupplier;
+        SuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
+            this.sourceBranch = sourceBranch;
+            this.targetBranch = targetBranch;
         }
 
         @Override
-        protected String doInBackground() throws InterruptedException {
+        protected GitWorkflowService.PrSuggestion doInBackground() throws Exception {
             if (isCancelled()) {
-                return ""; // Early exit if cancelled before starting work
+                throw new InterruptedException("Worker cancelled before starting");
             }
-            var msgs = promptSupplier.get(); // Get messages from the supplier
-            var llm = cm.getLlm(cm.getService().quickestModel(), "PR-description");
-            var result = llm.sendRequest(msgs);
-
-            if (isCancelled()) { // Check again after potentially long LLM call
-                return "";
-            }
-
-            if (result.error() != null || result.isEmpty()) {
-                logger.warn("PR description generation failed: {}", result.error());
-                return "(generation failed)";
-            }
-            return result.text().trim();
+            // This service call is blocking and includes LLM interactions.
+            return workflowService.suggestPullRequestDetails(sourceBranch, targetBranch);
         }
 
         @Override
         protected void done() {
-            if (isCancelled()) return;
-            var desc = "(generation failed)";
             try {
-                desc = get();
+                GitWorkflowService.PrSuggestion suggestion = get(); // This will throw specific exceptions if cancelled/interrupted.
+                SwingUtilities.invokeLater(() -> {
+                    setTextAndResetCaret(titleField, suggestion.title());
+                    setTextAndResetCaret(descriptionArea, suggestion.description());
+                    showDescriptionHint(suggestion.usedCommitMessages());
+                });
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Restore interrupt status
-                logger.warn("PR description worker interrupted", e);
-                desc = ""; // Treat as cancellation essentially
-            } catch (Exception e) {
-                logger.warn("PR description worker failed to get result", e);
-            }
-
-            var finalDesc = desc;
-            SwingUtilities.invokeLater(() -> {
-                setTextAndResetCaret(descriptionArea, finalDesc);
-                // Now that description is set, launch title generation
-                if (!"".equals(finalDesc) && !"(generation failed)".equals(finalDesc)) {
-                    spawnTitleWorker(finalDesc);
+                Thread.currentThread().interrupt(); // Preserve interrupt status
+                logger.warn("SuggestPrDetailsWorker interrupted for {} -> {}", sourceBranch, targetBranch, e);
+                SwingUtilities.invokeLater(() -> {
+                    setTextAndResetCaret(titleField, "(suggestion interrupted)");
+                    setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
+                    showDescriptionHint(false);
+                });
+            } catch (java.util.concurrent.CancellationException e) {
+                logger.warn("SuggestPrDetailsWorker cancelled for {} -> {}", sourceBranch, targetBranch, e);
+                SwingUtilities.invokeLater(() -> {
+                    setTextAndResetCaret(titleField, "(suggestion cancelled)");
+                    setTextAndResetCaret(descriptionArea, "(suggestion cancelled)");
+                    showDescriptionHint(false);
+                });
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof InterruptedException interruptedException) {
+                    Thread.currentThread().interrupt(); // Preserve interrupt status
+                    logger.warn("SuggestPrDetailsWorker execution failed due to underlying interruption for {} -> {}", sourceBranch, targetBranch, interruptedException);
+                    SwingUtilities.invokeLater(() -> {
+                        setTextAndResetCaret(titleField, "(suggestion interrupted)");
+                        setTextAndResetCaret(descriptionArea, "(suggestion interrupted)");
+                        showDescriptionHint(false);
+                    });
                 } else {
-                    // If description failed or was cancelled, reflect that in title field too or clear it.
-                    setTextAndResetCaret(titleField, "".equals(finalDesc) ? "" : "(title generation failed)");
+                    logger.warn("SuggestPrDetailsWorker failed with ExecutionException for {} -> {}: {}", sourceBranch, targetBranch, (cause != null ? cause.getMessage() : e.getMessage()), cause);
+                    SwingUtilities.invokeLater(() -> {
+                        String errorMessage = (cause != null && cause.getMessage() != null) ? cause.getMessage() : e.getMessage();
+                        errorMessage = (errorMessage == null) ? "Unknown error" : errorMessage;
+                        setTextAndResetCaret(titleField, "(suggestion failed)");
+                        setTextAndResetCaret(descriptionArea, "(suggestion failed: " + errorMessage + ")");
+                        showDescriptionHint(false);
+                    });
                 }
-            });
+            }
         }
     }
 
@@ -779,28 +774,30 @@ public class CreatePullRequestDialog extends JDialog {
                 // Gather details on the EDT before going to background if they come from Swing components
                 final String title = titleField.getText().trim();
                 final String body = descriptionArea.getText().trim();
-                final String headBranchFull = (String) sourceBranchComboBox.getSelectedItem();
-                final String baseBranchFull = (String) targetBranchComboBox.getSelectedItem();
+                // Removed duplicate declarations of title and body
+                final String sourceBranch = (String) sourceBranchComboBox.getSelectedItem();
+                final String targetBranch = (String) targetBranchComboBox.getSelectedItem();
 
-                // GitHub API expects branch names without 'origin/' prefix for head/base
-                final String headBranch = headBranchFull.startsWith("origin/") ? headBranchFull.substring("origin/".length()) : headBranchFull;
-                final String baseBranch = baseBranchFull.startsWith("origin/") ? baseBranchFull.substring("origin/".length()) : baseBranchFull;
+                // Ensure selectedItem calls are safe
+                if (sourceBranch == null || targetBranch == null) {
+                    throw new IllegalStateException("Source or target branch not selected.");
+                }
 
-                var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-                var ghRepo = auth.getGhRepository(); // This ensures connection
-                var pr = ghRepo.createPullRequest(title, headBranch, baseBranch, body);
+                var prUrl = workflowService.createPullRequest(sourceBranch, targetBranch, title, body);
 
                 // Success: Open in browser and dispose dialog
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                    Desktop.getDesktop().browse(pr.getHtmlUrl().toURI());
+                    Desktop.getDesktop().browse(prUrl);
                 } else {
-                    logger.warn("Desktop browse action not supported, cannot open PR URL automatically: {}", pr.getHtmlUrl());
-                    SwingUtilities.invokeLater(() -> chrome.systemNotify("PR created: " + pr.getHtmlUrl(), "Pull Request Created", JOptionPane.INFORMATION_MESSAGE));
+                    logger.warn("Desktop browse action not supported, cannot open PR URL automatically: {}", prUrl);
+                    SwingUtilities.invokeLater(() -> chrome.systemNotify("PR created: " + prUrl, "Pull Request Created", JOptionPane.INFORMATION_MESSAGE));
                 }
                 SwingUtilities.invokeLater(this::dispose);
 
             } catch (Exception ex) {
                 logger.error("Pull Request creation failed", ex);
+                // The service method might throw GitRepo.GitPushRejectedException or other specific exceptions.
+                // For now, catch generic Exception and display its message.
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Unable to create Pull Request:\n" + ex.getMessage(), "PR Creation Error");
                     // Reset button only if dialog is still displayable (it wasn't disposed on success)
@@ -819,89 +816,52 @@ public class CreatePullRequestDialog extends JDialog {
             pendingDebounceTask.cancel(false);
             pendingDebounceTask = null;
         }
-        if (currentDescriptionWorker != null) {
-            currentDescriptionWorker.cancel(true);
-            currentDescriptionWorker = null;
-        }
-        if (currentTitleWorker != null) {
-            currentTitleWorker.cancel(true);
-            currentTitleWorker = null;
+        if (currentSuggestPrDetailsWorker != null) {
+            currentSuggestPrDetailsWorker.cancel(true);
+            currentSuggestPrDetailsWorker = null;
         }
         SwingUtilities.invokeLater(() -> {
             titleField.setText("");
             descriptionArea.setText("");
+            showDescriptionHint(false); // Hide hint when clearing
             updateCreatePrButtonState();
         });
     }
 
-    private void debounceGenerate(Supplier<List<ChatMessage>> promptSupplier) {
+    private void showDescriptionHint(boolean show) {
+        SwingUtilities.invokeLater(() -> {
+            descriptionHintLabel.setVisible(show);
+        });
+    }
+
+    /**
+     * Debounces the call to generate PR suggestions.
+     * The actual decision of using diff vs commit messages is now inside the service.
+     */
+    private void debounceSuggestPrDetails(String sourceBranch, String targetBranch) {
+        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
+            setTextAndResetCaret(descriptionArea, "Generating PR details...");
+            setTextAndResetCaret(titleField, "Generating PR details...");
+            // The hint will be set by the worker's done() method based on service response.
+            // For now, ensure it's hidden during generation.
+            showDescriptionHint(false);
+        });
+
         if (pendingDebounceTask != null) {
             pendingDebounceTask.cancel(false);
         }
         pendingDebounceTask = debounceExec.schedule(
-                () -> spawnDescriptionWorker(promptSupplier), // Will run on executor thread
+                () -> spawnSuggestPrDetailsWorker(sourceBranch, targetBranch),
                 DEBOUNCE_MS, TimeUnit.MILLISECONDS);
     }
 
-    // Specific debouncer for diff-based generation
-    private void debounceGenerateFromDiff(String diffTxt) {
-        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
-            setTextAndResetCaret(descriptionArea, "Generating description from diff...");
-            setTextAndResetCaret(titleField, "Generating title...");
-        });
-        debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionMessages(diffTxt));
-    }
-
-    // Specific debouncer for commit-message-based generation
-    private void debounceGenerateFromCommitMessages(List<String> commitMsgs) {
-        SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
-             setTextAndResetCaret(descriptionArea, "Generating description from commit messages...");
-             setTextAndResetCaret(titleField, "Generating title...");
-        });
-        debounceGenerate(() -> SummarizerPrompts.instance.collectPrDescriptionFromCommitMsgs(commitMsgs));
-    }
-
-    private void spawnDescriptionWorker(Supplier<List<ChatMessage>> promptSupplier) {
+    private void spawnSuggestPrDetailsWorker(String sourceBranch, String targetBranch) {
         // Cancel previous background LLM calls
-        if (currentDescriptionWorker != null) {
-            currentDescriptionWorker.cancel(true);
-        }
-        if (currentTitleWorker != null) {
-            currentTitleWorker.cancel(true);
+        if (currentSuggestPrDetailsWorker != null) {
+            currentSuggestPrDetailsWorker.cancel(true);
         }
 
-        // Optimistic placeholders
-        currentDescriptionWorker = new PrDescriptionWorker(contextManager, promptSupplier);
-        currentDescriptionWorker.execute();
-    }
-
-    private void spawnTitleWorker(String description) {
-        if (currentTitleWorker != null) {
-            currentTitleWorker.cancel(true);
-        }
-
-        // Use the existing SummarizeWorker from ContextManager
-        currentTitleWorker = new ContextManager.SummarizeWorker(
-                contextManager,
-                description,
-                SummarizerPrompts.WORD_BUDGET_12) {
-            @Override
-            protected void done() {
-                if (isCancelled()) return;
-                var ttl = "(title generation failed)";
-                try {
-                    ttl = get();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.warn("Title summarization worker interrupted", e);
-                    ttl = ""; // Treat as cancellation
-                } catch (Exception e) {
-                    logger.warn("Title summarization worker failed to get result", e);
-                }
-                String finalTtl = ttl;
-                SwingUtilities.invokeLater(() -> setTextAndResetCaret(titleField, finalTtl));
-            }
-        };
-        currentTitleWorker.execute();
+        currentSuggestPrDetailsWorker = new SuggestPrDetailsWorker(sourceBranch, targetBranch);
+        currentSuggestPrDetailsWorker.execute();
     }
 }

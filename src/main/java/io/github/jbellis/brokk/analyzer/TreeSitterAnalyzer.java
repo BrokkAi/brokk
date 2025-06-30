@@ -94,7 +94,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         this.language = language;
         // tsLanguage field removed, getTSLanguage().get() will provide it via ThreadLocal
 
-        this.normalizedExcludedFiles = (excludedFiles != null ? excludedFiles : Collections.<String>emptySet())
+        this.normalizedExcludedFiles = excludedFiles
                 .stream()
                 .map(p -> {
                     Path path = Path.of(p);
@@ -148,7 +148,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         if (!analysisResult.topLevelCUs().isEmpty() || !analysisResult.signatures().isEmpty() || !analysisResult.sourceRanges().isEmpty()) {
                             topLevelDeclarations.put(pf, analysisResult.topLevelCUs()); // Already unmodifiable from result
 
-                            analysisResult.children().forEach((parentCU, newChildCUs) -> childrenByParent.compute(parentCU, (p, existingChildCUs) -> {
+                            analysisResult.children().forEach((parentCU, newChildCUs) -> childrenByParent.compute(parentCU, (CodeUnit p, @Nullable List<CodeUnit> existingChildCUs) -> {
                                 if (existingChildCUs == null) {
                                     return newChildCUs; // Already unmodifiable
                                 }
@@ -171,7 +171,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                 return Collections.unmodifiableList(combined);
                             }));
 
-                            analysisResult.signatures().forEach((cu, newSignaturesList) -> signatures.compute(cu, (key, existingSignaturesList) -> {
+                            analysisResult.signatures().forEach((cu, newSignaturesList) -> signatures.compute(cu, (CodeUnit key, @Nullable List<String> existingSignaturesList) -> {
                                 if (existingSignaturesList == null) {
                                     return newSignaturesList; // Already unmodifiable from result
                                 }
@@ -182,7 +182,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                 return Collections.unmodifiableList(combined);
                             }));
 
-                            analysisResult.sourceRanges().forEach((cu, newRangesList) -> sourceRanges.compute(cu, (key, existingRangesList) -> {
+                            analysisResult.sourceRanges().forEach((cu, newRangesList) -> sourceRanges.compute(cu, (CodeUnit key, @Nullable List<Range> existingRangesList) -> {
                                 if (existingRangesList == null) {
                                     return newRangesList; // Already unmodifiable
                                 }
@@ -264,7 +264,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     @Override
     public List<CodeUnit> searchDefinitions(String pattern) {
-        if (pattern == null || pattern.isEmpty()) {
+        if (pattern.isEmpty()) {
             return List.of();
         }
         return uniqueCodeUnitList().stream()
@@ -338,7 +338,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         for (String individualFullSignature : sigList) {
-            if (individualFullSignature == null || individualFullSignature.isBlank()) {
+            if (individualFullSignature.isBlank()) {
                 log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
                 continue;
             }
@@ -515,7 +515,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * @return true if the node is a class-like declaration, false otherwise.
      */
     protected boolean isClassLike(TSNode node) {
-        if (node == null || node.isNull()) {
+        if (node.isNull()) {
             return false;
         }
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
@@ -629,7 +629,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
                     if (nameNode != null && !nameNode.isNull()) {
                         simpleName = textSlice(nameNode, src);
-                        if (simpleName != null && simpleName.isBlank()) {
+                        if (simpleName.isBlank()) {
                             log.warn("Name capture '{}' for definition '{}' in file {} resulted in a BLANK string. NameNode text: [{}], type: [{}]. Will attempt fallback.",
                                      expectedNameCapture, captureName, file, textSlice(nameNode, src), nameNode.getType());
                             // Force fallback if primary name extraction yields blank.
@@ -706,7 +706,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             String primaryCaptureName = defInfo.getKey();
             String simpleName = defInfo.getValue();
 
-            if (simpleName == null || simpleName.isBlank()) {
+            if (simpleName.isBlank()) {
                 log.warn("Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
                          node.getType(), primaryCaptureName, file);
                 continue;
@@ -989,7 +989,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
 
                 String headerLine = assembleClassSignature(nodeForContent, src, exportPrefix, classSignatureText, "");
-                if (headerLine != null && !headerLine.isBlank()) signatureLines.add(headerLine);
+                if (!headerLine.isBlank()) signatureLines.add(headerLine);
                 break;
             }
             case FUNCTION_LIKE: {
@@ -997,7 +997,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 TSNode bodyNodeForComments = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 List<String> extraComments = getExtraFunctionComments(bodyNodeForComments, src, null);
                 for (String comment : extraComments) {
-                    if (comment != null && !comment.isBlank()) {
+                    if (!comment.isBlank()) {
                         signatureLines.add(comment); // Comments are added without indent here; buildSkeletonRecursive adds indent.
                     }
                 }
@@ -1047,7 +1047,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * @return The formatted parameter list text.
      */
     protected String formatParameterList(TSNode parametersNode, String src) {
-        return parametersNode == null || parametersNode.isNull() ? "" : textSlice(parametersNode, src);
+        return parametersNode.isNull() ? "" : textSlice(parametersNode, src);
     }
 
     // Removed deprecated formatParameterList(String)
@@ -1149,7 +1149,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         // Use the passed-in outerExportPrefix. If it's empty, then allow getVisibilityPrefix to check funcNode itself for local modifiers.
-        String exportPrefix = (outerExportPrefix != null && !outerExportPrefix.isEmpty()) ? outerExportPrefix : getVisibilityPrefix(funcNode, src);
+        String exportPrefix = !outerExportPrefix.isEmpty() ? outerExportPrefix : getVisibilityPrefix(funcNode, src);
         String asyncPrefix = "";
         TSNode firstChildOfFunc = funcNode.getChild(0);
         String asyncKWType = profile.asyncKeywordNodeType();
@@ -1162,7 +1162,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         String functionLine = assembleFunctionSignature(funcNode, src, exportPrefix, asyncPrefix, functionName, paramsText, returnTypeText, indent);
 
-        if (functionLine != null && !functionLine.isBlank()) {
+        if (!functionLine.isBlank()) {
             // Extra comments (from getExtraFunctionComments) are added by buildSignatureString directly to the `lines` list before this method is called.
             // This method just adds the main functionLine (produced by assembleFunctionSignature) to that list.
             // The `indent` parameter for this method is the base indent for the CU; `reconstructSkeletonRecursive` handles the overall indent for the CU.
@@ -1231,7 +1231,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
     /** Extracts a substring from the source code based on node boundaries. */
     protected String textSlice(TSNode node, String src) {
-        if (node == null || node.isNull()) return "";
+        if (node.isNull()) return "";
         
         // Get the byte array representation of the source 
         // This may be cached for better performance in a real implementation

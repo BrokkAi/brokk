@@ -55,7 +55,7 @@ final class StreamingWorker {
 
     /* called from EDT */ 
     void appendChunk(String text) {
-        if (text == null || text.isEmpty()) { // an empty string append is used by flush to trigger a parse
+        if (text.isEmpty()) { // an empty string append is used by flush to trigger a parse
             if (fullText.length() > 0) { // only set flag if there's actual content that might need parsing
                 contentAddedSinceLastParse.set(true);
             }

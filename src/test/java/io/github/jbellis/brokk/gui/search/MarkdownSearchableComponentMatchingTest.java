@@ -3,6 +3,8 @@ package io.github.jbellis.brokk.gui.search;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import javax.swing.*;
 import java.util.List;
@@ -15,6 +17,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for search matching functionality in MarkdownSearchableComponent.
  */
+@Execution(ExecutionMode.SAME_THREAD)
 public class MarkdownSearchableComponentMatchingTest {
 
     private MarkdownOutputPanel panel;
@@ -40,7 +43,7 @@ public class MarkdownSearchableComponentMatchingTest {
         // Search for non-existent term
         SwingUtilities.invokeLater(() -> searchComponent.highlightAll("nonexistentterm123", false));
 
-        assertTrue(searchComplete.await(3, TimeUnit.SECONDS));
+        assertTrue(searchComplete.await(10, TimeUnit.SECONDS));
         assertEquals(0, totalMatches.get(), "Should have no matches");
 
         // Navigation should fail

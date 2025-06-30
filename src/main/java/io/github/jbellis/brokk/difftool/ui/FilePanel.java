@@ -69,7 +69,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     // Typing state detection to prevent scroll sync interference
     private volatile boolean isActivelyTyping = false;
     private Timer typingStateTimer;
-    
+
     // Track if updates were deferred during typing and need to be applied
     private volatile boolean hasDeferredUpdates = false;
 
@@ -182,9 +182,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (this.bufferDocument != null) {
                 this.bufferDocument.removeChangeListener(this);
                 previousDocument = this.bufferDocument.getDocument();
-                if (previousDocument != null) {
-                    previousDocument.removeUndoableEditListener(diffPanel.getUndoHandler());
-                }
+                previousDocument.removeUndoableEditListener(diffPanel.getUndoHandler());
             }
 
             // Ensure any existing mirroring is cleared before setting up new or leaving none.
@@ -199,32 +197,27 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
             if (bd != null) {
                 newDocument = bd.getDocument();
-                if (newDocument != null) {
-                    // Copy text into RSyntaxDocument instead of replacing the model
-                    String txt = newDocument.getText(0, newDocument.getLength());
+                // Copy text into RSyntaxDocument instead of replacing the model
+                String txt = newDocument.getText(0, newDocument.getLength());
 
-                    // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
-                    applyPerformanceOptimizations(txt.length());
+                // PERFORMANCE OPTIMIZATION: Apply file size-based optimizations for large files
+                applyPerformanceOptimizations(txt.length());
 
-                    editor.setText(txt);
-                    editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
-                    bd.addChangeListener(this);
+                editor.setText(txt);
+                editor.setTabSize(PerformanceConstants.DEFAULT_EDITOR_TAB_SIZE);
+                bd.addChangeListener(this);
 
-                    // Setup bidirectional mirroring between PlainDocument and RSyntaxDocument
-                    installMirroring(newDocument);
+                // Setup bidirectional mirroring between PlainDocument and RSyntaxDocument
+                installMirroring(newDocument);
 
-                    // Undo tracking on the RSyntaxDocument (what the user edits)
-                    editor.getDocument().addUndoableEditListener(diffPanel.getUndoHandler());
+                // Undo tracking on the RSyntaxDocument (what the user edits)
+                editor.getDocument().addUndoableEditListener(diffPanel.getUndoHandler());
 
-                    // Ensure highlighter is still properly connected after setText
-                    if (editor.getHighlighter() instanceof CompositeHighlighter) {
-                        // Force reinstall to ensure proper binding
-                        var highlighter = editor.getHighlighter();
-                        highlighter.install(editor);
-                    }
-                } else {
-                    // BufferDocumentIF exists, but its underlying Document is null. Clear editor.
-                    editor.setText("");
+                // Ensure highlighter is still properly connected after setText
+                if (editor.getHighlighter() instanceof CompositeHighlighter) {
+                    // Force reinstall to ensure proper binding
+                    var highlighter = editor.getHighlighter();
+                    highlighter.install(editor);
                 }
                 editor.setEditable(!bd.isReadonly());
                 updateSyntaxStyle();            // pick syntax based on filename
@@ -262,7 +255,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             hasDeferredUpdates = true; // Mark that we have updates to apply later
             return;
         }
-        
+
         // Use debounced reDisplay to reduce flickering during rapid updates
         if (redisplayTimer != null) {
             redisplayTimer.restart();
@@ -277,12 +270,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         paintSearchHighlights();
         paintRevisionHighlights();
         // Force both the JMHighlighter and editor to repaint
-        if (jmHighlighter != null) {
-            jmHighlighter.repaint();
-        }
-        if (editor != null) {
-            editor.repaint();
-        }
+        jmHighlighter.repaint();
+        editor.repaint();
     }
 
     /**
@@ -498,9 +487,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (bufferDocument == null) return;
             // Retrieve the chunk relevant to this side
             var chunk = getChunk(delta);
-            if (chunk == null) { // If the delta implies no chunk for this side (e.g. pure insert/delete)
-                return;
-            }
             var fromOffset = bufferDocument.getOffsetForLine(chunk.getPosition());
             if (fromOffset < 0) return;
             var toOffset = bufferDocument.getOffsetForLine(chunk.getPosition() + chunk.size());
@@ -541,7 +527,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Check if the last char is a newline *and* if offset is doc length
         private boolean isEndAndLastNewline(int toOffset) {
-            if (bufferDocument == null || bufferDocument.getDocument() == null) return false;
+            if (bufferDocument == null) {
+                return false;
+            } else {
+                bufferDocument.getDocument();
+            }
             try {
                 var docLen = bufferDocument.getDocument().getLength();
                 int endOffset = toOffset - 1;
@@ -659,9 +649,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (!initialSetupComplete) return;
 
         // Enhanced typing state detection - catch more user-initiated changes
-        boolean isUserEdit = de.getDocumentEvent() != null || 
+        boolean isUserEdit = de.getDocumentEvent() != null ||
                             (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
-        
+
         if (isUserEdit) {
             isActivelyTyping = true;
             typingStateTimer.restart();
@@ -720,7 +710,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // --------------------------- Heuristic 1 -----------------------------
         if (bufferDocument != null) {
             var fileName = bufferDocument.getName();
-            if (fileName != null && !fileName.isBlank()) {
+            if (!fileName.isBlank()) {
                 // Remove trailing '~'
                 var candidate = fileName.endsWith("~")
                                 ? fileName.substring(0, fileName.length() - 1)
@@ -874,7 +864,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (plainDocument != null && plainToEditorListener != null) {
             plainDocument.removeDocumentListener(plainToEditorListener);
         }
-        if (editor != null && editorToPlainListener != null) {
+        if (editorToPlainListener != null) {
             editor.getDocument().removeDocumentListener(editorToPlainListener);
         }
         plainDocument = null;

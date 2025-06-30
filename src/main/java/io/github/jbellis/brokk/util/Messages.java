@@ -2,12 +2,10 @@ package io.github.jbellis.brokk.util;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.OpenAiTokenizer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import javax.annotation.Nullable;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -130,7 +128,7 @@ public class Messages {
      * This can remain static as it only depends on the static tokenizer.
      */
     public static int getApproximateTokens(String text) {
-        if (text == null || text.isEmpty()) {
+        if (text.isEmpty()) {
             return 0;
         }
         return tokenizer.encode(text).size();

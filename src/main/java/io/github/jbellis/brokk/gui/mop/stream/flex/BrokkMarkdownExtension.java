@@ -17,7 +17,7 @@ public class BrokkMarkdownExtension implements Parser.ParserExtension, HtmlRende
      * Default is true (enabled).
      */
     public static final DataKey<Boolean> ENABLE_EDIT_BLOCK = 
-            new DataKey<>("BROKK_ENABLE_EDIT_BLOCK", Boolean.TRUE);
+            new DataKey<>("BROKK_ENABLE_EDIT_BLOCK", true);
     
     private BrokkMarkdownExtension() {
     }

@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.util;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**

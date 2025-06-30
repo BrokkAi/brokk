@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.jetbrains.annotations.Nullable;
@@ -8,14 +9,16 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public interface IGitRepo {
     
     /**
      * Information about a Git worktree.
+     * Branch will be null if worktree is in a detached HEAD state.
      */
-    record WorktreeInfo(Path path, String branch, String commitId) {}
+    record WorktreeInfo(Path path, @Nullable String branch, String commitId) {}
     Set<ProjectFile> getTrackedFiles();
 
     default String diff() throws GitAPIException {
@@ -124,7 +127,7 @@ public interface IGitRepo {
      * @return A string describing conflicts if any, or null/empty if no conflicts.
      * @throws GitAPIException if a Git error occurs during the check.
      */
-    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, io.github.jbellis.brokk.gui.GitWorktreeTab.MergeMode mode) throws GitAPIException {
+    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, GitRepo.MergeMode mode) throws GitAPIException {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
 
@@ -132,4 +135,34 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
     }
 
+    default MergeResult squashMergeIntoHead(String branchName) throws GitAPIException {
+        throw new UnsupportedOperationException("squashMergeIntoHead not implemented");
+    }
+
+    default MergeResult rebaseMergeIntoHead(String branchName) throws GitAPIException {
+        throw new UnsupportedOperationException("rebaseMergeIntoHead not implemented");
+    }
+
+    default MergeResult performMerge(String branchName, GitRepo.MergeMode mode) throws GitAPIException {
+        throw new UnsupportedOperationException("performMerge not implemented");
+    }
+
+    /**
+     * Attempts to determine the repository's default branch.
+     * Order of preference:
+     *   1. The symbolic ref refs/remotes/origin/HEAD (remote's default)
+     *   2. Local branch named 'main'
+     *   3. Local branch named 'master'
+     *   4. First local branch (alphabetically)
+     * @return The default branch name.
+     * @throws GitRepo.NoDefaultBranchException if no default branch can be determined (e.g., in an empty repository).
+     * @throws GitAPIException if a different error occurs while accessing Git data.
+     */
+    default String getDefaultBranch() throws GitAPIException {
+        throw new UnsupportedOperationException("getDefaultBranch not implemented");
+    }
+
+    default String getCurrentBranch() throws GitAPIException {
+        throw new UnsupportedOperationException("getDefaultBranch not implemented");
+    }
 }

@@ -95,7 +95,7 @@ public interface SearchableComponent {
      */
     default void notifySearchStart(String searchText) {
         var callback = getSearchCompleteCallback();
-        if (callback != null && searchText != null && !searchText.isEmpty()) {
+        if (callback != null && !searchText.isEmpty()) {
             callback.onSearchStart();
         }
     }

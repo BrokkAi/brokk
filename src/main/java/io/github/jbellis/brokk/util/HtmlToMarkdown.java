@@ -20,8 +20,6 @@ public class HtmlToMarkdown {
      * Otherwise returns it unchanged.
      */
     public static String maybeConvertToMarkdown(String maybeHtml) {
-        assert maybeHtml != null;
-
         if (!looksLikeHtml(maybeHtml)) {
             return maybeHtml;
         }

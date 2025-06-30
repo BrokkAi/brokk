@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.AiMessage;
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import org.junit.jupiter.api.Test;
 
@@ -13,7 +14,7 @@ class ContextManagerRedactionTest {
 
     private final EditBlockParser parser = EditBlockParser.instance;
 
-    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided edits for file %s]";
+    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
 
     private String createSingleBlockMessage(String filename, String search, String replace) {
         return """
@@ -33,10 +34,10 @@ class ContextManagerRedactionTest {
         String aiText = createSingleBlockMessage("file.txt", "old code", "new code");
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedMessage = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedMessage = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedMessage.isPresent(), "Message with only S/R block should NOT be removed.");
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER.formatted("file.txt"), redactedMessage.get().text(), "Message content should be the placeholder.");
+        assertEquals(ELIDED_BLOCK_PLACEHOLDER, redactedMessage.get().text(), "Message content should be the placeholder.");
     }
 
     @Test
@@ -47,11 +48,11 @@ class ContextManagerRedactionTest {
         String aiText = prefix + block + suffix;
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
         AiMessage redactedMessage = redactedResult.get();
-        String expectedText = prefix + ELIDED_BLOCK_PLACEHOLDER.formatted("foo.txt") + suffix;
+        String expectedText = prefix + ELIDED_BLOCK_PLACEHOLDER + suffix;
         assertEquals(expectedText, redactedMessage.text(), "S/R block should be replaced by placeholder.");
     }
 
@@ -60,7 +61,7 @@ class ContextManagerRedactionTest {
         String aiText = "This is a plain message with no S/R blocks.";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent(), "Plain message should be present.");
         assertEquals(originalMessage.text(), redactedResult.get().text(), "Plain message text should be unchanged.");
@@ -71,7 +72,7 @@ class ContextManagerRedactionTest {
         String aiText = "";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
         assertTrue(redactedResult.isEmpty(), "Empty message should result in empty optional.");
     }
 
@@ -80,7 +81,7 @@ class ContextManagerRedactionTest {
         String aiText = "   \n\t   ";
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
         assertTrue(redactedResult.isEmpty(), "Blank message should result in empty optional after redaction.");
     }
 
@@ -95,10 +96,10 @@ class ContextManagerRedactionTest {
         String aiText = text1 + block1 + text2 + block2 + text3;
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent(), "Message should be present after redaction.");
-        String expectedText = text1 + ELIDED_BLOCK_PLACEHOLDER.formatted("file1.txt") + text2 + ELIDED_BLOCK_PLACEHOLDER.formatted("file2.java") + text3;
+        String expectedText = text1 + ELIDED_BLOCK_PLACEHOLDER + text2 + ELIDED_BLOCK_PLACEHOLDER + text3;
         assertEquals(expectedText, redactedResult.get().text(), "All S/R blocks should be replaced by placeholders.");
     }
 
@@ -111,10 +112,10 @@ class ContextManagerRedactionTest {
         String aiText = block1 + "\n" + block2; // Explicit newline for clarity in test
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
         
         assertTrue(redactedResult.isPresent(), "Message composed of only S/R blocks but resulting in non-blank placeholder text should be present.");
-        String expectedText = ELIDED_BLOCK_PLACEHOLDER.formatted("file1.txt") + "\n" + ELIDED_BLOCK_PLACEHOLDER.formatted("file2.txt");
+        String expectedText = ELIDED_BLOCK_PLACEHOLDER + "\n" + ELIDED_BLOCK_PLACEHOLDER;
         assertEquals(expectedText, redactedResult.get().text());
     }
 
@@ -125,10 +126,10 @@ class ContextManagerRedactionTest {
         String aiText = text + block;
         AiMessage originalMessage = new AiMessage(aiText);
         
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
         
         assertTrue(redactedResult.isPresent());
-        assertEquals(text + ELIDED_BLOCK_PLACEHOLDER.formatted("file.end"), redactedResult.get().text());
+        assertEquals(text + ELIDED_BLOCK_PLACEHOLDER, redactedResult.get().text());
     }
     
     @Test
@@ -138,9 +139,9 @@ class ContextManagerRedactionTest {
         String aiText = block + text;
         AiMessage originalMessage = new AiMessage(aiText);
 
-        Optional<AiMessage> redactedResult = ContextManager.redactAiMessage(originalMessage, parser);
+        Optional<AiMessage> redactedResult = CodePrompts.redactAiMessage(originalMessage, parser);
 
         assertTrue(redactedResult.isPresent());
-        assertEquals(ELIDED_BLOCK_PLACEHOLDER.formatted("file.start") + text, redactedResult.get().text());
+        assertEquals(ELIDED_BLOCK_PLACEHOLDER + text, redactedResult.get().text());
     }
 }
