@@ -14,6 +14,7 @@ import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Synchronizes the vertical/horizontal scrolling between the left and right FilePanel.
@@ -22,7 +23,7 @@ import java.awt.event.AdjustmentListener;
 public class ScrollSynchronizer
 {
     private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
-    
+
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
@@ -31,9 +32,10 @@ public class ScrollSynchronizer
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
     // Debounce scroll synchronization to reduce flickering
-    private Timer scrollSyncTimer;
-    private boolean pendingLeftScrolled;
-    private boolean hasPendingScroll = false;
+    private final Timer scrollSyncTimer;
+    private volatile boolean pendingLeftScrolled;
+    private final AtomicBoolean hasPendingScroll = new AtomicBoolean(false);
+    private final Object scrollLock = new Object();
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
@@ -43,9 +45,8 @@ public class ScrollSynchronizer
 
         // Initialize debounced scroll timer with reduced delay for better responsiveness
         scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
-            if (hasPendingScroll) {
-                scroll(pendingLeftScrolled);
-                hasPendingScroll = false;
+            if (hasPendingScroll.getAndSet(false)) {
+                SwingUtilities.invokeLater(() -> scroll(pendingLeftScrolled));
             }
         });
         scrollSyncTimer.setRepeats(false);
@@ -113,8 +114,10 @@ public class ScrollSynchronizer
                     boolean leftScrolled = (e.getSource() == leftV);
 
                     // Debounce scroll synchronization to reduce flickering
-                    pendingLeftScrolled = leftScrolled;
-                    hasPendingScroll = true;
+                    synchronized (scrollLock) {
+                        pendingLeftScrolled = leftScrolled;
+                        hasPendingScroll.set(true);
+                    }
                     scrollSyncTimer.restart();
                 }
             };
@@ -128,20 +131,30 @@ public class ScrollSynchronizer
      */
     private void scroll(boolean leftScrolled)
     {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> scroll(leftScrolled));
+            return;
+        }
+
         // Set insideScroll to prevent infinite recursion
-        var vertListener = (verticalAdjustmentListener != null) ? verticalAdjustmentListener : null;
+        var vertListener = verticalAdjustmentListener;
         if (vertListener != null) {
-            // Access the insideScroll field through reflection is complex, so we'll use a different approach
-            // We'll temporarily remove and re-add the listener
+            // We'll temporarily remove and re-add the listener to prevent recursion
             var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
             var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
-            leftV.removeAdjustmentListener(vertListener);
-            rightV.removeAdjustmentListener(vertListener);
 
-            performScroll(leftScrolled);
+            // Synchronize to prevent concurrent modification
+            synchronized (scrollLock) {
+                leftV.removeAdjustmentListener(vertListener);
+                rightV.removeAdjustmentListener(vertListener);
 
-            leftV.addAdjustmentListener(vertListener);
-            rightV.addAdjustmentListener(vertListener);
+                try {
+                    performScroll(leftScrolled);
+                } finally {
+                    leftV.addAdjustmentListener(vertListener);
+                    rightV.addAdjustmentListener(vertListener);
+                }
+            }
         } else {
             performScroll(leftScrolled);
         }
@@ -154,7 +167,7 @@ public class ScrollSynchronizer
             logger.trace("Suppressing scroll sync during active typing");
             return;
         }
-        
+
         var patch = diffPanel.getPatch();
         if (patch == null) {
             return;
@@ -302,5 +315,31 @@ public class ScrollSynchronizer
     public void toNextDelta(boolean next)
     {
         // Moved to BufferDiffPanel. This is not used here any more.
+    }
+
+    /**
+     * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
+     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Stop and null the timer
+        scrollSyncTimer.stop();
+
+        // Remove adjustment listeners
+        if (horizontalAdjustmentListener != null) {
+            var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
+            var rightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
+            leftH.removeAdjustmentListener(horizontalAdjustmentListener);
+            rightH.removeAdjustmentListener(horizontalAdjustmentListener);
+            horizontalAdjustmentListener = null;
+        }
+
+        if (verticalAdjustmentListener != null) {
+            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
+            leftV.removeAdjustmentListener(verticalAdjustmentListener);
+            rightV.removeAdjustmentListener(verticalAdjustmentListener);
+            verticalAdjustmentListener = null;
+        }
     }
 }

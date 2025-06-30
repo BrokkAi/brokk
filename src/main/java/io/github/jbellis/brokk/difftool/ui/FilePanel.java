@@ -38,6 +38,10 @@ import java.awt.event.FocusListener;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static java.util.Objects.requireNonNullElseGet;
 
@@ -60,21 +64,32 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private DocumentListener plainToEditorListener;
     @Nullable
     private DocumentListener editorToPlainListener;
+    @Nullable
     private Timer timer;
+    @Nullable
     private Timer redisplayTimer;
     @Nullable
     private SearchHits searchHits;
     private volatile boolean initialSetupComplete = false;
 
+    // Thread safety coordination
+    private final Object timerLock = new Object();
+    private final AtomicBoolean updateInProgress = new AtomicBoolean(false);
+
     // Typing state detection to prevent scroll sync interference
-    private volatile boolean isActivelyTyping = false;
+    private final AtomicBoolean isActivelyTyping = new AtomicBoolean(false);
+    @Nullable
     private Timer typingStateTimer;
 
     // Track if updates were deferred during typing and need to be applied
-    private volatile boolean hasDeferredUpdates = false;
+    private final AtomicBoolean hasDeferredUpdates = new AtomicBoolean(false);
 
     // Navigation state to ensure highlights appear when scrolling to diffs
-    private volatile boolean isNavigatingToDiff = false;
+    private final AtomicBoolean isNavigatingToDiff = new AtomicBoolean(false);
+
+    // Viewport cache for thread-safe access
+    private final AtomicReference<ViewportCache> viewportCache = new AtomicReference<>();
+    private final ReadWriteLock viewportCacheLock = new ReentrantReadWriteLock();
 
     public FilePanel(@NotNull BufferDiffPanel diffPanel, @NotNull String name) {
         this.diffPanel = diffPanel;
@@ -120,24 +135,24 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         // Keep redisplayTimer for backward compatibility but make it lightweight
         redisplayTimer = new Timer(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS, e -> {
-            if (initialSetupComplete && !isActivelyTyping) {
-                reDisplayInternal();
+            if (initialSetupComplete && !isActivelyTyping.get()) {
+                SwingUtilities.invokeLater(this::reDisplayInternal);
             }
         });
         redisplayTimer.setRepeats(false);
 
         // Typing state timer to detect when user stops typing
         typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
-            isActivelyTyping = false;
+            isActivelyTyping.set(false);
             // Trigger comprehensive update after typing stops to ensure diff and highlights are current
-            if (initialSetupComplete && hasDeferredUpdates) {
+            if (initialSetupComplete && hasDeferredUpdates.getAndSet(false)) {
                 logger.trace("Typing stopped, applying deferred updates");
-                // First update the diff to reflect all document changes made during typing
-                diffPanel.diff();
-                // Then update highlights based on the new diff
-                reDisplayInternal();
-                // Reset the deferred updates flag
-                hasDeferredUpdates = false;
+                SwingUtilities.invokeLater(() -> {
+                    // First update the diff to reflect all document changes made during typing
+                    diffPanel.diff();
+                    // Then update highlights based on the new diff
+                    reDisplayInternal();
+                });
             }
         });
         typingStateTimer.setRepeats(false);
@@ -249,23 +264,27 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     public void reDisplay() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::reDisplay);
+            return;
+        }
+
         // Skip reDisplay entirely during active typing to prevent flickering
-        if (isActivelyTyping) {
+        if (isActivelyTyping.get()) {
             logger.trace("Skipping reDisplay during active typing");
-            hasDeferredUpdates = true; // Mark that we have updates to apply later
+            hasDeferredUpdates.set(true); // Mark that we have updates to apply later
             return;
         }
 
         // Use debounced reDisplay to reduce flickering during rapid updates
         if (redisplayTimer != null) {
             redisplayTimer.restart();
-        } else {
-            // Fallback for cases where timer isn't initialized yet
-            reDisplayInternal();
         }
     }
 
     private void reDisplayInternal() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
         removeHighlights();
         paintSearchHighlights();
         paintRevisionHighlights();
@@ -278,11 +297,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Repaint highlights: we get the patch from BufferDiffPanel, then highlight
      * each delta's relevant lines in *this* panel (ORIGINAL or REVISED).
      */
-    // Cache viewport bounds to avoid repeated calculations
-    private volatile int lastVisibleStartLine = -1;
-    private volatile int lastVisibleEndLine = -1;
-    private volatile long lastViewportUpdate = 0;
-
     /**
      * PERFORMANCE OPTIMIZATION: Only highlights deltas visible in the current viewport
      * for massive performance improvement with large files.
@@ -297,7 +311,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (patch == null) return;
 
         // Skip viewport optimization when navigating to ensure highlights appear
-        if (isNavigatingToDiff) {
+        if (isNavigatingToDiff.get()) {
             logger.debug("Navigation mode: highlighting all deltas to ensure target is visible");
             paintAllDeltas(patch);
             return;
@@ -358,19 +372,32 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
         long now = System.currentTimeMillis();
 
-        // Use cached values if recent enough
-        if (now - lastViewportUpdate < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS &&
-            lastVisibleStartLine >= 0 && lastVisibleEndLine >= 0) {
-            return new VisibleRange(lastVisibleStartLine, lastVisibleEndLine);
+        // Try to read from cache first
+        viewportCacheLock.readLock().lock();
+        try {
+            ViewportCache cached = viewportCache.get();
+            if (cached != null && cached.isValid(now)) {
+                return new VisibleRange(cached.startLine, cached.endLine);
+            }
+        } finally {
+            viewportCacheLock.readLock().unlock();
         }
 
+        // Need to calculate new viewport bounds
+        viewportCacheLock.writeLock().lock();
         try {
+            // Double-check after acquiring write lock
+            ViewportCache cached = viewportCache.get();
+            if (cached != null && cached.isValid(now)) {
+                return new VisibleRange(cached.startLine, cached.endLine);
+            }
+
             var viewport = scrollPane.getViewport();
             var viewRect = viewport.getViewRect();
 
             // Calculate visible line range with buffer for smooth scrolling
             // Use larger buffer when navigating to ensure target highlights are visible
-            int bufferLines = isNavigatingToDiff ?
+            int bufferLines = isNavigatingToDiff.get() ?
                 PerformanceConstants.VIEWPORT_BUFFER_LINES * 3 :
                 PerformanceConstants.VIEWPORT_BUFFER_LINES;
             int lineHeight = editor.getLineHeight();
@@ -387,15 +414,15 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             int endLine = Math.min(bufferDocument.getNumberOfLines() - 1, bufferDocument.getLineForOffset(endOffset));
 
             // Cache the result
-            lastVisibleStartLine = startLine;
-            lastVisibleEndLine = endLine;
-            lastViewportUpdate = now;
+            viewportCache.set(new ViewportCache(startLine, endLine, now));
 
             return new VisibleRange(startLine, endLine);
 
         } catch (Exception e) {
             logger.debug("Error calculating visible range, falling back to full highlighting: {}", e.getMessage());
             return null;
+        } finally {
+            viewportCacheLock.writeLock().unlock();
         }
     }
 
@@ -417,21 +444,26 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Clear viewport cache when scrolling to ensure fresh calculations.
      */
     public void invalidateViewportCache() {
-        lastViewportUpdate = 0;
+        viewportCacheLock.writeLock().lock();
+        try {
+            viewportCache.set(null);
+        } finally {
+            viewportCacheLock.writeLock().unlock();
+        }
     }
 
     /**
      * Check if user is actively typing to prevent scroll sync interference.
      */
     public boolean isActivelyTyping() {
-        return isActivelyTyping;
+        return isActivelyTyping.get();
     }
 
     /**
      * Mark that we're navigating to a diff to ensure highlights appear.
      */
     public void setNavigatingToDiff(boolean navigating) {
-        this.isNavigatingToDiff = navigating;
+        isNavigatingToDiff.set(navigating);
         if (navigating) {
             // Invalidate viewport cache to force recalculation with new position
             invalidateViewportCache();
@@ -448,13 +480,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             logger.info("Applying performance optimizations for large file: {}KB", contentLength / 1024);
 
             // Use longer debounce times for large files to reduce update frequency
-            timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
-            redisplayTimer.setDelay(PerformanceConstants.LARGE_FILE_REDISPLAY_TIMER_DELAY_MS);
+            if (timer != null) {
+                timer.setDelay(PerformanceConstants.LARGE_FILE_UPDATE_TIMER_DELAY_MS);
+            }
+            if (redisplayTimer != null) {
+                redisplayTimer.setDelay(PerformanceConstants.LARGE_FILE_REDISPLAY_TIMER_DELAY_MS);
+            }
             logger.debug("Increased timer delays for large file");
         } else {
             // Use normal timing for smaller files
-            timer.setDelay(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
-            redisplayTimer.setDelay(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS);
+            if (timer != null) {
+                timer.setDelay(PerformanceConstants.DEFAULT_UPDATE_TIMER_DELAY_MS);
+            }
+            if (redisplayTimer != null) {
+                redisplayTimer.setDelay(PerformanceConstants.DEFAULT_REDISPLAY_TIMER_DELAY_MS);
+            }
         }
     }
 
@@ -612,7 +652,23 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         if (!initialSetupComplete) return;
 
         // Skip updates while actively typing to prevent flickering
-        if (isActivelyTyping) {
+        if (isActivelyTyping.get()) {
+            return;
+        }
+
+        // Use coordination lock to prevent concurrent updates
+        synchronized (timerLock) {
+            if (updateInProgress.get()) {
+                logger.trace("Update already in progress, skipping");
+                return;
+            }
+            updateInProgress.set(true);
+        }
+
+        // Ensure we're on EDT for UI operations
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> handleUnifiedUpdate(e));
+            updateInProgress.set(false);
             return;
         }
 
@@ -640,6 +696,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             } catch (Exception diffEx) {
                 logger.error("Fallback diff update failed: {}", diffEx.getMessage(), diffEx);
             }
+        } finally {
+            updateInProgress.set(false);
         }
     }
 
@@ -653,24 +711,30 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                             (de.getStartLine() != -1 && de.getNumberOfLines() > 0);
 
         if (isUserEdit) {
-            isActivelyTyping = true;
-            typingStateTimer.restart();
+            isActivelyTyping.set(true);
+            if (typingStateTimer != null) {
+                typingStateTimer.restart();
+            }
         }
 
         // Suppress ALL updates during active typing to prevent flickering
-        if (isActivelyTyping) {
+        if (isActivelyTyping.get()) {
             logger.trace("Suppressing document change updates during active typing");
-            hasDeferredUpdates = true; // Mark that we have updates to apply later
+            hasDeferredUpdates.set(true); // Mark that we have updates to apply later
             return;
         }
 
         if (de.getStartLine() == -1 && de.getDocumentEvent() == null) {
             // Refresh the diff of whole document.
-            timer.restart();
+            if (timer != null) {
+                timer.restart();
+            }
         } else {
             // Try to update the revision instead of doing a full diff.
             if (!diffPanel.revisionChanged(de)) {
-                timer.restart();
+                if (timer != null) {
+                    timer.restart();
+                }
             }
         }
     }
@@ -763,7 +827,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      */
     private void scrollToFirstDiff() {
         // Don't auto-scroll if user is actively typing
-        if (isActivelyTyping) {
+        if (isActivelyTyping.get()) {
             return;
         }
 
@@ -830,23 +894,31 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                                                      boolean runDestinationUpdateOnEdt) {
         return new DocumentListener() {
             private void performIncrementalSync(DocumentEvent e) {
-                if (!guard.compareAndSet(false, true)) { // Attempt to acquire lock
-                    return; // Lock not acquired, another sync operation is in progress
-                }
-                try {
-                    syncDocumentChange(e, sourceDoc, destinationDoc);
-                } finally {
-                    guard.set(false); // Release lock
+                Runnable syncTask = () -> {
+                    if (!guard.compareAndSet(false, true)) { // Attempt to acquire lock
+                        return; // Lock not acquired, another sync operation is in progress
+                    }
+                    try {
+                        syncDocumentChange(e, sourceDoc, destinationDoc);
+                    } finally {
+                        guard.set(false); // Release lock
+                    }
+                };
+
+                // Always ensure document mutations happen on EDT
+                if (SwingUtilities.isEventDispatchThread()) {
+                    syncTask.run();
+                } else {
+                    SwingUtilities.invokeLater(syncTask);
                 }
             }
 
             private void syncChange(DocumentEvent e) {
-                if (runDestinationUpdateOnEdt) {
+                if (runDestinationUpdateOnEdt && !SwingUtilities.isEventDispatchThread()) {
                     // Updates to the destination document (e.g., editor's document) must occur on the EDT.
                     SwingUtilities.invokeLater(() -> performIncrementalSync(e));
                 } else {
-                    // Source document changes (e.g., editor) are already on EDT,
-                    // or destination document (e.g., plain model) can be updated directly.
+                    // Already on EDT or EDT not required
                     performIncrementalSync(e);
                 }
             }
@@ -861,15 +933,26 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Removes previously-installed mirroring listeners, if any.
      */
     private void removeMirroring() {
-        if (plainDocument != null && plainToEditorListener != null) {
-            plainDocument.removeDocumentListener(plainToEditorListener);
-        }
-        if (editorToPlainListener != null) {
-            editor.getDocument().removeDocumentListener(editorToPlainListener);
-        }
+        // Capture references atomically to prevent race conditions
+        Document plain = plainDocument;
+        DocumentListener plainListener = plainToEditorListener;
+        DocumentListener editorListener = editorToPlainListener;
+
+        // Clear references first to prevent new operations
         plainDocument = null;
         plainToEditorListener = null;
         editorToPlainListener = null;
+
+        // Remove listeners after clearing references
+        if (plain != null && plainListener != null) {
+            plain.removeDocumentListener(plainListener);
+        }
+        if (editorListener != null) {
+            Document editorDoc = editor.getDocument();
+            if (editorDoc != null) {
+                editorDoc.removeDocumentListener(editorListener);
+            }
+        }
     }
 
     /**
@@ -877,12 +960,18 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * Should be called when the FilePanel is being disposed to prevent memory leaks.
      */
     public void dispose() {
-        // Stop any running timers
-        if (timer != null && timer.isRunning()) {
+        // Stop and null timers to prevent leaks
+        if (timer != null) {
             timer.stop();
+            timer = null;
         }
-        if (redisplayTimer != null && redisplayTimer.isRunning()) {
+        if (redisplayTimer != null) {
             redisplayTimer.stop();
+            redisplayTimer = null;
+        }
+        if (typingStateTimer != null) {
+            typingStateTimer.stop();
+            typingStateTimer = null;
         }
 
         // Remove document listeners
@@ -891,6 +980,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         // Clear buffer document listener
         if (bufferDocument != null) {
             bufferDocument.removeChangeListener(this);
+            bufferDocument = null;
+        }
+
+        // Clear cached search hits
+        searchHits = null;
+
+        // Clear viewport cache
+        viewportCache.set(null);
+
+        // Remove focus listeners
+        for (FocusListener fl : editor.getFocusListeners()) {
+            if (fl == getFocusListener()) {
+                editor.removeFocusListener(fl);
+            }
         }
     }
 
@@ -965,6 +1068,25 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
 
+    /**
+     * Thread-safe viewport cache to store visible line range information.
+     */
+    private static class ViewportCache {
+        final int startLine;
+        final int endLine;
+        final long timestamp;
+
+        ViewportCache(int startLine, int endLine, long timestamp) {
+            this.startLine = startLine;
+            this.endLine = endLine;
+            this.timestamp = timestamp;
+        }
+
+        boolean isValid(long currentTime) {
+            return currentTime - timestamp < PerformanceConstants.VIEWPORT_CACHE_VALIDITY_MS;
+        }
+    }
+
     public static class LeftScrollPaneLayout
             extends ScrollPaneLayout {
         @Override
@@ -991,6 +1113,17 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     }
 
     public SearchHits doSearch() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            logger.warn("doSearch called off EDT, redirecting to EDT");
+            try {
+                var result = SwingUtil.runOnEdt(() -> doSearch(), new SearchHits());
+                return result != null ? result : new SearchHits();
+            } catch (Exception e) {
+                logger.error("Failed to run doSearch on EDT", e);
+                return new SearchHits();
+            }
+        }
+
         int numberOfLines;
         BufferDocumentIF doc;
         String text;
@@ -1084,7 +1217,10 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         SearchHit currentHit = searchHitsToScroll.getCurrent();
         if (currentHit != null) {
             int line = currentHit.getLine();
-            diffPanel.getScrollSynchronizer().scrollToLine(fp, line);
+            var scrollSync = diffPanel.getScrollSynchronizer();
+            if (scrollSync != null) {
+                scrollSync.scrollToLine(fp, line);
+            }
             diffPanel.setSelectedLine(line);
         }
     }

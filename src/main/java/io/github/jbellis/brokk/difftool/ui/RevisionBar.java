@@ -182,7 +182,11 @@ public class RevisionBar extends JComponent
                     if (anchor > lineBefore && anchor < lineAfter) {
                         // "Jump" to that delta: set it selected, then show on left side
                         diffPanel.setSelectedDelta(delta);
-                        diffPanel.getScrollSynchronizer().showDelta(delta);
+
+                        var scrollSync = diffPanel.getScrollSynchronizer();
+                        if (scrollSync != null) {
+                            scrollSync.showDelta(delta);
+                        }
                         return;
                     }
                 }
@@ -198,7 +202,10 @@ public class RevisionBar extends JComponent
                 }
 
                 if (targetPanel != null) {
-                    diffPanel.getScrollSynchronizer().scrollToLine(targetPanel, line);
+                    var scrollSync = diffPanel.getScrollSynchronizer();
+                    if (scrollSync != null) {
+                        scrollSync.scrollToLine(targetPanel, line);
+                    }
                 } else {
                     logger.warn("Target panel for scroll is null. Original: {}", original);
                 }

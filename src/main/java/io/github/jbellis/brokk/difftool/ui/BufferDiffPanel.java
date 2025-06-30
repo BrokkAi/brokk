@@ -84,6 +84,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
+    @Nullable
     private ScrollSynchronizer scrollSynchronizer;
 
     public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme)
@@ -314,7 +315,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         var barContainer = new JPanel(layout);
 
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
-            var leftFilePanel = getFilePanel(PanelSide.LEFT);
+        var leftFilePanel = getFilePanel(PanelSide.LEFT);
         var rightFilePanel = getFilePanel(PanelSide.RIGHT);
         if(leftFilePanel != null && rightFilePanel != null) {
             leftSearchBar = new GenericSearchBar(leftFilePanel.createSearchableComponent());
@@ -368,9 +369,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return panel;
     }
 
+    @Nullable
     public ScrollSynchronizer getScrollSynchronizer()
-    {
-        return scrollSynchronizer;
+    {   return scrollSynchronizer;
     }
 
     public BrokkDiffPanel getMainPanel()
@@ -533,7 +534,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private void showSelectedDelta()
     {
         if (selectedDelta == null) return;
-        scrollSynchronizer.showDelta(selectedDelta);
+        if (scrollSynchronizer != null) {
+            scrollSynchronizer.showDelta(selectedDelta);
+        }
     }
 
     /**
@@ -697,6 +700,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     {
         super.doUndo();
         mainPanel.updateUndoRedoButtons();
+        // Recalculate diff and redraw highlights after undo
+        diff(true); // Scroll to selection since this is user-initiated
     }
 
     @Override
@@ -704,9 +709,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     {
         super.doRedo();
         mainPanel.updateUndoRedoButtons();
+        // Recalculate diff and redraw highlights after redo
+        diff(true); // Scroll to selection since this is user-initiated
     }
 
-    /**
+    @Override
+    public void checkActions() {
+        // Update undo/redo button states when edits happen
+        SwingUtilities.invokeLater(() -> mainPanel.updateUndoRedoButtons());
+    }
+   /**
      * ThemeAware implementation - update highlight colours and syntax themes
      * when the global GUI theme changes.
      */
@@ -855,6 +867,12 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             }
         }
         filePanels.clear();
+
+        // Dispose of scroll synchronizer
+        if (scrollSynchronizer != null) {
+            scrollSynchronizer.dispose();
+            scrollSynchronizer = null;
+        }
 
         // Clear references
         diffNode = null;
