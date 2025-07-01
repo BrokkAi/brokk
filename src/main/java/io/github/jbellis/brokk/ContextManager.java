@@ -602,6 +602,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.systemOutput(description + " canceled.");
                 throw cex;
             } catch (Exception e) {
+                logger.error(e);
                 io.toolError("Error while " + description + ": " + e.getMessage());
                 throw e;
             } finally {
