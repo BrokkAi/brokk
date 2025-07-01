@@ -945,35 +945,41 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
             var eventType = e.getType();
             if (eventType == DocumentEvent.EventType.INSERT) {
-                // Get the inserted text from the source document
+                // Get the inserted text from the source document at the event position
                 String insertedText = sourceDoc.getText(offset, length);
                 // Validate offset is within bounds for destination document
                 if (offset <= destinationDoc.getLength()) {
-                    // Check if text is already there to avoid duplicates
+                    // For safety, always use fallback when documents might be out of sync
+                    // This prevents the line joining bug by ensuring complete document consistency
                     if (offset + length <= destinationDoc.getLength()) {
                         String existingText = destinationDoc.getText(offset, length);
                         if (existingText.equals(insertedText)) {
                             return; // Text already exists, skip insertion
                         }
                     }
+
+                    // Check if documents are significantly different - if so, use full sync
+                    if (Math.abs(sourceDoc.getLength() - destinationDoc.getLength()) > length) {
+                        copyTextFallback(sourceDoc, destinationDoc);
+                        return;
+                    }
+
                     destinationDoc.insertString(offset, insertedText, null);
                 } else {
-                    // Offset is beyond destination document, append at end
-                    destinationDoc.insertString(destinationDoc.getLength(), insertedText, null);
+                    // Offset is beyond destination document - documents are out of sync, use fallback
+                    copyTextFallback(sourceDoc, destinationDoc);
                 }
             } else if (eventType == DocumentEvent.EventType.REMOVE) {
                 // Remove the same range from the destination document
                 if (offset < destinationDoc.getLength() && offset + length <= destinationDoc.getLength()) {
                     destinationDoc.remove(offset, length);
+                } else {
+                    // Range is invalid, use fallback to resync
+                    copyTextFallback(sourceDoc, destinationDoc);
                 }
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
-                // For change events, replace the content at the same position
-                String changedText = sourceDoc.getText(offset, length);
-                if (offset < destinationDoc.getLength()) {
-                    int removeLength = Math.min(length, destinationDoc.getLength() - offset);
-                    destinationDoc.remove(offset, removeLength);
-                    destinationDoc.insertString(offset, changedText, null);
-                }
+                // For change events, always use fallback to ensure consistency
+                copyTextFallback(sourceDoc, destinationDoc);
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error
