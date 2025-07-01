@@ -578,6 +578,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     io.systemOutput(description + " canceled");
                 }
             } catch (Exception e) {
+                logger.error(e);
                 io.toolError("Error while executing " + description + ": " + e.getMessage());
             } finally {
                 io.actionComplete();
