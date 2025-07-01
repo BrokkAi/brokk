@@ -5,7 +5,7 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
       is_private: true
-      max_concurrent_requests: 300
+      tokens_per_minute: 8000000
 
   - model_name: o4-mini
     litellm_params:
@@ -13,7 +13,7 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
       is_private: true
-      max_concurrent_requests: 1000
+      tokens_per_minute: 40000000
 
   - model_name: gpt-4.1
     litellm_params:
@@ -21,7 +21,7 @@ model_list:
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
       is_private: true
-      max_concurrent_requests: 300
+      tokens_per_minute: 8000000
 
   - model_name: gemini-2.5-pro
     litellm_params:
@@ -29,7 +29,7 @@ model_list:
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       is_private: true
-      max_concurrent_requests: 20
+      tokens_per_minute: 2000000
 
   - model_name: gemini-2.5-flash
     litellm_params:
@@ -38,7 +38,7 @@ model_list:
     model_info:
       supports_reasoning_disable: true
       is_private: true
-      max_concurrent_requests: 100
+      tokens_per_minute: 2000000
 
   - model_name: gemini-2.5-flash-lite
     litellm_params:
@@ -48,7 +48,7 @@ model_list:
       supports_reasoning_disable: true
       free_tier_eligible: true
       is_private: true
-      max_concurrent_requests: 300
+      tokens_per_minute: 8000000
 
   - model_name: gemini-2.0-flash
     litellm_params:
@@ -57,7 +57,7 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: true
-      max_concurrent_requests: 100
+      tokens_per_minute: 8000000
 
   - model_name: gemini-2.0-flash-lite
     litellm_params:
@@ -66,7 +66,7 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: true
-      max_concurrent_requests: 300
+      tokens_per_minute: 8000000
 
   - model_name: claude-4-opus
     litellm_params:

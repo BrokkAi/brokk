@@ -14,10 +14,13 @@ rom litellm so you can run with fewer providers than this, or other providers, o
 You do need to have a model named gemini-2.0-flash and gemini-2.0-flash-lite since Brokk hardcodes these names
 for system tasks, but they can be backed by whatever you want.
 
+One of {concurrent_requests, tokens_per_minute} must be set to use Upgrade Agent with the model.
+
 Additionally, Brokk supplements litellm's model_info with the following keys
       # defaulting to false
       free_tier_eligible
       is_private
       supports_reasoning_disable
-      # defaulting to 1
+      # defaulting to null
       concurrent_requests
+      tokens_per_minute

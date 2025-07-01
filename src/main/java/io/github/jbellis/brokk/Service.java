@@ -586,15 +586,28 @@ public class Service {
      * Retrieves the maximum concurrent requests for the given model name.
      * Returns a default value of 1 if the information is not available.
      */
-    public int getMaxConcurrentRequests(StreamingChatLanguageModel model) {
+    public @Nullable Integer getMaxConcurrentRequests(StreamingChatLanguageModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
         if (info == null || !info.containsKey("max_concurrent_requests")) {
             logger.warn("max_concurrent_requests not found for model location: {}", location);
-            return 1;
+            return null;
         }
-        var value = info.get("max_concurrent_requests");
-        return (Integer) value;
+        return (Integer) info.get("max_concurrent_requests");
+    }
+
+    /**
+     * Retrieves the tokens per second for the given model.
+     * Returns null if the information is not available.
+     */
+    public @Nullable Integer getTokensPerMinute(StreamingChatLanguageModel model) {
+        var location = model.defaultRequestParameters().modelName();
+        var info = modelInfoMap.get(location);
+        if (info == null || !info.containsKey("tokens_per_minute")) {
+            logger.warn("tokens_per_second not found for model location: {}", location);
+            return null;
+        }
+        return (Integer) info.get("tokens_per_minute");
     }
 
     /**
