@@ -73,6 +73,29 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private AbstractDelta<String> selectedDelta;
 
     private int selectedLine;
+
+    /**
+     * Dirty flag that tracks whether there are any unsaved changes.
+     */
+    private boolean dirtySinceOpen = false;
+
+    /**
+    * Recalculate dirty status by checking if any FilePanel has unsaved changes.
+    * When the state changes, update tab title and toolbar buttons.
+    */
+    private void recalcDirty() {
+            // Check if either side has unsaved changes (document changed since last save)
+            boolean newDirty = filePanels.values().stream().anyMatch(fp -> fp.isDocumentChanged());
+
+        if (dirtySinceOpen != newDirty) {
+            dirtySinceOpen = newDirty;
+            SwingUtilities.invokeLater(() -> {
+                mainPanel.refreshTabTitle(BufferDiffPanel.this);
+                mainPanel.updateUndoRedoButtons();
+            });
+        }
+    }
+
     @Nullable
     private GenericSearchBar leftSearchBar;
     @Nullable
@@ -147,6 +170,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         }
 
         // Don't apply theme here - let it happen after the panel is added to the UI
+
+        // Initialize dirty flag - should be false since no edits have been made yet
+        recalcDirty();
     }
 
     /**
@@ -239,7 +265,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     public String getTitle()
     {
         if (diffNode != null && !diffNode.getName().isBlank()) {
-            return diffNode.getName();
+            var name = diffNode.getName();
+            return isDirty() ? name + " *" : name;
         }
 
         // Fallback if diffNode or its name is not available
@@ -253,14 +280,24 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (titles.isEmpty()) {
             return "Diff"; // Generic fallback
         }
+        String base;
         if (titles.size() == 1) {
-            return titles.getFirst();
+            base = titles.getFirst();
+        } else if (titles.get(0).equals(titles.get(1))) {
+            base = titles.getFirst();
+        } else {
+            base = String.join(" vs ", titles);
         }
-        if (titles.get(0).equals(titles.get(1))) {
-            return titles.getFirst();
-        }
-        return String.join(" vs ", titles);
+        return isDirty() ? base + " *" : base;
     }
+
+    /**
+     * Returns true if there are any unsaved changes on either side.
+     */
+    public boolean isDirty() {
+        return dirtySinceOpen;
+    }
+
 
     /**
      * Do not try incremental updates. We just re-diff the whole thing.
@@ -601,7 +638,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
             // Re-display so the chunk disappears immediately
             reDisplay();
-            doSave();
+            mainPanel.refreshTabTitle(this);
         } catch (BadLocationException ex) {
             throw new RuntimeException("Error applying change operation", ex);
         }
@@ -645,7 +682,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
         // Refresh so the UI doesn't show that chunk anymore
         reDisplay();
-        doSave();
+        mainPanel.refreshTabTitle(this);
     }
 
     /**
@@ -668,11 +705,14 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
                 logger.debug("Successfully saved file: {}", doc.getName());
             } catch (Exception ex) {
                 logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
-                JOptionPane.showMessageDialog(mainPanel,
+                mainPanel.getConsoleIO().systemNotify(
                                               "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
-                                              "Problem writing file", JOptionPane.ERROR_MESSAGE);
+                                              "Problem writing file",
+                                              JOptionPane.ERROR_MESSAGE);
             }
         }
+        // After saving, recalculate dirty status (should be false since undo history is cleared)
+        recalcDirty();
     }
 
     /**
@@ -702,6 +742,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         mainPanel.updateUndoRedoButtons();
         // Recalculate diff and redraw highlights after undo
         diff(true); // Scroll to selection since this is user-initiated
+        recalcDirty();
     }
 
     @Override
@@ -711,12 +752,19 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         mainPanel.updateUndoRedoButtons();
         // Recalculate diff and redraw highlights after redo
         diff(true); // Scroll to selection since this is user-initiated
+        recalcDirty();
     }
 
     @Override
     public void checkActions() {
         // Update undo/redo button states when edits happen
-        SwingUtilities.invokeLater(() -> mainPanel.updateUndoRedoButtons());
+        SwingUtilities.invokeLater(() -> {
+            // Re-evaluate dirty state after the document change
+            recalcDirty();
+
+            mainPanel.updateUndoRedoButtons();
+            mainPanel.refreshTabTitle(BufferDiffPanel.this);
+        });
     }
    /**
      * ThemeAware implementation - update highlight colours and syntax themes
@@ -859,6 +907,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * Cleanup method to properly dispose of resources when the panel is no longer needed.
      * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
      */
+
     public void dispose() {
         // Dispose of file panels to clean up their timers and listeners
         for (var fp : filePanels.values()) {
