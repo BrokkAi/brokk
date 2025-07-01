@@ -24,6 +24,13 @@ import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.time.ZonedDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.time.Duration;
 
 /**
  * Panel that contains the "Log" tab UI and related functionality:
@@ -41,6 +48,11 @@ public class GitLogTab extends JPanel {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
+
+    /**
+     * Schedules a refresh shortly after midnight so relative dates stay correct.
+     */
+    private final ScheduledExecutorService midnightRefreshScheduler;
 
     // Branches
     private JTable branchTable;
@@ -69,6 +81,13 @@ public class GitLogTab extends JPanel {
 
         this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);
         buildLogTabUI();
+
+        this.midnightRefreshScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "GitLogTab-MidnightRefresh");
+            t.setDaemon(true);
+            return t;
+        });
+        scheduleMidnightRefresh();
     }
 
     /**
@@ -390,6 +409,21 @@ public class GitLogTab extends JPanel {
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
         remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
         remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
+    }
+
+    /**
+     * Schedule a daily refresh right after local midnight so that formatted
+     * dates like "Today" and "Yesterday" stay current.
+     */
+    private void scheduleMidnightRefresh() {
+        var now = ZonedDateTime.now(ZoneId.systemDefault());
+        var nextMidnight = now.plusDays(1).truncatedTo(ChronoUnit.DAYS);
+        long initialDelayMs = Duration.between(now, nextMidnight).toMillis() + 1;
+
+        midnightRefreshScheduler.scheduleAtFixedRate(this::reloadCurrentBranchOrContext,
+                                                     initialDelayMs,
+                                                     TimeUnit.DAYS.toMillis(1),
+                                                     TimeUnit.MILLISECONDS);
     }
 
     // Methods getFilePathFromTreePath, isFileNode, hasFileNodesSelected, getSelectedFilePaths
