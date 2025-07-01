@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui;
 
-import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
@@ -845,45 +844,6 @@ public class GitLogTab extends JPanel {
     private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
     }
-
-    // expandAllNodes was for the local changesTree, now handled by GitCommitBrowserPanel.
-
-    /**
-     * Format commit date to show e.g. "HH:MM:SS today" if it is today's date.
-     */
-    static String formatCommitDate(java.time.Instant commitInstant, java.time.LocalDate today) {
-        try {
-            java.time.ZonedDateTime commitZonedDateTime = commitInstant.atZone(java.time.ZoneId.systemDefault());
-            java.time.LocalDate commitDate = commitZonedDateTime.toLocalDate();
-
-            java.time.format.DateTimeFormatter timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
-            String timeStr = commitZonedDateTime.format(timeFormatter);
-
-            if (commitDate.equals(today)) {
-                // If it's today's date, just show the time with "today"
-                return "Today " + timeStr;
-            } else if (commitDate.equals(today.minusDays(1))) {
-                // If it's yesterday
-                return "Yesterday " + timeStr;
-            } else if (commitDate.isAfter(today.minusDays(7))) {
-                // If within the last week, show day of week
-                String dayName = commitDate.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault());
-                // Ensure proper capitalization (e.g., "Monday" not "MONDAY")
-                dayName = Ascii.toUpperCase(dayName.substring(0, 1)) + Ascii.toLowerCase(dayName.substring(1));
-                return dayName + " " + timeStr;
-            }
-
-            // Otherwise, show the standard date format
-            java.time.format.DateTimeFormatter dateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-            return commitZonedDateTime.format(dateTimeFormatter);
-        } catch (Exception e) {
-            logger.debug("Could not format date: {}", commitInstant, e);
-            return commitInstant.toString();
-        }
-    }
-
-    // Methods hasFileNodesSelected, getSelectedFilePaths, popStash, applyStash, dropStash
-    // were related to UI elements or actions now managed by GitCommitBrowserPanel.
 
     /**
      * Enables/Disables items in the local-branch context menu based on selection.

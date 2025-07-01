@@ -1012,7 +1012,7 @@ public class GitCommitBrowserPanel extends JPanel {
         var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
         for (ICommitInfo commit : commits) {
             var commitDate = commit.date();
-            String formattedDate = (commitDate == null) ? "N/A" : GitLogTab.formatCommitDate(commitDate, today);
+            String formattedDate = (commitDate == null) ? "N/A" : GitUiUtil.formatCommitDate(commitDate, today);
             commitRows.add(new Object[]{
                     commit.message(), commit.author(), formattedDate,
                     commit.id(), unpushedCommitIds.contains(commit.id()), commit

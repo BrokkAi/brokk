@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
+import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -15,6 +16,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -325,6 +327,40 @@ public final class GitUiUtil {
             }
             return null;
         });
+    }
+
+    /**
+     * Format commit date to show e.g. "HH:MM:SS today" if it is today's date.
+     */
+    static String formatCommitDate(java.time.Instant commitInstant, java.time.LocalDate today) {
+        try {
+            java.time.ZonedDateTime commitZonedDateTime = commitInstant.atZone(java.time.ZoneId.systemDefault());
+            java.time.LocalDate commitDate = commitZonedDateTime.toLocalDate();
+
+            java.time.format.DateTimeFormatter timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
+            String timeStr = commitZonedDateTime.format(timeFormatter);
+
+            if (commitDate.equals(today)) {
+                // If it's today's date, just show the time with "today"
+                return "Today " + timeStr;
+            } else if (commitDate.equals(today.minusDays(1))) {
+                // If it's yesterday
+                return "Yesterday " + timeStr;
+            } else if (commitDate.isAfter(today.minusDays(7))) {
+                // If within the last week, show day of week
+                String dayName = commitDate.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault());
+                // Ensure proper capitalization (e.g., "Monday" not "MONDAY")
+                dayName = Ascii.toUpperCase(dayName.substring(0, 1)) + Ascii.toLowerCase(dayName.substring(1));
+                return dayName + " " + timeStr;
+            }
+
+            // Otherwise, show the standard date format
+            java.time.format.DateTimeFormatter dateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            return commitZonedDateTime.format(dateTimeFormatter);
+        } catch (Exception e) {
+            logger.debug("Could not format date: {}", commitInstant, e);
+            return commitInstant.toString();
+        }
     }
 
     /**
