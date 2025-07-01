@@ -20,8 +20,11 @@ import com.github.difflib.algorithm.DiffAlgorithmListener;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
@@ -47,8 +50,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private int currentFileIndex = 0;
     private final boolean isMultipleCommitsContext;
 
-    // LRU cache for loaded diff panels - keeps max 3 panels in memory
-    private static final int MAX_CACHED_PANELS = 5;
+    // LRU cache for loaded diff panels
+    private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
     private final Map<Integer, BufferDiffPanel> panelCache = new LinkedHashMap<>(MAX_CACHED_PANELS + 1, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<Integer, BufferDiffPanel> eldest) {
@@ -250,9 +253,28 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         if (index < 0 || index >= fileComparisons.size()) {
             return;
         }
+
+        // Save current file before switching
+        saveCurrentFile();
+
         logger.debug("Switching to file {} of {}", index + 1, fileComparisons.size());
         currentFileIndex = index;
         loadFileOnDemand(currentFileIndex);
+    }
+
+    /**
+     * Saves the currently displayed file if it has changes.
+     */
+    private void saveCurrentFile() {
+        var currentPanel = getBufferDiffPanel();
+        if (currentPanel != null) {
+            try {
+                currentPanel.doSave();
+            } catch (Exception ex) {
+                logger.error("Error during save operation: {}", ex.getMessage(), ex);
+                // Don't show error dialog here since doSave() already handles it
+            }
+        }
     }
 
     private void updateNavigationButtons() {
@@ -268,7 +290,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         // Create toolbar
         var toolBar = new JToolBar();
 
-// Buttons are already initialized as fields
+        // Buttons are already initialized as fields
         fileIndicatorLabel.setFont(fileIndicatorLabel.getFont().deriveFont(Font.BOLD));
 
         btnNext.addActionListener(e -> navigateToNextChange());
@@ -476,7 +498,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-
     @Nullable
     public AbstractContentPanel getCurrentContentPanel() {
         var selectedComponent = getTabbedPane().getSelectedComponent();
@@ -485,8 +506,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         }
         return null;
     }
-
-
 
     /**
      * Shows the diff panel in a frame.
@@ -508,6 +527,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
+                // Save any unsaved changes before closing
+                saveCurrentFile();
                 contextManager.getProject().saveDiffWindowBounds(frame);
             }
         });
@@ -635,11 +656,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        panelCache.values().forEach(BufferDiffPanel::diff);
+        panelCache.values().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null && !panelCache.containsValue(current)) {
-            current.diff();
+            current.diff(true); // Scroll to selection for user-initiated refresh
         }
         // Update navigation buttons after refresh
         SwingUtilities.invokeLater(this::updateUndoRedoButtons);
@@ -674,6 +695,9 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
      */
     public void dispose() {
         logger.debug("Disposing BrokkDiffPanel and clearing panel cache");
+
+        // Save any unsaved changes before disposal
+        saveCurrentFile();
 
         // Clear all cached panels and dispose their resources
         for (var panel : panelCache.values()) {

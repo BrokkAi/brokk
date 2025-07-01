@@ -5,11 +5,16 @@ import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
 import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import javax.swing.text.BadLocationException;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Synchronizes the vertical/horizontal scrolling between the left and right FilePanel.
@@ -17,6 +22,8 @@ import java.awt.event.AdjustmentListener;
  */
 public class ScrollSynchronizer
 {
+    private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
+
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
@@ -24,11 +31,26 @@ public class ScrollSynchronizer
     private @Nullable AdjustmentListener horizontalAdjustmentListener;
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
+    // Debounce scroll synchronization to reduce flickering
+    private final Timer scrollSyncTimer;
+    private volatile boolean pendingLeftScrolled;
+    private final AtomicBoolean hasPendingScroll = new AtomicBoolean(false);
+    private final Object scrollLock = new Object();
+
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
+
+        // Initialize debounced scroll timer with reduced delay for better responsiveness
+        scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
+            if (hasPendingScroll.getAndSet(false)) {
+                SwingUtilities.invokeLater(() -> scroll(pendingLeftScrolled));
+            }
+        });
+        scrollSyncTimer.setRepeats(false);
+
         init();
     }
 
@@ -83,11 +105,20 @@ public class ScrollSynchronizer
                 {
                     if (insideScroll) return;
 
+                    // Suppress scroll sync if either panel is actively typing to prevent flickering
+                    if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+                        return;
+                    }
+
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
-                    insideScroll = true;
-                    scroll(leftScrolled);
-                    insideScroll = false;
+
+                    // Debounce scroll synchronization to reduce flickering
+                    synchronized (scrollLock) {
+                        pendingLeftScrolled = leftScrolled;
+                        hasPendingScroll.set(true);
+                    }
+                    scrollSyncTimer.restart();
                 }
             };
         }
@@ -100,6 +131,43 @@ public class ScrollSynchronizer
      */
     private void scroll(boolean leftScrolled)
     {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> scroll(leftScrolled));
+            return;
+        }
+
+        // Set insideScroll to prevent infinite recursion
+        var vertListener = verticalAdjustmentListener;
+        if (vertListener != null) {
+            // We'll temporarily remove and re-add the listener to prevent recursion
+            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
+
+            // Synchronize to prevent concurrent modification
+            synchronized (scrollLock) {
+                leftV.removeAdjustmentListener(vertListener);
+                rightV.removeAdjustmentListener(vertListener);
+
+                try {
+                    performScroll(leftScrolled);
+                } finally {
+                    leftV.addAdjustmentListener(vertListener);
+                    rightV.addAdjustmentListener(vertListener);
+                }
+            }
+        } else {
+            performScroll(leftScrolled);
+        }
+    }
+
+    private void performScroll(boolean leftScrolled)
+    {
+        // Additional check: don't scroll if either panel is typing
+        if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+            logger.trace("Suppressing scroll sync during active typing");
+            return;
+        }
+
         var patch = diffPanel.getPatch();
         if (patch == null) {
             return;
@@ -185,6 +253,10 @@ public class ScrollSynchronizer
         if (offset < 0) {
             return;
         }
+
+        // Mark that we're navigating to ensure highlights appear
+        fp.setNavigatingToDiff(true);
+
         var viewport = fp.getScrollPane().getViewport();
         var editor = fp.getEditor();
         try {
@@ -197,8 +269,25 @@ public class ScrollSynchronizer
 
             var p = rect.getLocation();
             viewport.setViewPosition(p);
+
+            // Only invalidate viewport cache if not actively typing to prevent flicker
+            if (!fp.isActivelyTyping()) {
+                fp.invalidateViewportCache();
+            }
+
+            // Trigger immediate redisplay to show highlights
+            fp.reDisplay();
+
+            // Reset navigation flag after a minimal delay to allow highlighting to complete
+            Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+                fp.setNavigatingToDiff(false);
+            });
+            resetNavTimer.setRepeats(false);
+            resetNavTimer.start();
+
         } catch (BadLocationException ex) {
             // This usually means the offset is invalid for the document model
+            fp.setNavigatingToDiff(false); // Reset flag on error
             throw new RuntimeException(ex);
         }
     }
@@ -209,14 +298,48 @@ public class ScrollSynchronizer
      */
     public void showDelta(AbstractDelta<String> delta)
     {
+        // Mark both panels as navigating to ensure highlights appear on both sides
+        filePanelLeft.setNavigatingToDiff(true);
+        filePanelRight.setNavigatingToDiff(true);
+
         // We assume we want to scroll the left side. The 'source' chunk is the original side.
         var source = delta.getSource();
         scrollToLine(filePanelLeft, source.getPosition());
         // That triggers the verticalAdjustmentListener to sync the right side.
+
+        // Trigger immediate redisplay on both panels to ensure highlights appear
+        filePanelLeft.reDisplay();
+        filePanelRight.reDisplay();
     }
 
     public void toNextDelta(boolean next)
     {
         // Moved to BufferDiffPanel. This is not used here any more.
+    }
+
+    /**
+     * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
+     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Stop and null the timer
+        scrollSyncTimer.stop();
+
+        // Remove adjustment listeners
+        if (horizontalAdjustmentListener != null) {
+            var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
+            var rightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
+            leftH.removeAdjustmentListener(horizontalAdjustmentListener);
+            rightH.removeAdjustmentListener(horizontalAdjustmentListener);
+            horizontalAdjustmentListener = null;
+        }
+
+        if (verticalAdjustmentListener != null) {
+            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
+            leftV.removeAdjustmentListener(verticalAdjustmentListener);
+            rightV.removeAdjustmentListener(verticalAdjustmentListener);
+            verticalAdjustmentListener = null;
+        }
     }
 }

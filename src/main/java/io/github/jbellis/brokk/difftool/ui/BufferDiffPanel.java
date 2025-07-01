@@ -14,6 +14,8 @@ import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,7 +35,9 @@ import static java.util.Objects.requireNonNull;
  */
 public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 {
-    /**
+    private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
+
+   /**
      * Enum representing the two sides of the diff panel.
      * Provides type safety and clarity compared to magic numbers.
      */
@@ -80,6 +84,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
 
     @Nullable
     private JMDiffNode diffNode; // Where we get the Patch<String>
+    @Nullable
     private ScrollSynchronizer scrollSynchronizer;
 
     public BufferDiffPanel(BrokkDiffPanel mainPanel, GuiTheme theme)
@@ -148,7 +153,15 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
      * Rerun the diff from scratch, if needed. For Phase 2 we re-run if a doc changed
      * (the old incremental logic is removed).
      */
-    public void diff()
+    public void diff() {
+        diff(false); // Don't scroll by default (used for document changes)
+    }
+
+    /**
+     * Rerun the diff and optionally scroll to the selected delta.
+     * @param scrollToSelection whether to scroll to the selected delta after recalculation
+     */
+    public void diff(boolean scrollToSelection)
     {
         // Typically, we'd just re-call diffNode.diff() then re-pull patch.
         if (diffNode != null) {
@@ -172,9 +185,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
                 selectedDelta = null;
             }
 
-            // Refresh display and scroll to selected delta
+            // Refresh display and optionally scroll to selected delta
             reDisplay();
-            if (selectedDelta != null) {
+            if (scrollToSelection && selectedDelta != null) {
                 showSelectedDelta();
             }
         }
@@ -210,6 +223,17 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
             fp.reDisplay();
         }
         mainPanel.repaint();
+    }
+
+    /**
+     * Refresh highlights for only the specified panel to reduce flickering.
+     */
+    public void reDisplayPanel(PanelSide side)
+    {
+        var fp = filePanels.get(side);
+        if (fp != null) {
+            fp.reDisplay();
+        }
     }
 
     public String getTitle()
@@ -274,6 +298,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         applyTheme(guiTheme);
         // Register keyboard shortcuts for search functionality
         registerSearchKeyBindings();
+
+        // Register save shortcut (Ctrl+S / Cmd+S)
+        registerSaveShortcut();
     }
 
     /**
@@ -290,7 +317,7 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         // Create GenericSearchBar instances using the FilePanel's SearchableComponent adapters
         var leftFilePanel = getFilePanel(PanelSide.LEFT);
         var rightFilePanel = getFilePanel(PanelSide.RIGHT);
-        if (leftFilePanel != null && rightFilePanel != null) {
+        if(leftFilePanel != null && rightFilePanel != null) {
             leftSearchBar = new GenericSearchBar(leftFilePanel.createSearchableComponent());
             rightSearchBar = new GenericSearchBar(rightFilePanel.createSearchableComponent());
         }
@@ -342,9 +369,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         return panel;
     }
 
+    @Nullable
     public ScrollSynchronizer getScrollSynchronizer()
-    {
-        return scrollSynchronizer;
+    {   return scrollSynchronizer;
     }
 
     public BrokkDiffPanel getMainPanel()
@@ -507,7 +534,9 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     private void showSelectedDelta()
     {
         if (selectedDelta == null) return;
-        scrollSynchronizer.showDelta(selectedDelta);
+        if (scrollSynchronizer != null) {
+            scrollSynchronizer.showDelta(selectedDelta);
+        }
     }
 
     /**
@@ -627,9 +656,18 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         for (var fp : filePanels.values()) {
             if (!fp.isDocumentChanged()) continue;
             var doc = requireNonNull(fp.getBufferDocument());
+
+            // Check if document is read-only before attempting to save
+            if (doc.isReadonly()) {
+                logger.debug("Skipping save for read-only document: {}", doc.getName());
+                continue;
+            }
+
             try {
                 doc.write();
+                logger.debug("Successfully saved file: {}", doc.getName());
             } catch (Exception ex) {
+                logger.error("Failed to save file: {} - {}", doc.getName(), ex.getMessage(), ex);
                 JOptionPane.showMessageDialog(mainPanel,
                                               "Can't save file: " + doc.getName() + "\n" + ex.getMessage(),
                                               "Problem writing file", JOptionPane.ERROR_MESSAGE);
@@ -662,6 +700,8 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     {
         super.doUndo();
         mainPanel.updateUndoRedoButtons();
+        // Recalculate diff and redraw highlights after undo
+        diff(true); // Scroll to selection since this is user-initiated
     }
 
     @Override
@@ -669,9 +709,16 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     {
         super.doRedo();
         mainPanel.updateUndoRedoButtons();
+        // Recalculate diff and redraw highlights after redo
+        diff(true); // Scroll to selection since this is user-initiated
     }
 
-    /**
+    @Override
+    public void checkActions() {
+        // Update undo/redo button states when edits happen
+        SwingUtilities.invokeLater(() -> mainPanel.updateUndoRedoButtons());
+    }
+   /**
      * ThemeAware implementation - update highlight colours and syntax themes
      * when the global GUI theme changes.
      */
@@ -772,6 +819,13 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
     }
 
     /**
+     * Registers Ctrl+S / Cmd+S keyboard shortcut for manual saving.
+     */
+    private void registerSaveShortcut() {
+        KeyboardShortcutUtil.registerSaveShortcut(this, this::doSave);
+    }
+
+    /**
      * Focuses the search field corresponding to the currently active file panel.
      * Uses real-time focus detection to determine which search bar to focus.
      */
@@ -799,5 +853,30 @@ public class BufferDiffPanel extends AbstractContentPanel implements ThemeAware
         if (leftSearchBar != null) {
             leftSearchBar.focusSearchField();
         }
+    }
+
+    /**
+     * Cleanup method to properly dispose of resources when the panel is no longer needed.
+     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Dispose of file panels to clean up their timers and listeners
+        for (var fp : filePanels.values()) {
+            if (fp != null) {
+                fp.dispose();
+            }
+        }
+        filePanels.clear();
+
+        // Dispose of scroll synchronizer
+        if (scrollSynchronizer != null) {
+            scrollSynchronizer.dispose();
+            scrollSynchronizer = null;
+        }
+
+        // Clear references
+        diffNode = null;
+        patch = null;
+        selectedDelta = null;
     }
 }
