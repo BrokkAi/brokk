@@ -20,6 +20,7 @@ import com.github.difflib.algorithm.DiffAlgorithmListener;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
 import io.github.jbellis.brokk.gui.GuiTheme;
 import io.github.jbellis.brokk.gui.ThemeAware;
@@ -216,6 +217,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private JButton btnUndo = new JButton("Undo"); // Initialize to prevent NullAway issues
     private JButton btnRedo = new JButton("Redo");
+    private JButton btnSaveAll = new JButton("Save All");
     private JButton captureDiffButton = new JButton("Capture Diff");
     private JButton btnNext = new JButton("Next Change");
     private JButton btnPrevious = new JButton("Previous Change");
@@ -254,28 +256,13 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Save current file before switching
-        saveCurrentFile();
+        // No automatic save; user must choose “Save All”
 
         logger.debug("Switching to file {} of {}", index + 1, fileComparisons.size());
         currentFileIndex = index;
         loadFileOnDemand(currentFileIndex);
     }
 
-    /**
-     * Saves the currently displayed file if it has changes.
-     */
-    private void saveCurrentFile() {
-        var currentPanel = getBufferDiffPanel();
-        if (currentPanel != null) {
-            try {
-                currentPanel.doSave();
-            } catch (Exception ex) {
-                logger.error("Error during save operation: {}", ex.getMessage(), ex);
-                // Don't show error dialog here since doSave() already handles it
-            }
-        }
-    }
 
     private void updateNavigationButtons() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
@@ -297,6 +284,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         btnPrevious.addActionListener(e -> navigateToPreviousChange());
         btnUndo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doUndo));
         btnRedo.addActionListener(e -> performUndoRedo(AbstractContentPanel::doRedo));
+        btnSaveAll.addActionListener(e -> saveAll());
 
         // File navigation handlers
         btnPreviousFile.addActionListener(e -> previousFile());
@@ -374,6 +362,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         toolBar.add(btnUndo);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
         toolBar.add(btnRedo);
+        toolBar.add(Box.createHorizontalStrut(10)); // spacing
+        toolBar.add(btnSaveAll);
 
         toolBar.add(Box.createHorizontalStrut(20));
         toolBar.addSeparator();
@@ -404,6 +394,55 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             btnPrevious.setEnabled(false);
             btnNext.setEnabled(false);
         }
+        // Enable "Save All" only when at least one buffer is dirty
+        btnSaveAll.setEnabled(hasUnsavedChanges());
+    }
+
+    /**
+     * Returns true if any loaded diff-panel holds modified documents.
+     */
+    public boolean hasUnsavedChanges() {
+        if (bufferDiffPanel != null && bufferDiffPanel.isDirty()) return true;
+        for (var p : panelCache.values()) {
+            if (p != null && p.isDirty()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Saves every dirty document across all BufferDiffPanels.
+     */
+    public void saveAll() {
+        var visited = new java.util.HashSet<BufferDiffPanel>();
+        if (bufferDiffPanel != null && visited.add(bufferDiffPanel)) {
+            bufferDiffPanel.doSave();
+            refreshTabTitle(bufferDiffPanel);
+        }
+        // save each panel
+        for (var p : panelCache.values()) {
+            if (visited.add(p)) {
+                p.doSave();
+                refreshTabTitle(p);
+            }
+        }
+        repaint();
+    }
+
+    /**
+     * Refresh tab title (adds/removes “*”).
+     */
+    public void refreshTabTitle(BufferDiffPanel panel) {
+        var idx = tabbedPane.indexOfComponent(panel);
+        if (idx != -1) {
+            tabbedPane.setTitleAt(idx, panel.getTitle());
+        }
+    }
+
+    /**
+     * Provides access to Chrome methods for BufferDiffPanel.
+     */
+    public IConsoleIO getConsoleIO() {
+        return contextManager.getIo();
     }
 
     public void launchComparison() {
@@ -485,8 +524,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         logger.error("Error loading file: {} - {}", compInfo.getDisplayName(), errorMessage);
 
         // Show error dialog
-        JOptionPane.showMessageDialog(
-            this,
+        contextManager.getIo().systemNotify(
             "Error loading file '" + compInfo.getDisplayName() + "':\n" + errorMessage,
             "File Load Error",
             JOptionPane.ERROR_MESSAGE
@@ -527,8 +565,21 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
         frame.addWindowListener(new java.awt.event.WindowAdapter() {
             @Override
             public void windowClosing(java.awt.event.WindowEvent e) {
-                // Save any unsaved changes before closing
-                saveCurrentFile();
+                // Ask about unsaved changes
+                if (hasUnsavedChanges()) {
+                    var opt = contextManager.getIo().showConfirmDialog(
+                            "There are unsaved changes. Save before closing?",
+                            "Unsaved Changes",
+                            JOptionPane.YES_NO_CANCEL_OPTION,
+                            JOptionPane.WARNING_MESSAGE);
+                    if (opt == JOptionPane.CANCEL_OPTION || opt == JOptionPane.CLOSED_OPTION) {
+                        frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+                        return;
+                    }
+                    if (opt == JOptionPane.YES_OPTION) {
+                        saveAll();
+                    }
+                }
                 contextManager.getProject().saveDiffWindowBounds(frame);
             }
         });
@@ -637,7 +688,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             repaint();
             var diffPanel = getBufferDiffPanel();
             if (diffPanel != null) {
-                diffPanel.doSave();
+                refreshTabTitle(diffPanel);
             }
         }
     }
@@ -696,8 +747,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
     public void dispose() {
         logger.debug("Disposing BrokkDiffPanel and clearing panel cache");
 
-        // Save any unsaved changes before disposal
-        saveCurrentFile();
+        // Caller is responsible for saving before disposal
 
         // Clear all cached panels and dispose their resources
         for (var panel : panelCache.values()) {
