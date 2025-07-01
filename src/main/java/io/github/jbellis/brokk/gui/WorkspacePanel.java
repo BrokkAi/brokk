@@ -581,6 +581,7 @@ public class WorkspacePanel extends JPanel {
     private JPanel analyzerRebuildPanel;
     private @Nullable JLabel analyzerRebuildSpinner;
     private boolean workspaceCurrentlyEditable = true;
+    @Nullable private Context currentContext;
     private OverlayPanel workspaceOverlay;
     private JLayeredPane workspaceLayeredPane;
     private TitledBorder workspaceTitledBorder;
@@ -808,8 +809,7 @@ public class WorkspacePanel extends JPanel {
                 JMenuItem copyItem = new JMenuItem("Copy to Active Workspace");
                 copyItem.addActionListener(ev -> {
                     var fragsToCopy = getSelectedFragments();
-                    Context sourceCtx = requireNonNull(contextManager.selectedContext());
-                    contextManager.addFilteredToContextAsync(sourceCtx, fragsToCopy);
+                    contextManager.addFilteredToContextAsync(requireNonNull(currentContext), fragsToCopy);
                 });
                 contextMenu.removeAll();
                         contextMenu.add(copyItem);
@@ -1105,6 +1105,7 @@ public class WorkspacePanel extends JPanel {
      */
     public void populateContextTable(@Nullable Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "Not on EDT";
+        this.currentContext = ctx;
         var tableModel = (DefaultTableModel) contextTable.getModel();
         tableModel.setRowCount(0);
 
