@@ -8,4 +8,16 @@ Here's how you run litellm locally:
 
 Modify the above to point to secrets on disk with `cat ...`, or just hardcode them if you prefer.
 
-Those are the keys you'll need to get the same models that brokk.ai provides, but Brokk will load the models from litellm so you can run with fewer providers than this or other providers or local models instead if that's your jam.
+Those are the keys you'll need to get the same models that brokk.ai provides, but Brokk will load the models
+rom litellm so you can run with fewer providers than this, or other providers, or local models instead if that's your jam.
+
+You do need to have a model named gemini-2.0-flash and gemini-2.0-flash-lite since Brokk hardcodes these names
+for system tasks, but they can be backed by whatever you want.
+
+Additionally, Brokk supplements litellm's model_info with the following keys
+      # defaulting to false
+      free_tier_eligible
+      is_private
+      supports_reasoning_disable
+      # defaulting to 1
+      concurrent_requests

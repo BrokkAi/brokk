@@ -4,24 +4,24 @@ model_list:
       model: openai/o3
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 300
 
   - model_name: o4-mini
     litellm_params:
       model: openai/o4-mini
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 1000
 
   - model_name: gpt-4.1
     litellm_params:
       model: openai/gpt-4.1
       api_key: "os.environ/OPENAI_API_KEY"
     model_info:
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 300
 
   - model_name: gemini-2.5-pro
     litellm_params:
@@ -29,8 +29,8 @@ model_list:
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       supports_reasoning: true # override incorrect default
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 20
 
   - model_name: gemini-2.5-flash
     litellm_params:
@@ -38,8 +38,8 @@ model_list:
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
       supports_reasoning_disable: true
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 100
 
   - model_name: gemini-2.5-flash-lite
     litellm_params:
@@ -49,6 +49,7 @@ model_list:
       supports_reasoning_disable: true
       free_tier_eligible: true
       is_private: true
+      max_concurrent_requests: 300
 
   - model_name: gemini-2.0-flash
     litellm_params:
@@ -57,6 +58,7 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: true
+      max_concurrent_requests: 100
 
   - model_name: gemini-2.0-flash-lite
     litellm_params:
@@ -65,6 +67,7 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: true
+      max_concurrent_requests: 300
 
   - model_name: claude-4-opus
     litellm_params:
@@ -72,8 +75,8 @@ model_list:
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
       supports_reasoning_disable: true
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 1
 
   - model_name: claude-4-sonnet
     litellm_params:
@@ -81,11 +84,11 @@ model_list:
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
       supports_reasoning_disable: true
-      free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
       # which is weighted the wrong way for typical coding tasks
       max_output_tokens: 32768
+      max_concurrent_requests: 1
 
   - model_name: claude-3.7-sonnet
     litellm_params:
@@ -93,28 +96,27 @@ model_list:
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
       supports_reasoning_disable: true
-      free_tier_eligible: false
       is_private: true
       # Anthropic errors out if input + max_output > 200k. Default max_output is 128k,
       # which is weighted the wrong way for typical coding tasks
       max_output_tokens: 32768
+      max_concurrent_requests: 1
 
   - model_name: claude-3.5-sonnet
     litellm_params:
       model: anthropic/claude-3-5-sonnet-latest
       api_key: "os.environ/ANTHROPIC_API_KEY"
     model_info:
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 1
 
   - model_name: deepseek-R1
     litellm_params:
       model: deepseek/deepseek-reasoner
       api_key: "os.environ/DEEPSEEK_API_KEY"
     model_info:
-      is_reasoning: true
-      free_tier_eligible: false
       is_private: false
+      max_concurrent_requests: 100
 
   - model_name: deepseek-v3
     litellm_params:
@@ -123,33 +125,31 @@ model_list:
     model_info:
       free_tier_eligible: true
       is_private: false
+      max_concurrent_requests: 100
 
   - model_name: grok-3-beta
     litellm_params:
       model: xai/grok-3-beta
       api_key: "os.environ/GROK_API_KEY"
     model_info:
-      is_reasoning: true
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 10
 
   - model_name: grok-3-fast-beta
     litellm_params:
       model: xai/grok-3-fast-beta
       api_key: "os.environ/GROK_API_KEY"
     model_info:
-      is_reasoning: true
-      free_tier_eligible: false
       is_private: true
+      max_concurrent_requests: 10
 
   - model_name: grok-3-mini-beta
     litellm_params:
       model: xai/grok-3-mini-beta
       api_key: "os.environ/GROK_API_KEY"
     model_info:
-      is_reasoning: true
-      free_tier_eligible: true
       is_private: true
+      max_concurrent_requests: 8
 
   - model_name: gpt-4o-transcribe
     litellm_params:

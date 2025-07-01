@@ -583,6 +583,21 @@ public class Service {
     }
 
     /**
+     * Retrieves the maximum concurrent requests for the given model name.
+     * Returns a default value of 1 if the information is not available.
+     */
+    public int getMaxConcurrentRequests(StreamingChatLanguageModel model) {
+        var location = model.defaultRequestParameters().modelName();
+        var info = modelInfoMap.get(location);
+        if (info == null || !info.containsKey("max_concurrent_requests")) {
+            logger.warn("max_concurrent_requests not found for model location: {}", location);
+            return 1;
+        }
+        var value = info.get("max_concurrent_requests");
+        return (Integer) value;
+    }
+
+    /**
      * Returns true if the given model exposes the toggle to completely disable reasoning
      * (independent of the usual LOW/MEDIUM/HIGH levels).
      */
@@ -623,6 +638,23 @@ public class Service {
                                      .anyMatch("reasoning_effort"::equals);
             case null, default -> false;
         };
+    }
+
+    /**
+     * Checks if the model explicitly supports reasoning steps based on its metadata.
+     * This is distinct from `supportsReasoningEffort` which checks for the Anthropic parameter.
+     *
+     * @param location The model location string.
+     * @return True if the model info contains `"supports_reasoning": true`, false otherwise.
+     */
+    private boolean supportsReasoning(String location) {
+        var info = modelInfoMap.get(location);
+        if (info == null) {
+            logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
+            return false;
+        }
+        var supports = info.get("supports_reasoning");
+        return supports instanceof Boolean boolVal && boolVal;
     }
 
     /**
@@ -752,8 +784,10 @@ public class Service {
      */
     public boolean isReasoning(StreamingChatLanguageModel model) {
         var location = model.defaultRequestParameters().modelName();
+        var supportsReasoning = supportsReasoning(location);
         if (!supportsReasoningEffortInternal(location)) {
-            return false;
+            // reasoning is permanently enabled or disabled for this model type
+            return supportsReasoning;
         }
         if (!(model instanceof OpenAiStreamingChatModel om)) {
             return false;
@@ -770,10 +804,17 @@ public class Service {
 
     public boolean isReasoning(ModelConfig config) {
         var modelName = config.name();
-        // If the model does not support reasoning effort, it's not a reasoning model.
-        if (!supportsReasoningEffort(modelName)) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
             return false;
         }
+
+        var supportsReasoning = supportsReasoning(location);
+        if (!supportsReasoningEffort(modelName)) {
+            // reasoning is permanently enabled or disabled for this model type
+            return supportsReasoning;
+        }
+
         // If not Sonnet, all reasoning models default to enabling it. If Sonnet,
         // only consider it reasoning if the level is not DEFAULT.
         // Disable means explicitly no reasoning

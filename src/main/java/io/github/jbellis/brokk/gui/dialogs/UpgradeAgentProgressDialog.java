@@ -49,11 +49,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
     private final AtomicInteger llmLineCount = new AtomicInteger(0);
     private final javax.swing.Timer labelUpdateDebounceTimer;
     private final JLabel llmLineCountLabel;
-    private final @Nullable Integer relatedK;
-    private final @Nullable String perFileCommandTemplate;
-    private final boolean includeWorkspace;
-    private final String postProcessingInstructions;
-    private final ExecutorService executorService; // Moved here for wider access
+    private volatile @Nullable ExecutorService executorService = null;
 
 
     private record ProgressData(String fileName, @Nullable String errorMessage) { }
@@ -74,10 +70,6 @@ public class UpgradeAgentProgressDialog extends JDialog {
     {
         super(owner, "Upgrade Agent Progress", true);
         this.totalFiles = filesToProcess.size();
-        this.relatedK = relatedK;
-        this.perFileCommandTemplate = perFileCommandTemplate;
-        this.includeWorkspace = includeWorkspace;
-        this.postProcessingInstructions = postProcessingInstructions;
 
         setLayout(new BorderLayout(10, 10));
         setPreferredSize(new Dimension(600, 400));
@@ -118,12 +110,16 @@ public class UpgradeAgentProgressDialog extends JDialog {
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
         add(buttonPanel, BorderLayout.SOUTH);
 
-        executorService = Executors.newFixedThreadPool(Math.min(200, Math.max(1, filesToProcess.size())));
         worker = new SwingWorker<>() {
             @Override
             protected TaskResult doInBackground() {
                 var contextManager = chrome.getContextManager();
                 var service = contextManager.getService();
+                var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
+
+                int maxConcurrentRequests = service.getMaxConcurrentRequests(model);
+                executorService = Executors.newFixedThreadPool(Math.min(maxConcurrentRequests, Math.max(1, filesToProcess.size())));
+
                 CompletionService<FileProcessingResult> completionService = new ExecutorCompletionService<>(executorService);
 
                 for (ProjectFile file : filesToProcess) {
@@ -138,17 +134,16 @@ public class UpgradeAgentProgressDialog extends JDialog {
                             errorMessage = "Cancelled by user.";
                             dialogConsoleIO.systemOutput("Processing cancelled by user for file: " + file);
                         } else {
-                            var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
                             var agent = new CodeAgent(contextManager, model, dialogConsoleIO);
 
                             List<ChatMessage> readOnlyMessages = new ArrayList<>();
                             try {
-                                if (UpgradeAgentProgressDialog.this.includeWorkspace) {
+                                if (includeWorkspace) {
                                     readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(ctx));
                                     dialogConsoleIO.systemOutput("Including workspace contents in context.");
                                 }
-                                if (UpgradeAgentProgressDialog.this.relatedK != null) {
-                                    var acFragment = contextManager.liveContext().buildAutoContext(UpgradeAgentProgressDialog.this.relatedK);
+                                if (relatedK != null) {
+                                    var acFragment = contextManager.liveContext().buildAutoContext(relatedK);
                                     if (!acFragment.text().isBlank()) {
                                         var msgText = """
                                                           <related_classes>
@@ -156,17 +151,17 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                           
                                                           %s
                                                           </related_classes>
-                                                          """.stripIndent().formatted(UpgradeAgentProgressDialog.this.relatedK, acFragment.text());
+                                                          """.stripIndent().formatted(relatedK, acFragment.text());
                                         readOnlyMessages.add(new UserMessage(msgText));
-                                        dialogConsoleIO.systemOutput("Added " + UpgradeAgentProgressDialog.this.relatedK + " related classes to context.");
+                                        dialogConsoleIO.systemOutput("Added " + relatedK + " related classes to context.");
                                     }
                                 }
 
                                 // Execute per-file command if provided
-                                if (UpgradeAgentProgressDialog.this.perFileCommandTemplate != null && !UpgradeAgentProgressDialog.this.perFileCommandTemplate.isBlank()) {
+                                if (perFileCommandTemplate != null && !perFileCommandTemplate.isBlank()) {
                                     dialogConsoleIO.systemOutput("Preparing to execute per-file command for " + file);
                                     MustacheFactory mf = new DefaultMustacheFactory();
-                                    Mustache mustache = mf.compile(new StringReader(UpgradeAgentProgressDialog.this.perFileCommandTemplate), "perFileCommand");
+                                    Mustache mustache = mf.compile(new StringReader(perFileCommandTemplate), "perFileCommand");
                                     StringWriter writer = new StringWriter();
                                     Map<String, Object> scope = new HashMap<>();
                                     scope.put("filepath", file.toString()); // Using relative path
@@ -305,7 +300,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
 
             @Override
             protected void done() {
-                if (!executorService.isTerminated()) {
+                if (executorService != null && !executorService.isTerminated()) {
                     executorService.shutdownNow();
                 }
                 labelUpdateDebounceTimer.stop();
@@ -380,7 +375,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                           : "The task was applied to the following files:\n```\n%s```".formatted(files);
                     var effectiveGoal = postProcessingInstructions.isBlank()
                                         ? "Please fix the problems."
-                                        : "Here are the postprocessing instructions:\n```\n%s```".formatted(UpgradeAgentProgressDialog.this.postProcessingInstructions);
+                                        : "Here are the postprocessing instructions:\n```\n%s```".formatted(postProcessingInstructions);
 
                     var architectInstructions = """
                                             I just finished a parallel upgrade task with the following instructions:
@@ -407,7 +402,9 @@ public class UpgradeAgentProgressDialog extends JDialog {
         cancelButton.addActionListener(e -> {
             if (!worker.isDone()) {
                 worker.cancel(true);
-                UpgradeAgentProgressDialog.this.executorService.shutdownNow();
+                if (executorService != null) {
+                    executorService.shutdownNow();
+                }
             } else { // Worker is done, button is "Close"
                 setVisible(false);
             }
@@ -424,7 +421,9 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                                JOptionPane.QUESTION_MESSAGE);
                     if (choice == JOptionPane.YES_OPTION) {
                         worker.cancel(true);
-                        UpgradeAgentProgressDialog.this.executorService.shutdownNow();
+                        if (executorService != null) {
+                            executorService.shutdownNow();
+                        }
                     }
                 } else {
                     setVisible(false);
