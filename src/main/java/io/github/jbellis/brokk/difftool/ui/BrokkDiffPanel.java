@@ -217,7 +217,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
 
     private JButton btnUndo = new JButton("Undo"); // Initialize to prevent NullAway issues
     private JButton btnRedo = new JButton("Redo");
-    private JButton btnSaveAll = new JButton("Save All");
+    private JButton btnSaveAll = new JButton("Save");
     private JButton captureDiffButton = new JButton("Capture Diff");
     private JButton btnNext = new JButton("Next Change");
     private JButton btnPrevious = new JButton("Previous Change");
@@ -394,8 +394,11 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             btnPrevious.setEnabled(false);
             btnNext.setEnabled(false);
         }
-        // Enable "Save All" only when at least one buffer is dirty
-        btnSaveAll.setEnabled(hasUnsavedChanges());
+        
+        // Update save button text and enable state
+        boolean hasUnsaved = hasUnsavedChanges();
+        btnSaveAll.setText(fileComparisons.size() > 1 ? "Save All" : "Save");
+        btnSaveAll.setEnabled(hasUnsaved);
     }
 
     /**
