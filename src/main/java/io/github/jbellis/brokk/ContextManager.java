@@ -578,7 +578,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     io.systemOutput(description + " canceled");
                 }
             } catch (Exception e) {
-                logger.error(e);
+                logger.error("Error while executing {}", description, e);
                 io.toolError("Error while executing " + description + ": " + e.getMessage());
             } finally {
                 io.actionComplete();
@@ -602,7 +602,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.systemOutput(description + " canceled.");
                 throw cex;
             } catch (Exception e) {
-                logger.error(e);
+                logger.error("Error while executing {}", description, e);
                 io.toolError("Error while " + description + ": " + e.getMessage());
                 throw e;
             } finally {
