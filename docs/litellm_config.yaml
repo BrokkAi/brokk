@@ -28,7 +28,6 @@ model_list:
       model: gemini/gemini-2.5-pro
       api_key: "os.environ/GEMINI_API_KEY"
     model_info:
-      supports_reasoning: true # override incorrect default
       is_private: true
       max_concurrent_requests: 20
 
