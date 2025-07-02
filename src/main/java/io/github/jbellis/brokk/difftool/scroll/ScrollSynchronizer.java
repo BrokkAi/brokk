@@ -35,7 +35,10 @@ public class ScrollSynchronizer
     private final Timer scrollSyncTimer;
     private volatile boolean pendingLeftScrolled;
     private final AtomicBoolean hasPendingScroll = new AtomicBoolean(false);
+    private final AtomicBoolean isUserScrolling = new AtomicBoolean(false);
+    private final AtomicBoolean isProgrammaticScroll = new AtomicBoolean(false);
     private final Object scrollLock = new Object();
+    private volatile long lastUserScrollTime = 0;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
@@ -46,6 +49,8 @@ public class ScrollSynchronizer
         // Initialize debounced scroll timer with reduced delay for better responsiveness
         scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
             if (hasPendingScroll.getAndSet(false)) {
+                // Reset user scrolling flag after debounce period
+                isUserScrolling.set(false);
                 SwingUtilities.invokeLater(() -> scroll(pendingLeftScrolled));
             }
         });
@@ -105,10 +110,19 @@ public class ScrollSynchronizer
                 {
                     if (insideScroll) return;
 
+                    // Skip if this is a programmatic scroll we initiated
+                    if (isProgrammaticScroll.get()) {
+                        return;
+                    }
+
                     // Suppress scroll sync if either panel is actively typing to prevent flickering
                     if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
                         return;
                     }
+
+                    // Track user scrolling to prevent conflicts
+                    isUserScrolling.set(true);
+                    lastUserScrollTime = System.currentTimeMillis();
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
@@ -136,28 +150,9 @@ public class ScrollSynchronizer
             return;
         }
 
-        // Set insideScroll to prevent infinite recursion
-        var vertListener = verticalAdjustmentListener;
-        if (vertListener != null) {
-            // We'll temporarily remove and re-add the listener to prevent recursion
-            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
-            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
-
-            // Synchronize to prevent concurrent modification
-            synchronized (scrollLock) {
-                leftV.removeAdjustmentListener(vertListener);
-                rightV.removeAdjustmentListener(vertListener);
-
-                try {
-                    performScroll(leftScrolled);
-                } finally {
-                    leftV.addAdjustmentListener(vertListener);
-                    rightV.addAdjustmentListener(vertListener);
-                }
-            }
-        } else {
-            performScroll(leftScrolled);
-        }
+        // Use programmatic scroll flag to prevent infinite recursion
+        // No need to remove/re-add listeners since isProgrammaticScroll flag handles this
+        performScroll(leftScrolled);
     }
 
     private void performScroll(boolean leftScrolled)
@@ -165,6 +160,13 @@ public class ScrollSynchronizer
         // Additional check: don't scroll if either panel is typing
         if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
             logger.trace("Suppressing scroll sync during active typing");
+            return;
+        }
+
+        // Don't sync if user is actively scrolling (within 200ms of last user scroll)
+        long timeSinceLastUserScroll = System.currentTimeMillis() - lastUserScrollTime;
+        if (isUserScrolling.get() || timeSinceLastUserScroll < 200) {
+            logger.trace("Suppressing scroll sync during active user scrolling ({}ms ago)", timeSinceLastUserScroll);
             return;
         }
 
@@ -184,7 +186,16 @@ public class ScrollSynchronizer
         // (In Phase 1, we had some old “DiffUtil.getRevisedLine()” logic. If you want that back, adapt it with patch.)
         int mappedLine = approximateLineMapping(patch, line, leftScrolled);
 
-        scrollToLine(fp2, mappedLine);
+        // Mark as programmatic scroll to prevent feedback loop
+        isProgrammaticScroll.set(true);
+        try {
+            scrollToLine(fp2, mappedLine);
+        } finally {
+            // Reset flag after a short delay to allow scroll to complete
+            Timer resetTimer = new Timer(50, e -> isProgrammaticScroll.set(false));
+            resetTimer.setRepeats(false);
+            resetTimer.start();
+        }
     }
 
     /**
