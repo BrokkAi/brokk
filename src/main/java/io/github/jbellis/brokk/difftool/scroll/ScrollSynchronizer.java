@@ -12,9 +12,9 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.BadLocationException;
+import java.awt.Point;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Synchronizes the vertical/horizontal scrolling between the left and right FilePanel.
@@ -31,14 +31,9 @@ public class ScrollSynchronizer
     private @Nullable AdjustmentListener horizontalAdjustmentListener;
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
-    // Debounce scroll synchronization to reduce flickering
-    private final Timer scrollSyncTimer;
-    private volatile boolean pendingLeftScrolled;
-    private final AtomicBoolean hasPendingScroll = new AtomicBoolean(false);
-    private final AtomicBoolean isUserScrolling = new AtomicBoolean(false);
-    private final AtomicBoolean isProgrammaticScroll = new AtomicBoolean(false);
-    private final Object scrollLock = new Object();
-    private volatile long lastUserScrollTime = 0;
+    // State management and debouncing utilities
+    private final ScrollSyncState syncState = new ScrollSyncState();
+    private final ScrollDebouncer debouncer;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
@@ -46,15 +41,8 @@ public class ScrollSynchronizer
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
 
-        // Initialize debounced scroll timer with reduced delay for better responsiveness
-        scrollSyncTimer = new Timer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS, e -> {
-            if (hasPendingScroll.getAndSet(false)) {
-                // Reset user scrolling flag after debounce period
-                isUserScrolling.set(false);
-                SwingUtilities.invokeLater(() -> scroll(pendingLeftScrolled));
-            }
-        });
-        scrollSyncTimer.setRepeats(false);
+        // Initialize debouncer for scroll synchronization
+        debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
 
         init();
     }
@@ -110,29 +98,39 @@ public class ScrollSynchronizer
                 {
                     if (insideScroll) return;
 
+                    var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+                    boolean leftScrolled = (e.getSource() == leftV);
+                    
+                    logger.debug("Scroll event: {} panel, programmatic={}, typing=left:{}/right:{}", 
+                                leftScrolled ? "LEFT" : "RIGHT", 
+                                syncState.isProgrammaticScroll(),
+                                filePanelLeft.isActivelyTyping(), 
+                                filePanelRight.isActivelyTyping());
+
                     // Skip if this is a programmatic scroll we initiated
-                    if (isProgrammaticScroll.get()) {
+                    if (syncState.isProgrammaticScroll()) {
+                        logger.debug("Skipping scroll sync - programmatic scroll in progress");
                         return;
                     }
 
                     // Suppress scroll sync if either panel is actively typing to prevent flickering
                     if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+                        logger.debug("Skipping scroll sync - typing in progress");
                         return;
                     }
 
                     // Track user scrolling to prevent conflicts
-                    isUserScrolling.set(true);
-                    lastUserScrollTime = System.currentTimeMillis();
+                    syncState.recordUserScroll();
 
-                    var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
-                    boolean leftScrolled = (e.getSource() == leftV);
+                    logger.debug("Submitting scroll sync request for {} panel", leftScrolled ? "LEFT" : "RIGHT");
 
-                    // Debounce scroll synchronization to reduce flickering
-                    synchronized (scrollLock) {
-                        pendingLeftScrolled = leftScrolled;
-                        hasPendingScroll.set(true);
-                    }
-                    scrollSyncTimer.restart();
+                    // Submit debounced scroll request
+                    var request = new ScrollDebouncer.DebounceRequest<>(
+                        leftScrolled,
+                        scrollDirection -> scroll(scrollDirection),
+                        syncState::clearUserScrolling
+                    );
+                    debouncer.submit(request);
                 }
             };
         }
@@ -145,6 +143,8 @@ public class ScrollSynchronizer
      */
     private void scroll(boolean leftScrolled)
     {
+        logger.debug("scroll() called: leftScrolled={}", leftScrolled);
+        
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> scroll(leftScrolled));
             return;
@@ -163,10 +163,10 @@ public class ScrollSynchronizer
             return;
         }
 
-        // Don't sync if user is actively scrolling (within 200ms of last user scroll)
-        long timeSinceLastUserScroll = System.currentTimeMillis() - lastUserScrollTime;
-        if (isUserScrolling.get() || timeSinceLastUserScroll < 200) {
-            logger.trace("Suppressing scroll sync during active user scrolling ({}ms ago)", timeSinceLastUserScroll);
+        // Check if sync should be suppressed using the state utility
+        var suppressionResult = syncState.shouldSuppressSync(200);
+        if (suppressionResult.shouldSuppress()) {
+            logger.trace("Suppressing scroll sync: {}", suppressionResult.reason());
             return;
         }
 
@@ -187,12 +187,12 @@ public class ScrollSynchronizer
         int mappedLine = approximateLineMapping(patch, line, leftScrolled);
 
         // Mark as programmatic scroll to prevent feedback loop
-        isProgrammaticScroll.set(true);
+        syncState.setProgrammaticScroll(true);
         try {
             scrollToLine(fp2, mappedLine);
         } finally {
             // Reset flag after a short delay to allow scroll to complete
-            Timer resetTimer = new Timer(50, e -> isProgrammaticScroll.set(false));
+            Timer resetTimer = new Timer(50, e -> syncState.setProgrammaticScroll(false));
             resetTimer.setRepeats(false);
             resetTimer.start();
         }
@@ -256,51 +256,79 @@ public class ScrollSynchronizer
 
     public void scrollToLine(FilePanel fp, int line)
     {
+        logger.debug("scrollToLine called: panel={}, line={}", fp == filePanelLeft ? "LEFT" : "RIGHT", line);
+        
         var bd = fp.getBufferDocument();
         if (bd == null) {
+            logger.debug("scrollToLine: no buffer document, skipping");
             return;
         }
         var offset = bd.getOffsetForLine(line);
         if (offset < 0) {
+            logger.debug("scrollToLine: invalid offset {} for line {}, skipping", offset, line);
             return;
         }
 
         // Mark that we're navigating to ensure highlights appear
         fp.setNavigatingToDiff(true);
 
-        var viewport = fp.getScrollPane().getViewport();
-        var editor = fp.getEditor();
-        try {
-            var rect = SwingUtil.modelToView(editor, offset);
-            if (rect == null) return;
+        // Use invokeLater to ensure we're on EDT and that any pending layout is complete
+        SwingUtilities.invokeLater(() -> {
+            try {
+                var viewport = fp.getScrollPane().getViewport();
+                var editor = fp.getEditor();
+                var rect = SwingUtil.modelToView(editor, offset);
+                if (rect == null) {
+                    logger.debug("scrollToLine: modelToView returned null for offset {}", offset);
+                    return;
+                }
 
-            // We want to place the line near the center
-            rect.y -= (viewport.getSize().height / 2);
-            if (rect.y < 0) rect.y = 0;
+                // Try to center the line, but with better handling for early lines
+                int originalY = rect.y;
+                int viewportHeight = viewport.getSize().height;
+                int padding = Math.min(100, viewportHeight / 8); // 100px padding or 1/8 viewport
+                
+                // Try to center, but if that would go negative, just use padding from top
+                int centeredY = originalY - (viewportHeight / 2);
+                int finalY = Math.max(padding, centeredY);
+                
+                // Make sure we don't scroll past the document end
+                var scrollPane = fp.getScrollPane();
+                var maxY = scrollPane.getVerticalScrollBar().getMaximum() - viewportHeight;
+                finalY = Math.min(finalY, maxY);
+                
+                var p = new Point(rect.x, finalY);
+                logger.debug("scrollToLine: line {} -> originalY={}, viewportHeight={}, centeredY={}, finalY={}, position=({}, {})", 
+                           line, originalY, viewportHeight, centeredY, finalY, p.x, p.y);
+                
+                // Set viewport position
+                viewport.setViewPosition(p);
+                
+                // Force a repaint to ensure the scroll is visible
+                viewport.repaint();
+                
+                logger.debug("scrollToLine completed successfully for line {}", line);
 
-            var p = rect.getLocation();
-            viewport.setViewPosition(p);
+                // Only invalidate viewport cache if not actively typing to prevent flicker
+                if (!fp.isActivelyTyping()) {
+                    fp.invalidateViewportCache();
+                }
 
-            // Only invalidate viewport cache if not actively typing to prevent flicker
-            if (!fp.isActivelyTyping()) {
-                fp.invalidateViewportCache();
+                // Trigger immediate redisplay to show highlights
+                fp.reDisplay();
+
+                // Reset navigation flag after a minimal delay to allow highlighting to complete
+                Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+                    fp.setNavigatingToDiff(false);
+                });
+                resetNavTimer.setRepeats(false);
+                resetNavTimer.start();
+
+            } catch (BadLocationException ex) {
+                logger.error("scrollToLine: BadLocationException for line {}, offset {}", line, offset, ex);
+                fp.setNavigatingToDiff(false); // Reset flag on error
             }
-
-            // Trigger immediate redisplay to show highlights
-            fp.reDisplay();
-
-            // Reset navigation flag after a minimal delay to allow highlighting to complete
-            Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
-                fp.setNavigatingToDiff(false);
-            });
-            resetNavTimer.setRepeats(false);
-            resetNavTimer.start();
-
-        } catch (BadLocationException ex) {
-            // This usually means the offset is invalid for the document model
-            fp.setNavigatingToDiff(false); // Reset flag on error
-            throw new RuntimeException(ex);
-        }
+        });
     }
 
     /**
@@ -309,18 +337,51 @@ public class ScrollSynchronizer
      */
     public void showDelta(AbstractDelta<String> delta)
     {
+        logger.debug("showDelta called for delta at position {}", delta.getSource().getPosition());
+        
         // Mark both panels as navigating to ensure highlights appear on both sides
         filePanelLeft.setNavigatingToDiff(true);
         filePanelRight.setNavigatingToDiff(true);
 
-        // We assume we want to scroll the left side. The 'source' chunk is the original side.
-        var source = delta.getSource();
-        scrollToLine(filePanelLeft, source.getPosition());
-        // That triggers the verticalAdjustmentListener to sync the right side.
+        // Disable scroll sync during navigation to prevent feedback loops
+        syncState.setProgrammaticScroll(true);
+        
+        try {
+            // Get the source line from the delta
+            var source = delta.getSource();
+            int sourceLine = source.getPosition();
+            
+            logger.debug("Navigation: scrolling to source line {}", sourceLine);
+            
+            // Scroll left panel to source line
+            scrollToLine(filePanelLeft, sourceLine);
+            
+            // Calculate corresponding line on right side and scroll there too
+            var patch = diffPanel.getPatch();
+            if (patch != null) {
+                int mappedLine = approximateLineMapping(patch, sourceLine, true);
+                logger.debug("Navigation: mapped line {} -> {}, scrolling right panel", sourceLine, mappedLine);
+                scrollToLine(filePanelRight, mappedLine);
+            } else {
+                logger.debug("Navigation: no patch available, scrolling right panel to same line {}", sourceLine);
+                // Fallback: scroll to same line if no patch available
+                scrollToLine(filePanelRight, sourceLine);
+            }
+        } finally {
+            // Re-enable scroll sync after a short delay to allow navigation to complete
+            Timer enableSyncTimer = new Timer(100, e -> {
+                logger.debug("Re-enabling scroll sync after navigation");
+                syncState.setProgrammaticScroll(false);
+            });
+            enableSyncTimer.setRepeats(false);
+            enableSyncTimer.start();
+        }
 
         // Trigger immediate redisplay on both panels to ensure highlights appear
         filePanelLeft.reDisplay();
         filePanelRight.reDisplay();
+        
+        logger.debug("showDelta completed - both panels scrolled");
     }
 
     public void toNextDelta(boolean next)
@@ -333,8 +394,8 @@ public class ScrollSynchronizer
      * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
      */
     public void dispose() {
-        // Stop and null the timer
-        scrollSyncTimer.stop();
+        // Dispose debouncer to stop any pending timers
+        debouncer.dispose();
 
         // Remove adjustment listeners
         if (horizontalAdjustmentListener != null) {
