@@ -49,6 +49,7 @@ public class UpgradeAgentDialog extends JDialog {
     // Post-processing controls
     private JComboBox<String> runPostProcessCombo;
     private JCheckBox includeParallelOutputCheckbox;
+    private JTextField contextFilterTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
     private static final int TOKEN_SAFETY_MARGIN = 32768;
     
@@ -490,6 +491,17 @@ public class UpgradeAgentDialog extends JDialog {
         includeParallelOutputCheckbox.setSelected(true);
         ppPanel.add(includeParallelOutputCheckbox, ppGBC);
 
+        // ---- Context filter row ------------------------------------
+        ppGBC.gridy++;
+        ppGBC.gridx = 0;
+        ppGBC.anchor = GridBagConstraints.EAST;
+        ppPanel.add(new JLabel("Filter"), ppGBC);
+
+        ppGBC.gridx = 2;
+        ppGBC.anchor = GridBagConstraints.WEST;
+        contextFilterTextField = new JTextField(20);
+        ppPanel.add(contextFilterTextField, ppGBC);
+
         // --- spacer ---
         var ppSpacer = new GridBagConstraints();
         ppSpacer.gridy = ppGBC.gridy + 1;
@@ -833,6 +845,7 @@ public class UpgradeAgentDialog extends JDialog {
             default -> PostProcessingOption.NONE;
         };
         boolean includeParallelOutput = includeParallelOutputCheckbox.isSelected();
+        String contextFilter = contextFilterTextField.getText().trim();
         String postProcessingInstructions = postProcessingInstructionsArea.getText().trim();
 
         if (runOption != PostProcessingOption.NONE && postProcessingInstructions.isEmpty()) {
@@ -853,6 +866,7 @@ public class UpgradeAgentDialog extends JDialog {
                 perFileCommandTemplate,
                 includeWorkspace,
                 runOption,
+                contextFilter,
                 includeParallelOutput,
                 postProcessingInstructions
         );

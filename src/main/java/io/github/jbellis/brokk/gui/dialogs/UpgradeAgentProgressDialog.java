@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.TaskResult;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.BuildAgent;
+import io.github.jbellis.brokk.agents.RelevanceClassifier;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
@@ -134,6 +135,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                    @Nullable Integer relatedK,
                                                    @Nullable String perFileCommandTemplate,
                                                    Context ctx,
+                                                   String contextFilter,
                                                    @Nullable TokenRateLimiter rateLimiter)
     {
         var dialogConsoleIO = new DialogConsoleIO(this, file.toString());
@@ -158,12 +160,12 @@ public class UpgradeAgentProgressDialog extends JDialog {
                 var acFragment = ctx.buildAutoContext(relatedK);
                 if (!acFragment.text().isBlank()) {
                     var msgText = """
-                                      <related_classes>
-                                      The user requested to include the top %d related classes.
-                                      
-                                      %s
-                                      </related_classes>
-                                      """.stripIndent().formatted(relatedK, acFragment.text());
+                                  <related_classes>
+                                  The user requested to include the top %d related classes.
+                                  
+                                  %s
+                                  </related_classes>
+                                  """.stripIndent().formatted(relatedK, acFragment.text());
                     readOnlyMessages.add(new UserMessage(msgText));
                     dialogConsoleIO.systemOutput("Added " + relatedK + " related classes to context.");
                 }
@@ -189,19 +191,19 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                                          line -> {
                                                                          }); // No live consumer for now
                     commandOutputText = """
-                                                <per_file_command_output command="%s">
-                                                %s
-                                                </per_file_command_output>
-                                                """.stripIndent().formatted(finalCommand, output);
+                                        <per_file_command_output command="%s">
+                                        %s
+                                        </per_file_command_output>
+                                        """.stripIndent().formatted(finalCommand, output);
                 } catch (Environment.SubprocessException ex) {
                     logger.warn("Per-file command failed for {}: {}", file, finalCommand, ex);
                     commandOutputText = """
-                                                <per_file_command_output command="%s">
-                                                Error executing command: %s
-                                                Output (if any):
-                                                %s
-                                                </per_file_command_output>
-                                                """.stripIndent().formatted(finalCommand, ex.getMessage(), ex.getOutput());
+                                        <per_file_command_output command="%s">
+                                        Error executing command: %s
+                                        Output (if any):
+                                        %s
+                                        </per_file_command_output>
+                                        """.stripIndent().formatted(finalCommand, ex.getMessage(), ex.getOutput());
                     dialogConsoleIO.toolError("Per-file command failed: " + ex.getMessage() + "\nOutput (if any):\n" + ex.getOutput(), "Command Execution Error");
                 }
                 readOnlyMessages.add(new UserMessage(commandOutputText));
@@ -253,7 +255,24 @@ public class UpgradeAgentProgressDialog extends JDialog {
             errorMessage = "Unexpected error: " + t.getMessage();
             logger.error("Unexpected failure while processing {}", file, t);
         }
-        return new FileProcessingResult(file, errorMessage, dialogConsoleIO.getLlmOutput());
+
+        // ---- optional context filtering -----------------------------
+        String finalLlmOutput = dialogConsoleIO.getLlmOutput();
+        if (!contextFilter.isBlank() && !finalLlmOutput.isBlank()) {
+            try {
+                var quickestModel = contextManager.getService().quickestModel();
+                var filterLlm     = contextManager.getLlm(quickestModel, "ContextFilter");
+
+                boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, finalLlmOutput);
+                if (!keep) {
+                    finalLlmOutput = "";
+                }
+            } catch (Exception e) {
+                logger.warn("Context filtering failed for {}: {}", file, e.toString());
+            }
+        }
+
+        return new FileProcessingResult(file, errorMessage, finalLlmOutput);
     }
 
 
@@ -266,6 +285,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                       @Nullable String perFileCommandTemplate,
                                       boolean includeWorkspace,
                                       PostProcessingOption runOption,
+                                      String contextFilter,
                                       boolean includeParallelOutput,
                                       String postProcessingInstructions)
     {
@@ -357,6 +377,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                             relatedK,
                                                             perFileCommandTemplate,
                                                             frozenContext,
+                                                            contextFilter,
                                                             rateLimiter);
                         processedFileCount.set(1); // Mark the first file as processed
                         // Publish result for the first file
@@ -385,6 +406,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                                                          relatedK,
                                                                          perFileCommandTemplate,
                                                                          frozenContext,
+                                                                         contextFilter,
                                                                          rateLimiter));
                     }
                 });
