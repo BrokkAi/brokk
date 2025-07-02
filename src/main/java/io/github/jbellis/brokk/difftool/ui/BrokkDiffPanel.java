@@ -336,8 +336,10 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
 
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
-            contextManager.addVirtualFragment(fragment);
-            contextManager.getIo().systemOutput("Added captured diff to context: " + description);
+            contextManager.submitBackgroundTask("Adding diff to context", () -> {
+                contextManager.addVirtualFragment(fragment);
+                contextManager.getIo().systemOutput("Added captured diff to context: " + description);
+            });
         });
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
