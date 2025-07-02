@@ -2,6 +2,7 @@
   import Markdown from 'svelte-exmarkdown';
   import remarkBreaks from 'remark-breaks';
   import { gfmPlugin } from 'svelte-exmarkdown/gfm';
+  import { fade } from 'svelte/transition';
   import type { Bubble } from '../types';
 
   export let bubble: Bubble;
@@ -10,7 +11,7 @@
   $: bubbleClass = `bubble ${bubble.type} ${dark ? 'theme-dark' : ''}`;
 </script>
 
-<div class={bubbleClass}>
+<div class={bubbleClass} in:fade={{ duration: 150 }} out:fade={{ duration: 150 }}>
   <Markdown md={bubble.markdown} plugins={[gfmPlugin(), remarkBreaks()]} />
 </div>
 

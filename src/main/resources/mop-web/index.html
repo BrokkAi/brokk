@@ -337,19 +337,43 @@
     }
 
   </style>
-  <script type="module" crossorigin src="./assets/index-jS226zuS.js"></script>
+  <script type="module" crossorigin src="./assets/index-3LCckzbI.js"></script>
   <link rel="stylesheet" crossorigin href="./assets/index-CpWO6qtv.css">
 </head>
 <body>
   <script>
-    // Immediately define brokk with a buffer to catch early events from Java
-    window.brokk = {
-      _eventBuffer: [],
-      onEvent: function(payload) {
-        console.log('Buffering early event from Java:', JSON.stringify(payload));
-        window.brokk._eventBuffer.push(payload);
-      }
-    };
+    // Immediately define brokk with a proxy to buffer all early calls from Java
+    (function() {
+      const callQueue = []; // Stores {method, args} for all calls except onEvent
+      const eventBuffer = []; // Stores payloads for onEvent
+      
+      window.brokk = new Proxy({
+        _callQueue: callQueue,
+        _eventBuffer: eventBuffer
+      }, {
+        get(target, prop) {
+          // Allow direct access to internal queues
+          if (prop === '_callQueue' || prop === '_eventBuffer') {
+            return target[prop];
+          }
+          // Return a stub function for any other property access
+          return (...args) => {
+            if (prop === 'onEvent') {
+              console.log('Buffering early event from Java:', JSON.stringify(args));
+              eventBuffer.push(...args);
+            } else {
+              console.log('Buffering early call from Java to', prop);
+              callQueue.push({ method: prop, args });
+            }
+            // Provide default return values for synchronous methods
+            if (prop === 'getSelection') {
+              return '';
+            }
+            return undefined;
+          };
+        }
+      });
+    })();
   </script>
 </body>
 </html>

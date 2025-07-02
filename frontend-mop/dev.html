@@ -349,7 +349,7 @@
     <h3>Dev Tools</h3>
     <button onclick="simulateAskResponse()">Simulate Ask Response</button>
     <button onclick="simulateEvent('theme', { dark: !document.body.classList.contains('theme-dark') })">Toggle Theme</button>
-    <button onclick="simulateEvent('clear')">Clear Log</button>
+    <button onclick="window.brokk.clear()">Clear Log</button>
     <button onclick="simulateEvent('spinner', { message: 'Testing spinner...' }); setTimeout(() => simulateEvent('spinner', { message: '' }), 2000);">Test Spinner</button>
   </div>
   <script type="module" src="/src/index.ts"></script>

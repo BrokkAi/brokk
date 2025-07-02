@@ -7,8 +7,9 @@ import type { BrokkEvent } from './types';
 declare global {
   interface Window {
     brokk: {
-      onEvent: (payload: BrokkEvent) => void;
       _eventBuffer: BrokkEvent[];
+      _callQueue: { method: string; args: unknown[] }[];
+      onEvent: (payload: BrokkEvent) => void;
       getSelection: () => string;
       clear: () => void;
       setTheme: (dark: boolean) => void;
@@ -34,11 +35,14 @@ const app = mount(App, {
   props: { eventStore, themeStore, spinnerStore }
 });
 
-// Save any buffered events
+// Retrieve buffered calls and events from the early stub
+const pendingCalls = window.brokk._callQueue || [];
 const bufferedEvents = window.brokk._eventBuffer || [];
 
-// Replace the temporary brokk event handler with the real one
+// Replace the temporary brokk proxy with the real implementation
 window.brokk = {
+  _callQueue: [],
+  _eventBuffer: [],
   onEvent: (payload) => {
     console.log('Received event from Java bridge:', JSON.stringify(payload));
     eventStore.set(payload);
@@ -71,9 +75,24 @@ window.brokk = {
   }
 };
 
-// Process any events that were buffered before initialization
+// Process any buffered events first to maintain temporal order
 if (bufferedEvents.length > 0) {
+  console.log('Replaying', bufferedEvents.length, 'buffered events');
   bufferedEvents.forEach(event => {
     window.brokk.onEvent(event);
+  });
+}
+
+// Then replay any other buffered method calls
+if (pendingCalls.length > 0) {
+  console.log('Replaying', pendingCalls.length, 'buffered method calls');
+  pendingCalls.forEach(({ method, args }) => {
+    console.log('Replaying call to', method, 'with args:', args);
+    const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+    if (typeof brokk[method] === 'function') {
+      brokk[method](...args);
+    } else {
+      console.warn('Method', method, 'no longer exists; skipping replay');
+    }
   });
 }
