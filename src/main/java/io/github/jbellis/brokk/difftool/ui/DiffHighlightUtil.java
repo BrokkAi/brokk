@@ -2,8 +2,6 @@ package io.github.jbellis.brokk.difftool.ui;
 
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -13,52 +11,59 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class DiffHighlightUtil
 {
-    private static final Logger logger = LogManager.getLogger(DiffHighlightUtil.class);
-
     private DiffHighlightUtil() {}
 
     /**
-     * Returns the *relevant* chunk for the requested side.  For the revised
-     * side a {@code null} target chunk (DELETE deltas) falls back to the
-     * source so the caller can still compute a sensible location.
+     * Result of viewport intersection check with optional warning message.
      */
-    public static @Nullable Chunk<String> getChunk(AbstractDelta<String> delta, boolean originalSide)
-    {
-        if (originalSide)
-            return delta.getSource();
+    public record IntersectionResult(boolean intersects, @Nullable String warning) {}
 
-        // Revised side – prefer target but fall back to source so deleted lines
-        // still get a highlight placeholder on the right.
-        Chunk<String> target = delta.getTarget();
-        return target != null ? target : delta.getSource();
+    /**
+     * Returns the chunk for the specified side without any fallback logic.
+     */
+    public static @Nullable Chunk<String> getRelevantChunk(AbstractDelta<String> delta, boolean originalSide)
+    {
+        return originalSide ? delta.getSource() : delta.getTarget();
     }
 
     /**
-     * Decide if a delta’s chunk intersects the viewport [startLine,endLine].
+     * Returns the chunk to use for highlighting purposes. For revised side DELETE deltas,
+     * falls back to source chunk for positioning since target has size 0.
+     */
+    public static @Nullable Chunk<String> getChunkForHighlight(AbstractDelta<String> delta, boolean originalSide)
+    {
+        var chunk = getRelevantChunk(delta, originalSide);
+        // For revised side DELETE deltas (empty target), use source chunk for positioning
+        return (chunk != null && chunk.size() == 0 && !originalSide) ? delta.getSource() : chunk;
+    }
+
+    /**
+     * Decide if a delta's chunk is visible in the viewport [startLine,endLine].
      *
      * This contains **no** Swing or document logic – it only needs the line
      * numbers – so it can safely be called from any thread.
      */
-    public static boolean deltaIntersectsViewport(AbstractDelta<String> delta,
-                                                  int startLine,
-                                                  int endLine,
-                                                  boolean originalSide)
+    public static IntersectionResult isChunkVisible(AbstractDelta<String> delta,
+                                                    int startLine,
+                                                    int endLine,
+                                                    boolean originalSide)
     {
-        Chunk<String> chunk = getChunk(delta, originalSide);
+        if (startLine > endLine)
+            return new IntersectionResult(false, "Invalid range: startLine " + startLine + " > endLine " + endLine);
+
+        Chunk<String> chunk = getChunkForHighlight(delta, originalSide);
         if (chunk == null)
-            return false;   // nothing to draw on this side
+            return new IntersectionResult(false, null);   // nothing to draw on this side
 
         int pos  = chunk.getPosition();
         int size = chunk.size();
 
         if (pos < 0)
-        {
-            logger.warn("Delta chunk has invalid (negative) position {} – skipping highlight", pos);
-            return false;
-        }
+            return new IntersectionResult(false, "Invalid negative position: " + pos);
 
         int deltaStart = pos;
         int deltaEnd   = pos + Math.max(1, size) - 1;
-        return !(deltaEnd < startLine || deltaStart > endLine);
+        boolean intersects = !(deltaEnd < startLine || deltaStart > endLine);
+        return new IntersectionResult(intersects, null);
     }
 }

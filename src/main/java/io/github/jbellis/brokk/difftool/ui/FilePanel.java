@@ -466,18 +466,22 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     private boolean deltaIntersectsViewport(AbstractDelta<String> delta, int startLine, int endLine)
     {
         boolean originalSide = BufferDocumentIF.ORIGINAL.equals(name);
-        boolean intersects = DiffHighlightUtil.deltaIntersectsViewport(delta, startLine, endLine, originalSide);
+        var result = DiffHighlightUtil.isChunkVisible(delta, startLine, endLine, originalSide);
+
+        // Log any warnings from the utility
+        if (result.warning() != null)
+            logger.warn("{}: {}", name, result.warning());
 
         // Preserve existing detailed TRACE output for diagnostics
         if (logger.isTraceEnabled())
         {
-            var chunk = DiffHighlightUtil.getChunk(delta, originalSide);
+            var chunk = DiffHighlightUtil.getChunkForHighlight(delta, originalSide);
             int pos  = chunk == null ? -1 : chunk.getPosition();
             int size = chunk == null ? 0  : chunk.size();
             logger.trace("{}: Delta intersection check: pos={}, size={}, viewport=[{}-{}], intersects={}",
-                         name, pos, size, startLine, endLine, intersects);
+                         name, pos, size, startLine, endLine, result.intersects());
         }
-        return intersects;
+        return result.intersects();
     }
 
     /**
