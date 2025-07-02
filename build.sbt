@@ -4,7 +4,7 @@ import sbtbuildinfo.BuildInfoPlugin
 import sbtbuildinfo.BuildInfoPlugin.autoImport.*
 
 scalaVersion := "3.6.4"
-version := "0.12.0-preview"
+version := "0.12.0-preview-2"
 organization := "io.github.jbellis"
 name := "brokk"
 
@@ -185,7 +185,6 @@ javaOptions ++= Seq(
   "-ea",
   "--add-modules=jdk.incubator.vector",
   "-Dbrokk.devmode=true",
-  "-Dbrokk.upgradeagenttab=true"
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")

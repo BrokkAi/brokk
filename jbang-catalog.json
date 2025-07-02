@@ -25,12 +25,11 @@
       ]
     },
 
-    "brokk-0.12-0-preview": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.0-preview/brokk-assembly-0.12.0-preview.jar",
+    "brokk-0.12-0-preview-2": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.0-preview-2/brokk-assembly-0.12.0-preview-2.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector",
-        "-Dbrokk.upgradeagenttab=true"
       ]
     }
   },

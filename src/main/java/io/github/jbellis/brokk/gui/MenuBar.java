@@ -262,17 +262,15 @@ public class MenuBar {
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
 
-        if (System.getProperty("brokk.upgradeagenttab", "false").equals("true")) {
-            var upgradeAgentItem = new JMenuItem("Upgrade Agent...");
-            upgradeAgentItem.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
-                    dialog.setVisible(true);
-                });
+        var upgradeAgentItem = new JMenuItem("Upgrade Agent...");
+        upgradeAgentItem.addActionListener(e -> {
+            SwingUtilities.invokeLater(() -> {
+                var dialog = new UpgradeAgentDialog(chrome.getFrame(), chrome);
+                dialog.setVisible(true);
             });
-            upgradeAgentItem.setEnabled(true);
-            toolsMenu.add(upgradeAgentItem);
-        }
+        });
+        upgradeAgentItem.setEnabled(true);
+        toolsMenu.add(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) {
             menuBar.add(toolsMenu);
         }
