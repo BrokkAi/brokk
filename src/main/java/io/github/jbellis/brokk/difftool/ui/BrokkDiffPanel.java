@@ -336,7 +336,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware {
             }
 
             var fragment = new ContextFragment.StringFragment(contextManager, diffText, description, syntaxStyle);
-            contextManager.submitBackgroundTask("Adding diff to context", () -> {
+            contextManager.submitContextTask("Adding diff to context", () -> {
                 contextManager.addVirtualFragment(fragment);
                 contextManager.getIo().systemOutput("Added captured diff to context: " + description);
             });
