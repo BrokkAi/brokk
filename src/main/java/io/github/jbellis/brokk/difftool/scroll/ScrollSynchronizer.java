@@ -32,7 +32,7 @@ public class ScrollSynchronizer
     private @Nullable AdjustmentListener verticalAdjustmentListener;
 
     // State management and debouncing utilities
-    private final ScrollSyncState syncState = new ScrollSyncState();
+    private final ScrollSyncState syncState;
     private final ScrollDebouncer debouncer;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
@@ -41,10 +41,31 @@ public class ScrollSynchronizer
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
 
-        // Initialize debouncer for scroll synchronization
-        debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
+        // Initialize state management utilities
+        this.syncState = new ScrollSyncState();
+        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
 
         init();
+    }
+
+    /**
+     * Constructor for testing that skips initialization requiring real UI components.
+     * Package-private visibility for test access only.
+     */
+    ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight, boolean skipInit)
+    {
+        this.diffPanel = diffPanel;
+        this.filePanelLeft = filePanelLeft;
+        this.filePanelRight = filePanelRight;
+
+        // Initialize state management utilities
+        this.syncState = new ScrollSyncState();
+        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
+
+        // Skip init() if requested (for testing line mapping algorithm only)
+        if (!skipInit) {
+            init();
+        }
     }
 
     private void init()
@@ -100,29 +121,19 @@ public class ScrollSynchronizer
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
-                    
-                    logger.debug("Scroll event: {} panel, programmatic={}, typing=left:{}/right:{}", 
-                                leftScrolled ? "LEFT" : "RIGHT", 
-                                syncState.isProgrammaticScroll(),
-                                filePanelLeft.isActivelyTyping(), 
-                                filePanelRight.isActivelyTyping());
 
                     // Skip if this is a programmatic scroll we initiated
                     if (syncState.isProgrammaticScroll()) {
-                        logger.debug("Skipping scroll sync - programmatic scroll in progress");
                         return;
                     }
 
                     // Suppress scroll sync if either panel is actively typing to prevent flickering
                     if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
-                        logger.debug("Skipping scroll sync - typing in progress");
                         return;
                     }
 
                     // Track user scrolling to prevent conflicts
                     syncState.recordUserScroll();
-
-                    logger.debug("Submitting scroll sync request for {} panel", leftScrolled ? "LEFT" : "RIGHT");
 
                     // Submit debounced scroll request
                     var request = new ScrollDebouncer.DebounceRequest<>(
@@ -143,8 +154,6 @@ public class ScrollSynchronizer
      */
     private void scroll(boolean leftScrolled)
     {
-        logger.debug("scroll() called: leftScrolled={}", leftScrolled);
-        
         if (!SwingUtilities.isEventDispatchThread()) {
             SwingUtilities.invokeLater(() -> scroll(leftScrolled));
             return;
@@ -159,14 +168,12 @@ public class ScrollSynchronizer
     {
         // Additional check: don't scroll if either panel is typing
         if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
-            logger.trace("Suppressing scroll sync during active typing");
             return;
         }
 
         // Check if sync should be suppressed using the state utility
         var suppressionResult = syncState.shouldSuppressSync(200);
         if (suppressionResult.shouldSuppress()) {
-            logger.trace("Suppressing scroll sync: {}", suppressionResult.reason());
             return;
         }
 
@@ -256,16 +263,12 @@ public class ScrollSynchronizer
 
     public void scrollToLine(FilePanel fp, int line)
     {
-        logger.debug("scrollToLine called: panel={}, line={}", fp == filePanelLeft ? "LEFT" : "RIGHT", line);
-        
         var bd = fp.getBufferDocument();
         if (bd == null) {
-            logger.debug("scrollToLine: no buffer document, skipping");
             return;
         }
         var offset = bd.getOffsetForLine(line);
         if (offset < 0) {
-            logger.debug("scrollToLine: invalid offset {} for line {}, skipping", offset, line);
             return;
         }
 
@@ -279,7 +282,6 @@ public class ScrollSynchronizer
                 var editor = fp.getEditor();
                 var rect = SwingUtil.modelToView(editor, offset);
                 if (rect == null) {
-                    logger.debug("scrollToLine: modelToView returned null for offset {}", offset);
                     return;
                 }
 
@@ -298,16 +300,12 @@ public class ScrollSynchronizer
                 finalY = Math.min(finalY, maxY);
                 
                 var p = new Point(rect.x, finalY);
-                logger.debug("scrollToLine: line {} -> originalY={}, viewportHeight={}, centeredY={}, finalY={}, position=({}, {})", 
-                           line, originalY, viewportHeight, centeredY, finalY, p.x, p.y);
                 
                 // Set viewport position
                 viewport.setViewPosition(p);
                 
                 // Force a repaint to ensure the scroll is visible
                 viewport.repaint();
-                
-                logger.debug("scrollToLine completed successfully for line {}", line);
 
                 // Only invalidate viewport cache if not actively typing to prevent flicker
                 if (!fp.isActivelyTyping()) {
@@ -325,7 +323,7 @@ public class ScrollSynchronizer
                 resetNavTimer.start();
 
             } catch (BadLocationException ex) {
-                logger.error("scrollToLine: BadLocationException for line {}, offset {}", line, offset, ex);
+                logger.error("scrollToLine error for line {}: {}", line, ex.getMessage());
                 fp.setNavigatingToDiff(false); // Reset flag on error
             }
         });
@@ -356,17 +354,22 @@ public class ScrollSynchronizer
             // Scroll left panel to source line
             scrollToLine(filePanelLeft, sourceLine);
             
-            // Calculate corresponding line on right side and scroll there too
-            var patch = diffPanel.getPatch();
-            if (patch != null) {
-                int mappedLine = approximateLineMapping(patch, sourceLine, true);
-                logger.debug("Navigation: mapped line {} -> {}, scrolling right panel", sourceLine, mappedLine);
-                scrollToLine(filePanelRight, mappedLine);
+            // For navigation, we want to scroll to the corresponding target of this specific delta
+            var target = delta.getTarget();
+            int targetLine;
+            
+            if (target != null && target.size() > 0) {
+                // Normal case: target chunk exists, scroll to its position
+                targetLine = target.getPosition();
+                logger.debug("Navigation: delta has target at line {}, scrolling right panel", targetLine);
             } else {
-                logger.debug("Navigation: no patch available, scrolling right panel to same line {}", sourceLine);
-                // Fallback: scroll to same line if no patch available
-                scrollToLine(filePanelRight, sourceLine);
+                // DELETE case: target is empty, scroll to where the deletion would be
+                // Use the target position (where the deletion happened in revised file)
+                targetLine = target != null ? target.getPosition() : sourceLine;
+                logger.debug("Navigation: DELETE delta, scrolling right panel to target position {}", targetLine);
             }
+            
+            scrollToLine(filePanelRight, targetLine);
         } finally {
             // Re-enable scroll sync after a short delay to allow navigation to complete
             Timer enableSyncTimer = new Timer(100, e -> {
