@@ -128,7 +128,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
      * Encapsulates the per-file processing logic previously inlined in SwingWorker.
      */
     private FileProcessingResult processSingleFile(ProjectFile file,
-                                                   ContextManager contextManager,
+                                                   ContextManager cm,
                                                    StreamingChatLanguageModel model,
                                                    String instructions,
                                                    boolean includeWorkspace,
@@ -147,7 +147,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
             return new FileProcessingResult(file, errorMessage, "");
         }
 
-        var agent = new CodeAgent(contextManager, model, dialogConsoleIO);
+        var agent = new CodeAgent(cm, model, dialogConsoleIO);
 
         List<ChatMessage> readOnlyMessages = new ArrayList<>();
         try {
@@ -157,7 +157,8 @@ public class UpgradeAgentProgressDialog extends JDialog {
                 dialogConsoleIO.systemOutput("Including workspace contents in context.");
             }
             if (relatedK != null) {
-                var acFragment = ctx.buildAutoContext(relatedK);
+                // can't use `ctx` here b/c frozen context does not implement `sources` for buildAutoContext
+                var acFragment = cm.liveContext().buildAutoContext(relatedK);
                 if (!acFragment.text().isBlank()) {
                     var msgText = """
                                   <related_classes>
@@ -187,7 +188,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                 String commandOutputText;
                 try {
                     String output = Environment.instance.runShellCommand(finalCommand,
-                                                                         contextManager.getProject().getRoot(),
+                                                                         cm.getProject().getRoot(),
                                                                          line -> {
                                                                          }); // No live consumer for now
                     commandOutputText = """
@@ -260,8 +261,8 @@ public class UpgradeAgentProgressDialog extends JDialog {
         String finalLlmOutput = dialogConsoleIO.getLlmOutput();
         if (!contextFilter.isBlank() && !finalLlmOutput.isBlank()) {
             try {
-                var quickestModel = contextManager.getService().quickestModel();
-                var filterLlm     = contextManager.getLlm(quickestModel, "ContextFilter");
+                var quickestModel = cm.getService().quickestModel();
+                var filterLlm     = cm.getLlm(quickestModel, "ContextFilter");
 
                 boolean keep = RelevanceClassifier.isRelevant(filterLlm, contextFilter, finalLlmOutput);
                 if (!keep) {
