@@ -29,7 +29,8 @@
       "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.0-preview/brokk-assembly-0.12.0-preview.jar",
       "java": "21",
       "java-options": [
-        "--add-modules=jdk.incubator.vector"
+        "--add-modules=jdk.incubator.vector",
+        "-Dbrokk.upgradeagenttab=true"
       ]
     }
   },
