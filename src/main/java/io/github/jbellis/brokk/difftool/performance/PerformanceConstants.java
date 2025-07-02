@@ -26,7 +26,7 @@ public final class PerformanceConstants {
     public static final int TYPING_STATE_TIMEOUT_MS = 150;
 
     // Scroll synchronization
-    public static final int SCROLL_SYNC_DEBOUNCE_MS = 50;
+    public static final int SCROLL_SYNC_DEBOUNCE_MS = 100;
 
     // Navigation highlighting reset delay
     public static final int NAVIGATION_RESET_DELAY_MS = 30;
