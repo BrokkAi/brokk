@@ -52,23 +52,7 @@ public class CommitDialog extends JDialog {
         commitMessageArea.setEnabled(false);
         commitMessageArea.setText(PLACEHOLDER_INFERRING);
 
-        var messageScrollPane = new JScrollPane(commitMessageArea);
-
-        // File list panel
-        var fileListModel = new DefaultListModel<String>();
-        filesToCommit.stream()
-                .map(ProjectFile::toString)
-                .sorted()
-                .forEach(fileListModel::addElement);
-        var fileList = new JList<>(fileListModel);
-        fileList.setToolTipText("Files that will be included in this commit");
-
-        var fileListPanel = new JPanel(new BorderLayout(0, 5));
-        fileListPanel.add(new JLabel("Files to Commit (" + filesToCommit.size() + "):"), BorderLayout.NORTH);
-        fileListPanel.add(new JScrollPane(fileList), BorderLayout.CENTER);
-
-        var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, messageScrollPane, fileListPanel);
-        splitPane.setResizeWeight(0.65);
+        JScrollPane scrollPane = new JScrollPane(commitMessageArea);
 
         commitButton = new JButton("Commit");
         commitButton.setEnabled(false); // Initially disabled until message is ready or user types
@@ -84,7 +68,7 @@ public class CommitDialog extends JDialog {
         // Add padding around the dialog content
         JPanel contentPanel = new JPanel(new BorderLayout(0, 10));
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        contentPanel.add(splitPane, BorderLayout.CENTER);
+        contentPanel.add(scrollPane, BorderLayout.CENTER);
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(contentPanel, BorderLayout.CENTER);
