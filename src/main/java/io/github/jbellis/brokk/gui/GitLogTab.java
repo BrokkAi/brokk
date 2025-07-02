@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.git.CommitInfo;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -75,7 +74,7 @@ public class GitLogTab extends JPanel {
 
         var project = contextManager.getProject();
         // Determine if the "Create PR" button should be shown, mirroring logic in GitPanel for the PR tab.
-        var showCreatePrButton = project.isGitHubRepo() && GitHubAuth.tokenPresent(project);
+        var showCreatePrButton = project.isGitHubRepo();
         var panelOptions = new GitCommitBrowserPanel.Options(true, true, showCreatePrButton);
 
         this.gitCommitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager, this::reloadCurrentBranchOrContext, panelOptions);

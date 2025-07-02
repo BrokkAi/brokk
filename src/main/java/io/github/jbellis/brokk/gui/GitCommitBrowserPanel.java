@@ -2,6 +2,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.GitHubAuth;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.difftool.utils.Colors;
 import io.github.jbellis.brokk.git.GitRepo;
@@ -23,6 +24,7 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -1099,12 +1101,30 @@ public class GitCommitBrowserPanel extends JPanel {
             return new ButtonConfig(false, "", null);
         }
 
-        boolean enabled = viewKind == ViewKind.LOCAL; // PRs only for local branches
-        String tooltip = enabled
-                         ? "Create a pull request for branch " + branch
-                         : "Cannot create PR for " + viewKind.name().toLowerCase(Locale.ROOT) + " views";
+        if (viewKind != ViewKind.LOCAL) {
+            return new ButtonConfig(false, "Cannot create PR for " + viewKind.name().toLowerCase(Locale.ROOT) + " views", null);
+        }
+
+        // Token check first, as it's cheap and local.
+        if (!GitHubAuth.tokenPresent(contextManager.getProject())) {
+            return new ButtonConfig(false, "A GitHub token is required to create pull requests. Please configure it in settings.", null);
+        }
+
+        // Now the expensive check which requires network.
+        try {
+            if (!GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasWriteAccess()) {
+                return new ButtonConfig(false, "Your GitHub token does not have write permissions for this repository.", null);
+            }
+        } catch (IOException e) {
+            logger.warn("Could not check GitHub repository permissions (e.g. invalid token or network issue). Disabling Create PR button.", e);
+            // Fail safe: if we can't check permissions, assume we don't have them. This also handles cases where token is invalid.
+            return new ButtonConfig(false, "Your GitHub token does not have write permissions for this repository.", null);
+        }
+
+        // If all checks pass
+        String tooltip = "Create a pull request for branch " + branch;
         // Listener for createPrButton is static and set during initialization
-        return new ButtonConfig(enabled, tooltip, null);
+        return new ButtonConfig(true, tooltip, null);
     }
 
     private void handlePullAction(String branchName) {
