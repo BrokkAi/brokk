@@ -286,7 +286,8 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                       boolean includeWorkspace,
                                       PostProcessingOption runOption,
                                       String contextFilter,
-                                      boolean includeParallelOutput,
+                                      String parallelOutputMode,
+                                      boolean buildFirst,
                                       String postProcessingInstructions)
     {
         super(owner, "Upgrade Agent Progress", true);
@@ -544,30 +545,50 @@ public class UpgradeAgentProgressDialog extends JDialog {
                 }
 
                 String buildFailureText = "";
-                var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
-                if (verificationCommand != null && !verificationCommand.isBlank()) {
-                    try {
-                        mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-                        mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
-                        Environment.instance.runShellCommand(verificationCommand,
-                                                             contextManager.getProject().getRoot(),
-                                                             line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
-                    } catch (InterruptedException e) {
-                        chrome.llmOutput("# Build canceled", ChatMessageType.AI);
-                        return;
-                    } catch (Environment.SubprocessException e) {
-                        buildFailureText = e.getMessage() + "\n\n" + e.getOutput();
+                if (buildFirst) {
+                    var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
+                    if (verificationCommand != null && !verificationCommand.isBlank()) {
+                        try {
+                            mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+                            mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+                            Environment.instance.runShellCommand(verificationCommand,
+                                                                 contextManager.getProject().getRoot(),
+                                                                 line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                            buildFailureText = "The build succeeded.";
+                        } catch (InterruptedException e) {
+                            chrome.llmOutput("# Build canceled", ChatMessageType.AI);
+                            return;
+                        } catch (Environment.SubprocessException e) {
+                            buildFailureText = e.getMessage() + "\n\n" + e.getOutput();
+                        }
                     }
                 }
 
                 if (postProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
                     logger.debug("Build successful or not run, and parallel output processing was not requested");
+                    return;
                 }
 
                 var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-                var parallelDetails = includeParallelOutput
-                                      ? "The output from the parallel processing was:\n```\n%s```".formatted(Messages.getText(result.output().messages().getLast()))
-                                      : "The task was applied to the following files:\n```\n%s```".formatted(files);
+
+                var parallelDetails = switch (parallelOutputMode) {
+                    case "none" -> "The task was applied to the following files:\n```\n%s```".formatted(files);
+                    case "changed" -> {
+                        var output = Messages.getText(result.output().messages().getLast());
+                        if (output.isBlank()) {
+                            yield "No changes were made to any files.";
+                        }
+                        yield "The parallel processing made changes to the following files:\n```\n%s```".formatted(output);
+                    }
+                    default -> { // "all"
+                        var output = Messages.getText(result.output().messages().getLast());
+                        if (output.isBlank()) {
+                            yield "No output was produced from the parallel processing.";
+                        }
+                        yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                    }
+                };
+
                 var effectiveGoal = postProcessingInstructions.isBlank()
                                     ? "Please fix the problems."
                                     : "Here are the postprocessing instructions:\n```\n%s```".formatted(postProcessingInstructions);
@@ -580,7 +601,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
                                         
                                         %s
                                         
-                                        Here is the output from the verification command:
+                                        Build status:
                                         ```
                                         %s
                                         ```

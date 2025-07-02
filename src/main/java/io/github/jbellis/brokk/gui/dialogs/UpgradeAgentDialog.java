@@ -27,7 +27,11 @@ import java.util.*;
 import java.util.List;
 
 import io.github.jbellis.brokk.gui.dialogs.UpgradeAgentProgressDialog.PostProcessingOption;
+
 import java.util.concurrent.CompletableFuture;
+
+import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
+import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
 
 public class UpgradeAgentDialog extends JDialog {
     private final Chrome chrome;
@@ -48,11 +52,15 @@ public class UpgradeAgentDialog extends JDialog {
 
     // Post-processing controls
     private JComboBox<String> runPostProcessCombo;
-    private JCheckBox includeParallelOutputCheckbox;
+    private ButtonGroup parallelOutputGroup;
+    private JRadioButton includeNoneRadio;
+    private JRadioButton includeAllRadio;
+    private JRadioButton includeChangedRadio;
+    private JCheckBox buildFirstCheckbox;
     private JTextField contextFilterTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
     private static final int TOKEN_SAFETY_MARGIN = 32768;
-    
+
     private FileSelectionPanel fileSelectionPanel;
     private JTable selectedFilesTable;
     private javax.swing.table.DefaultTableModel tableModel;
@@ -76,9 +84,10 @@ public class UpgradeAgentDialog extends JDialog {
         }
     }
 
-    /** Icon wrapper that paints its delegate scaled by the given factor. */
-    private static final class ScaledIcon implements Icon
-    {
+    /**
+     * Icon wrapper that paints its delegate scaled by the given factor.
+     */
+    private static final class ScaledIcon implements Icon {
         private final Icon delegate;
         private final double factor;
         private final int width;
@@ -87,9 +96,9 @@ public class UpgradeAgentDialog extends JDialog {
         private ScaledIcon(Icon delegate, double factor)
         {
             this.delegate = Objects.requireNonNull(delegate, "delegate");
-            this.factor   = factor;
-            this.width    = (int) Math.round(delegate.getIconWidth()  * factor);
-            this.height   = (int) Math.round(delegate.getIconHeight() * factor);
+            this.factor = factor;
+            this.width = (int) Math.round(delegate.getIconWidth() * factor);
+            this.height = (int) Math.round(delegate.getIconHeight() * factor);
         }
 
         @Override
@@ -106,10 +115,14 @@ public class UpgradeAgentDialog extends JDialog {
         }
 
         @Override
-        public int getIconWidth()  { return width;  }
+        public int getIconWidth() {
+            return width;
+        }
 
         @Override
-        public int getIconHeight() { return height; }
+        public int getIconHeight() {
+            return height;
+        }
     }
 
     public UpgradeAgentDialog(Frame owner, Chrome chrome) {
@@ -173,9 +186,9 @@ public class UpgradeAgentDialog extends JDialog {
         languageComboBox = new JComboBox<>();
         languageComboBox.addItem(ALL_LANGUAGES_OPTION);
         chrome.getProject().getAnalyzerLanguages().stream()
-              .map(Language::toString)
-              .sorted()
-              .forEach(languageComboBox::addItem);
+                .map(Language::toString)
+                .sorted()
+                .forEach(languageComboBox::addItem);
         languageComboBox.setSelectedItem(ALL_LANGUAGES_OPTION);
         entireProjectPanel.add(languageComboBox, entireGbc);
 
@@ -196,9 +209,10 @@ public class UpgradeAgentDialog extends JDialog {
                 File::isFile,
                 CompletableFuture.completedFuture(
                         chrome.getProject().getRepo().getTrackedFiles().stream()
-                              .map(ProjectFile::absPath).map(Path::toAbsolutePath).toList()),
+                                .map(ProjectFile::absPath).map(Path::toAbsolutePath).toList()),
                 true, // multi-select
-                __ -> {},
+                __ -> {
+                },
                 true, // include project files in autocomplete
                 "Ctrl-Enter to add files to the list below."
         );
@@ -233,12 +247,14 @@ public class UpgradeAgentDialog extends JDialog {
                     showPopup(e);
                 }
             }
+
             @Override
             public void mouseReleased(MouseEvent e) {
                 if (e.isPopupTrigger()) {
                     showPopup(e);
                 }
             }
+
             private void showPopup(MouseEvent e) {
                 int row = selectedFilesTable.rowAtPoint(e.getPoint());
                 if (row >= 0) {
@@ -268,9 +284,15 @@ public class UpgradeAgentDialog extends JDialog {
         listFilesTextArea = new JTextArea(5, 50);
         listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) { updateFileListStatus(); }
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                updateFileListStatus();
+            }
+
             @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) { updateFileListStatus(); }
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                updateFileListStatus();
+            }
+
             @Override
             public void changedUpdate(javax.swing.event.DocumentEvent e) { /* Not needed for plain text */ }
         });
@@ -283,7 +305,6 @@ public class UpgradeAgentDialog extends JDialog {
         fileListStatusLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
         listFilesCardPanel.add(fileListStatusLabel, BorderLayout.SOUTH);
         scopeCardsPanel.add(listFilesCardPanel, "LIST");
-
 
 
         // ----------------------------------------------------
@@ -396,17 +417,21 @@ public class UpgradeAgentDialog extends JDialog {
         parallelProcessingPanel.add(tokenWarningLabel, paraGBC);
 
 
-        paraGBC.gridy++; paraGBC.gridx = 0; paraGBC.anchor = GridBagConstraints.EAST; paraGBC.weightx = 0;
+        paraGBC.gridy++;
+        paraGBC.gridx = 0;
+        paraGBC.anchor = GridBagConstraints.EAST;
+        paraGBC.weightx = 0;
         parallelProcessingPanel.add(new JLabel("Per-file command"), paraGBC);
-        paraGBC.gridx = 1; paraGBC.anchor = GridBagConstraints.WEST;
+        paraGBC.gridx = 1;
+        paraGBC.anchor = GridBagConstraints.WEST;
         var perFileIconCtx = new JLabel(smallInfoIcon);
         perFileIconCtx.setToolTipText("""
-                                   <html>
-                                   Command to run for each file.<br>
-                                   Use {{filepath}} for the file path. Blank for no command.
-                                   <br>The output will be sent to the LLM with each target file.
-                                   </html>
-                                   """);
+                                      <html>
+                                      Command to run for each file.<br>
+                                      Use {{filepath}} for the file path. Blank for no command.
+                                      <br>The output will be sent to the LLM with each target file.
+                                      </html>
+                                      """);
         parallelProcessingPanel.add(perFileIconCtx, paraGBC);
         // Per-file command input on the same row, spanning the remaining column(s)
         paraGBC.gridx = 2;
@@ -419,9 +444,13 @@ public class UpgradeAgentDialog extends JDialog {
         paraGBC.fill = GridBagConstraints.NONE;
         paraGBC.gridwidth = 1;
 
-        paraGBC.gridy++; paraGBC.gridx = 0; paraGBC.weightx = 0; paraGBC.anchor = GridBagConstraints.EAST;
+        paraGBC.gridy++;
+        paraGBC.gridx = 0;
+        paraGBC.weightx = 0;
+        paraGBC.anchor = GridBagConstraints.EAST;
         parallelProcessingPanel.add(new JLabel("Related files"), paraGBC);
-        paraGBC.gridx = 1; paraGBC.anchor = GridBagConstraints.WEST;
+        paraGBC.gridx = 1;
+        paraGBC.anchor = GridBagConstraints.WEST;
         var relatedIcon = new JLabel(smallInfoIcon);
         relatedIcon.setToolTipText("Includes summaries of the most closely related files for each target file");
         parallelProcessingPanel.add(relatedIcon, paraGBC);
@@ -431,9 +460,12 @@ public class UpgradeAgentDialog extends JDialog {
         relatedClassesCombo.setSelectedItem("0");
         parallelProcessingPanel.add(relatedClassesCombo, paraGBC);
 
-        paraGBC.gridy++; paraGBC.gridx = 0; paraGBC.anchor = GridBagConstraints.EAST;
+        paraGBC.gridy++;
+        paraGBC.gridx = 0;
+        paraGBC.anchor = GridBagConstraints.EAST;
         parallelProcessingPanel.add(new JLabel("Workspace"), paraGBC);
-        paraGBC.gridx = 1; paraGBC.anchor = GridBagConstraints.WEST;
+        paraGBC.gridx = 1;
+        paraGBC.anchor = GridBagConstraints.WEST;
         var wsIcon = new JLabel(smallInfoIcon);
         wsIcon.setToolTipText("Include the current Workspace contents with each file");
         parallelProcessingPanel.add(wsIcon, paraGBC);
@@ -470,37 +502,114 @@ public class UpgradeAgentDialog extends JDialog {
         ppGBC.gridwidth = 1;
 
         // --- run-choice ---
+        // ------------------------------------------------------------------
+        //  Action panel (runPostProcessCombo, model label, build checkbox)
+        // ------------------------------------------------------------------
         ppGBC.gridy++;
         ppGBC.gridx = 0;
-        ppGBC.anchor = GridBagConstraints.EAST;
-        ppPanel.add(new JLabel("Action"), ppGBC);
+        ppGBC.gridwidth = 3;
+        var actionPanel = new JPanel(new GridBagLayout());
+        actionPanel.setBorder(BorderFactory.createTitledBorder("Action"));
+        GridBagConstraints actGbc = new GridBagConstraints();
+        actGbc.insets = new Insets(5, 5, 5, 5);
+        actGbc.anchor = GridBagConstraints.WEST;
+        actGbc.fill = GridBagConstraints.NONE;
+        actGbc.gridx = 0;
+        actGbc.gridy = 0;
 
-        ppGBC.gridx = 2;
-        ppGBC.anchor = GridBagConstraints.WEST;
+        var noneInfoIcon = new JLabel(smallInfoIcon);
+        noneInfoIcon.setToolTipText("Optionally select Architect or Ask to run after parallel processing");
+
+        actGbc.gridx = 0;
+        actGbc.gridy = 0;
+        actGbc.weightx = 0.0;
+        actionPanel.add(noneInfoIcon, actGbc);
+
+        /* combo box – stretches to fill remaining width */
         runPostProcessCombo = new JComboBox<>(new String[]{"None", "Architect", "Ask"});
-        ppPanel.add(runPostProcessCombo, ppGBC);
+        actGbc.gridx = 1;
+        actGbc.weightx = 1.0;
+        actionPanel.add(runPostProcessCombo, actGbc);
 
-        ppGBC.gridy++;
-        ppGBC.gridx = 2;
+        /* model label on its own row, aligned with column 1 */
+        actGbc.gridy++;
+        actGbc.gridx = 1;
         postProcessingModelLabel = new JLabel(" ");
-        ppPanel.add(postProcessingModelLabel, ppGBC);
+        actionPanel.add(postProcessingModelLabel, actGbc);
 
-        ppGBC.gridy++;
-        ppGBC.gridx = 2;
-        includeParallelOutputCheckbox = new JCheckBox("Include parallel output");
-        includeParallelOutputCheckbox.setSelected(true);
-        ppPanel.add(includeParallelOutputCheckbox, ppGBC);
+        /* build-first checkbox on its own row, also in column 1 */
+        actGbc.gridy++;
+        buildFirstCheckbox = new JCheckBox("Build project first");
+        buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+        buildFirstCheckbox.setEnabled(false);
+        actionPanel.add(buildFirstCheckbox, actGbc);
 
-        // ---- Context filter row ------------------------------------
+        ppPanel.add(actionPanel, ppGBC);
+        ppGBC.gridwidth = 1;
+
+        // ------------------------------------------------------------------
+        //  Parallel-processing output panel (include radios + filter)
+        // ------------------------------------------------------------------
         ppGBC.gridy++;
         ppGBC.gridx = 0;
-        ppGBC.anchor = GridBagConstraints.EAST;
-        ppPanel.add(new JLabel("Filter"), ppGBC);
+        ppGBC.gridwidth = 3;
+        var outputPanel = new JPanel(new GridBagLayout());
+        outputPanel.setBorder(BorderFactory.createTitledBorder("Parallel processing output"));
+        GridBagConstraints opGBC = new GridBagConstraints();
+        opGBC.insets = new Insets(5, 5, 5, 5);
+        opGBC.anchor = GridBagConstraints.WEST;
+        opGBC.fill = GridBagConstraints.NONE;
 
-        ppGBC.gridx = 2;
-        ppGBC.anchor = GridBagConstraints.WEST;
+        parallelOutputGroup = new ButtonGroup();
+        includeNoneRadio = new JRadioButton("Include none");
+        includeAllRadio = new JRadioButton("Include all");
+        includeChangedRadio = new JRadioButton("Include changed files");
+        parallelOutputGroup.add(includeNoneRadio);
+        parallelOutputGroup.add(includeAllRadio);
+        parallelOutputGroup.add(includeChangedRadio);
+
+        int opRow = 0;
+
+        /* Radios */
+        opGBC.gridx = 0;
+        opGBC.gridy = opRow++;
+        opGBC.gridwidth = 3;
+        outputPanel.add(includeNoneRadio, opGBC);
+        opGBC.gridy = opRow++;
+        outputPanel.add(includeAllRadio, opGBC);
+        opGBC.gridy = opRow++;
+        outputPanel.add(includeChangedRadio, opGBC);
+
+        /* Filter row – label */
+        GridBagConstraints filterLabelGbc = new GridBagConstraints();
+        filterLabelGbc.insets = new Insets(5, 5, 5, 5);
+        filterLabelGbc.gridx = 0;
+        filterLabelGbc.gridy = opRow;
+        filterLabelGbc.anchor = GridBagConstraints.EAST;
+        outputPanel.add(new JLabel("Filter"), filterLabelGbc);
+
+        /* Filter row – info bubble */
+        GridBagConstraints filterInfoGbc = new GridBagConstraints();
+        filterInfoGbc.insets = new Insets(5, H_GLUE, 5, 5);
+        filterInfoGbc.gridx = 1;
+        filterInfoGbc.gridy = opRow;
+        filterInfoGbc.anchor = GridBagConstraints.WEST;
+        var filterInfo = new JLabel(smallInfoIcon);
+        filterInfo.setToolTipText("Only include parallel processing for files whose output passes this natural language classifier");
+        outputPanel.add(filterInfo, filterInfoGbc);
+
+        /* Filter row – input field */
+        GridBagConstraints filterFieldGbc = new GridBagConstraints();
+        filterFieldGbc.insets = new Insets(5, H_GLUE, 5, 5);
+        filterFieldGbc.gridx = 2;
+        filterFieldGbc.gridy = opRow;
+        filterFieldGbc.weightx = 1.0;
+        filterFieldGbc.fill = GridBagConstraints.HORIZONTAL;
         contextFilterTextField = new JTextField(20);
-        ppPanel.add(contextFilterTextField, ppGBC);
+        outputPanel.add(contextFilterTextField, filterFieldGbc);
+
+        ppPanel.add(outputPanel, ppGBC);
+        ppGBC.gridwidth = 1;
 
         // --- spacer ---
         var ppSpacer = new GridBagConstraints();
@@ -520,14 +629,32 @@ public class UpgradeAgentDialog extends JDialog {
             postProcessingScrollPane.setEnabled(!none);
 
             if (ask) {
-                includeParallelOutputCheckbox.setEnabled(false);
-                includeParallelOutputCheckbox.setSelected(true);
+                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
+                        .determineVerificationCommand(chrome.getContextManager());
+                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+                buildFirstCheckbox.setEnabled(hasVerification);
+                buildFirstCheckbox.setSelected(false); // default off for Ask
+                if (!hasVerification) {
+                    buildFirstCheckbox.setToolTipText("No build/verification command available");
+                }
+                includeAllRadio.setSelected(true);
             } else if (architect) {
-                includeParallelOutputCheckbox.setEnabled(true);
-                includeParallelOutputCheckbox.setSelected(true); // Default to checked for Architect
+                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
+                        .determineVerificationCommand(chrome.getContextManager());
+                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+                buildFirstCheckbox.setEnabled(hasVerification);
+                buildFirstCheckbox.setSelected(hasVerification);
+                if (!hasVerification) {
+                    buildFirstCheckbox.setToolTipText("No build/verification command available");
+                }
+                includeChangedRadio.setSelected(true);
+                if (postProcessingInstructionsArea.getText().trim().isEmpty()) {
+                    postProcessingInstructionsArea.setText("Fix any build errors");
+                }
             } else { // None
-                includeParallelOutputCheckbox.setEnabled(false);
-                includeParallelOutputCheckbox.setSelected(false);
+                buildFirstCheckbox.setEnabled(false);
+                buildFirstCheckbox.setSelected(false);
+                includeNoneRadio.setSelected(true);
             }
 
             var cm = chrome.getContextManager();
@@ -713,8 +840,8 @@ public class UpgradeAgentDialog extends JDialog {
         var trackedFiles = repo.getTrackedFiles();
 
         List<String> paths = Arrays.stream(text.split("\\s+"))
-                                   .filter(s -> !s.isBlank())
-                                   .toList();
+                .filter(s -> !s.isBlank())
+                .toList();
 
         int trackedCount = 0;
         int untrackedCount = 0;
@@ -784,17 +911,17 @@ public class UpgradeAgentDialog extends JDialog {
             }
             var trackedFiles = chrome.getProject().getRepo().getTrackedFiles();
             filesToProcessList = Arrays.stream(text.split("\\s+"))
-                                       .filter(s -> !s.isBlank())
-                                       .map(pathStr -> {
-                                           try {
-                                               return chrome.getContextManager().toFile(pathStr);
-                                           } catch (IllegalArgumentException e) {
-                                               return null;
-                                           }
-                                       })
-                                       .filter(Objects::nonNull)
-                                       .filter(trackedFiles::contains)
-                                       .toList();
+                    .filter(s -> !s.isBlank())
+                    .map(pathStr -> {
+                        try {
+                            return chrome.getContextManager().toFile(pathStr);
+                        } catch (IllegalArgumentException e) {
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .filter(trackedFiles::contains)
+                    .toList();
 
             if (filesToProcessList.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "No tracked files found from the list", "No Files", JOptionPane.INFORMATION_MESSAGE);
@@ -844,7 +971,15 @@ public class UpgradeAgentDialog extends JDialog {
             case "Ask" -> PostProcessingOption.ASK;
             default -> PostProcessingOption.NONE;
         };
-        boolean includeParallelOutput = includeParallelOutputCheckbox.isSelected();
+        String parallelOutputMode;
+        if (includeNoneRadio.isSelected()) {
+            parallelOutputMode = "none";
+        } else if (includeAllRadio.isSelected()) {
+            parallelOutputMode = "all";
+        } else {
+            parallelOutputMode = "changed";
+        }
+        boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();
         String postProcessingInstructions = postProcessingInstructionsArea.getText().trim();
 
@@ -867,7 +1002,8 @@ public class UpgradeAgentDialog extends JDialog {
                 includeWorkspace,
                 runOption,
                 contextFilter,
-                includeParallelOutput,
+                parallelOutputMode,
+                buildFirst,
                 postProcessingInstructions
         );
         progressDialog.setVisible(true);
