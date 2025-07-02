@@ -4,6 +4,8 @@ import io.github.jbellis.brokk.gui.mop.stream.blocks.ComponentData;
 
 import javax.swing.*;
 import java.util.HashSet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -13,7 +15,7 @@ import java.util.Set;
  * Reuses existing components when possible to minimize UI flickering and maintain scroll/caret positions.
  */
 public final class Reconciler {
-    // logger field removed as it was unused
+    private static final Logger logger = LogManager.getLogger(Reconciler.class);
 
     /**
      * Tracks a rendered component and its current fingerprint.
@@ -79,7 +81,14 @@ public final class Reconciler {
             if (entry == null) continue; // should not happen
             var current = (i < container.getComponentCount()) ? container.getComponent(i) : null;
             if (current != entry.comp) {
-                container.add(entry.comp, i); // inserts or moves in-place
+                int targetIndex = i;
+                int currentCount = container.getComponentCount();
+                if (targetIndex > currentCount || targetIndex < 0) {
+                    logger.warn("Reconciler: Invalid targetIndex {} for component id {} (container count: {}). "
+                                + "Correcting by appending.", targetIndex, cd.id(), currentCount);
+                    targetIndex = currentCount; // append at end
+                }
+                container.add(entry.comp, targetIndex); // inserts or moves in-place
             }
         }
         // Trim extras (if any)
