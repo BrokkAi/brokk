@@ -45,18 +45,16 @@ public final class MOPBridge {
     }
 
     public void setTheme(boolean isDark) {
-        eventQueue.add(new BrokkEvent.Theme(isDark));
-        scheduleSend();
+        Platform.runLater(() -> engine.executeScript("window.brokk.setTheme(" + isDark + ")"));
     }
 
     public void showSpinner(String message) {
-        eventQueue.add(new BrokkEvent.Spinner(message));
-        scheduleSend();
+        var jsonMessage = toJson(message);
+        Platform.runLater(() -> engine.executeScript("window.brokk.showSpinner(" + jsonMessage + ")"));
     }
 
     public void clear() {
-        eventQueue.add(new BrokkEvent.Clear());
-        scheduleSend();
+        Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
     }
 
     private void scheduleSend() {
@@ -86,13 +84,6 @@ public final class MOPBridge {
                         firstChunk = chunk;
                     }
                     currentText.append(chunk.text());
-                } else {
-                    if (firstChunk != null) {
-                        sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType());
-                        currentText.setLength(0);
-                        firstChunk = null;
-                    }
-                    sendEvent(event);
                 }
             }
 
@@ -169,9 +160,9 @@ public final class MOPBridge {
         }
     }
 
-    private static String toJson(BrokkEvent event) {
+    private static String toJson(Object obj) {
         try {
-            return MAPPER.writeValueAsString(event);
+            return MAPPER.writeValueAsString(obj);
         } catch (JsonProcessingException e) {
             throw new UncheckedIOException(e);
         }

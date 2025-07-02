@@ -5,46 +5,45 @@
   import MessageBubble from './components/MessageBubble.svelte';
 
   export let eventStore: Writable<BrokkEvent>;
+  export let themeStore: Writable<boolean>;
+  export let spinnerStore: Writable<string>;
 
   let bubbles: Bubble[] = [];
   let nextId = 0;
-  let spinnerMessage = '';
   let isDarkTheme = false;
+  let spinnerMessage = '';
 
   // Subscribe to store changes explicitly to handle every event
-  const unsubscribe = eventStore.subscribe(event => {
-    switch (event.type) {
-      case 'chunk':
-        if (event.text) {
-          if (bubbles.length === 0 || event.isNew || event.msgType !== bubbles[bubbles.length - 1].type) {
-            bubbles = [...bubbles, { id: nextId++, type: event.msgType, markdown: event.text }];
-          } else {
-            bubbles[bubbles.length - 1].markdown += event.text;
-            bubbles = [...bubbles]; // Trigger reactivity
-          }
-        }
-        break;
-      case 'theme':
-        isDarkTheme = event.dark;
-        // Ensure the theme-dark class is applied or removed from the body element
-        if (event.dark) {
-          document.body.classList.add('theme-dark');
+  const eventUnsubscribe = eventStore.subscribe(event => {
+    if (event.type === 'chunk') {
+      if (!event.text && event.isNew) {
+        bubbles = []; // Clear the bubbles array
+        nextId = 0; // Reset ID to avoid key reuse issues
+      } else if (event.text) {
+        if (bubbles.length === 0 || event.isNew || event.msgType !== bubbles[bubbles.length - 1].type) {
+          bubbles = [...bubbles, { id: nextId++, type: event.msgType, markdown: event.text }];
         } else {
-          document.body.classList.remove('theme-dark');
+          bubbles[bubbles.length - 1].markdown += event.text;
+          bubbles = [...bubbles]; // Trigger reactivity
         }
-        break;
-      case 'clear':
-        bubbles = [];
-        nextId = 0;
-        break;
-      case 'spinner':
-        spinnerMessage = event.message;
-        break;
+      }
     }
   });
 
+  const themeUnsubscribe = themeStore.subscribe(dark => {
+    isDarkTheme = dark;
+  });
+
+  const spinnerUnsubscribe = spinnerStore.subscribe(message => {
+    spinnerMessage = message;
+  });
+
   // Unsubscribe when component is destroyed to prevent memory leaks
-  onDestroy(unsubscribe);
+  onDestroy(() => {
+    eventUnsubscribe();
+    themeUnsubscribe();
+    spinnerUnsubscribe();
+  });
 </script>
 
 <style>

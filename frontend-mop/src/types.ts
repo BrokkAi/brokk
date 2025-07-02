@@ -6,21 +6,7 @@ export interface ChunkEvent {
   epoch: number;
 }
 
-export interface ThemeEvent {
-  type: 'theme';
-  dark: boolean;
-}
-
-export interface SpinnerEvent {
-  type: 'spinner';
-  message: string;
-}
-
-export interface ClearEvent {
-  type: 'clear';
-}
-
-export type BrokkEvent = ChunkEvent | ThemeEvent | SpinnerEvent | ClearEvent;
+export type BrokkEvent = ChunkEvent;
 
 export interface Bubble {
   id: number;
