@@ -1,8 +1,7 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.MainProject;
+import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -83,7 +82,7 @@ public class SessionsDialog extends JDialog {
                 java.awt.Point p = event.getPoint();
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
-                    MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
+                    SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
                     return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
                 }
                 return super.getToolTipText(event);
@@ -241,7 +240,7 @@ public class SessionsDialog extends JDialog {
             }
             int[] selected = sessionsTable.getSelectedRows();
             if (selected.length == 1) {
-                var info = (MainProject.SessionInfo) sessionsTableModel.getValueAt(selected[0], 2);
+                var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], 2);
                 loadSessionHistory(info.id());
             } else { // multi-select: clear preview panels
                 activityTableModel.setRowCount(0);
@@ -283,7 +282,7 @@ public class SessionsDialog extends JDialog {
                 if (e.getClickCount() == 2) {
                     int row = sessionsTable.rowAtPoint(e.getPoint());
                     if (row >= 0) {
-                        MainProject.SessionInfo sessionInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(row, 2);
+                        SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(row, 2);
                         renameSession(sessionInfo);
                     }
                 }
@@ -381,8 +380,8 @@ public class SessionsDialog extends JDialog {
 
     public void refreshSessionsTable() {
         sessionsTableModel.setRowCount(0);
-        List<MainProject.SessionInfo> sessions = contextManager.getProject().listSessions();
-        sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed()); // Sort newest first
+        List<SessionInfo> sessions = contextManager.getProject().getSessionManager().listSessions();
+        sessions.sort(java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Sort newest first
 
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
@@ -402,7 +401,7 @@ public class SessionsDialog extends JDialog {
 
         // Select current session and load its history
         for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-            MainProject.SessionInfo rowInfo = (MainProject.SessionInfo) sessionsTableModel.getValueAt(i, 2);
+            SessionInfo rowInfo = (SessionInfo) sessionsTableModel.getValueAt(i, 2);
             if (rowInfo.id().equals(currentSessionId)) {
                 sessionsTable.setRowSelectionInterval(i, i);
                 loadSessionHistory(rowInfo.id()); // Load history for current session
@@ -422,7 +421,7 @@ public class SessionsDialog extends JDialog {
 
         int[] selectedRows = sessionsTable.getSelectedRows();
         var selectedSessions = java.util.Arrays.stream(selectedRows)
-                                               .mapToObj(r -> (MainProject.SessionInfo) sessionsTableModel.getValueAt(r, 2))
+                                               .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 2))
                                                .toList();
 
         JPopupMenu popup = new JPopupMenu();
@@ -489,7 +488,7 @@ public class SessionsDialog extends JDialog {
         popup.show(sessionsTable, e.getX(), e.getY());
     }
 
-    private void renameSession(MainProject.SessionInfo sessionInfo) {
+    private void renameSession(SessionInfo sessionInfo) {
         String newName = JOptionPane.showInputDialog(SessionsDialog.this,
                                                      "Enter new name for session '" + sessionInfo.name() + "':",
                                                      sessionInfo.name());

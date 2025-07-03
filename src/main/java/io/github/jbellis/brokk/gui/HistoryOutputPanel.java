@@ -2,7 +2,11 @@ package io.github.jbellis.brokk.gui;
 
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.Brokk;
+import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IProject;
+import static io.github.jbellis.brokk.SessionManager.SessionInfo;
+import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.gui.dialogs.SessionsDialog;
@@ -40,7 +44,7 @@ public class HistoryOutputPanel extends JPanel {
     private final DefaultTableModel historyModel;
     private final JButton undoButton;
     private final JButton redoButton;
-    private final JComboBox<MainProject.SessionInfo> sessionComboBox;
+    private final JComboBox<SessionInfo> sessionComboBox;
     private final JButton newSessionButton;
     private final JButton manageSessionsButton;
 
@@ -146,7 +150,7 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Builds the session controls panel with combo box and buttons
      */
-    private JPanel buildSessionControlsPanel(JComboBox<MainProject.SessionInfo> sessionComboBox, JButton newSessionButton, JButton manageSessionsButton) {
+    private JPanel buildSessionControlsPanel(JComboBox<SessionInfo> sessionComboBox, JButton newSessionButton, JButton manageSessionsButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -162,7 +166,7 @@ public class HistoryOutputPanel extends JPanel {
             public Component getListCellRendererComponent(JList<?> list, Object value, int index,
                                                          boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof MainProject.SessionInfo sessionInfo) {
+                if (value instanceof SessionInfo sessionInfo) {
                     setText(sessionInfo.name());
                 }
                 return this;
@@ -171,7 +175,7 @@ public class HistoryOutputPanel extends JPanel {
 
         // Add selection listener for session switching
         sessionComboBox.addActionListener(e -> {
-            var selectedSession = (MainProject.SessionInfo) sessionComboBox.getSelectedItem();
+            var selectedSession = (SessionInfo) sessionComboBox.getSelectedItem();
             if (selectedSession != null && !selectedSession.id().equals(contextManager.getCurrentSessionId())) {
                 contextManager.switchSessionAsync(selectedSession.id());
             }
@@ -221,8 +225,8 @@ public class HistoryOutputPanel extends JPanel {
             
             // Clear and repopulate
             sessionComboBox.removeAllItems();
-            var sessions = contextManager.getProject().listSessions();
-            sessions.sort(java.util.Comparator.comparingLong(IProject.SessionInfo::modified).reversed()); // Most recent first
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            sessions.sort(java.util.Comparator.comparingLong(SessionInfo::modified).reversed()); // Most recent first
             
             for (var session : sessions) {
                 sessionComboBox.addItem(session);
