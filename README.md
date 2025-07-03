@@ -11,6 +11,11 @@ on large codebases that cannot be jammed entirely into working context.
 
 There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and suggestions.
 
+# Running Brokk
+
+1. Sign up at [https://brokk.ai/](Brokk.ai)
+1. Follow the instructions to install jbang and run Brokk
+
 # Documentation
 
 Brokk documentation is at https://brokk.ai/documentation/.
