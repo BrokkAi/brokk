@@ -1,14 +1,26 @@
 @import url('https://fonts.googleapis.com/css?family=Raleway:400,400i,500,500i,600,600i,700,700i');
 
+body {
+  background: white;
+}
+
 #mop-root {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background: black;
   overflow: hidden;
+  background: white;
 }
+
+.theme-dark {
+  background: black;
+  #mop-root {
+    background: black;
+  }
+}
+
 
 html, body, div, span, applet, object, iframe, h1, h2, h3, h4, h5, h6, p, blockquote, pre, a, abbr, acronym, address, big, cite, code, del, dfn, em, img, ins, kbd, q, s, samp, small, strike, strong, sub, sup, tt, var, b, u, i, center, dl, dt, dd, ol, ul, li, fieldset, form, label, legend, table, caption, tbody, tfoot, thead, tr, th, td, article, aside, canvas, details, embed, figure, figcaption, footer, header, hgroup, menu, nav, output, ruby, section, summary, time, mark, audio, video {
   margin: 0;

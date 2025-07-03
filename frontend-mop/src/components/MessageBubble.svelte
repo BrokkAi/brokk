@@ -6,9 +6,8 @@
   import type { Bubble } from '../types';
 
   export let bubble: Bubble;
-  export let dark = false;
 
-  $: bubbleClass = `bubble ${bubble.type} ${dark ? 'theme-dark' : ''}`;
+  $: bubbleClass = `bubble ${bubble.type}`;
 </script>
 
 <div class={bubbleClass} in:fade={{ duration: 150 }} out:fade={{ duration: 150 }}>

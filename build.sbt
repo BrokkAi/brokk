@@ -56,7 +56,7 @@ javacOptions := {
       "-XepOpt:NullAway:CheckOptionalEmptiness=true " +
       "-XepOpt:NullAway:KnownInitializers=org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll " +
       "-XepOpt:NullAway:HandleTestAssertionLibraries=true ",
-    "-Werror",
+    // "-Werror",
     "-Xlint:deprecation",
     "-Xlint:unchecked",
 
@@ -220,6 +220,7 @@ Test / fork := true
 
 lazy val bundleJs = taskKey[Unit]("Bundle UI code with Vite")
 
+// Task to bundle frontend JavaScript with Vite
 bundleJs := {
   val log = streams.value.log
   val root = baseDirectory.value

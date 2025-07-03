@@ -4,7 +4,6 @@ import dev.langchain4j.data.message.ChatMessageType;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
-import javafx.scene.layout.StackPane;
 import javafx.scene.web.WebView;
 import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
@@ -23,7 +22,15 @@ public final class MOPWebViewHost extends JPanel {
     private static final Logger logger = LogManager.getLogger(MOPWebViewHost.class);
     @Nullable private JFXPanel fxPanel;
     private final AtomicReference<MOPBridge> bridgeRef = new AtomicReference<>();
+    private final AtomicReference<WebView> webViewRef = new AtomicReference<>();
     private final java.util.List<HostCommand> pendingCommands = new CopyOnWriteArrayList<>();
+    private volatile boolean darkTheme = true; // Default to dark theme
+
+    // Theme configuration as a record for DRY principle
+    private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
+        static final Theme DARK = new Theme(true, Color.BLACK, javafx.scene.paint.Color.BLACK, "black");
+        static final Theme LIGHT = new Theme(false, Color.WHITE, javafx.scene.paint.Color.WHITE, "white");
+    }
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
@@ -42,15 +49,16 @@ public final class MOPWebViewHost extends JPanel {
 
     private void initializeFxPanel() {
         fxPanel = new JFXPanel();
+        fxPanel.setVisible(false); // Start hidden to prevent flicker
         add(fxPanel, BorderLayout.CENTER);
         revalidate();
         repaint();
 
         Platform.runLater(() -> {
             var view = new WebView();
+            webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
-
             var bridge = new MOPBridge(view.getEngine());
             bridgeRef.set(bridge);
 
@@ -103,25 +111,33 @@ public final class MOPWebViewHost extends JPanel {
                         """);
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
+                    // Show the panel only after the page is fully loaded
+                    SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 } else if (newState == javafx.concurrent.Worker.State.FAILED) {
                     logger.error("WebView Page Load Failed");
+                    // Show the panel even on failure to display any error content
+                    SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 }
             });
 
             var resourceUrl = getClass().getResource("/mop-web/index.html");
             if (resourceUrl == null) {
                 view.getEngine().loadContent("<html><body><h1>Error: mop-web/index.html not found</h1></body></html>", "text/html");
-            } else if ("jar".equals(resourceUrl.getProtocol())) {
-                // When running from a JAR, serve resources via an embedded HTTP server to avoid CORS issues
-                int port = ClasspathHttpServer.ensureStarted();
-                var url = "http://127.0.0.1:" + port + "/index.html";
-                logger.info("Loading WebView content from embedded server: {}", url);
-                view.getEngine().load(url);
             } else {
-                // When running from IDE or exploded classes, load directly from file system
-                logger.info("Loading WebView content from filesystem: {}", resourceUrl.toExternalForm());
-                view.getEngine().load(resourceUrl.toExternalForm());
+                if ("jar".equals(resourceUrl.getProtocol())) {
+                    // When running from a JAR, serve resources via an embedded HTTP server to avoid CORS issues
+                    int port = ClasspathHttpServer.ensureStarted();
+                    var url = "http://127.0.0.1:" + port + "/index.html";
+                    logger.info("Loading WebView content from embedded server: {}", url);
+                    view.getEngine().load(url);
+                } else {
+                    // When running from IDE or exploded classes, load directly from file system
+                    logger.info("Loading WebView content from filesystem: {}", resourceUrl.toExternalForm());
+                    view.getEngine().load(resourceUrl.toExternalForm());
+                }
             }
+            // Apply initial theme
+            applyTheme(darkTheme ? Theme.DARK : Theme.LIGHT);
         });
     }
 
@@ -131,8 +147,35 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void setTheme(boolean isDark) {
+        darkTheme = isDark; // Remember the last requested theme
         sendOrQueue(new HostCommand.SetTheme(isDark),
                      bridge -> bridge.setTheme(isDark));
+        applyTheme(isDark ? Theme.DARK : Theme.LIGHT);
+    }
+
+    private void applyTheme(Theme theme) {
+        // Update Swing component on EDT
+        if (fxPanel != null) {
+            SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setBackground(theme.awtBg()));
+        }
+        // Update JavaFX components on JavaFX thread
+        var webView = webViewRef.get();
+        if (webView != null) {
+            Platform.runLater(() -> {
+                // Update scene fill
+                var scene = webView.getScene();
+                if (scene != null) {
+                    scene.setFill(theme.fxBg());
+                }
+                // Update UA stylesheet
+                String css = """
+                    html, body {
+                        background-color: %s !important;
+                    }""".formatted(theme.cssColor());
+                String dataCssUrl = "data:text/css," + java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8) + "#t=" + System.currentTimeMillis();
+                webView.getEngine().setUserStyleSheetLocation(dataCssUrl);
+            });
+        }
     }
 
     public void clear() {
@@ -192,6 +235,7 @@ public final class MOPWebViewHost extends JPanel {
         if (bridge != null) {
             bridge.shutdown();
         }
+        webViewRef.set(null);
         Platform.runLater(() -> {
             if (fxPanel != null && fxPanel.getScene() != null && fxPanel.getScene().getRoot() instanceof WebView webView) {
                 webView.getEngine().load(null); // release memory

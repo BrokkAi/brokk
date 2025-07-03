@@ -1,4 +1,4 @@
-import '../src/styles/global.css';
+import './styles/global.scss';
 import { mount } from 'svelte';
 import { writable } from 'svelte/store';
 import App from './App.svelte';
@@ -27,13 +27,12 @@ declare global {
 const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, msgType: 'SYSTEM', epoch: 0 });
 
 // Create stores for UI commands
-const themeStore = writable<boolean>(false);
 const spinnerStore = writable<string>('');
 
 // Instantiate the app using Svelte 5 API
 const app = mount(App, {
   target: document.getElementById('mop-root'),
-  props: { eventStore, themeStore, spinnerStore }
+  props: { eventStore, spinnerStore }
 });
 
 // Retrieve buffered calls and events from the early stub
@@ -41,7 +40,7 @@ const buffer = window.brokk._buffer || [];
 
 // Replace the temporary brokk proxy with the real implementation
 window.brokk = {
-  _buffer: [],
+  _callQueue: [], _eventBuffer: [],
   onEvent: (payload) => {
     console.log('Received event from Java bridge:', JSON.stringify(payload));
     eventStore.set(payload);
@@ -62,7 +61,6 @@ window.brokk = {
     eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
   },
   setTheme: (dark) => {
-    themeStore.set(dark);
     if (dark) {
       document.body.classList.add('theme-dark');
     } else {
