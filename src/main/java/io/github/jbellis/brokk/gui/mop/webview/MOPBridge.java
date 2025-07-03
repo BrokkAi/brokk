@@ -53,6 +53,10 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript("window.brokk.showSpinner(" + jsonMessage + ")"));
     }
 
+    public void hideSpinner() {
+        Platform.runLater(() -> engine.executeScript("window.brokk.hideSpinner()"));
+    }
+
     public void clear() {
         Platform.runLater(() -> engine.executeScript("window.brokk.clear()"));
     }

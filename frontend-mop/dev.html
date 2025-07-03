@@ -18,23 +18,43 @@
   <p>Events from Java will be logged to the console and displayed raw below.</p>
   <h3>Dev Tools</h3>
   <button onclick="simulateAskResponse()">Simulate Ask Response</button>
-  <button onclick="window.brokk.setTheme(!document.body.classList.contains('theme-dark'))">Toggle Theme
-  </button>
+  <button onclick="window.brokk.setTheme(!document.body.classList.contains('theme-dark'))">Toggle Theme</button>
   <button onclick="window.brokk.clear()">Clear Log</button>
-  <button onclick="simulateEvent('spinner', { message: 'Testing spinner...' }); setTimeout(() => simulateEvent('spinner', { message: '' }), 2000);">
+  <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
     Test Spinner
   </button>
+  <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
 </div>
 <script type="module" src="/src/index.ts"></script>
 <script>
-  // Immediately define brokk with a buffer to catch early events from Java
-  window.brokk = {
-    _eventBuffer: [],
-    onEvent: function (payload) {
-      console.log('Buffering early event from Java:', payload);
-      window.brokk._eventBuffer.push(payload);
-    }
-  };
+  // Immediately define brokk with a buffer to catch early events and calls from Java
+  (function() {
+    const buffer = []; // Unified buffer for all calls and events
+    let seq = 0; // Sequence number to maintain order
+    
+    window.brokk = new Proxy({
+      _buffer: buffer
+    }, {
+      get(target, prop) {
+        if (prop === '_buffer') {
+          return target[prop];
+        }
+        return (...args) => {
+          if (prop === 'onEvent') {
+            console.log('Buffering early event from Java:', JSON.stringify(args));
+            buffer.push({ type: 'event', payload: args[0], seq: seq++ });
+          } else if (prop === 'hideSpinner') {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: [], seq: seq++ });
+          } else {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
+          }
+          return undefined;
+        };
+      }
+    });
+  })();
   // Mock Java bridge for dev mode
   window.javaBridge = {
     onAck: (epoch) => console.log('Mock ACK for epoch:', epoch)

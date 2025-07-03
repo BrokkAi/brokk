@@ -37,6 +37,7 @@ public final class MOPWebViewHost extends JPanel {
         record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) implements HostCommand {}
         record SetTheme(boolean isDark) implements HostCommand {}
         record ShowSpinner(String message) implements HostCommand {}
+        record HideSpinner() implements HostCommand {}
         record Clear() implements HostCommand {}
     }
 
@@ -188,6 +189,11 @@ public final class MOPWebViewHost extends JPanel {
                      bridge -> bridge.showSpinner(message));
     }
 
+    public void hideSpinner() {
+        sendOrQueue(new HostCommand.HideSpinner(),
+                     bridge -> bridge.hideSpinner());
+    }
+
     private void sendOrQueue(HostCommand command, java.util.function.Consumer<MOPBridge> action) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -223,6 +229,7 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.Append a -> bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming());
                     case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
+                    case HostCommand.HideSpinner ignored -> bridge.hideSpinner();
                     case HostCommand.Clear ignored -> bridge.clear();
                 }
             });

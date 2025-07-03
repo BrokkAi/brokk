@@ -3,8 +3,8 @@
 <head>
   <meta charset='utf-8'>
   <title>Brokk MOP</title>
-  <script type="module" crossorigin src="./assets/index-DWQAjiX4.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/style-CmWxq4jL.css">
+  <script type="module" crossorigin src="./assets/index-CaTUP9Eu.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/style-D5HvpL59.css">
 </head>
 <body>
   <script>
@@ -24,12 +24,15 @@
           // Return a stub function for any other property access
           return (...args) => {
             if (prop === 'onEvent') {
-              console.log('Buffering early event from Java:', JSON.stringify(args));
-              buffer.push({ type: 'event', payload: args[0], seq: seq++ });
-            } else {
-              console.log('Buffering early call from Java to', prop);
-              buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
-            }
+            console.log('Buffering early event from Java:', JSON.stringify(args));
+            buffer.push({ type: 'event', payload: args[0], seq: seq++ });
+          } else if (prop === 'hideSpinner') {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: [], seq: seq++ });
+          } else {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
+          }
             // Provide default return values for synchronous methods
             if (prop === 'getSelection') {
               return '';

@@ -2,16 +2,16 @@
   import { onDestroy, onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { Writable } from 'svelte/store';
-  import type { BrokkEvent, Bubble } from './types';
+  import type {BrokkEvent, Bubble, SpinnerState} from './types';
   import MessageBubble from './components/MessageBubble.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
 
   export let eventStore: Writable<BrokkEvent>;
-  export let spinnerStore: Writable<string>;
+  export let spinnerStore: Writable<SpinnerState>;
 
   let bubbles: Bubble[] = [];
   let nextId = 0;
-  let spinnerMessage = '';
+  let spinner: SpinnerState = { visible: false, message: '' };
   let chatContainer: HTMLElement;
   let stopAutoScroll: (() => void) | null = null;
 
@@ -46,7 +46,7 @@
         // Don't trigger fade - just continue showing the container
       } else if (event.text) {
         if (bubbles.length === 0 || event.isNew || event.msgType !== bubbles[bubbles.length - 1].type) {
-          bubbles = [...bubbles, { id: nextId++, type: event.msgType, markdown: event.text }];
+          bubbles = [...bubbles, { id: nextId++, type: event.msgType!, markdown: event.text }];
         } else {
           bubbles[bubbles.length - 1].markdown += event.text;
           bubbles = [...bubbles]; // Trigger reactivity
@@ -56,8 +56,8 @@
   });
 
 
-  const spinnerUnsubscribe = spinnerStore.subscribe(message => {
-    spinnerMessage = message;
+  const spinnerUnsubscribe = spinnerStore.subscribe(state => {
+    spinner = state;
   });
 
   // Unsubscribe when component is destroyed to prevent memory leaks
@@ -87,11 +87,10 @@
     overflow-y: auto;
     overflow-x: hidden;
   }
-  #spinner {
-    padding: 0.5em;
+  .spinner-msg {
+    align-self: center;
     color: #888;
-    display: none;
-    text-align: center;
+    padding: 0.5em 1em;
   }
 </style>
 
@@ -104,5 +103,9 @@
         <MessageBubble {bubble} />
       </div>
     {/each}
+  {#if spinner.visible}
+    <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
+      {spinner.message}
+    </div>
+  {/if}
   </div>
-<div id="spinner" style:display={spinnerMessage ? 'block' : 'none'}>{spinnerMessage}</div>

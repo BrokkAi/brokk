@@ -169,7 +169,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void hideSpinner() {
-        webHost.showSpinner("");
+        webHost.hideSpinner();
     }
 
     public List<ChatMessage> getMessages() {

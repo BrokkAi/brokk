@@ -36,13 +36,13 @@
     align-self: center;
     text-align: center;
   }
-  .theme-dark .bubble.USER {
+  :global(.theme-dark) .bubble.USER {
     background-color: #1e3a8a;
   }
-  .theme-dark .bubble.AI {
+  :global(.theme-dark) .bubble.AI {
     background-color: #2e7d32;
   }
-  .theme-dark .bubble.SYSTEM {
+  :global(.theme-dark) .bubble.SYSTEM {
     background-color: #9a3412;
   }
 </style>

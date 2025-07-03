@@ -22,12 +22,15 @@
           // Return a stub function for any other property access
           return (...args) => {
             if (prop === 'onEvent') {
-              console.log('Buffering early event from Java:', JSON.stringify(args));
-              buffer.push({ type: 'event', payload: args[0], seq: seq++ });
-            } else {
-              console.log('Buffering early call from Java to', prop);
-              buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
-            }
+            console.log('Buffering early event from Java:', JSON.stringify(args));
+            buffer.push({ type: 'event', payload: args[0], seq: seq++ });
+          } else if (prop === 'hideSpinner') {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: [], seq: seq++ });
+          } else {
+            console.log('Buffering early call from Java to', prop);
+            buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
+          }
             // Provide default return values for synchronous methods
             if (prop === 'getSelection') {
               return '';
