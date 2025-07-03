@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import flatgraph.DiffGraphApplier
+import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.github.jbellis.brokk.analyzer.implicits.StringExt.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.*
@@ -111,22 +112,9 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         val absFileNameProvider = (relativeName: String) => tempDir.resolve(relativeName)
         assertion(cpg, tempDir, absFileNameProvider)
       } finally {
-        deleteRecursively(tempDir)
+        tempDir.deleteRecursively
       }
     }
-  }
-
-  private def deleteRecursively(path: Path): Boolean = try {
-    val f = path.toFile
-    if (Files.isDirectory(path)) {
-      Files.list(path).toList.asScala match {
-        case files: Iterable[Path] => files.foreach(deleteRecursively)
-        case null =>
-      }
-    }
-    f.delete()
-  } catch {
-    case e: SecurityException => false
   }
 
 }

@@ -1,12 +1,15 @@
 package io.github.jbellis.brokk.analyzer.builder
 
+import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
+import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.joern.c2cpg.Config as CConfig
-import io.joern.javasrc2cpg.Config as JavaSrcConfig
+import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 
+import java.io.IOException
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
 
@@ -94,10 +97,69 @@ object IncrementalCpgBuilder {
     }.toSeq
   }
 
+  /**
+   * Builds a temporary directory of all the files that were newly added.
+   *
+   * @param fileChanges all file changes.
+   * @return a temporary directory of all the newly added files.
+   */
+  private def createNewIncrementalBuildDirectory(fileChanges: Seq[FileChange]): Path = {
+    val tempDir = Files.createTempDirectory("brokk-incremental-build-")
+    val projectRoot = cpg.projectRoot
+
+    fileChanges.collect { case x: AddedFile => x }.foreach { case AddedFile(path) =>
+      val newPath = Paths.get(path.toString.stripSuffix(projectRoot.toString))
+      if (!Files.exists(newPath.getParent)) Files.createDirectories(newPath)
+      Files.copy(path, newPath)
+    }
+
+    tempDir
+  }
+
+  extension (cpg: Cpg) {
+
+    /**
+     * Applies [[RemovedFilePass]] which concurrently deletes all nodes related to removed or modified files.
+     *
+     * @param fileChanges all file changes.
+     * @return this CPG.
+     */
+    def removeStaleFiles(fileChanges: Seq[FileChange]): Cpg = {
+      RemovedFilePass(cpg, fileChanges).createAndApply()
+      cpg
+    }
+
+    /**
+     * Builds the ASTs for new files from a temporary directory.
+     *
+     * @param fileChanges all file changes.
+     * @return this CPG.
+     */
+    def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: (Path) => Unit): Cpg = {
+      val buildDir = createNewIncrementalBuildDirectory(fileChanges)
+      try {
+        astBuilder(buildDir)
+      } finally {
+        buildDir.deleteRecursively
+      }
+      cpg
+    }
+
+  }
+
+
   given javaBuilder: IncrementalCpgBuilder[JavaSrcConfig] with {
 
     override def update(cpg: Cpg, config: JavaSrcConfig): Unit = {
-      // TODO: Handle
+      val fileChanges = determineChangedFiles(cpg, Paths.get(config.inputPath))
+      cpg.removeStaleFiles(fileChanges)
+      cpg.buildAddedAsts(fileChanges, (buildDir) => build(buildDir, config))
+    }
+
+    private def build(buildDir: Path, config: JavaSrcConfig) = {
+      JavaSrc2Cpg().createCpg(config.withInputPath(buildDir.toString)).getOrElse {
+        throw new IOException("Failed to create Java CPG")
+      }
     }
 
   }
