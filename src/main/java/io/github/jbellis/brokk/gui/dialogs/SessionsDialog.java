@@ -9,6 +9,8 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.HistoryOutputPanel;
 import io.github.jbellis.brokk.gui.WorkspacePanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.stream.CompositeHtmlCustomizer;
+import io.github.jbellis.brokk.gui.mop.stream.SymbolBadgeCustomizer;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import org.jetbrains.annotations.Nullable;
 
@@ -168,6 +170,11 @@ public class SessionsDialog extends JDialog {
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
+        
+        // Configure symbol badge customizer
+        var symbolBadgeCustomizer = SymbolBadgeCustomizer.create(contextManager);
+        markdownOutputPanel.setHtmlCustomizer(new CompositeHtmlCustomizer(symbolBadgeCustomizer));
+        
         markdownOutputPanel.updateTheme(chrome.getTheme().isDarkTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));

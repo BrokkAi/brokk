@@ -3,13 +3,13 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.util.PatternConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.*;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AnalyzerUtil {
@@ -258,8 +258,6 @@ public class AnalyzerUtil {
         return sources;
     }
 
-    private static final Pattern PACKAGE_PATTERN = Pattern.compile("^\\s*package\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\s*;");
-
     /**
      * Extracts the package name from Java source code content.
      * @param content The source code content
@@ -269,7 +267,7 @@ public class AnalyzerUtil {
         return content.lines()
                 .map(String::trim)
                 .filter(line -> !line.isEmpty() && !line.startsWith("//") && !line.startsWith("/*"))
-                .map(PACKAGE_PATTERN::matcher)
+                .map(PatternConstants.PACKAGE_PATTERN::matcher)
                 .filter(Matcher::matches)
                 .findFirst()
                 .map(matcher -> matcher.group(1))

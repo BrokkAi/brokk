@@ -66,15 +66,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
     private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); //_FIX_
 
-    // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
-    private static final Pattern TEST_FILE_PATTERN = Pattern.compile( // Javadoc for TEST_FILE_PATTERN not needed here
-                                                                      "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
-    );
-
     public static final String DEFAULT_SESSION_NAME = "New Session";
 
     public static boolean isTestFile(ProjectFile file) {
-        return TEST_FILE_PATTERN.matcher(file.toString()).matches();
+        return PatternConstants.isTestFile(file.toString());
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
