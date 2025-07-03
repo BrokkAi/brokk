@@ -6,11 +6,9 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Small, pure helper for deciding whether a {@link AbstractDelta} should be
- * highlighted in a given viewport.  All state required is passed as parameters
- * so the methods are trivially unit–testable and 100 % thread-safe.
+ * highlighted in a given viewport.
  */
-public final class DiffHighlightUtil
-{
+public final class DiffHighlightUtil {
     private DiffHighlightUtil() {}
 
     /**
@@ -21,8 +19,7 @@ public final class DiffHighlightUtil
     /**
      * Returns the chunk for the specified side without any fallback logic.
      */
-    public static @Nullable Chunk<String> getRelevantChunk(AbstractDelta<String> delta, boolean originalSide)
-    {
+    public static @Nullable Chunk<String> getRelevantChunk(AbstractDelta<String> delta, boolean originalSide) {
         return originalSide ? delta.getSource() : delta.getTarget();
     }
 
@@ -30,8 +27,7 @@ public final class DiffHighlightUtil
      * Returns the chunk to use for highlighting purposes. For revised side DELETE deltas,
      * falls back to source chunk for positioning since target has size 0.
      */
-    public static @Nullable Chunk<String> getChunkForHighlight(AbstractDelta<String> delta, boolean originalSide)
-    {
+    public static @Nullable Chunk<String> getChunkForHighlight(AbstractDelta<String> delta, boolean originalSide) {
         var chunk = getRelevantChunk(delta, originalSide);
         // For revised side DELETE deltas (empty target), use source chunk for positioning
         return (chunk != null && chunk.size() == 0 && !originalSide) ? delta.getSource() : chunk;
@@ -39,15 +35,11 @@ public final class DiffHighlightUtil
 
     /**
      * Decide if a delta's chunk is visible in the viewport [startLine,endLine].
-     *
-     * This contains **no** Swing or document logic – it only needs the line
-     * numbers – so it can safely be called from any thread.
      */
     public static IntersectionResult isChunkVisible(AbstractDelta<String> delta,
                                                     int startLine,
                                                     int endLine,
-                                                    boolean originalSide)
-    {
+                                                    boolean originalSide) {
         if (startLine > endLine)
             return new IntersectionResult(false, "Invalid range: startLine " + startLine + " > endLine " + endLine);
 
@@ -61,9 +53,8 @@ public final class DiffHighlightUtil
         if (pos < 0)
             return new IntersectionResult(false, "Invalid negative position: " + pos);
 
-        int deltaStart = pos;
         int deltaEnd   = pos + Math.max(1, size) - 1;
-        boolean intersects = !(deltaEnd < startLine || deltaStart > endLine);
+        boolean intersects = !(deltaEnd < startLine || pos > endLine);
         return new IntersectionResult(intersects, null);
     }
 }
