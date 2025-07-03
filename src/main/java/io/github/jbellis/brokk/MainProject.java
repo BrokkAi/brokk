@@ -58,6 +58,8 @@ public final class MainProject extends AbstractProject {
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
 
+    private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
+
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
     private static final String JIRA_PROJECT_BASE_URL_KEY = "jiraProjectBaseUrl";
@@ -816,6 +818,24 @@ public final class MainProject extends AbstractProject {
             logger.error("Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
+    }
+
+    public Optional<GitRepo.MergeMode> getLastMergeMode() {
+        String modeName = mainWorkspaceProps.getProperty(LAST_MERGE_MODE_KEY);
+        if (modeName == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(GitRepo.MergeMode.valueOf(modeName));
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid merge mode '{}' in workspace properties, ignoring.", modeName);
+            return Optional.empty();
+        }
+    }
+
+    public void setLastMergeMode(GitRepo.MergeMode mode) {
+        mainWorkspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
+        persistWorkspacePropertiesFile();
     }
 
     public static String getGitHubToken() {

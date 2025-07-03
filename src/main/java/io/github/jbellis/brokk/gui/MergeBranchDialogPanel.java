@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -9,6 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionListener;
 
 /**
  * Self-contained merge dialog that handles displaying the merge options,
@@ -97,6 +99,15 @@ public class MergeBranchDialogPanel extends JDialog {
         cancelButton.addActionListener(e -> dispose());
     }
 
+    public static ActionListener createMergeModePersistenceListener(JComboBox<GitRepo.MergeMode> mergeModeComboBox, MainProject project) {
+        return e -> {
+            var selectedMode = (GitRepo.MergeMode) mergeModeComboBox.getSelectedItem();
+            if (selectedMode != null) {
+                project.setLastMergeMode(selectedMode);
+            }
+        };
+    }
+
     /**
      * Result record for the merge dialog interaction.
      */
@@ -111,10 +122,22 @@ public class MergeBranchDialogPanel extends JDialog {
      * @return MergeDialogResult containing the user's choice and conflict status
      */
     public MergeDialogResult showDialog(GitRepo gitRepo, ContextManager contextManager) {
+        // Set up merge mode from last-used, and persist changes
+        var mainProject = (MainProject) contextManager.getProject().getParent();
+        var lastMergeMode = mainProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
+        mergeModeComboBox.setSelectedItem(lastMergeMode);
+
+        // To prevent adding duplicate listeners, clear any existing ones.
+        for (var listener : mergeModeComboBox.getActionListeners()) {
+            mergeModeComboBox.removeActionListener(listener);
+        }
+        // Add listener to persist selection.
+        mergeModeComboBox.addActionListener(createMergeModePersistenceListener(mergeModeComboBox, mainProject));
+
         // Check for uncommitted changes that prevent merging
         checkDirtyWorkingTree(gitRepo);
 
-        // Set up conflict checking
+        // Set up conflict checking (this will add its own listener)
         Runnable conflictChecker = () -> checkConflictsAsync(gitRepo, contextManager);
         mergeModeComboBox.addActionListener(e -> conflictChecker.run());
         conflictChecker.run(); // Initial check
