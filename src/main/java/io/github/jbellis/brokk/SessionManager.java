@@ -35,6 +35,10 @@ public class SessionManager implements AutoCloseable
      * Record representing session metadata for the sessions management system.
      */
     public record SessionInfo(UUID id, String name, long created, long modified) {
+
+        public boolean isModified() {
+            return created != modified;
+        }
     }
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
@@ -211,8 +215,10 @@ public class SessionManager implements AutoCloseable
         SessionInfo infoToSave = null;
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
-            infoToSave = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
-            sessionsCache.put(sessionId, infoToSave); // Update cache before async task
+            if (!isSessionEmpty(currentInfo, contextHistory)) {
+                infoToSave = new SessionInfo(currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                sessionsCache.put(sessionId, infoToSave); // Update cache before async task
+            } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message) to the session
         } else {
             logger.warn("Session ID {} not found in cache. History content will be saved, but manifest cannot be updated.", sessionId);
         }
@@ -229,6 +235,32 @@ public class SessionManager implements AutoCloseable
                 logger.error("Error saving context history or updating manifest for session {}: {}", sessionId, e.getMessage());
             }
         });
+    }
+
+    /**
+     * Checks if the session is empty. The session is considered empty if it has not been modified and
+     * if its history has no contexts or only contains the initial empty context.
+     */
+    public static boolean isSessionEmpty(SessionInfo sessionInfo, @Nullable ContextHistory ch) {
+        return !sessionInfo.isModified() && isHistoryEmpty(ch);
+    }
+
+    /**
+     * Checks if the history is empty.
+     * The history is considered empty if it has no contexts or only contains
+     * the initial empty context.
+     */
+    private static boolean isHistoryEmpty(@Nullable ContextHistory history) {
+        if (history == null || history.getHistory().isEmpty()) {
+            return true;
+        }
+
+        // Check if the history only has the initial empty context
+        if (history.getHistory().size() == 1) {
+            return history.getHistory().getFirst().isEmpty();
+        }
+
+        return false;
     }
 
     @Nullable

@@ -1811,6 +1811,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /**
      * Creates a new session with the given name and switches to it asynchronously.
+     * First attempts to reuse an existing empty session before creating a new one.
      *
      * @param name The name for the new session
      * @return A CompletableFuture representing the completion of the session creation task
@@ -1818,20 +1819,53 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createSessionAsync(String name) {
         // No explicit exclusivity check for new session, as it gets a new unique ID.
         return submitUserTask("Creating new session: " + name, () -> {
-            var sessionManager = project.getSessionManager();
-            var newSessionInfo = sessionManager.newSession(name);
-            updateActiveSession(newSessionInfo.id()); // Mark as active for this project
-            logger.info("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
+            createOrReuseSession(name);
+        });
+    }
 
-            // initialize history for the new session
+    private void createOrReuseSession(String name) {
+        Optional<SessionInfo> existingSessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
+        if (existingSessionInfo.isPresent()) {
+            SessionInfo sessionInfo = existingSessionInfo.get();
+            logger.info("Reused existing empty session {} with name '{}'", sessionInfo.id(), name);
+            switchToSession(sessionInfo.id());
+        } else {
+            // No empty session found, create a new one
+            SessionInfo sessionInfo = project.getSessionManager().newSession(name);
+            logger.info("Created new session: {} ({})", sessionInfo.name(), sessionInfo.id());
+
+            updateActiveSession(sessionInfo.id()); // Mark as active for this project
+
+            // initialize history for the session
             liveContext = new Context(this, "Welcome to the new session!");
             contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
-            sessionManager.saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
 
             // notifications
             notifyContextListeners(topContext());
             io.updateContextHistoryTable(topContext());
-        });
+        }
+    }
+
+    private Optional<SessionInfo> getEmptySessionToReuseInsteadOfCreatingNew(String name) {
+        var potentialEmptySessions = project.getSessionManager().listSessions().stream()
+                .filter(session -> session.name().equals(name))
+                .filter(session -> !session.isModified())
+                .filter(session -> !SessionRegistry.isSessionActiveElsewhere(project.getRoot(), session.id()))
+                .sorted(Comparator.comparingLong(SessionInfo::created).reversed()) // Newest first
+                .toList();
+
+        return potentialEmptySessions.stream()
+                .filter(session -> {
+                    try {
+                        var history = project.getSessionManager().loadHistory(session.id(), this);
+                        return SessionManager.isSessionEmpty(session, history);
+                    } catch (Exception e) {
+                        logger.warn("Error checking if session {} is empty, skipping: {}", session.id(), e.getMessage());
+                        return false;
+                    }
+                })
+                .findFirst();
     }
 
     public void updateActiveSession(UUID sessionId) {
@@ -1929,41 +1963,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         var future = submitUserTask("Switching session", () -> {
-            logger.debug("Attempting to switch to session: {}", sessionId);
-            updateActiveSession(sessionId); // Mark as active
-
-            String sessionName = sessionManager.listSessions().stream()
-                    .filter(s -> s.id().equals(sessionId))
-                    .findFirst()
-                    .map(SessionInfo::name)
-                    .orElse("(Unknown Name)");
-            logger.debug("Switched to session: {} ({})", sessionName, sessionId);
-
-            ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
-
-            if (loadedCh != null) {
-                final ContextHistory nnLoadedCh = loadedCh; // Introduce nnLoadedCh for the non-null scope
-                if (nnLoadedCh.getHistory().isEmpty()) {
-                    // Case: loadedCh exists but its history is empty
-                    liveContext = new Context(this, "Welcome to session: " + sessionName);
-                    contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
-                    sessionManager.saveHistory(contextHistory, currentSessionId);
-                } else {
-                    // Case: loadedCh exists and has history
-                    contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
-                    for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
-                        contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
-                    }
-                    liveContext = Context.unfreeze(topContext());
-                }
-            } else {
-                // Case: loadedCh is null
-                liveContext = new Context(this, "Welcome to session: " + sessionName);
-                contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
-                sessionManager.saveHistory(contextHistory, currentSessionId);
-            }
-            notifyContextListeners(topContext());
-            io.updateContextHistoryTable(topContext());
+            switchToSession(sessionId);
         });
         return CompletableFuture.runAsync(() -> {
             try {
@@ -1972,6 +1972,44 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 throw new RuntimeException("Failed to switch session", e);
             }
         });
+    }
+
+    private void switchToSession(UUID sessionId) {
+        var sessionManager = project.getSessionManager();
+        updateActiveSession(sessionId); // Mark as active
+
+        String sessionName = sessionManager.listSessions().stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .map(SessionInfo::name)
+                .orElse("(Unknown Name)");
+        logger.debug("Switched to session: {} ({})", sessionName, sessionId);
+
+        ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
+
+        if (loadedCh != null) {
+            final ContextHistory nnLoadedCh = loadedCh; // Introduce nnLoadedCh for the non-null scope
+            if (nnLoadedCh.getHistory().isEmpty()) {
+                // Case: loadedCh exists but its history is empty
+                liveContext = new Context(this, "Welcome to session: " + sessionName);
+                contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+                sessionManager.saveHistory(contextHistory, currentSessionId);
+            } else {
+                // Case: loadedCh exists and has history
+                contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
+                for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
+                    contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
+                }
+                liveContext = Context.unfreeze(topContext());
+            }
+        } else {
+            // Case: loadedCh is null
+            liveContext = new Context(this, "Welcome to session: " + sessionName);
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+            sessionManager.saveHistory(contextHistory, currentSessionId);
+        }
+        notifyContextListeners(topContext());
+        io.updateContextHistoryTable(topContext());
     }
 
     /**
@@ -2012,8 +2050,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             project.getSessionManager().deleteSession(sessionIdToDelete);
             logger.info("Deleted session {}", sessionIdToDelete);
             if (sessionIdToDelete.equals(currentSessionId)) {
-                // start fresh
-                initializeCurrentSessionAndHistory();
+                createOrReuseSession(DEFAULT_SESSION_NAME);
             }
         });
 
