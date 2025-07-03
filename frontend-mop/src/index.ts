@@ -1,3 +1,4 @@
+import '../src/styles/global.css';
 import { mount } from 'svelte';
 import { writable } from 'svelte/store';
 import App from './App.svelte';
@@ -31,7 +32,7 @@ const spinnerStore = writable<string>('');
 
 // Instantiate the app using Svelte 5 API
 const app = mount(App, {
-  target: document.body,
+  target: document.getElementById('mop-root'),
   props: { eventStore, themeStore, spinnerStore }
 });
 

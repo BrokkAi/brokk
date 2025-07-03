@@ -60,7 +60,15 @@
     flex-direction: column;
     gap: 1em;
     max-width: 100%;
-    margin: 0 auto;
+    padding: 0.5em;
+    padding-right: 2em;
+    position: absolute;
+    top: 0.5em;
+    bottom: 0.5em;
+    right: 0.5em;
+    left: 0.5em;
+    overflow-y: auto;
+    overflow-x: hidden;
   }
   #spinner {
     padding: 0.5em;
@@ -78,7 +86,7 @@
     class:theme-dark={isDarkTheme}
   >
     {#each bubbles as bubble (bubble.id)}
-      <div in:fade={{ duration: 200 }} out:fade={{ duration: 200 }}>
+      <div in:fade={{ duration: 100 }} out:fade={{ duration: 100 }}>
         <MessageBubble {bubble} dark={isDarkTheme} />
       </div>
     {/each}

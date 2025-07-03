@@ -11,7 +11,8 @@ export default defineConfig(({ command }) => ({
   ],
   build: {
     outDir: '../src/main/resources/mop-web',
-    emptyOutDir: true
+    emptyOutDir: true,
+    cssCodeSplit: false
   },
   // Only for `vite dev`
   server: {

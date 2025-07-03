@@ -568,11 +568,13 @@ public class HistoryOutputPanel extends JPanel {
      * Builds the LLM streaming area where markdown output is displayed
      */
     private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
-        // Wrap it in a scroll pane so it can scroll if content is large
-        var jsp = new JScrollPane(llmStreamArea);
+        // Wrap it in a scroll pane for layout purposes, but disable scrollbars
+        // as scrolling is handled by the WebView inside MarkdownOutputPanel.
+        var jsp = new JScrollPane(
+                llmStreamArea,
+                JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         jsp.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        jsp.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
-        AutoScroller.install(jsp);
 
         // Add a text change listener to update capture buttons
         llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
