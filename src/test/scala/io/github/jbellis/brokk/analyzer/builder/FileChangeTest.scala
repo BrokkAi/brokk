@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.analyzer.builder
 
-import io.github.jbellis.brokk.analyzer.implicits.StringExt.*
 import flatgraph.DiffGraphApplier
+import io.github.jbellis.brokk.analyzer.implicits.StringExt.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import org.scalatest.Assertion
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.io.File as JavaFile
 import java.nio.file.{Files, Path}
+import scala.jdk.CollectionConverters.*
 import scala.util.Using
 
 class FileChangeTest extends FileChangeTestFixture {
@@ -32,6 +32,28 @@ class FileChangeTest extends FileChangeTestFixture {
     ) { (cpg, projectRootPath, absFileName) =>
       IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
         ModifiedFile(absFileName("Foo.txt"))
+      )
+    }
+  }
+
+  "Removing files should result in removed file changes" in {
+    assertAgainstCpgWithPaths(
+      existingFiles = Seq(F("Foo.txt"), F("foo/Bar.txt")),
+      newFiles = Nil
+    ) { (cpg, projectRootPath, absFileName) =>
+      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+        RemovedFile(absFileName("Foo.txt")), RemovedFile(absFileName("foo/Bar.txt"))
+      )
+    }
+  }
+
+  "Moving a file should result in removed and added file change" in {
+    assertAgainstCpgWithPaths(
+      existingFiles = Seq(F("Foo.txt")),
+      newFiles = Seq(F("bar/Foo.txt"))
+    ) { (cpg, projectRootPath, absFileName) =>
+      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+        RemovedFile(absFileName("Foo.txt")), AddedFile(absFileName("bar/Foo.txt"))
       )
     }
   }
@@ -85,9 +107,11 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
 
   private def deleteRecursively(path: Path): Boolean = try {
     val f = path.toFile
-    if (f.isDirectory) f.listFiles match {
-      case files: Array[JavaFile] => files.map(_.toPath).foreach(deleteRecursively)
-      case null =>
+    if (Files.isDirectory(path)) {
+      Files.list(path).toList.asScala match {
+        case files: Iterable[Path] => files.foreach(deleteRecursively)
+        case null =>
+      }
     }
     f.delete()
   } catch {

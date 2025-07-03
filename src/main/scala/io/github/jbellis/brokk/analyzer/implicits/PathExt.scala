@@ -4,12 +4,12 @@ import java.io.FileInputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
-import scala.util.Using
 import scala.jdk.CollectionConverters.*
+import scala.util.Using
 
 object PathExt {
 
-  extension(pathToDigest: Path)  {
+  extension (pathToDigest: Path) {
 
     /**
      * Generates a SHA-1 hash of the file at the given path. If a directory is given, the hash is generated recursively.
