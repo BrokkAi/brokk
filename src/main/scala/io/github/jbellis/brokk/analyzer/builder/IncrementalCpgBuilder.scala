@@ -1,12 +1,16 @@
 package io.github.jbellis.brokk.analyzer.builder
 
+import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
-import io.joern.javasrc2cpg.{Config as JavaSrcConfig}
-import io.joern.c2cpg.{Config as CConfig}
+import io.joern.javasrc2cpg.Config as JavaSrcConfig
+import io.joern.c2cpg.Config as CConfig
 
-import java.nio.file.Path
+import java.io.FileInputStream
+import scala.util.{Try, Using}
+import java.nio.file.{Files, Path}
+import java.security.MessageDigest
 
 /**
  * A trait to be implemented by a language-specific incremental CPG builder.
