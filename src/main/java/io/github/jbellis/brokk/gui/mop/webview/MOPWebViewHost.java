@@ -34,7 +34,7 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(String text, boolean isNew, ChatMessageType msgType) implements HostCommand {}
+        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) implements HostCommand {}
         record SetTheme(boolean isDark) implements HostCommand {}
         record ShowSpinner(String message) implements HostCommand {}
         record Clear() implements HostCommand {}
@@ -141,9 +141,9 @@ public final class MOPWebViewHost extends JPanel {
         });
     }
 
-    public void append(String text, boolean isNewMessage, ChatMessageType msgType) {
-        sendOrQueue(new HostCommand.Append(text, isNewMessage, msgType),
-                     bridge -> bridge.append(text, isNewMessage, msgType));
+    public void append(String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming) {
+        sendOrQueue(new HostCommand.Append(text, isNewMessage, msgType, streaming),
+                     bridge -> bridge.append(text, isNewMessage, msgType, streaming));
     }
 
     public void setTheme(boolean isDark) {
@@ -220,7 +220,7 @@ public final class MOPWebViewHost extends JPanel {
             logger.info("Flushing {} buffered commands", pendingCommands.size());
             pendingCommands.forEach(command -> {
                 switch (command) {
-                    case HostCommand.Append a -> bridge.append(a.text(), a.isNew(), a.msgType());
+                    case HostCommand.Append a -> bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming());
                     case HostCommand.SetTheme t -> bridge.setTheme(t.isDark());
                     case HostCommand.ShowSpinner s -> bridge.showSpinner(s.message());
                     case HostCommand.Clear ignored -> bridge.clear();

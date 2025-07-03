@@ -35,12 +35,12 @@ public final class MOPBridge {
         });
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType) {
+    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
         if (text.isEmpty()) {
             return;
         }
         // Epoch is assigned later, just queue the content
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1));
+        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming));
         scheduleSend();
     }
 
@@ -79,7 +79,7 @@ public final class MOPBridge {
                     if (firstChunk == null) {
                         firstChunk = chunk;
                     } else if (chunk.isNew() || chunk.msgType() != firstChunk.msgType()) {
-                        sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType());
+                        sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType(), firstChunk.streaming());
                         currentText.setLength(0);
                         firstChunk = chunk;
                     }
@@ -88,7 +88,7 @@ public final class MOPBridge {
             }
 
             if (firstChunk != null) {
-                sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType());
+                sendChunk(currentText.toString(), firstChunk.isNew(), firstChunk.msgType(), firstChunk.streaming());
             }
         } finally {
             pending.set(false);
@@ -98,9 +98,9 @@ public final class MOPBridge {
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType) {
+    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e);
+        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming);
         sendEvent(event);
     }
 

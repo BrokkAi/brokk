@@ -11,7 +11,7 @@ public sealed interface BrokkEvent {
     String getType();
     @Nullable Integer getEpoch(); // Can return null for events that don't need an ACK
 
-    record Chunk(String text, boolean isNew, @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType, int epoch) implements BrokkEvent {
+    record Chunk(String text, boolean isNew, @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType, int epoch, boolean streaming) implements BrokkEvent {
         @Override
         public String getType() {
             return "chunk";

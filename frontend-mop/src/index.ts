@@ -24,7 +24,7 @@ declare global {
 }
 
 // Create a writable store for events
-const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, msgType: 'SYSTEM', epoch: 0 });
+const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, streaming: false, msgType: 'SYSTEM', epoch: 0 });
 
 // Create stores for UI commands
 const spinnerStore = writable<string>('');
@@ -58,7 +58,7 @@ window.brokk = {
     return window.getSelection()?.toString() ?? '';
   },
   clear: () => {
-    eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
+    eventStore.set({ type: 'chunk', text: '', isNew: true, streaming: false, msgType: 'SYSTEM', epoch: 0 });
   },
   setTheme: (dark) => {
     if (dark) {

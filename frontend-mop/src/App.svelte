@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { Writable } from 'svelte/store';
   import type { BrokkEvent, Bubble } from './types';
   import MessageBubble from './components/MessageBubble.svelte';
-  import { followWhenBottom } from './lib/followWhenBottom';
+  import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
 
   export let eventStore: Writable<BrokkEvent>;
   export let spinnerStore: Writable<string>;
@@ -12,10 +12,33 @@
   let bubbles: Bubble[] = [];
   let nextId = 0;
   let spinnerMessage = '';
+  let chatContainer: HTMLElement;
+  let stopAutoScroll: (() => void) | null = null;
+
+  onMount(() => {
+    if (!chatContainer.id) {
+      chatContainer.id = 'chat-container';
+    }
+  });
 
   // Subscribe to store changes explicitly to handle every event
   const eventUnsubscribe = eventStore.subscribe(event => {
     if (event.type === 'chunk') {
+      if (event.streaming) {
+        if (!stopAutoScroll) {
+          stopAutoScroll = autoScroll({
+            selector: '#chat-container',
+            plugins: [escapeWhenUpPlugin({ threshold: 40 })],
+            throttleTime: 100
+          });
+        }
+      } else {
+        if (stopAutoScroll) {
+          stopAutoScroll();
+          stopAutoScroll = null;
+        }
+      }
+
       if (!event.text && event.isNew) {
         // Direct reset without fade transition for JavaFX compatibility
         bubbles = [];
@@ -39,6 +62,10 @@
 
   // Unsubscribe when component is destroyed to prevent memory leaks
   onDestroy(() => {
+    if (stopAutoScroll) {
+      stopAutoScroll();
+      stopAutoScroll = null;
+    }
     eventUnsubscribe();
     spinnerUnsubscribe();
   });
@@ -70,7 +97,7 @@
 
   <div
     class="chat-container"
-    use:followWhenBottom={{ behavior: 'smooth' }}
+    bind:this={chatContainer}
   >
     {#each bubbles as bubble (bubble.id)}
       <div in:fade={{ duration: 200 }} out:fade={{ duration: 100 }}>

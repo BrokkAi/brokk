@@ -124,11 +124,11 @@ Both approaches:
 `;
     let index = 0;
     simulateEvent('clear');
-    simulateEvent('chunk', {text: contentUser, msgType: 'USER'})
+    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
     const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
     const interval = setInterval(() => {
       if (index < chunks.length) {
-        simulateEvent('chunk', {text: chunks[index], msgType: 'AI'});
+        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
         index++;
       } else {
         clearInterval(interval);

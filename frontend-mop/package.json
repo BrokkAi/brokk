@@ -18,6 +18,7 @@
     "vite": "^6.3.5"
   },
   "dependencies": {
+    "@yrobot/auto-scroll": "^3.0.1",
     "remark-breaks": "^4.0.0",
     "svelte-exmarkdown": "^5.0.1"
   }
