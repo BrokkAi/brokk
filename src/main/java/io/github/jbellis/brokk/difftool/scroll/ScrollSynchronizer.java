@@ -215,8 +215,8 @@ public class ScrollSynchronizer
     {
         int offset = 0;
         for (AbstractDelta<String> delta : patch.getDeltas()) {
-            Chunk<String> source = delta.getSource(); // original
-            Chunk<String> target = delta.getTarget(); // revised
+            var source = delta.getSource(); // original
+            var target = delta.getTarget(); // revised
             int srcPos = source.getPosition();
             int tgtPos = target.getPosition();
             // The chunk ends at pos+size-1
@@ -387,10 +387,6 @@ public class ScrollSynchronizer
         logger.debug("showDelta completed - both panels scrolled");
     }
 
-    public void toNextDelta(boolean next)
-    {
-        // Moved to BufferDiffPanel. This is not used here any more.
-    }
 
     /**
      * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.

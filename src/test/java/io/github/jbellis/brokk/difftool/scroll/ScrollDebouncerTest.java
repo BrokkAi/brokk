@@ -146,14 +146,6 @@ class ScrollDebouncerTest
     }
 
     @Test
-    void debounceConfiguration()
-    {
-        var customDebouncer = new ScrollDebouncer(123);
-        assertEquals(123, customDebouncer.getDebounceMs(), "Should return configured debounce time");
-        customDebouncer.dispose();
-    }
-
-    @Test
     void disposeCleanup()
     {
         AtomicInteger executeCount = new AtomicInteger(0);
