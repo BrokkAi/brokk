@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder
 
-import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
+import io.github.jbellis.brokk.analyzer.implicits.StringExt.*
 import flatgraph.DiffGraphApplier
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.*
@@ -18,11 +18,9 @@ class FileChangeTest extends FileChangeTestFixture {
     assertAgainstCpgWithPaths(
       existingFiles = Nil,
       newFiles = Seq(F("Foo.txt"), F("foo/Bar.txt"))
-    ) { (cpg, projectRootPath) =>
-      def fileName(relative: String): Path = projectRootPath.resolve(relative)
-
+    ) { (cpg, projectRootPath, absFileName) =>
       IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
-        AddedFile(fileName("Foo.txt")), AddedFile(fileName("foo/Bar.txt"))
+        AddedFile(absFileName("Foo.txt")), AddedFile(absFileName("foo/Bar.txt"))
       )
     }
   }
@@ -31,11 +29,9 @@ class FileChangeTest extends FileChangeTestFixture {
     assertAgainstCpgWithPaths(
       existingFiles = Seq(F("Foo.txt")),
       newFiles = Seq(F("Foo.txt", "changed"))
-    ) { (cpg, projectRootPath) =>
-      def fileName(relative: String): Path = projectRootPath.resolve(relative)
-
+    ) { (cpg, projectRootPath, absFileName) =>
       IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
-        ModifiedFile(fileName("Foo.txt"))
+        ModifiedFile(absFileName("Foo.txt"))
       )
     }
   }
@@ -45,19 +41,19 @@ class FileChangeTest extends FileChangeTestFixture {
 case class FileAndContents(path: String, contents: String)
 
 trait FileChangeTestFixture extends AnyWordSpec with Matchers {
-  
-  private def F(path: String, contents: String = "Mock contents"): FileAndContents = FileAndContents(path, contents)
+
+  protected def F(path: String, contents: String = "Mock contents"): FileAndContents = FileAndContents(path, contents)
 
   /**
    * Creates a CPG file system given the "existing" paths using some temporary directory as the root directory.
    *
    * @param existingFiles the files that should be associated with File nodes in the CPG. These should be relative.
-   * @param newFiles      the files that are considered "new" files. These will be created as empty files in the root 
+   * @param newFiles      the files that are considered "new" files. These will be created as empty files in the root
    *                      directory. These should be relative.
    * @param assertion     the test assertions to perform against a CPG containing existing files and the root directory of new files.
    * @return the test assertion.
    */
-  def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(assertion: (Cpg, Path) => Assertion): Assertion = {
+  def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(assertion: (Cpg, Path, String => Path) => Assertion): Assertion = {
     Using.resource(Cpg.empty) { cpg =>
       val tempDir = Files.createTempDirectory("brokk-file-change-test-")
       try {
@@ -72,11 +68,15 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         // Create dummy files
         newFiles.foreach { case FileAndContents(path, contents) =>
           val fullPath = tempDir.resolve(path)
-          Files.writeString(fullPath, contents, java.nio.file.StandardOpenOption.CREATE)
+          val parent = fullPath.getParent
+          if (!Files.exists(parent)) Files.createDirectories(parent)
+          Files.createFile(fullPath)
+          Files.writeString(fullPath, contents)
         }
 
         // Run assertions
-        assertion(cpg, tempDir)
+        val absFileNameProvider = (relativeName: String) => tempDir.resolve(relativeName)
+        assertion(cpg, tempDir, absFileNameProvider)
       } finally {
         deleteRecursively(tempDir)
       }

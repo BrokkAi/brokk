@@ -9,7 +9,7 @@ import scala.jdk.CollectionConverters.*
 
 object PathExt {
 
-  given pathToDigest: Path with {
+  extension(pathToDigest: Path)  {
 
     /**
      * Generates a SHA-1 hash of the file at the given path. If a directory is given, the hash is generated recursively.
@@ -24,7 +24,7 @@ object PathExt {
     private def digestPath(path: Path, messageDigest: MessageDigest): String = {
       if (Files.isDirectory(path)) {
         val allContents = Files.list(path).map(p => digestPath(p, messageDigest)).toList.asScala.mkString
-        messageDigest.digest(allContents.getBytes(StandardCharsets.UTF_8.name())).map("%02x".format(_)).mkString
+        messageDigest.digest(allContents.getBytes(StandardCharsets.UTF_8)).map("%02x".format(_)).mkString
       } else {
         Using.resource(FileInputStream(path.toFile)) { fis =>
           val buffer = new Array[Byte](8192)
