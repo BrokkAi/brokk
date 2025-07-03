@@ -58,6 +58,17 @@ class FileChangeTest extends FileChangeTestFixture {
     }
   }
 
+  "A composite of addition, modification, and removal operations should result in the respective change objects" in {
+    assertAgainstCpgWithPaths(
+      existingFiles = Seq(F("Foo.txt", "removed"), F("foo/Bar.txt", "changed")),
+      newFiles = Seq(F("foo/Bar.txt"), F("foo/Baz.txt", "new"))
+    ) { (cpg, projectRootPath, absFileName) =>
+      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+        RemovedFile(absFileName("Foo.txt")), ModifiedFile(absFileName("foo/Bar.txt")), AddedFile(absFileName("foo/Baz.txt"))
+      )
+    }
+  }
+
 }
 
 case class FileAndContents(path: String, contents: String)
