@@ -3,14 +3,9 @@ package io.github.jbellis.brokk;
 import io.github.jbellis.brokk.MainProject.DataRetentionPolicy;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
-import io.github.jbellis.brokk.context.ContextHistory;
-import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public final class WorktreeProject extends AbstractProject {
@@ -64,41 +59,6 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public boolean hasBuildDetails() {
         return parent.hasBuildDetails();
-    }
-
-    @Override
-    public void saveHistory(ContextHistory ch, UUID sessionId) {
-        parent.saveHistory(ch, sessionId);
-    }
-
-    @Override
-    public @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        return parent.loadHistory(sessionId, contextManager);
-    }
-
-    @Override
-    public List<SessionInfo> listSessions() {
-        return parent.listSessions();
-    }
-
-    @Override
-    public SessionInfo newSession(String name) {
-        return parent.newSession(name);
-    }
-
-    @Override
-    public void renameSession(UUID sessionId, String newName) {
-        parent.renameSession(sessionId, newName);
-    }
-
-    @Override
-    public void deleteSession(UUID sessionIdToDelete) {
-        parent.deleteSession(sessionIdToDelete);
-    }
-
-    @Override
-    public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
-        return parent.copySession(originalSessionId, newSessionName);
     }
 
     @Override
@@ -239,5 +199,10 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         parent.setArchitectOptions(options, runInWorktree);
+    }
+
+    @Override
+    public SessionManager getSessionManager() {
+        return parent.getSessionManager();
     }
 }

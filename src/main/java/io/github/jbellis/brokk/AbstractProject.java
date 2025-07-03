@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 
 public sealed abstract class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
-    protected static final ObjectMapper objectMapper = new ObjectMapper();
+    public static final ObjectMapper objectMapper = new ObjectMapper();
 
     protected final Path root;
     protected final IGitRepo repo;

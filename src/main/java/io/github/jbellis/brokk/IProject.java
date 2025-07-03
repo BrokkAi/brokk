@@ -4,17 +4,14 @@ import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.Set;
-import java.util.UUID;
 
 public interface IProject extends AutoCloseable {
 
@@ -47,14 +44,6 @@ public interface IProject extends AutoCloseable {
      */
     default BuildAgent.BuildDetails loadBuildDetails() {
         return BuildAgent.BuildDetails.EMPTY; // Default implementation returns empty
-    }
-
-    default void saveHistory(ContextHistory ch, UUID sessionId) {
-        throw new UnsupportedOperationException();
-    }
-
-    default @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager contextManager) {
-        throw new UnsupportedOperationException();
     }
 
     default MainProject.DataRetentionPolicy getDataRetentionPolicy() {
@@ -117,26 +106,6 @@ public interface IProject extends AutoCloseable {
     }
 
     default void saveStyleGuide(String styleGuide) {
-        throw new UnsupportedOperationException();
-    }
-
-    default List<SessionInfo> listSessions() {
-        return List.of();
-    }
-
-    default SessionInfo newSession(String name) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void renameSession(UUID sessionId, String newName) {
-        throw new UnsupportedOperationException();
-    }
-
-    default void deleteSession(UUID sessionIdToDelete) {
-        throw new UnsupportedOperationException();
-    }
-
-    default SessionInfo copySession(UUID originalSessionId, String newSessionName) throws IOException {
         throw new UnsupportedOperationException();
     }
 
@@ -230,6 +199,10 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default SessionManager getSessionManager() {
+        throw new UnsupportedOperationException();
+    }
+
     enum CpgRefresh {
         AUTO,
         ON_RESTART,
@@ -256,11 +229,5 @@ public interface IProject extends AutoCloseable {
                 return defaultScope;
             }
         }
-    }
-
-    /**
-     * Record representing session metadata for the sessions management system.
-     */
-    record SessionInfo(UUID id, String name, long created, long modified) {
     }
 }
