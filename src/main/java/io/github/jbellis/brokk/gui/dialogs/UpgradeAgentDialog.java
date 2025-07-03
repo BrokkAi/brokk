@@ -29,15 +29,18 @@ import java.util.List;
 import io.github.jbellis.brokk.gui.dialogs.UpgradeAgentProgressDialog.PostProcessingOption;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
 import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
+import static io.github.jbellis.brokk.gui.Constants.H_GAP;
 
 public class UpgradeAgentDialog extends JDialog {
     private final Chrome chrome;
     private JTextArea instructionsArea;
     private JComboBox<Service.FavoriteModel> modelComboBox;
     private JLabel tokenWarningLabel;
+    private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
     private JRadioButton entireProjectScopeRadioButton;
     private JRadioButton selectFilesScopeRadioButton;
@@ -60,6 +63,13 @@ public class UpgradeAgentDialog extends JDialog {
     private JTextField contextFilterTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
     private static final int TOKEN_SAFETY_MARGIN = 32768;
+
+    // Tracks the most recent cost estimate and user balance
+    private volatile double estimatedCost = 0.0;
+    private volatile float userBalance    = Float.NaN;
+
+    // Cache (file -> token count) to avoid recomputation on every UI refresh
+    private final Map<ProjectFile, Long> tokenCountCache = new ConcurrentHashMap<>();
 
     private FileSelectionPanel fileSelectionPanel;
     private JTable selectedFilesTable;
@@ -125,14 +135,48 @@ public class UpgradeAgentDialog extends JDialog {
         }
     }
 
+    /**
+     * Simple filled-circle icon used for speed indicators.
+     */
+    private static final class ColorDotIcon implements Icon {
+        private final Color color;
+        private final int   diameter;
+
+        private ColorDotIcon(Color color, int diameter) {
+            this.color     = Objects.requireNonNull(color, "color");
+            this.diameter  = diameter;
+        }
+
+        @Override
+        public void paintIcon(Component c, Graphics g, int x, int y) {
+            g.setColor(color);
+            g.fillOval(x, y, diameter, diameter);
+            g.setColor(Color.DARK_GRAY);
+            g.drawOval(x, y, diameter, diameter); // subtle outline
+        }
+
+        @Override
+        public int getIconWidth()  { return diameter; }
+        @Override
+        public int getIconHeight() { return diameter; }
+    }
+
     public UpgradeAgentDialog(Frame owner, Chrome chrome) {
         super(owner, "Upgrade Agent", true);
         this.chrome = chrome;
         initComponents();
         setupKeyBindings();
-        modelComboBox.addActionListener(e -> updateTokenWarningLabel());
-        includeWorkspaceCheckbox.addActionListener(e -> updateTokenWarningLabel());
+        modelComboBox.addActionListener(e -> {
+            updateTokenWarningLabel();
+            updateCostEstimate();
+        });
+        includeWorkspaceCheckbox.addActionListener(e -> {
+            updateTokenWarningLabel();
+            updateCostEstimate();
+        });
         updateTokenWarningLabel();
+        updateCostEstimate();
+        fetchUserBalance();
         pack();
         setLocationRelativeTo(owner);
     }
@@ -181,8 +225,8 @@ public class UpgradeAgentDialog extends JDialog {
         entireProjectPanel.add(new JLabel("Restrict to Language"), entireGbc);
 
         entireGbc.gridx = 1;
-        entireGbc.weightx = 1.0;
-        entireGbc.fill = GridBagConstraints.HORIZONTAL;
+        entireGbc.weightx = 1.0; // Allow horizontal expansion
+        entireGbc.fill = GridBagConstraints.HORIZONTAL; // Stretch to fill remaining space
         languageComboBox = new JComboBox<>();
         languageComboBox.addItem(ALL_LANGUAGES_OPTION);
         chrome.getProject().getAnalyzerLanguages().stream()
@@ -191,6 +235,7 @@ public class UpgradeAgentDialog extends JDialog {
                 .forEach(languageComboBox::addItem);
         languageComboBox.setSelectedItem(ALL_LANGUAGES_OPTION);
         entireProjectPanel.add(languageComboBox, entireGbc);
+        languageComboBox.addActionListener(e -> updateCostEstimate());
 
         // Spacer to push content to the top
         var gbcSpacer = new GridBagConstraints();
@@ -392,20 +437,71 @@ public class UpgradeAgentDialog extends JDialog {
         List<Service.FavoriteModel> favoriteModels = MainProject.loadFavoriteModels();
         favoriteModels.sort((m1, m2) -> m1.alias().compareToIgnoreCase(m2.alias()));
         modelComboBox = new JComboBox<>(favoriteModels.toArray(new Service.FavoriteModel[0]));
+        // Add colored-dot speed indicator next to each model alias
+        var service = chrome.getContextManager().getService();
         modelComboBox.setRenderer(new DefaultListCellRenderer() {
+            private final Icon redDot    = new ColorDotIcon(Color.RED,    10);
+            private final Icon yellowDot = new ColorDotIcon(Color.YELLOW, 10);
+            private final Icon greenDot  = new ColorDotIcon(new Color(0, 170, 0), 10); // deeper green for visibility
+
             @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof Service.FavoriteModel fav) {
-                    setText(fav.alias());
+            public Component getListCellRendererComponent(JList<?> list,
+                                                          Object value,
+                                                          int index,
+                                                          boolean isSelected,
+                                                          boolean cellHasFocus)
+            {
+                // Use default renderer for basic background/selection handling
+                super.getListCellRendererComponent(list, "", index, isSelected, cellHasFocus);
+                var fav = (Service.FavoriteModel) value;
+                var panel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+                panel.setOpaque(true);
+                panel.setBackground(getBackground());
+
+                // Determine metric + color
+                var model   = service.getModel(fav.modelName(), fav.reasoning());
+                Color color = Color.GRAY;
+                String tooltip = "unknown capacity";
+                if (model != null) {
+                    Integer maxConc = service.getMaxConcurrentRequests(model);
+                    if (maxConc != null) {
+                        tooltip = "%,d max concurrent requests".formatted(maxConc);
+                        color   = (maxConc <= 5) ? Color.RED
+                                                 : (maxConc <= 50) ? Color.YELLOW
+                                                                   : new Color(0, 170, 0);
+                    } else {
+                        Integer tpm = service.getTokensPerMinute(model);
+                        if (tpm != null) {
+                            tooltip = "%,d tokens/minute".formatted(tpm);
+                            color   = (tpm <= 1_000_000)  ? Color.RED
+                                                          : (tpm <= 10_000_000) ? Color.YELLOW
+                                                                                : new Color(0, 170, 0);
+                        }
+                    }
                 }
-                return this;
+
+                Icon dot = switch (color.getRGB()) {
+                    case 0xFFFF0000 -> redDot;
+                    case 0xFFFFFF00 -> yellowDot;
+                    default         -> greenDot;
+                };
+
+                panel.setToolTipText(tooltip);
+                panel.add(new JLabel(dot));
+                var name = new JLabel(fav.alias());
+                name.setForeground(getForeground());
+                panel.add(name);
+                return panel;
             }
         });
         if (!favoriteModels.isEmpty()) {
             modelComboBox.setSelectedIndex(0);
         }
-        parallelProcessingPanel.add(modelComboBox, paraGBC);
+        JPanel modelCostPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
+        modelCostPanel.add(modelComboBox);
+        costEstimateLabel = new JLabel(" ");
+        modelCostPanel.add(costEstimateLabel);
+        parallelProcessingPanel.add(modelCostPanel, paraGBC);
 
         // Token Warning Label
         paraGBC.gridy++;
@@ -456,6 +552,7 @@ public class UpgradeAgentDialog extends JDialog {
         parallelProcessingPanel.add(relatedIcon, paraGBC);
         paraGBC.gridx = 2;
         relatedClassesCombo = new JComboBox<>(new String[]{"0", "5", "10", "20"});
+        relatedClassesCombo.addActionListener(e -> updateCostEstimate());
         relatedClassesCombo.setEditable(true);
         relatedClassesCombo.setSelectedItem("0");
         parallelProcessingPanel.add(relatedClassesCombo, paraGBC);
@@ -720,6 +817,7 @@ public class UpgradeAgentDialog extends JDialog {
                 command = "SELECT";
             }
             scopeCardLayout.show(scopeCardsPanel, command);
+            updateCostEstimate();
         };
         entireProjectScopeRadioButton.addActionListener(scopeListener);
         selectFilesScopeRadioButton.addActionListener(scopeListener);
@@ -742,6 +840,107 @@ public class UpgradeAgentDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
     }
 
+    private void updateCostEstimate() {
+        var cm      = chrome.getContextManager();
+        var service = cm.getService();
+        var fav     = (Service.FavoriteModel) modelComboBox.getSelectedItem();
+        requireNonNull(fav);
+
+        var pricing = service.getModelPricing(fav.modelName());
+
+        List<ProjectFile> files = getSelectedFilesForCost();
+        int n = files.size();
+        if (n == 0) { costEstimateLabel.setText(" "); return; }
+
+        long tokensFiles = files.parallelStream()
+                .mapToLong(this::getTokenCount)
+                .sum();
+        double avgTokens = tokensFiles / (double) n;
+
+        long workspaceTokens = includeWorkspaceCheckbox.isSelected()
+                               ? Messages.getApproximateTokens(
+                io.github.jbellis.brokk.prompts.CodePrompts.instance
+                        .getWorkspaceContentsMessages(cm.topContext()))
+                               : 0;
+        long workspaceAdd = includeWorkspaceCheckbox.isSelected() ? workspaceTokens * n : 0;
+
+        int relatedK = 0;
+        try {
+            var txt = Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
+            if (!txt.isEmpty()) relatedK = Integer.parseInt(txt);
+        } catch (NumberFormatException ex) {
+            // Invalid number → treat as zero related classes
+            relatedK = 0;
+        }
+        long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
+
+        long totalInput = tokensFiles + workspaceAdd + relatedAdd;
+        long estOutput  = Math.min(4000, totalInput / 2);
+        double cost     = pricing.estimateCost(totalInput, 0, estOutput);
+        estimatedCost   = cost;
+
+        costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", cost));
+    }
+    
+    private void fetchUserBalance() {
+        var cm = chrome.getContextManager();
+        cm.submitBackgroundTask("Fetch balance",
+                                () -> cm.getService().getUserBalance())
+          .thenAccept(balance -> userBalance = balance);
+    }
+    
+    /**
+     * Returns the cached token count of a file, computing it once if necessary.
+     */
+    private long getTokenCount(ProjectFile pf) {
+        return tokenCountCache.computeIfAbsent(pf, file -> {
+            try {
+                return (long) Messages.getApproximateTokens(file.read());
+            } catch (Exception e) {
+                return 0L;
+            }
+        });
+    }
+    
+    /**
+     * Gather the currently selected files (no validation).
+     */
+    private List<ProjectFile> getSelectedFilesForCost() {
+        try {
+            if (entireProjectScopeRadioButton.isSelected()) {
+                var files = chrome.getProject().getRepo().getTrackedFiles().stream()
+                                   .filter(ProjectFile::isText);
+                String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
+                if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
+                    files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
+                }
+                return files.toList();
+            }
+
+            if (listFilesScopeRadioButton.isSelected()) {
+                var repoFiles = chrome.getProject().getRepo().getTrackedFiles();
+                return Arrays.stream(listFilesTextArea.getText().split("\\s+"))
+                             .filter(s -> !s.isBlank())
+                             .map(s -> {
+                                 try { return chrome.getContextManager().toFile(s); }
+                                 catch (IllegalArgumentException e) { return null; }
+                             })
+                             .filter(Objects::nonNull).filter(repoFiles::contains).toList();
+            }
+
+            // select-files scope
+            List<ProjectFile> files = new ArrayList<>();
+            for (int i = 0; i < tableModel.getRowCount(); i++) {
+                String rel = (String) tableModel.getValueAt(i, 0);
+                files.add(chrome.getContextManager().toFile(rel));
+            }
+            return files;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /* ---------------- existing method ------------------------------ */
     private void updateTokenWarningLabel() {
         if (!includeWorkspaceCheckbox.isSelected()) {
             tokenWarningLabel.setVisible(false);
@@ -819,6 +1018,7 @@ public class UpgradeAgentDialog extends JDialog {
             }
         }
         fileSelectionPanel.setInputText("");
+        updateCostEstimate();
     }
 
     private void removeSelectedFilesFromTable() {
@@ -827,6 +1027,7 @@ public class UpgradeAgentDialog extends JDialog {
         for (int i = selectedRows.length - 1; i >= 0; i--) {
             tableModel.removeRow(selectedRows[i]);
         }
+        updateCostEstimate();
     }
 
     private void updateFileListStatus() {
@@ -865,6 +1066,7 @@ public class UpgradeAgentDialog extends JDialog {
             status += " Untracked files will not be processed";
         }
         fileListStatusLabel.setText(status);
+        updateCostEstimate();
     }
 
     private void onOK() {
@@ -878,6 +1080,22 @@ public class UpgradeAgentDialog extends JDialog {
         if (selectedFavorite == null) {
             JOptionPane.showMessageDialog(this, "Please select a model", "Input Error", JOptionPane.ERROR_MESSAGE);
             return;
+        }
+
+        // Refresh cost estimate and warn if it is more than half the balance
+        updateCostEstimate();
+        if (!Float.isNaN(userBalance) && estimatedCost > userBalance / 2.0) {
+            int choice = JOptionPane.showConfirmDialog(
+                    this,
+                    String.format(
+                            "The estimated cost is $%.2f, which exceeds half of your remaining balance ($%.2f).\nDo you want to continue?",
+                            estimatedCost, (double) userBalance),
+                    "Low Balance Warning",
+                    JOptionPane.OK_CANCEL_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.OK_OPTION) {
+                return;
+            }
         }
 
         // Determine scope and get files to process
