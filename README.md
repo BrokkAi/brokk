@@ -13,7 +13,7 @@ There is a [Brokk Discord](https://discord.gg/QjhQDK8kAj) for questions and sugg
 
 # Running Brokk
 
-1. Sign up at [https://brokk.ai/](Brokk.ai)
+1. Sign up at [Brokk.ai](https://brokk.ai/)
 1. Follow the instructions to install jbang and run Brokk
 
 # Documentation
