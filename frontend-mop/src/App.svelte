@@ -4,6 +4,7 @@
   import type { Writable } from 'svelte/store';
   import type { BrokkEvent, Bubble } from './types';
   import MessageBubble from './components/MessageBubble.svelte';
+  import { followWhenBottom } from './lib/followWhenBottom';
 
   export let eventStore: Writable<BrokkEvent>;
   export let spinnerStore: Writable<string>;
@@ -69,6 +70,7 @@
 
   <div
     class="chat-container"
+    use:followWhenBottom={{ behavior: 'smooth' }}
   >
     {#each bubbles as bubble (bubble.id)}
       <div in:fade={{ duration: 200 }} out:fade={{ duration: 100 }}>
