@@ -8,8 +8,7 @@ import type { BrokkEvent } from './types';
 declare global {
   interface Window {
     brokk: {
-      _eventBuffer: BrokkEvent[];
-      _callQueue: { method: string; args: unknown[] }[];
+      _buffer: BufferItem[];
       onEvent: (payload: BrokkEvent) => void;
       getSelection: () => string;
       clear: () => void;
@@ -23,6 +22,15 @@ declare global {
   }
 }
 
+// Define an explicit interface for buffer items
+interface BufferItem {
+  type: 'event' | 'call';
+  seq: number;
+  payload?: BrokkEvent;
+  method?: string;
+  args?: unknown[];
+}
+
 // Create a writable store for events
 const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, streaming: false, msgType: 'SYSTEM', epoch: 0 });
 
@@ -31,16 +39,16 @@ const spinnerStore = writable<string>('');
 
 // Instantiate the app using Svelte 5 API
 const app = mount(App, {
-  target: document.getElementById('mop-root'),
+  target: document.getElementById('mop-root')!,
   props: { eventStore, spinnerStore }
-});
+} as any); // Temporary workaround for TypeScript error, to be fixed with Svelte 5 typing updates
 
 // Retrieve buffered calls and events from the early stub
 const buffer = window.brokk._buffer || [];
 
 // Replace the temporary brokk proxy with the real implementation
 window.brokk = {
-  _callQueue: [], _eventBuffer: [],
+  _buffer: [],
   onEvent: (payload) => {
     console.log('Received event from Java bridge:', JSON.stringify(payload));
     eventStore.set(payload);
@@ -76,8 +84,8 @@ window.brokk = {
 if (buffer.length > 0) {
   console.log('Replaying', buffer.length, 'buffered items');
   buffer.sort((a, b) => a.seq - b.seq).forEach(item => {
-    if (item.type === 'event') {
-      console.log('Replaying event with epoch:', item.payload.epoch);
+    if (item.type === 'event' && item.payload) {
+      console.log('Replaying event with epoch:', JSON.stringify(item.payload));
       window.brokk.onEvent(item.payload);
     } else {
       console.log('Replaying call to', item.method, 'with args:', item.args);
