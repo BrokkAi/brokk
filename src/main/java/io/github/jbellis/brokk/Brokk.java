@@ -134,6 +134,9 @@ public class Brokk {
             logger.fatal("Failed to initialize SplashScreen. Exiting.", e);
             System.exit(1);
         }
+
+        // set this globally since (so far) we never want a file chooser to make changes
+        UIManager.put("FileChooser.readOnly", true);
     }
 
     private static ParsedArgs parseArguments(String[] args) {
