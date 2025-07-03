@@ -37,13 +37,11 @@ const app = mount(App, {
 });
 
 // Retrieve buffered calls and events from the early stub
-const pendingCalls = window.brokk._callQueue || [];
-const bufferedEvents = window.brokk._eventBuffer || [];
+const buffer = window.brokk._buffer || [];
 
 // Replace the temporary brokk proxy with the real implementation
 window.brokk = {
-  _callQueue: [],
-  _eventBuffer: [],
+  _buffer: [],
   onEvent: (payload) => {
     console.log('Received event from Java bridge:', JSON.stringify(payload));
     eventStore.set(payload);
@@ -76,24 +74,21 @@ window.brokk = {
   }
 };
 
-// Process any buffered events first to maintain temporal order
-if (bufferedEvents.length > 0) {
-  console.log('Replaying', bufferedEvents.length, 'buffered events');
-  bufferedEvents.forEach(event => {
-    window.brokk.onEvent(event);
-  });
-}
-
-// Then replay any other buffered method calls
-if (pendingCalls.length > 0) {
-  console.log('Replaying', pendingCalls.length, 'buffered method calls');
-  pendingCalls.forEach(({ method, args }) => {
-    console.log('Replaying call to', method, 'with args:', args);
-    const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
-    if (typeof brokk[method] === 'function') {
-      brokk[method](...args);
+// Replay buffered calls and events in sequence order
+if (buffer.length > 0) {
+  console.log('Replaying', buffer.length, 'buffered items');
+  buffer.sort((a, b) => a.seq - b.seq).forEach(item => {
+    if (item.type === 'event') {
+      console.log('Replaying event with epoch:', item.payload.epoch);
+      window.brokk.onEvent(item.payload);
     } else {
-      console.warn('Method', method, 'no longer exists; skipping replay');
+      console.log('Replaying call to', item.method, 'with args:', item.args);
+      const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+      if (typeof brokk[item.method] === 'function') {
+        brokk[item.method](...item.args);
+      } else {
+        console.warn('Method', item.method, 'no longer exists; skipping replay');
+      }
     }
   });
 }

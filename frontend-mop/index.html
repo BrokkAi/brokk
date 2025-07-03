@@ -8,26 +8,25 @@
   <script>
     // Immediately define brokk with a proxy to buffer all early calls from Java
     (function() {
-      const callQueue = []; // Stores {method, args} for all calls except onEvent
-      const eventBuffer = []; // Stores payloads for onEvent
+      const buffer = []; // Unified buffer for all calls and events
+      let seq = 0; // Sequence number to maintain order
       
       window.brokk = new Proxy({
-        _callQueue: callQueue,
-        _eventBuffer: eventBuffer
+        _buffer: buffer
       }, {
         get(target, prop) {
-          // Allow direct access to internal queues
-          if (prop === '_callQueue' || prop === '_eventBuffer') {
+          // Allow direct access to internal buffer
+          if (prop === '_buffer') {
             return target[prop];
           }
           // Return a stub function for any other property access
           return (...args) => {
             if (prop === 'onEvent') {
               console.log('Buffering early event from Java:', JSON.stringify(args));
-              eventBuffer.push(...args);
+              buffer.push({ type: 'event', payload: args[0], seq: seq++ });
             } else {
               console.log('Buffering early call from Java to', prop);
-              callQueue.push({ method: prop, args });
+              buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
             }
             // Provide default return values for synchronous methods
             if (prop === 'getSelection') {
