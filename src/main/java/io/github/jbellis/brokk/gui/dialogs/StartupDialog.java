@@ -15,6 +15,7 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import javax.net.ssl.SSLHandshakeException;
 
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
@@ -207,6 +208,18 @@ public class StartupDialog extends JDialog {
                 } catch (IllegalArgumentException ex) {
                     logger.warn("Invalid Brokk Key entered: {}", ex.getMessage());
                     JOptionPane.showMessageDialog(this, "Invalid Brokk Key: " + ex.getMessage(), "Invalid Key", JOptionPane.ERROR_MESSAGE);
+                    keyField.requestFocusInWindow();
+                    keyField.selectAll();
+                    return;
+                } catch (SSLHandshakeException ex) {
+                    logger.warn("SSL Handshake error validating Brokk Key: {}", ex.getMessage());
+                    JOptionPane.showMessageDialog(this,
+                                                  "<html>Unable to connect to Brokk services. This often happens if you are behind " +
+                                                  "a corporate proxy or firewall that intercepts secure connections.<br><br>" +
+                                                  "Please ensure your operating system's trust store is configured to trust " +
+                                                  "any necessary corporate certificates. Brokk uses your system's default " +
+                                                  "trust mechanisms.</html>",
+                                                  "Connection Issue (Proxy/Firewall)", JOptionPane.ERROR_MESSAGE);
                     keyField.requestFocusInWindow();
                     keyField.selectAll();
                     return;
