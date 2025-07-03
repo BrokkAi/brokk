@@ -25,13 +25,38 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
  * A Swing JPanel that uses a JavaFX WebView to display structured conversations.
  * This is a modern, web-based alternative to the pure-Swing MarkdownOutputPanel.
  */
-public class MarkdownOutputPanel extends JPanel implements ThemeAware {
+public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
     private final MOPWebViewHost webHost;
     private boolean blockClearAndReset = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+
+    @Override
+    public boolean getScrollableTracksViewportHeight() {
+        return true; // Ensure the panel stretches to fill the viewport height
+    }
+
+    @Override
+    public Dimension getPreferredScrollableViewportSize() {
+        return getPreferredSize(); // Return the preferred size of the panel
+    }
+
+    @Override
+    public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return 10; // Small increment for unit scrolling
+    }
+
+    @Override
+    public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+        return 50; // Larger increment for block scrolling
+    }
+
+    @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true; // Stretch to fill viewport width as well
+    }
 
     public MarkdownOutputPanel(boolean escapeHtml) {
         super(new BorderLayout());

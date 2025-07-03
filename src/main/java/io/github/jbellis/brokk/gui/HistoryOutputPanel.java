@@ -122,34 +122,34 @@ public class HistoryOutputPanel extends JPanel {
     }
 
     private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, JButton copyButton) {
-        // Build capture output panel (copyButton is passed in)
-        var capturePanel = buildCaptureOutputPanel(copyButton);
+    // Build capture output panel (copyButton is passed in)
+    var capturePanel = buildCaptureOutputPanel(copyButton);
 
-        // Output panel with LLM stream
-        var outputPanel = new JPanel(new BorderLayout());
-        outputPanel.setBorder(BorderFactory.createTitledBorder(
-                BorderFactory.createEtchedBorder(),
-                "Output",
-                TitledBorder.DEFAULT_JUSTIFICATION,
-                TitledBorder.DEFAULT_POSITION,
-                new Font(Font.DIALOG, Font.BOLD, 12)
-        ));
-        outputPanel.add(llmScrollPane, BorderLayout.CENTER);
-        outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
+    // Output panel with LLM stream
+    var outputPanel = new JPanel(new BorderLayout());
+    outputPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createEtchedBorder(),
+            "Output",
+            TitledBorder.DEFAULT_JUSTIFICATION,
+            TitledBorder.DEFAULT_POSITION,
+            new Font(Font.DIALOG, Font.BOLD, 12)
+    ));
+    outputPanel.add(llmScrollPane, BorderLayout.CENTER);
+    outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Create vertical split pane with Output above and Instructions below
-        var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
-        outputInstructionsSplit.setTopComponent(outputPanel);
-        outputInstructionsSplit.setBottomComponent(instructionsPanel);
+    // Create vertical split pane with Output above and Instructions below
+    var outputInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+    outputInstructionsSplit.setResizeWeight(0.6); // Give output panel 60% of space
+    outputInstructionsSplit.setTopComponent(outputPanel);
+    outputInstructionsSplit.setBottomComponent(instructionsPanel);
 
-        // Container for the combined section
-        var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
+    // Container for the combined section
+    var centerContainer = new JPanel(new BorderLayout());
+    centerContainer.add(outputInstructionsSplit, BorderLayout.CENTER);
+    centerContainer.setMinimumSize(new Dimension(200, 0)); // Minimum width for combined area
 
-        return centerContainer;
-    }
+    return centerContainer;
+}
 
     /**
      * Builds the session controls panel with combo box and buttons

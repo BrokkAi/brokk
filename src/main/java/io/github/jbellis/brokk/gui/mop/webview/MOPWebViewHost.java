@@ -1,10 +1,10 @@
 package io.github.jbellis.brokk.gui.mop.webview;
 
 import dev.langchain4j.data.message.ChatMessageType;
-import io.github.jbellis.brokk.gui.GitLogTab;
 import javafx.application.Platform;
 import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
+import javafx.scene.layout.StackPane;
 import javafx.scene.web.WebView;
 import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
