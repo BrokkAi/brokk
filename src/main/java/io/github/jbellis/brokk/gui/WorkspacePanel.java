@@ -951,31 +951,11 @@ public class WorkspacePanel extends JPanel {
         // Create layered pane to support overlay
         workspaceLayeredPane = workspaceOverlay.createLayeredPane(tableScrollPane);
 
-        // Create a focusable wrapper that provides consistent focus behavior across the workspace
-        var focusableWrapper = new JPanel(new BorderLayout()) {
-            @Override
-            public boolean requestFocusInWindow() {
-                boolean result = super.requestFocusInWindow();
-                if (!result) {
-                    requestFocus();
-                }
-                return true;
-            }
-        };
-        focusableWrapper.setFocusable(true);
-        focusableWrapper.setFocusTraversalKeysEnabled(true);
-        focusableWrapper.setOpaque(false); // Transparent so underlying components show through
-        focusableWrapper.add(workspaceLayeredPane, BorderLayout.CENTER);
-
         // Add mouse listeners to key components to ensure focus
         var focusMouseListener = new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    SwingUtilities.invokeLater(() -> {
-                        focusableWrapper.requestFocusInWindow();
-                    });
-                }
+                SwingUtilities.invokeLater(contextTable::requestFocusInWindow);
             }
         };
 
@@ -1009,7 +989,7 @@ public class WorkspacePanel extends JPanel {
         // Add to the scroll pane viewport for empty areas
         tableScrollPane.getViewport().addMouseListener(focusMouseListener);
 
-        BorderUtils.addFocusBorder(focusableWrapper, focusableWrapper);
+        BorderUtils.addFocusBorder(tableScrollPane, contextTable);
 
         // Add a mouse listener to the scroll pane *and its viewport* for right-clicks on empty areas
         var emptyAreaPopupListener = new MouseAdapter() {
@@ -1047,7 +1027,7 @@ public class WorkspacePanel extends JPanel {
         tableScrollPane.addMouseListener(emptyAreaPopupListener);
         tableScrollPane.getViewport().addMouseListener(emptyAreaPopupListener);
 
-        tablePanel.add(focusableWrapper, BorderLayout.CENTER);
+        tablePanel.add(workspaceLayeredPane, BorderLayout.CENTER);
 
         setLayout(new BorderLayout());
 
