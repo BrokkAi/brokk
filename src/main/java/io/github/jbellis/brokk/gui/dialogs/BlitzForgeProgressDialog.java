@@ -154,7 +154,6 @@ public class BlitzForgeProgressDialog extends JDialog {
             if (includeWorkspace) {
                 readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(ctx));
                 readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
-                dialogConsoleIO.systemOutput("Including workspace contents in context.");
             }
             if (relatedK != null) {
                 // can't use `ctx` here b/c frozen context does not implement `sources` for buildAutoContext
@@ -168,13 +167,11 @@ public class BlitzForgeProgressDialog extends JDialog {
                                   </related_classes>
                                   """.stripIndent().formatted(relatedK, acFragment.text());
                     readOnlyMessages.add(new UserMessage(msgText));
-                    dialogConsoleIO.systemOutput("Added " + relatedK + " related classes to context.");
                 }
             }
 
             // Execute per-file command if provided
             if (perFileCommandTemplate != null && !perFileCommandTemplate.isBlank()) {
-                dialogConsoleIO.systemOutput("Preparing to execute per-file command for " + file);
                 MustacheFactory mf = new DefaultMustacheFactory();
                 Mustache mustache = mf.compile(new StringReader(perFileCommandTemplate), "perFileCommand");
                 StringWriter writer = new StringWriter();
@@ -249,9 +246,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                     errorMessage += " - " + explanation;
                 }
                 dialogConsoleIO.toolError(errorMessage, "Agent Processing Error");
-            } else {
-                dialogConsoleIO.systemOutput("successfully processed");
             }
+            // else publish() logs success
         } catch (Throwable t) {
             errorMessage = "Unexpected error: " + t.getMessage();
             logger.error("Unexpected failure while processing {}", file, t);
@@ -366,8 +362,7 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 // If there are files to process, start by preloading the prefix cache
                 if (!sortedFiles.isEmpty()) {
-                    // Publish initial state for preloading, 0 files processed so far
-                    publish(new ProgressData(0, "", "Preloading prefix cache..."));
+                    SwingUtilities.invokeLater(() -> progressBar.setString("Preloading prefix cache..."));
 
                     // Process the very first file synchronously to warm up caches
                     if (!isCancelled()) {
@@ -492,9 +487,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                         } else {
                             outputTextArea.append("Processed: " + data.fileName() + "\n");
                         }
-                    } else if (data.errorMessage() != null && !data.errorMessage().isEmpty()) {
-                        // This handles general messages, e.g., "Preloading prefix cache..."
-                        outputTextArea.append(data.errorMessage() + "\n");
                     }
                     outputTextArea.setCaretPosition(outputTextArea.getDocument().getLength());
                 }
