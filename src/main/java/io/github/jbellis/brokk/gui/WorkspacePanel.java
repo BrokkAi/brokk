@@ -507,7 +507,7 @@ public class WorkspacePanel extends JPanel {
             int preferredHeight = calculatePreferredHeight(panel);
 
             // Set row height if different from current
-            if (table.getRowHeight(row) != preferredHeight) {
+            if (table.getRowHeight(row) < preferredHeight) {
                 SwingUtilities.invokeLater(() -> table.setRowHeight(row, preferredHeight));
             }
 
@@ -517,7 +517,7 @@ public class WorkspacePanel extends JPanel {
         private int calculatePreferredHeight(JPanel panel) {
             // Force layout to get accurate measurements
             panel.doLayout();
-            return panel.getPreferredSize().height + 4; // Add small padding
+            return (int) Math.ceil(panel.getPreferredSize().getHeight()) + 4; // Add small padding
         }
     }
 
