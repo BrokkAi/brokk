@@ -16,10 +16,6 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   /**
    * Tests the incremental construction of a project via two changes. Each change must have configurations pointing to
    * different directories to avoid collisions.
-   *
-   * @param beforeChange
-   * @param afterChange
-   * @param builder
    */
   def testIncremental(beforeChange: MockProject[R], afterChange: MockProject[R])(using builder: IncrementalCpgBuilder[R]): Unit = {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
@@ -27,7 +23,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     }
     Using.Manager { use =>
       val initialCpg = use(beforeChange.buildCpg)
-      afterChange.buildProject // place new files at the path
+      afterChange.copy(config = beforeChange.config).buildProject // place new files at the "old" path
       val updatedCpg = initialCpg.updateWith(afterChange.config)
       val fromScratchCpg = use(afterChange.buildCpg)
       verifyConsistency(updatedCpg, fromScratchCpg)

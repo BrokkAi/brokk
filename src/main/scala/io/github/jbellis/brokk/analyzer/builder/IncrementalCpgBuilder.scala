@@ -27,7 +27,7 @@ trait IncrementalCpgBuilder[R <: X2CpgConfig[R]] {
    * determined by the configuration object.
    *
    * @param cpg    the CPG to be updated.
-   * @param config the langugage-specific configuration object containing the input path of source files to re-build
+   * @param config the language-specific configuration object containing the input path of source files to re-build
    *               from.
    */
   def update(cpg: Cpg, config: R): Cpg
@@ -150,7 +150,7 @@ object IncrementalCpgBuilder {
         astBuilder(buildDir)
         Cpg.withStorage(cpgPath) // re-open graph
       } finally {
-        buildDir.deleteRecursively
+//        buildDir.deleteRecursively
       }
     }
   }
@@ -159,7 +159,6 @@ object IncrementalCpgBuilder {
 
     override def update(cpg: Cpg, config: JavaSrcConfig): Cpg = {
       val fileChanges = determineChangedFiles(cpg, Paths.get(config.inputPath))
-      println(fileChanges)
       cpg.removeStaleFiles(fileChanges)
       cpg.buildAddedAsts(fileChanges, (buildDir) => build(config.withInputPath(buildDir.toString)))
     }
