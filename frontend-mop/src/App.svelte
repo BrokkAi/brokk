@@ -78,7 +78,7 @@
     gap: 1em;
     max-width: 100%;
     padding: 0.5em;
-    padding-right: 2em;
+    padding-right: 1em;
     position: absolute;
     top: 0.5em;
     bottom: 0.5em;

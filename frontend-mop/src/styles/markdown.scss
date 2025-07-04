@@ -52,7 +52,7 @@ li {
 }
 
 li > p {
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 code {
@@ -124,4 +124,19 @@ blockquote {
   padding-left: 0.8em;
   border-left: 0.2em solid var(--code-highlight);
   background-color: transparent;
+}
+
+hr {
+  border: none;
+  width: auto;
+  height: auto;
+  text-align: center;
+  margin: 1em auto;
+}
+
+hr::before {
+  content: "•••";
+  letter-spacing: 0.3em;
+  color: var(--chat-text);
+  font-size: 1.2em;
 }
