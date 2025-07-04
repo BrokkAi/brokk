@@ -14,9 +14,10 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
 
   def testIncremental(beforeChange: MockProject[R], afterChange: MockProject[R])(using builder: IncrementalCpgBuilder[R]): Unit = {
     Using.Manager { use =>
-      val initialCpg = use(beforeChange.build)
+      val initialCpg = use(beforeChange.buildCpg)
+      afterChange.buildProject // place new files at the path
       val updatedCpg = initialCpg.updateWith(afterChange.config)
-      val fromScratchCpg = use(afterChange.build)
+      val fromScratchCpg = use(afterChange.buildCpg)
       verifyConsistency(updatedCpg, fromScratchCpg)
     }
   }
