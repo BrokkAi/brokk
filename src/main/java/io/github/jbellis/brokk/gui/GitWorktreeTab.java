@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -826,8 +827,15 @@ public class GitWorktreeTab extends JPanel {
 
     private void showMergeDialog() {
         var project = contextManager.getProject();
+        if (!(project instanceof WorktreeProject worktreeProject)) {
+            // This should not happen if the merge button is only available in worktree views.
+            logger.warn("Merge dialog opened for a non-worktree project: {}", project.getRoot());
+            return;
+        }
+        var parentProject = worktreeProject.getParent();
+
         String worktreeBranchName = "";
-        if (project instanceof WorktreeProject && project.getRepo() instanceof GitRepo gitRepo) {
+        if (project.getRepo() instanceof GitRepo gitRepo) {
             try {
                 worktreeBranchName = gitRepo.getCurrentBranch();
             } catch (GitAPIException e) {
@@ -862,34 +870,29 @@ public class GitWorktreeTab extends JPanel {
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.weightx = 1.0;
         JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
-        mergeModeComboBox.setSelectedItem(GitRepo.MergeMode.MERGE_COMMIT);
+        var lastMergeMode = parentProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
+        mergeModeComboBox.setSelectedItem(lastMergeMode);
+        mergeModeComboBox.addActionListener(MergeBranchDialogPanel.createMergeModePersistenceListener(mergeModeComboBox, parentProject));
         dialogPanel.add(mergeModeComboBox, gbc);
         gbc.weightx = 0;
 
         // Populate targetBranchComboBox
-        if (project instanceof WorktreeProject wp) {
-            MainProject parentProject = wp.getParent();
-            IGitRepo iParentRepo = parentProject.getRepo();
-            if (iParentRepo instanceof GitRepo parentGitRepo) {
-                try {
-                    List<String> localBranches = parentGitRepo.listLocalBranches();
-                    localBranches.forEach(targetBranchComboBox::addItem);
-                    String currentParentBranch = parentGitRepo.getCurrentBranch();
-                    targetBranchComboBox.setSelectedItem(currentParentBranch);
-                } catch (GitAPIException e) {
-                    logger.error("Failed to get parent project branches", e);
-                    targetBranchComboBox.addItem("Error loading branches");
-                    targetBranchComboBox.setEnabled(false);
-                }
-            } else {
-                logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
-                targetBranchComboBox.addItem("Unsupported parent repo type");
+        IGitRepo iParentRepo = parentProject.getRepo();
+        if (iParentRepo instanceof GitRepo parentGitRepo) {
+            try {
+                List<String> localBranches = parentGitRepo.listLocalBranches();
+                localBranches.forEach(targetBranchComboBox::addItem);
+                String currentParentBranch = parentGitRepo.getCurrentBranch();
+                targetBranchComboBox.setSelectedItem(currentParentBranch);
+            } catch (GitAPIException e) {
+                logger.error("Failed to get parent project branches", e);
+                targetBranchComboBox.addItem("Error loading branches");
                 targetBranchComboBox.setEnabled(false);
             }
         } else {
-            // This case should ideally not happen if showMergeDialog is only called from worktree windows
-            logger.warn("showMergeDialog called on a non-worktree project type: {}", project.getClass().getSimpleName());
-            targetBranchComboBox.addItem("Not a worktree project");
+            logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
+            targetBranchComboBox.addItem("Unsupported parent repo type");
+            targetBranchComboBox.setEnabled(false);
         }
 
 
