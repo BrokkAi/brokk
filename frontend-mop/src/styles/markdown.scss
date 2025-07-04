@@ -1,0 +1,118 @@
+/* Markdown-specific styles to match Swing's MarkdownComponentData styling */
+/* Scoped to .bubble to apply only to chat message content */
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 18px;
+  margin-bottom: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--chat-text);
+}
+
+h1 {
+  font-size: 1.5em;
+  border-bottom: 1px solid var(--border-color-hex);
+  padding-bottom: 0.2em;
+}
+
+h2 {
+  font-size: 1.3em;
+  border-bottom: 1px solid var(--border-color-hex);
+  padding-bottom: 0.2em;
+}
+
+h3 {
+  font-size: 1.1em;
+}
+
+h4 {
+  font-size: 1em;
+}
+
+a {
+  color: var(--link-color-hex);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+p, ul, ol {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+ul, ol {
+  padding-left: 2em;
+}
+
+li {
+  margin: 0.25em 0;
+}
+
+li > p {
+  margin-top: 12px;
+}
+
+code {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  padding: 0.2em 0.4em;
+  margin: 0;
+  font-size: 85%;
+  border-radius: 3px;
+  color: var(--link-color-hex);
+}
+
+table {
+  border-collapse: collapse;
+  margin: 15px 0;
+  width: 100%;
+}
+
+table, th, td {
+  border: 1px solid var(--border-color-hex);
+}
+
+th {
+  background-color: var(--code-block-background);
+  padding: 8px;
+  text-align: left;
+  font-weight: 600;
+}
+
+td {
+  padding: 8px;
+}
+
+tr:nth-child(even) {
+  background-color: var(--message-background);
+}
+
+tr:hover {
+  background-color: var(--chat-background);
+}
+
+/* Search highlighting classes to match Swing's search constants */
+.search-highlight {
+  background-color: #ffff66; /* Matches Colors.SEARCH */
+  color: black;
+}
+
+.search-current {
+  background-color: #ff9933; /* Matches Colors.CURRENT_SEARCH */
+  color: black;
+}
+
+/* Override conflicting legacy styles from global.scss */
+ul li:before {
+  content: none;
+}
+
+ul {
+  list-style-type: disc;
+}
+
+ol {
+  list-style-type: decimal;
+}

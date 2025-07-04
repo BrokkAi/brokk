@@ -70,11 +70,10 @@ window.brokk = {
     eventStore.set({ type: 'chunk', text: '', isNew: true, streaming: false, msgType: 'SYSTEM', epoch: 0 });
   },
   setTheme: (dark) => {
-    if (dark) {
-      document.body.classList.add('theme-dark');
-    } else {
-      document.body.classList.remove('theme-dark');
-    }
+    const html = document.querySelector('html')!;
+    const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
+    html.classList.add(addTheme);
+    html.classList.remove(removeTheme);
   },
   showSpinner: (message = '') => {
     spinnerStore.set({ visible: true, message });

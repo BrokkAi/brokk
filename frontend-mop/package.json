@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@iconify/svelte": "^5.0.0",
     "@sveltejs/vite-plugin-svelte": "^5.1.0",
     "@tsconfig/svelte": "^5.0.2",
     "sass-embedded": "^1.89.2",

@@ -28,8 +28,12 @@ public final class MOPWebViewHost extends JPanel {
 
     // Theme configuration as a record for DRY principle
     private record Theme(boolean isDark, Color awtBg, javafx.scene.paint.Color fxBg, String cssColor) {
-        static final Theme DARK = new Theme(true, Color.BLACK, javafx.scene.paint.Color.BLACK, "black");
-        static final Theme LIGHT = new Theme(false, Color.WHITE, javafx.scene.paint.Color.WHITE, "white");
+        static Theme create(boolean isDark) {
+            var bgColor = io.github.jbellis.brokk.gui.mop.ThemeColors.getColor(isDark, "chat_background");
+            var fxColor = javafx.scene.paint.Color.rgb(bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
+            var cssHex = String.format("#%02x%02x%02x", bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
+            return new Theme(isDark, bgColor, fxColor, cssHex);
+        }
     }
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
@@ -138,7 +142,7 @@ public final class MOPWebViewHost extends JPanel {
                 }
             }
             // Apply initial theme
-            applyTheme(darkTheme ? Theme.DARK : Theme.LIGHT);
+            applyTheme(Theme.create(darkTheme));
         });
     }
 
@@ -151,7 +155,7 @@ public final class MOPWebViewHost extends JPanel {
         darkTheme = isDark; // Remember the last requested theme
         sendOrQueue(new HostCommand.SetTheme(isDark),
                      bridge -> bridge.setTheme(isDark));
-        applyTheme(isDark ? Theme.DARK : Theme.LIGHT);
+        applyTheme(Theme.create(isDark));
     }
 
     private void applyTheme(Theme theme) {
@@ -168,10 +172,13 @@ public final class MOPWebViewHost extends JPanel {
                 if (scene != null) {
                     scene.setFill(theme.fxBg());
                 }
-                // Update UA stylesheet
+                // Update UA stylesheet with custom property for chat background
                 String css = """
+                    :root {
+                        --chat-background: %s;
+                    }
                     html, body {
-                        background-color: %s !important;
+                        background-color: var(--chat-background) !important;
                     }""".formatted(theme.cssColor());
                 String dataCssUrl = "data:text/css," + java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8) + "#t=" + System.currentTimeMillis();
                 webView.getEngine().setUserStyleSheetLocation(dataCssUrl);

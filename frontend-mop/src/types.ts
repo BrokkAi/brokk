@@ -12,6 +12,8 @@ export type Bubble = {
   id: number;
   type: 'USER' | 'AI' | 'SYSTEM';
   markdown: string;
+  title: string;
+  iconId: string;
 };
 
 export type SpinnerState = {

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html>
+<html class="theme-light">
 <head>
   <meta charset="utf-8">
   <title>Brokk MOP - Dev Mode</title>
 </head>
 <style>
   #mop-root {
-    top: 175px !important;
+    top: 210px !important;
   }
   #dev-tools {
     margin: 1em;
@@ -18,7 +18,7 @@
   <p>Events from Java will be logged to the console and displayed raw below.</p>
   <h3>Dev Tools</h3>
   <button onclick="simulateAskResponse()">Simulate Ask Response</button>
-  <button onclick="window.brokk.setTheme(!document.body.classList.contains('theme-dark'))">Toggle Theme</button>
+  <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle Theme</button>
   <button onclick="window.brokk.clear()">Clear Log</button>
   <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
     Test Spinner
