@@ -13,6 +13,7 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 
+import io.github.jbellis.brokk.gui.util.ScaledIcon;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
 
@@ -94,47 +95,6 @@ public class BlitzForgeDialog extends JDialog {
             smallInfoIcon = new ImageIcon(img);
         } else {
             smallInfoIcon = new ScaledIcon(baseIcon, 0.5);
-        }
-    }
-
-    /**
-     * Icon wrapper that paints its delegate scaled by the given factor.
-     */
-    private static final class ScaledIcon implements Icon {
-        private final Icon delegate;
-        private final double factor;
-        private final int width;
-        private final int height;
-
-        private ScaledIcon(Icon delegate, double factor)
-        {
-            this.delegate = Objects.requireNonNull(delegate, "delegate");
-            this.factor = factor;
-            this.width = (int) Math.round(delegate.getIconWidth() * factor);
-            this.height = (int) Math.round(delegate.getIconHeight() * factor);
-        }
-
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y)
-        {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.translate(x, y);
-                g2.scale(factor, factor);
-                delegate.paintIcon(c, g2, 0, 0);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public int getIconWidth() {
-            return width;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return height;
         }
     }
 
@@ -292,8 +252,14 @@ public class BlitzForgeDialog extends JDialog {
         inputComponent.getActionMap().put("addFiles", addFilesAction);
 
         JPanel selectFilesCardPanel = new JPanel(new BorderLayout(0, 5));
-        selectFilesCardPanel.add(fileSelectionPanel, BorderLayout.NORTH);
 
+        JSplitPane horizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        horizontalSplitPane.setResizeWeight(0.5); // Distribute space equally
+
+        // Add FileSelectionPanel to the left side
+        horizontalSplitPane.setLeftComponent(fileSelectionPanel);
+
+        // Create the JTable and its scroll pane
         tableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0);
         selectedFilesTable = new JTable(tableModel);
 
@@ -331,9 +297,15 @@ public class BlitzForgeDialog extends JDialog {
         });
 
         JScrollPane tableScrollPane = new JScrollPane(selectedFilesTable);
-        tableScrollPane.setPreferredSize(new Dimension(500, 120)); // Smaller height for the table
-        selectFilesCardPanel.add(tableScrollPane, BorderLayout.CENTER);
+        // tableScrollPane.setPreferredSize(new Dimension(500, 120)); // No longer needed with JSplitPane
 
+        // Add tableScrollPane to the right side
+        horizontalSplitPane.setRightComponent(tableScrollPane);
+
+        // Add the JSplitPane to the center of selectFilesCardPanel
+        selectFilesCardPanel.add(horizontalSplitPane, BorderLayout.CENTER);
+
+        // The removeButtonPanel remains at BorderLayout.SOUTH
         JPanel removeButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton removeButton = new JButton("Remove Selected");
         removeButton.addActionListener(e -> removeSelectedFilesFromTable());
