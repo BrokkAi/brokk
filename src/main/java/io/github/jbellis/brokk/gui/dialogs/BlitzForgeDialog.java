@@ -74,7 +74,12 @@ public class BlitzForgeDialog extends JDialog {
     private javax.swing.table.DefaultTableModel tableModel;
     private JRadioButton listFilesScopeRadioButton;
     private JTextArea listFilesTextArea;
-    private JLabel fileListStatusLabel;
+    // Components for the raw-text “List Files” card
+    private javax.swing.table.DefaultTableModel parsedTableModel;
+    private JTable parsedFilesTable;
+    private JLabel parsedFilesCountLabel;
+    private JComboBox<String> listLanguageCombo;
+    private JLabel entireProjectFileCountLabel;
 
     private static final Icon smallInfoIcon;
 
@@ -214,17 +219,21 @@ public class BlitzForgeDialog extends JDialog {
         scopeCardsPanel = new JPanel(scopeCardLayout);
 
         // "Entire Project" Card
-        JPanel entireProjectPanel = new JPanel(new GridBagLayout());
-        GridBagConstraints entireGbc = new GridBagConstraints();
-        entireGbc.insets = new Insets(0, 0, 5, 5);
-        entireGbc.anchor = GridBagConstraints.WEST;
-        entireGbc.gridx = 0;
-        entireGbc.gridy = 0;
-        entireProjectPanel.add(new JLabel("Restrict to Language"), entireGbc);
+        JPanel entireProjectPanel = new JPanel(new GridBagLayout()); // Changed to GridBagLayout
+        GridBagConstraints epGBC = new GridBagConstraints();
+        epGBC.insets = new Insets(0, 0, 0, 0); // Reset insets for this panel
 
-        entireGbc.gridx = 1;
-        entireGbc.weightx = 1.0; // Allow horizontal expansion
-        entireGbc.fill = GridBagConstraints.HORIZONTAL; // Stretch to fill remaining space
+        // Row 0: "Restrict to Language" Label and ComboBox
+        epGBC.gridx = 0;
+        epGBC.gridy = 0;
+        epGBC.anchor = GridBagConstraints.WEST;
+        epGBC.fill = GridBagConstraints.NONE;
+        epGBC.weightx = 0.0;
+        entireProjectPanel.add(new JLabel("Restrict to Language"), epGBC);
+
+        epGBC.gridx = 1;
+        epGBC.weightx = 1.0; // Allow combobox to take extra horizontal space
+        epGBC.fill = GridBagConstraints.HORIZONTAL; // Fill horizontally
         languageComboBox = new JComboBox<>();
         languageComboBox.addItem(ALL_LANGUAGES_OPTION);
         chrome.getProject().getAnalyzerLanguages().stream()
@@ -232,16 +241,27 @@ public class BlitzForgeDialog extends JDialog {
                 .sorted()
                 .forEach(languageComboBox::addItem);
         languageComboBox.setSelectedItem(ALL_LANGUAGES_OPTION);
-        entireProjectPanel.add(languageComboBox, entireGbc);
-        languageComboBox.addActionListener(e -> updateCostEstimate());
+        entireProjectPanel.add(languageComboBox, epGBC);
+        // Action listener will be added later, after the new update method is defined
 
-        // Spacer to push content to the top
-        var gbcSpacer = new GridBagConstraints();
-        gbcSpacer.gridy = 1;
-        gbcSpacer.gridwidth = 2;
-        gbcSpacer.weighty = 1.0;
-        gbcSpacer.fill = GridBagConstraints.VERTICAL;
-        entireProjectPanel.add(new JPanel(), gbcSpacer);
+        // Row 1: File Count Label
+        epGBC.gridx = 0;
+        epGBC.gridy = 1;
+        epGBC.gridwidth = 2; // Span across both columns
+        epGBC.weightx = 1.0;
+        epGBC.fill = GridBagConstraints.HORIZONTAL;
+        epGBC.anchor = GridBagConstraints.WEST;
+        entireProjectFileCountLabel = new JLabel(" ");
+        entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
+        entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
+
+        // Spacer to push content to the top (remaining vertical space)
+        epGBC.gridx = 0;
+        epGBC.gridy = 2;
+        epGBC.gridwidth = 2;
+        epGBC.weighty = 1.0;
+        epGBC.fill = GridBagConstraints.VERTICAL;
+        entireProjectPanel.add(new JPanel(), epGBC); // Filler panel
 
         scopeCardsPanel.add(entireProjectPanel, "ENTIRE");
 
@@ -324,29 +344,56 @@ public class BlitzForgeDialog extends JDialog {
 
         // "List Files" Card
         JPanel listFilesCardPanel = new JPanel(new BorderLayout(5, 5));
-        listFilesTextArea = new JTextArea(5, 50);
+
+        // --- Left: raw-text area ---
+        listFilesTextArea = new JTextArea(8, 40);
         listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override
-            public void insertUpdate(javax.swing.event.DocumentEvent e) {
-                updateFileListStatus();
-            }
-
-            @Override
-            public void removeUpdate(javax.swing.event.DocumentEvent e) {
-                updateFileListStatus();
-            }
-
-            @Override
-            public void changedUpdate(javax.swing.event.DocumentEvent e) { /* Not needed for plain text */ }
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
         });
-        JScrollPane listFilesScrollPane = new JScrollPane(listFilesTextArea);
-        JLabel listFilesInstructions = new JLabel("Paste target files, separated by whitespace");
-        listFilesCardPanel.add(listFilesInstructions, BorderLayout.NORTH);
-        listFilesCardPanel.add(listFilesScrollPane, BorderLayout.CENTER);
+        JScrollPane rawTextScroll = new JScrollPane(listFilesTextArea);
 
-        fileListStatusLabel = new JLabel(" ");
-        fileListStatusLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
-        listFilesCardPanel.add(fileListStatusLabel, BorderLayout.SOUTH);
+        // --- Right: parsed-file table with language filter ---
+        parsedTableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0) {
+            @Override public boolean isCellEditable(int row, int column) { return false; }
+        };
+        parsedFilesTable = new JTable(parsedTableModel);
+        JScrollPane parsedScroll = new JScrollPane(parsedFilesTable);
+
+        /* top-right panel: language combo */
+        JPanel rightTopPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
+        rightTopPanel.add(new JLabel("Restrict to Language"));
+        listLanguageCombo = new JComboBox<>();
+        listLanguageCombo.addItem(ALL_LANGUAGES_OPTION);
+        chrome.getProject().getAnalyzerLanguages().stream()
+              .map(Language::toString)
+              .sorted()
+              .forEach(listLanguageCombo::addItem);
+        listLanguageCombo.setSelectedItem(ALL_LANGUAGES_OPTION);
+        listLanguageCombo.addActionListener(e -> {
+            updateParsedFilesTable();
+            updateCostEstimate();
+        });
+        rightTopPanel.add(listLanguageCombo);
+
+        /* bottom-right: file count */
+        parsedFilesCountLabel = new JLabel("0 files");
+        parsedFilesCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
+
+        JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
+        rightPanel.add(rightTopPanel, BorderLayout.NORTH);
+        rightPanel.add(parsedScroll,   BorderLayout.CENTER);
+        rightPanel.add(parsedFilesCountLabel, BorderLayout.SOUTH);
+
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, rawTextScroll, rightPanel);
+        splitPane.setResizeWeight(0.5);
+
+        JLabel listFilesInstructions = new JLabel("Raw text containing filenames");
+        listFilesCardPanel.add(listFilesInstructions, BorderLayout.NORTH);
+        listFilesCardPanel.add(splitPane,                BorderLayout.CENTER);
+
+
         scopeCardsPanel.add(listFilesCardPanel, "LIST");
 
 
@@ -809,6 +856,7 @@ public class BlitzForgeDialog extends JDialog {
             String command;
             if (entireProjectScopeRadioButton.isSelected()) {
                 command = "ENTIRE";
+                updateEntireProjectFileCountLabel();
             } else if (listFilesScopeRadioButton.isSelected()) {
                 command = "LIST";
             } else {
@@ -817,6 +865,11 @@ public class BlitzForgeDialog extends JDialog {
             scopeCardLayout.show(scopeCardsPanel, command);
             updateCostEstimate();
         };
+        languageComboBox.addActionListener(e -> {
+            updateEntireProjectFileCountLabel();
+            updateCostEstimate();
+        });
+
         entireProjectScopeRadioButton.addActionListener(scopeListener);
         selectFilesScopeRadioButton.addActionListener(scopeListener);
         listFilesScopeRadioButton.addActionListener(scopeListener);
@@ -916,14 +969,18 @@ public class BlitzForgeDialog extends JDialog {
             }
 
             if (listFilesScopeRadioButton.isSelected()) {
-                var repoFiles = chrome.getProject().getRepo().getTrackedFiles();
-                return Arrays.stream(listFilesTextArea.getText().split("\\s+"))
-                             .filter(s -> !s.isBlank())
-                             .map(s -> {
-                                 try { return chrome.getContextManager().toFile(s); }
-                                 catch (IllegalArgumentException e) { return null; }
-                             })
-                             .filter(Objects::nonNull).filter(repoFiles::contains).toList();
+                String text = listFilesTextArea.getText();
+                var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
+                return projectFiles.parallelStream()
+                                   .filter(ProjectFile::isText)
+                                   .filter(pf -> {
+                                       boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
+                                       if (!nameMatch) return false;
+                                       String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
+                                       if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
+                                       return langSel.equals(pf.getLanguage().toString());
+                                   })
+                                   .toList();
             }
 
             // select-files scope
@@ -936,6 +993,17 @@ public class BlitzForgeDialog extends JDialog {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    private void updateEntireProjectFileCountLabel() {
+        var files = chrome.getProject().getRepo().getTrackedFiles().stream()
+                .filter(ProjectFile::isText);
+        String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
+        if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
+            files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
+        }
+        long count = files.count();
+        entireProjectFileCountLabel.setText(count + " file" + (count == 1 ? "" : "s"));
     }
 
     /* ---------------- existing method ------------------------------ */
@@ -1028,42 +1096,34 @@ public class BlitzForgeDialog extends JDialog {
         updateCostEstimate();
     }
 
-    private void updateFileListStatus() {
+    private void updateParsedFilesTable() {
         String text = listFilesTextArea.getText();
+        parsedTableModel.setRowCount(0);
+
         if (text.isBlank()) {
-            fileListStatusLabel.setText(" ");
+            parsedFilesCountLabel.setText("0 files");
+            updateCostEstimate();
             return;
         }
 
-        var repo = chrome.getProject().getRepo();
-        var trackedFiles = repo.getTrackedFiles();
+        var tracked = chrome.getProject().getRepo().getTrackedFiles();
 
-        List<String> paths = Arrays.stream(text.split("\\s+"))
-                .filter(s -> !s.isBlank())
-                .toList();
+        String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
 
-        int trackedCount = 0;
-        int untrackedCount = 0;
+        List<ProjectFile> matches = tracked.parallelStream()
+                                           .filter(ProjectFile::isText)
+                                           .filter(pf -> {
+                                               boolean nameMatch = text.contains(pf.toString())
+                                                                 || text.contains(pf.getFileName());
+                                               if (!nameMatch) return false;
+                                               if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
+                                               return langSel.equals(pf.getLanguage().toString());
+                                           })
+                                           .sorted(Comparator.comparing(ProjectFile::toString))
+                                           .toList();
 
-        for (String pathStr : paths) {
-            try {
-                // toFile may throw for paths outside the project
-                ProjectFile pf = chrome.getContextManager().toFile(pathStr);
-                if (trackedFiles.contains(pf)) {
-                    trackedCount++;
-                } else {
-                    untrackedCount++;
-                }
-            } catch (IllegalArgumentException e) {
-                untrackedCount++; // Treat invalid paths as untracked
-            }
-        }
-
-        String status = String.format("Found %d tracked files, %d untracked", trackedCount, untrackedCount);
-        if (untrackedCount > 0) {
-            status += " Untracked files will not be processed";
-        }
-        fileListStatusLabel.setText(status);
+        matches.forEach(pf -> parsedTableModel.addRow(new Object[]{pf.getRelPath().toString()}));
+        parsedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s"));
         updateCostEstimate();
     }
 
@@ -1122,21 +1182,19 @@ public class BlitzForgeDialog extends JDialog {
         } else if (listFilesScopeRadioButton.isSelected()) {
             String text = listFilesTextArea.getText();
             if (text.isBlank()) {
-                JOptionPane.showMessageDialog(this, "File list cannot be empty", "Input Error", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Raw text cannot be empty", "Input Error", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-            var trackedFiles = chrome.getProject().getRepo().getTrackedFiles();
-            filesToProcessList = Arrays.stream(text.split("\\s+"))
-                    .filter(s -> !s.isBlank())
-                    .map(pathStr -> {
-                        try {
-                            return chrome.getContextManager().toFile(pathStr);
-                        } catch (IllegalArgumentException e) {
-                            return null;
-                        }
+            var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
+            filesToProcessList = projectFiles.parallelStream()
+                    .filter(ProjectFile::isText)
+                    .filter(pf -> {
+                        boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
+                        if (!nameMatch) return false;
+                        String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
+                        if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
+                        return langSel.equals(pf.getLanguage().toString());
                     })
-                    .filter(Objects::nonNull)
-                    .filter(trackedFiles::contains)
                     .toList();
 
             if (filesToProcessList.isEmpty()) {
