@@ -9,7 +9,6 @@ import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 
 import javax.swing.*;
-import javax.swing.Box;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -26,16 +25,15 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 
-import io.github.jbellis.brokk.gui.dialogs.UpgradeAgentProgressDialog.PostProcessingOption;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
-import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
 import static io.github.jbellis.brokk.gui.Constants.H_GAP;
 
-public class UpgradeAgentDialog extends JDialog {
+public class BlitzForgeDialog extends JDialog {
     private final Chrome chrome;
     private JTextArea instructionsArea;
     private JComboBox<Service.FavoriteModel> modelComboBox;
@@ -161,8 +159,8 @@ public class UpgradeAgentDialog extends JDialog {
         public int getIconHeight() { return diameter; }
     }
 
-    public UpgradeAgentDialog(Frame owner, Chrome chrome) {
-        super(owner, "Upgrade Agent", true);
+    public BlitzForgeDialog(Frame owner, Chrome chrome) {
+        super(owner, "BlitzForge", true);
         this.chrome = chrome;
         initComponents();
         setupKeyBindings();
@@ -197,7 +195,7 @@ public class UpgradeAgentDialog extends JDialog {
         gbc.gridwidth = 3;
         JLabel explanationLabel = new JLabel("""
                                              <html>
-                                             Upgrade Agent applies your instructions independently to multiple files in parallel, with optional
+                                             BlitzForge applies your instructions independently to multiple files in parallel, with optional
                                              post-processing by a single agent.
                                              </html>
                                              """);
@@ -1209,7 +1207,7 @@ public class UpgradeAgentDialog extends JDialog {
         setVisible(false); // Hide this dialog
 
         // Show progress dialog
-        var progressDialog = new UpgradeAgentProgressDialog(
+        var progressDialog = new BlitzForgeProgressDialog(
                 (Frame) getOwner(),
                 instructions,
                 selectedFavorite,

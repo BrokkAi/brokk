@@ -539,11 +539,6 @@ public class CodeAgent {
             return Optional.of("Empty LLM response for %s".formatted(file));
         }
 
-        // for Upgrade Agent
-        if (result.text().contains("BRK_NO_CHANGES_REQUIRED")) {
-            return Optional.empty();
-        }
-
         // Extract and apply
         var newContent = EditBlock.extractCodeFromTripleBackticks(result.text());
         if (newContent.isBlank()) {

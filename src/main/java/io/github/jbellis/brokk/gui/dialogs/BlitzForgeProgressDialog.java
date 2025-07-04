@@ -41,11 +41,11 @@ import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
-public class UpgradeAgentProgressDialog extends JDialog {
+public class BlitzForgeProgressDialog extends JDialog {
 
     public enum PostProcessingOption { NONE, ARCHITECT, ASK }
 
-    private static final Logger logger = LogManager.getLogger(UpgradeAgentProgressDialog.class);
+    private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
     private final JButton cancelButton;
@@ -277,21 +277,21 @@ public class UpgradeAgentProgressDialog extends JDialog {
     }
 
 
-    public UpgradeAgentProgressDialog(Frame owner,
-                                      String instructions,
-                                      Service.FavoriteModel selectedFavorite,
-                                      List<ProjectFile> filesToProcess,
-                                      Chrome chrome,
-                                      @Nullable Integer relatedK,
-                                      @Nullable String perFileCommandTemplate,
-                                      boolean includeWorkspace,
-                                      PostProcessingOption runOption,
-                                      String contextFilter,
-                                      String parallelOutputMode,
-                                      boolean buildFirst,
-                                      String postProcessingInstructions)
+    public BlitzForgeProgressDialog(Frame owner,
+                                    String instructions,
+                                    Service.FavoriteModel selectedFavorite,
+                                    List<ProjectFile> filesToProcess,
+                                    Chrome chrome,
+                                    @Nullable Integer relatedK,
+                                    @Nullable String perFileCommandTemplate,
+                                    boolean includeWorkspace,
+                                    PostProcessingOption runOption,
+                                    String contextFilter,
+                                    String parallelOutputMode,
+                                    boolean buildFirst,
+                                    String postProcessingInstructions)
     {
-        super(owner, "Upgrade Agent Progress", true);
+        super(owner, "BlitzForge Progress", true);
         this.totalFiles = filesToProcess.size();
 
         setLayout(new BorderLayout(10, 10));
@@ -361,7 +361,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
 
                 // ---- 1.  Sort by on-disk size, smallest first ----
                 var sortedFiles = filesToProcess.stream()
-                                                .sorted(Comparator.comparingLong(UpgradeAgentProgressDialog::fileSize))
+                                                .sorted(Comparator.comparingLong(BlitzForgeProgressDialog::fileSize))
                                                 .toList();
 
                 // If there are files to process, start by preloading the prefix cache
@@ -643,7 +643,7 @@ public class UpgradeAgentProgressDialog extends JDialog {
             @Override
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 if (!worker.isDone()) {
-                    int choice = JOptionPane.showConfirmDialog(UpgradeAgentProgressDialog.this,
+                    int choice = JOptionPane.showConfirmDialog(BlitzForgeProgressDialog.this,
                                                                "Are you sure you want to cancel the upgrade process?", "Confirm Cancel",
                                                                JOptionPane.YES_NO_OPTION,
                                                                JOptionPane.QUESTION_MESSAGE);
@@ -669,14 +669,14 @@ public class UpgradeAgentProgressDialog extends JDialog {
      *
      */
     private class DialogConsoleIO implements IConsoleIO {
-        private final UpgradeAgentProgressDialog dialog;
+        private final BlitzForgeProgressDialog dialog;
         private final String fileContext;
         private final StringBuilder llmOutput = new StringBuilder();
 
         /**
          * @param fileContext To prefix messages related to a specific file
          */
-        private DialogConsoleIO(UpgradeAgentProgressDialog dialog, String fileContext) {
+        private DialogConsoleIO(BlitzForgeProgressDialog dialog, String fileContext) {
             this.dialog = dialog;
             this.fileContext = fileContext;
         }
