@@ -1,8 +1,12 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.joern.javasrc2cpg.JavaSrc2Cpg.language
+import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
 import io.joern.javasrc2cpg.{Config, JavaSrc2Cpg}
 import io.joern.joerncli.CpgBasedTool
-import io.shiftleft.codepropertygraph.generated.Cpg
+import io.joern.x2cpg.X2CpgConfig
+import io.joern.x2cpg.passes.frontend.{MetaDataPass, TypeNodePass, JavaConfigFileCreationPass}
+import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 
@@ -342,7 +346,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 }
 
-object JavaAnalyzer extends GraphPassApplier {
+object JavaAnalyzer extends GraphPassApplier[Config] {
 
   import scala.jdk.CollectionConverters.*
 
@@ -357,11 +361,26 @@ object JavaAnalyzer extends GraphPassApplier {
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
 
-    val newCpg = JavaSrc2Cpg().createCpg(config).getOrElse {
+    val newCpg = createAst(config).getOrElse {
       throw new IOException("Failed to create Java CPG")
     }
-    applyPasses(newCpg)
-    newCpg
+    applyPasses(newCpg).getOrElse {
+      throw new IOException("Failed to apply post-processing on Java CPG")
+    }
+  }
+
+  override def createAst(config: Config): Try[Cpg] = withNewOrExistingCpg(config) { (cpg) =>
+    createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
+    val astCreationPass = new AstCreationPass(config, cpg)
+    astCreationPass.createAndApply()
+    astCreationPass.sourceParser.cleanupDelombokOutput()
+    astCreationPass.clearJavaParserCaches()
+    new OuterClassRefPass(cpg).createAndApply()
+    JavaConfigFileCreationPass(cpg).createAndApply()
+    if (!config.skipTypeInfPass) {
+      TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
+      new TypeInferencePass(cpg).createAndApply()
+    }
   }
 
 }

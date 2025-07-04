@@ -100,12 +100,12 @@ object IncrementalCpgBuilder {
   /**
    * Builds a temporary directory of all the files that were newly added.
    *
+   * @param projectRoot the project root used to relativize file paths.
    * @param fileChanges all file changes.
    * @return a temporary directory of all the newly added files.
    */
-  private def createNewIncrementalBuildDirectory(fileChanges: Seq[FileChange]): Path = {
+  private def createNewIncrementalBuildDirectory(projectRoot: Path, fileChanges: Seq[FileChange]): Path = {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
-    val projectRoot = cpg.projectRoot
 
     fileChanges.collect { case x: AddedFile => x }.foreach { case AddedFile(path) =>
       val newPath = Paths.get(path.toString.stripSuffix(projectRoot.toString))
@@ -136,7 +136,7 @@ object IncrementalCpgBuilder {
      * @return this CPG.
      */
     def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: (Path) => Unit): Cpg = {
-      val buildDir = createNewIncrementalBuildDirectory(fileChanges)
+      val buildDir = createNewIncrementalBuildDirectory(cpg.projectRoot, fileChanges)
       try {
         astBuilder(buildDir)
       } finally {

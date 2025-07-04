@@ -1,9 +1,14 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.joern.c2cpg.passes.*
+import io.joern.c2cpg.astcreation.CGlobal
 import io.joern.c2cpg.{C2Cpg, Config as CConfig}
-import io.joern.x2cpg.Defines as X2CpgDefines
-import io.shiftleft.codepropertygraph.generated.Cpg
+import io.joern.x2cpg.{SourceFiles, Defines as X2CpgDefines}
+import io.joern.c2cpg.parser.FileDefaults
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
+import io.joern.x2cpg.passes.frontend.TypeNodePass
+import io.joern.x2cpg.utils.Report
 import io.shiftleft.semanticcpg.language.*
 
 import java.io.IOException
@@ -729,7 +734,7 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   }
 }
 
-object CppAnalyzer extends GraphPassApplier {
+object CppAnalyzer extends GraphPassApplier[CConfig] {
 
   import scala.jdk.CollectionConverters.*
 
@@ -737,7 +742,7 @@ object CppAnalyzer extends GraphPassApplier {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    val cfg = CConfig()
+    val config = CConfig()
       .withInputPath(absPath.toString)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
@@ -746,10 +751,49 @@ object CppAnalyzer extends GraphPassApplier {
     // .withIncludePathsAutoDiscovery(true)
     // .withDefines(Set("MY_DEFINE"))
 
-    val newCpg = new C2Cpg().createCpg(cfg).getOrElse {
+    val newCpg = createAst(config).getOrElse {
       throw new IOException(s"Failed to create C/C++ CPG for $absPath")
     }
-    applyPasses(newCpg)
-    newCpg
+    applyPasses(newCpg).getOrElse {
+      throw new IOException("Failed to apply post-processing on C/C++ CPG")
+    }
   }
+
+  override def createAst(config: CConfig): Try[Cpg] = withNewOrExistingCpg(config) { (cpg) =>
+    createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
+    val report = new Report()
+    val global = new CGlobal()
+    val preprocessedFiles = allPreprocessedFiles(config)
+    new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
+      .createAndApply()
+    new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
+      .createAndApply()
+    TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg).createAndApply()
+    new TypeDeclNodePass(cpg, config).createAndApply()
+    new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config).createAndApply()
+    new FullNameUniquenessPass(cpg).createAndApply()
+    report.print()
+  }
+
+  private def gatherFileExtensions(config: CConfig): Set[String] = {
+    FileDefaults.SourceFileExtensions ++
+      FileDefaults.CppHeaderFileExtensions ++
+      Option.when(config.withPreprocessedFiles)(FileDefaults.PreprocessedExt).toList
+  }
+
+  private def allPreprocessedFiles(config: CConfig): List[String] = {
+    if (config.withPreprocessedFiles) {
+      SourceFiles
+        .determine(
+          config.inputPath,
+          Set(FileDefaults.PreprocessedExt),
+          ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
+          ignoredFilesRegex = Option(config.ignoredFilesRegex),
+          ignoredFilesPath = Option(config.ignoredFiles)
+        )
+    } else {
+      List.empty
+    }
+  }
+
 }
