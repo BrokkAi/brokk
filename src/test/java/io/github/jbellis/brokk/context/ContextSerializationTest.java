@@ -6,6 +6,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.SessionManager;
 import io.github.jbellis.brokk.TaskEntry;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import static io.github.jbellis.brokk.SessionManager.SessionInfo;
@@ -560,27 +561,36 @@ public class ContextSerializationTest {
         
         // Save history
         sessionManager.saveHistory(originalHistory, sessionId);
-        
+
+        // --- Verification with live session manager (cached sessions) ---
+        verifySessionHistory(sessionManager, sessionId, initialModifiedTime, originalHistory, "after save (cached sessions)");
+        project.close();
+
+        // --- Verification with new session manager (sessions loaded from disk) ---
+        MainProject newProject = new MainProject(tempDir);
+        verifySessionHistory(newProject.getSessionManager(), sessionId, initialModifiedTime, originalHistory, "after recreating project (sessions loaded from disk)");
+        newProject.close();
+    }
+
+    private void verifySessionHistory(SessionManager sessionManager, UUID sessionId, long initialModifiedTime, ContextHistory originalHistory, String verificationPhaseMessage) throws IOException, InterruptedException {
         // Verify modified timestamp update
         List<SessionInfo> updatedSessions = sessionManager.listSessions();
         SessionInfo updatedSessionInfo = updatedSessions.stream()
                 .filter(s -> s.id().equals(sessionId))
                 .findFirst()
-                .orElseThrow(() -> new AssertionError("Session not found after save"));
-        assertTrue(updatedSessionInfo.modified() >= initialModifiedTime, "Modified timestamp should be updated or same (if save was very fast).");
-        
+                .orElseThrow(() -> new AssertionError("Session not found " + verificationPhaseMessage));
+        assertTrue(updatedSessionInfo.modified() >= initialModifiedTime, "Modified timestamp should be updated or same. Verification phase: " + verificationPhaseMessage);
+
         // Load history
         ContextHistory loadedHistory = sessionManager.loadHistory(sessionId, mockContextManager);
-        
+
         // Assertions
-        assertNotNull(loadedHistory, "Loaded history should not be null.");
-        assertEquals(originalHistory.getHistory().size(), loadedHistory.getHistory().size(), "Number of contexts in history should match.");
-        
+        assertNotNull(loadedHistory, "Loaded history should not be null. Verification phase: " + verificationPhaseMessage);
+        assertEquals(originalHistory.getHistory().size(), loadedHistory.getHistory().size(), "Number of contexts in history should match. Verification phase: " + verificationPhaseMessage);
+
         for (int i = 0; i < originalHistory.getHistory().size(); i++) {
             assertContextsEqual(originalHistory.getHistory().get(i), loadedHistory.getHistory().get(i));
         }
-        
-        project.close();
     }
 
     @Test

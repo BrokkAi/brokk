@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
@@ -21,7 +22,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -35,8 +35,9 @@ public class SessionManager implements AutoCloseable
      * Record representing session metadata for the sessions management system.
      */
     public record SessionInfo(UUID id, String name, long created, long modified) {
-
-        public boolean isModified() {
+        
+        @JsonIgnore
+        public boolean isSessionModified() {
             return created != modified;
         }
     }
@@ -242,7 +243,7 @@ public class SessionManager implements AutoCloseable
      * if its history has no contexts or only contains the initial empty context.
      */
     public static boolean isSessionEmpty(SessionInfo sessionInfo, @Nullable ContextHistory ch) {
-        return !sessionInfo.isModified() && isHistoryEmpty(ch);
+        return !sessionInfo.isSessionModified() && isHistoryEmpty(ch);
     }
 
     /**

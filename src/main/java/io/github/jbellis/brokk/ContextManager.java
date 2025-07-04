@@ -1850,7 +1850,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Optional<SessionInfo> getEmptySessionToReuseInsteadOfCreatingNew(String name) {
         var potentialEmptySessions = project.getSessionManager().listSessions().stream()
                 .filter(session -> session.name().equals(name))
-                .filter(session -> !session.isModified())
+                .filter(session -> !session.isSessionModified())
                 .filter(session -> !SessionRegistry.isSessionActiveElsewhere(project.getRoot(), session.id()))
                 .sorted(Comparator.comparingLong(SessionInfo::created).reversed()) // Newest first
                 .toList();
