@@ -266,18 +266,21 @@ public class VoiceInputButton extends JButton {
                             // Get full symbols first
                             var fullSymbols = analyzer.getSymbols(sources);
 
-                            // Extract short names from sources and returned symbols
-                            final Set<String> tempSymbols = new HashSet<>(sources.stream()
-                                    .map(CodeUnit::shortName)
-                                    .collect(Collectors.toSet()));
+                            // Extract short names and fully qualified names
+                            final Set<String> tempSymbols = new HashSet<>();
+                            // Add FQNs
+                            tempSymbols.addAll(fullSymbols);
+                            // Add short names from sources
+                            sources.forEach(s -> tempSymbols.add(s.shortName()));
+                            // Add short names from FQNs
                             fullSymbols.stream()
-                                    .map(s -> {
-                                        List<String> parts = Splitter.on('.').splitToList(s);
-                                        return !parts.isEmpty() ? parts.getLast() : null;
-                                    })
-                                    .filter(java.util.Objects::nonNull)
-                                    .forEach(tempSymbols::add); // Add to the effectively final temporary set
-                            symbolsForTranscription = tempSymbols; // Assign to the field
+                                       .map(s -> {
+                                           List<String> parts = Splitter.on('.').splitToList(s);
+                                           return !parts.isEmpty() ? parts.getLast() : null;
+                                       })
+                                       .filter(java.util.Objects::nonNull)
+                                       .forEach(tempSymbols::add);
+                            symbolsForTranscription = tempSymbols;
                             logger.debug("Using context symbols for transcription: {}", symbolsForTranscription.size());
                         }
                     }
