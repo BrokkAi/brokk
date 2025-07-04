@@ -10,8 +10,10 @@ import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 
+import java.io.IOException
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
+import scala.util.Using
 
 /**
  * A trait to be implemented by a language-specific incremental CPG builder.
@@ -133,30 +135,43 @@ object IncrementalCpgBuilder {
      * Builds the ASTs for new files from a temporary directory.
      *
      * @param fileChanges all file changes.
-     * @return this CPG.
+     * @param astBuilder builds on top of the CPG defined at the CPG project root.
+     * @return the updated CPG.
      */
     def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: (Path) => Unit): Cpg = {
       val buildDir = createNewIncrementalBuildDirectory(cpg.projectRoot, fileChanges)
+
+      // We need to ensure this CPG is serialized
+      assert(cpg.graph.storagePathMaybe.isDefined, "CPG seems to be in-memory. Expected CPG to have serializable path.")
+      val cpgPath = cpg.graph.storagePathMaybe.get
+      cpg.close()
+
       try {
         astBuilder(buildDir)
+        Cpg.withStorage(cpgPath) // re-open graph
       } finally {
         buildDir.deleteRecursively
       }
-      cpg
     }
-
   }
 
   given javaBuilder: IncrementalCpgBuilder[JavaSrcConfig] with {
 
     override def update(cpg: Cpg, config: JavaSrcConfig): Cpg = {
       val fileChanges = determineChangedFiles(cpg, Paths.get(config.inputPath))
+      println(fileChanges)
       cpg.removeStaleFiles(fileChanges)
       cpg.buildAddedAsts(fileChanges, (buildDir) => build(config.withInputPath(buildDir.toString)))
     }
 
-    private def build(config: JavaSrcConfig) = {
-      JavaAnalyzer.createAst(config)
+    private def build(config: JavaSrcConfig): Unit = {
+      Using.resource(JavaAnalyzer.createAst(config).getOrElse {
+        throw new IOException("Failed to create Java CPG")
+      }) { cpg =>
+        JavaAnalyzer.applyPasses(cpg).getOrElse {
+          throw new IOException("Failed to apply post-processing on Java CPG")
+        }
+      }
     }
 
   }

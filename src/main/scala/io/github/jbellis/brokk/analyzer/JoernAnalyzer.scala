@@ -1285,7 +1285,7 @@ trait GraphPassApplier[R <: X2CpgConfig[R]] {
    * @param cpg some updated or new CPG to apply passes to. This CPG will be mutated.
    * @return this CPG.
    */
-  protected def applyPasses(cpg: Cpg): Try[Cpg] = Try {
+  def applyPasses(cpg: Cpg): Try[Cpg] = Try {
     // These are separated as we may want to insert our own custom, framework-specific passes
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.

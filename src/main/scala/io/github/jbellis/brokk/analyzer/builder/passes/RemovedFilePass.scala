@@ -2,10 +2,12 @@ package io.github.jbellis.brokk.analyzer.builder.passes
 
 import io.github.jbellis.brokk.analyzer.builder.*
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
+import io.joern.x2cpg.Defines
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.passes.ForkJoinParallelCpgPass
 import io.shiftleft.semanticcpg.language.*
+import io.shiftleft.semanticcpg.language.types.structure.{FileTraversal, NamespaceTraversal}
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
@@ -30,9 +32,12 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   override def generateParts(): Array[FileChange] = changedFiles.collect {
     case x: RemovedFile => x
     case x: ModifiedFile => x
-  }.toArray
+  }
+    .filterNot(_.path.getFileName.toString == FileTraversal.UNKNOWN)   // avoid special nodes
+    .toArray
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
+    logger.info(s"Removing nodes associated with '${part.path}'")
     pathToFileMap.get(part.path.toString) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
       case None => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")
@@ -43,7 +48,14 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
     // io.joern.x2cpg.passes.base.FileCreationPass tells us what we need to know about how File nodes interact
     // with other entities. TLDR: (NAMESPACE_BLOCK | TYPE_DECL | METHOD | COMMENT) -[SOURCE_FILE]-> (FILE)
     val fileChildren = fileNode._sourceFileIn
-      .collect { case x: AstNode => x } // All nodes from here inherit the AstNode abstract type
+      .collect {
+        // avoid special nodes
+        case x: NamespaceBlock if x.name != NamespaceTraversal.globalNamespaceName => x
+        case x: Namespace if x.name != NamespaceTraversal.globalNamespaceName => x
+        case x: TypeDecl if x.name != Defines.Any => x
+        case x: Type if x.name != Defines.Any => x
+      }
+      .cast[AstNode] // All nodes from here inherit the AstNode abstract type
       .flatMap(_.ast)
       .dedup
       .toSeq

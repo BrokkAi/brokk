@@ -358,7 +358,7 @@ object JavaAnalyzer extends GraphPassApplier[Config] {
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-
+    
     val newCpg = createAst(config).getOrElse {
       throw new IOException("Failed to create Java CPG")
     }

@@ -13,17 +13,17 @@ trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers {
 
   import CpgTestFixture.*
 
-  def project(code: String, path: String)(using config: R): MockProject[R] =
+  def project(config: R, code: String, path: String): MockProject[R] =
     MockProject(config, Set(CodeAndPath(code, path)))
 
-  def emptyProject(using config: R): MockProject[R] = MockProject(config, Set.empty)
+  def emptyProject(config: R): MockProject[R] = MockProject(config, Set.empty)
 
-  protected implicit val defaultConfig: R
+  protected implicit def defaultConfig: R
 
-  protected def withTestConfig(f: (R) => Unit)(implicit config: R = defaultConfig): Unit = {
+  protected def withTestConfig(f: (R) => Unit)(implicit initialConfig: R = defaultConfig): Unit = {
     val tempDir = Files.createTempDirectory("brokk-cpg-test-")
     try {
-      val newConfig = config
+      val newConfig = initialConfig
         .withInputPath(tempDir.toString)
         .withOutputPath(tempDir.resolve("cpg.bin").toString)
       f(newConfig)
@@ -53,12 +53,14 @@ object CpgTestFixture {
      */
     def buildProject: MockProject[R] = {
       val targetPath = Paths.get(config.inputPath)
-      // Clear any existing contents then set-up project on disk
-      Files.list(targetPath).toList.asScala.foreach(_.deleteRecursively)
+      // Clear any existing contents (that aren't the CPG) then set-up project on disk
+      Files.list(targetPath).toList.asScala
+        .filterNot(_ == Paths.get(config.outputPath))
+        .foreach(_.deleteRecursively)
       codeBase.foreach { case CodeAndPath(code, path) =>
         val newPath = targetPath.resolve(path)
         if !Files.exists(newPath.getParent) then Files.createDirectories(newPath.getParent)
-        Files.writeString(targetPath, code, StandardOpenOption.CREATE)
+        Files.writeString(newPath, code, StandardOpenOption.CREATE)
       }
       this
     }
@@ -72,7 +74,7 @@ object CpgTestFixture {
      */
     def buildCpg(using builder: IncrementalCpgBuilder[R]): Cpg = {
       buildProject
-      builder.update(Cpg.empty, config)
+      builder.update(Cpg.withStorage(Paths.get(config.outputPath)), config)
     }
 
   }
