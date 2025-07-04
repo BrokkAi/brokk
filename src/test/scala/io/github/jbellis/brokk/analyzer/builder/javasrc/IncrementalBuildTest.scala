@@ -3,7 +3,9 @@ package io.github.jbellis.brokk.analyzer.builder.javasrc
 import io.github.jbellis.brokk.analyzer.builder.{CpgTestFixture, IncrementalBuildTestFixture}
 import io.joern.javasrc2cpg.Config
 
-class JavaSrcIncrementalBuildTest extends JavaSrcIncrementalTestFixture {
+class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildTestFixture[Config] {
+
+  override implicit val defaultConfig: Config = Config()
 
   "an incremental build from an empty project" in {
     val projectA = emptyProject
@@ -82,9 +84,4 @@ class JavaSrcIncrementalBuildTest extends JavaSrcIncrementalTestFixture {
     }
   }
 
-}
-
-// Simplifies the declaration above
-trait JavaSrcIncrementalTestFixture extends CpgTestFixture[Config] with IncrementalBuildTestFixture[Config] {
-  override implicit val defaultConfig: Config = Config()
 }
