@@ -8,7 +8,7 @@ import io.joern.x2cpg.passes.base.*
 import io.joern.x2cpg.passes.callgraph.*
 import io.joern.x2cpg.passes.frontend.MetaDataPass
 import io.joern.x2cpg.passes.typerelations.*
-import io.shiftleft.codepropertygraph.generated.{Cpg, PropertyNames}
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.passes.CpgPassBase
@@ -25,8 +25,8 @@ import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
 import scala.jdk.OptionConverters.RichOptional
-import scala.util.{Try, Success, Failure}
 import scala.util.matching.Regex
+import scala.util.{Failure, Success, Try}
 
 /**
  * An abstract base for language-specific analyzers.

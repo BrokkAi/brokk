@@ -22,7 +22,7 @@ object CpgExt {
      */
     def projectRoot = cpg.metaData.root.headOption.map(Paths.get(_)).getOrElse(Paths.get("."))
 
-    def updateWith[R <: X2CpgConfig[R]](config: R)(using builder: IncrementalCpgBuilder[R]): Unit =
+    def updateWith[R <: X2CpgConfig[R]](config: R)(using builder: IncrementalCpgBuilder[R]): Cpg =
       builder.update(cpg, config)
 
   }

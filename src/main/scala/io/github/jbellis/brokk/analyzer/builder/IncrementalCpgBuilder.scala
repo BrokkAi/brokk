@@ -1,15 +1,15 @@
 package io.github.jbellis.brokk.analyzer.builder
 
+import io.github.jbellis.brokk.analyzer.JavaAnalyzer
 import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.joern.c2cpg.Config as CConfig
-import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
+import io.joern.javasrc2cpg.Config as JavaSrcConfig
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 
-import java.io.IOException
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
 
@@ -28,7 +28,7 @@ trait IncrementalCpgBuilder[R <: X2CpgConfig[R]] {
    * @param config the langugage-specific configuration object containing the input path of source files to re-build
    *               from.
    */
-  def update(cpg: Cpg, config: R): Unit
+  def update(cpg: Cpg, config: R): Cpg
 
 }
 
@@ -147,27 +147,25 @@ object IncrementalCpgBuilder {
 
   }
 
-
   given javaBuilder: IncrementalCpgBuilder[JavaSrcConfig] with {
 
-    override def update(cpg: Cpg, config: JavaSrcConfig): Unit = {
+    override def update(cpg: Cpg, config: JavaSrcConfig): Cpg = {
       val fileChanges = determineChangedFiles(cpg, Paths.get(config.inputPath))
       cpg.removeStaleFiles(fileChanges)
-      cpg.buildAddedAsts(fileChanges, (buildDir) => build(buildDir, config))
+      cpg.buildAddedAsts(fileChanges, (buildDir) => build(config.withInputPath(buildDir.toString)))
     }
 
-    private def build(buildDir: Path, config: JavaSrcConfig) = {
-      JavaSrc2Cpg().createCpg(config.withInputPath(buildDir.toString)).getOrElse {
-        throw new IOException("Failed to create Java CPG")
-      }
+    private def build(config: JavaSrcConfig) = {
+      JavaAnalyzer.createAst(config)
     }
 
   }
 
   given cBuilder: IncrementalCpgBuilder[CConfig] with {
 
-    override def update(cpg: Cpg, config: CConfig): Unit = {
+    override def update(cpg: Cpg, config: CConfig): Cpg = {
       // TODO: Handle
+      Cpg.empty
     }
 
   }
