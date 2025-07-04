@@ -58,6 +58,10 @@ public class GitLogTab extends JPanel {
     private JTable remoteBranchTable;
     private DefaultTableModel remoteBranchTableModel;
 
+    // Tags
+    private JTable tagsTable;
+    private DefaultTableModel tagsTableModel;
+
     // Branch-specific UI
     private JMenuItem captureDiffVsBranchItem;
     // createBranchFromCommitItem is managed by GitCommitBrowserPanel if needed, or was removed by prior refactoring.
@@ -179,6 +183,20 @@ public class GitLogTab extends JPanel {
 
         branchTabbedPane.addTab("Local", localBranchPanel);
         branchTabbedPane.addTab("Remote", remoteBranchPanel);
+
+        // Tags panel
+        JPanel tagsPanel = new JPanel(new BorderLayout());
+        tagsTableModel = new DefaultTableModel(new Object[]{"Tag"}, 0) {
+            @Override public boolean isCellEditable(int r,int c){return false;}
+            @Override public Class<?> getColumnClass(int i){return String.class;}
+        };
+        tagsTable = new JTable(tagsTableModel);
+        tagsTable.setFont(new Font(Font.MONOSPACED,Font.PLAIN,13));
+        tagsTable.setRowHeight(18);
+        tagsTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        tagsPanel.add(new JScrollPane(tagsTable), BorderLayout.CENTER);
+
+        branchTabbedPane.addTab("Tags", tagsPanel);
         branchesPanel.add(branchTabbedPane, BorderLayout.CENTER);
 
         JPanel branchButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -407,6 +425,45 @@ public class GitLogTab extends JPanel {
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
         remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
         remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
+
+        // Tag selection
+        tagsTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting() && tagsTable.getSelectedRow() != -1) {
+                String tag = (String) tagsTableModel.getValueAt(tagsTable.getSelectedRow(), 0);
+                // Clear any branch selections so the UI reflects only the tag context
+                branchTable.clearSelection();
+                remoteBranchTable.clearSelection();
+                updateCommitsForBranch(tag);
+                gitCommitBrowserPanel.clearSearchField(); // Clear search in panel
+            }
+        });
+
+        // Tags context menu
+        JPopupMenu tagContextMenu = new JPopupMenu();
+        chrome.themeManager.registerPopupMenu(tagContextMenu);
+        JMenuItem tagNewBranchItem = new JMenuItem("New Branch From This");
+        tagContextMenu.add(tagNewBranchItem);
+
+        tagsTable.addMouseListener(new MouseAdapter(){
+            private void handle(MouseEvent e){
+                if(e.isPopupTrigger()){
+                    int r=tagsTable.rowAtPoint(e.getPoint());
+                    if(r>=0&&!tagsTable.isRowSelected(r))
+                        tagsTable.setRowSelectionInterval(r,r);
+                    SwingUtilities.invokeLater(
+                            ()->tagContextMenu.show(tagsTable,e.getX(),e.getY()));
+                }
+            }
+            @Override public void mousePressed(MouseEvent e){handle(e);}
+            @Override public void mouseReleased(MouseEvent e){handle(e);}
+        });
+        tagNewBranchItem.addActionListener(e->{
+            int r=tagsTable.getSelectedRow();
+            if(r!=-1){
+                String tag=(String)tagsTableModel.getValueAt(r,0);
+                createNewBranchFrom(tag);
+            }
+        });
     }
 
     /**
@@ -452,6 +509,7 @@ public class GitLogTab extends JPanel {
                 String currentGitBranch = getRepo().getCurrentBranch(); // Get current branch from Git
                 List<String> localBranches = getRepo().listLocalBranches();
                 List<String> remoteBranches = getRepo().listRemoteBranches();
+                List<String> tags = getRepo().listTags();
 
                 // Prepare data rows off the EDT
                 List<Object[]> localBranchRows = new ArrayList<>();
@@ -511,6 +569,10 @@ public class GitLogTab extends JPanel {
                         .map(branch -> new Object[]{branch})
                         .toList();
 
+                List<Object[]> tagRows = tags.stream()
+                        .map(t -> new Object[]{t})
+                        .toList();
+
                 final int finalTargetSelectionIndex = targetSelectionIndex;
                 final String finalSelectedBranchName = targetBranchToSelect; // The branch name we actually selected/targeted
 
@@ -519,12 +581,16 @@ public class GitLogTab extends JPanel {
 
                     branchTableModel.setRowCount(0);
                     remoteBranchTableModel.setRowCount(0);
+                    tagsTableModel.setRowCount(0);
 
                     for (var rowData : localBranchRows) {
                         branchTableModel.addRow(rowData);
                     }
                     for (var rowData : remoteBranchRows) {
                         remoteBranchTableModel.addRow(rowData);
+                    }
+                    for (var rowData : tagRows) {
+                        tagsTableModel.addRow(rowData);
                     }
 
                     if (finalTargetSelectionIndex >= 0 && finalSelectedBranchName != null) {
@@ -918,7 +984,14 @@ public class GitLogTab extends JPanel {
                 return;
             }
 
-            // If neither local nor remote branch is selected, clear the commit view.
+            int tagSelectedRow = tagsTable.getSelectedRow();
+            if (tagSelectedRow != -1) {
+                String tagName = (String) tagsTableModel.getValueAt(tagSelectedRow, 0);
+                updateCommitsForBranch(tagName);
+                return;
+            }
+
+            // If neither local nor remote branch nor tag is selected, clear the commit view.
             logger.warn("reloadCurrentBranchOrContext called but no branch selected. Clearing commit view.");
             gitCommitBrowserPanel.clearCommitView();
         });

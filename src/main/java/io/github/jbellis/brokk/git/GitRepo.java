@@ -776,6 +776,17 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * List all tags in the repository.
+     */
+    public List<String> listTags() throws GitAPIException {
+        var tags = new ArrayList<String>();
+        for (var ref : git.tagList().call()) {
+            tags.add(ref.getName().replaceFirst("^refs/tags/", ""));
+        }
+        return tags;
+    }
+
+    /**
      * True iff {@code branchName} is one of this repository’s **local** branches.
      * Falls back to {@code false} if the branch list cannot be obtained.
      */
