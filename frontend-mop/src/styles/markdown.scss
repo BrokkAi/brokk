@@ -56,12 +56,13 @@ li > p {
 }
 
 code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-family: "Fira Code Retina", monospace;
   padding: 0.2em 0.4em;
   margin: 0;
-  font-size: 85%;
-  border-radius: 3px;
   color: var(--link-color-hex);
+  border: 1px solid var(--border-color-hex);
+  border-radius: .3em;
+  font-size: 0.8em;
 }
 
 table {
@@ -115,4 +116,12 @@ ul {
 
 ol {
   list-style-type: decimal;
+}
+
+blockquote {
+  display: block;
+  margin-left: -0.5em;
+  padding-left: 0.8em;
+  border-left: 0.2em solid var(--code-highlight);
+  background-color: transparent;
 }

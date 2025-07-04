@@ -62,7 +62,6 @@
     flex-direction: column;
     gap: 0.4em;
     word-break: break-word;
-    white-space: pre-wrap;
   }
   .header {
     display: flex;
