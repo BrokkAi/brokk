@@ -1,21 +1,19 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.joern.javasrc2cpg.JavaSrc2Cpg.language
+import io.joern.javasrc2cpg.Config
 import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
-import io.joern.javasrc2cpg.{Config, JavaSrc2Cpg}
 import io.joern.joerncli.CpgBasedTool
-import io.joern.x2cpg.X2CpgConfig
-import io.joern.x2cpg.passes.frontend.{MetaDataPass, TypeNodePass, JavaConfigFileCreationPass}
-import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
+import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.semanticcpg.language.*
 
 import java.io.IOException
 import java.nio.file.Path
 import java.util.Optional
-import scala.util.{Try, boundary}
 import scala.util.boundary.break
-import scala.util.matching.Regex // Added for modern early exit
+import scala.util.matching.Regex
+import scala.util.{Try, boundary} // Added for modern early exit
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer

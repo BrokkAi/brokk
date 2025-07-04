@@ -1,14 +1,14 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.joern.c2cpg.passes.*
 import io.joern.c2cpg.astcreation.CGlobal
-import io.joern.c2cpg.{C2Cpg, Config as CConfig}
-import io.joern.x2cpg.{SourceFiles, Defines as X2CpgDefines}
 import io.joern.c2cpg.parser.FileDefaults
-import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
-import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
+import io.joern.c2cpg.passes.*
+import io.joern.c2cpg.{C2Cpg, Config as CConfig}
 import io.joern.x2cpg.passes.frontend.TypeNodePass
 import io.joern.x2cpg.utils.Report
+import io.joern.x2cpg.{SourceFiles, Defines as X2CpgDefines}
+import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.semanticcpg.language.*
 
 import java.io.IOException
