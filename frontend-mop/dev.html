@@ -75,6 +75,72 @@
    - the **root directory**, or
    - the **page that the browser is told to open**.
 
+  \`\`\`java
+  @Tool("Create a GitHub pull-request for the current branch. "
+          + "If title or body is blank they are auto-generated. "
+          + "This implicitly pushes the branch and sets upstream when needed.")
+    public String createPullRequest(
+            @Nullable @P("PR title (optional)")  String title,
+    @Nullable @P("PR description in Markdown (optional)") String body)
+    {
+      var cursor = messageCursor();
+      io.llmOutput("Creating pull request…", ChatMessageType.CUSTOM, true);
+
+      try {
+        var project = contextManager.getProject();
+        if (!project.hasGit())
+          throw new IllegalStateException("Not a Git repository");
+
+        var repo          = (GitRepo) project.getRepo();
+        var defaultBranch = repo.getDefaultBranch()
+                .orElseThrow(() -> new IllegalStateException("Cannot determine default branch"));
+        var currentBranch = repo.getCurrentBranch();
+        if (Objects.equals(currentBranch, defaultBranch))
+          throw new IllegalStateException("Refusing to open PR from default branch (" + defaultBranch + ')');
+
+        if (!repo.getModifiedFiles().isEmpty())
+          throw new IllegalStateException("Uncommitted changes present; commit first");
+
+        var gws = new GitWorkflowService(contextManager);
+
+        // Auto-generate title/body if blank
+        if (title == null || title.isBlank() || body == null || body.isBlank()) {
+          var suggestion = gws.suggestPullRequestDetails(currentBranch, defaultBranch);
+          if (title == null || title.isBlank()) title = suggestion.title();
+          if (body  == null || body.isBlank())  body  = suggestion.description();
+        }
+
+        var prUrl = gws.createPullRequest(currentBranch, defaultBranch, title.trim(), body.trim());
+        var msg   = "Opened PR: " + prUrl;
+        io.llmOutput(msg, ChatMessageType.CUSTOM);
+        logger.info(msg);
+
+        // Persist result to history
+        var newMessages = messagesSince(cursor);
+        contextManager.addToHistory(new TaskResult(contextManager,
+                        "Git create PR",
+                        newMessages,
+                        Set.of(),
+                        TaskResult.StopReason.SUCCESS),
+                false);
+        return msg;
+      } catch (Exception e) {
+      var err = "Create PR failed: " + e.getMessage();
+      io.llmOutput(err, ChatMessageType.CUSTOM);
+      logger.error(err, e);
+
+      var newMessages = messagesSince(cursor);
+      contextManager.addToHistory(new TaskResult(contextManager,
+                      "Git create PR",
+                      newMessages,
+                      Set.of(),
+                      TaskResult.StopReason.TOOL_ERROR),
+              false);
+      throw new RuntimeException(err, e);
+    }
+    }
+  \`\`\`
+
 2. **Where your files live**
    Your tree is:
 
@@ -155,7 +221,7 @@ Both approaches:
       } else {
         clearInterval(interval);
       }
-    }, 100);
+    }, 10);
   }
 </script>
 <div id="mop-root"></div>

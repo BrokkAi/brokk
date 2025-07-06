@@ -55,7 +55,7 @@ li > p {
   margin-top: 0;
 }
 
-code {
+:not(pre) > code {
   font-family: "Fira Code Retina", monospace;
   padding: 0.2em 0.4em;
   margin: 0;
@@ -63,6 +63,16 @@ code {
   border: 1px solid var(--border-color-hex);
   border-radius: .3em;
   font-size: 0.8em;
+}
+
+pre > code {
+  font-size: 0.9em;
+}
+
+pre {
+  border-radius: 10px;
+  padding: 15px;
+  border-left: 5px solid var(--code-block-border);
 }
 
 table {
@@ -131,7 +141,7 @@ hr {
   width: auto;
   height: auto;
   text-align: center;
-  margin: 1em auto;
+  margin: 0 auto;
 }
 
 hr::before {

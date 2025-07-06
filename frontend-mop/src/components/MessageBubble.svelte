@@ -5,8 +5,11 @@
   import { fade } from 'svelte/transition';
   import type { Bubble } from '../types';
   import Icon from "@iconify/svelte";
+  import type { Plugin } from 'svelte-exmarkdown';
+  import { ensureLang } from '../shiki-plugin';
 
   export let bubble: Bubble;
+  export let shikiPlugin: Plugin | null = null;
 
   /* Map bubble type to CSS variable names for highlight and background colors */
   const hlVar = {
@@ -25,6 +28,22 @@
   /* Use provided title/icon if available, otherwise fall back to defaults */
   $: title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
   $: iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
+
+  // Dynamically load languages if needed based on markdown content
+  $: {
+    if (shikiPlugin) {
+      // Extract code block languages from markdown
+      const codeBlocks = bubble.markdown.matchAll(/```(\w+)/g);
+      for (const match of codeBlocks) {
+        const lang = match[1].toLowerCase();
+        if (lang && lang !== 'text' && lang !== 'plaintext') {
+          ensureLang(lang);
+        }
+      }
+    }
+  }
+
+  $: plugins = shikiPlugin ? [gfmPlugin(), remarkBreaks(), shikiPlugin] : [gfmPlugin(), remarkBreaks()];
 </script>
 
 <div
@@ -44,7 +63,7 @@
       color: var(--chat-text);
     "
   >
-    <Markdown class="bubble" md={bubble.markdown} plugins={[gfmPlugin(), remarkBreaks()]} />
+    <Markdown class="bubble" md={bubble.markdown} {plugins} />
   </div>
 </div>
 

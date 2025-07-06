@@ -2,9 +2,11 @@
   import { onDestroy, onMount } from 'svelte';
   import { fade } from 'svelte/transition';
   import type { Writable } from 'svelte/store';
-  import type {BrokkEvent, Bubble, SpinnerState} from './types';
+  import type { BrokkEvent, Bubble, SpinnerState } from './types';
   import MessageBubble from './components/MessageBubble.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
+  import { shikiPluginPromise } from './shiki-plugin';
+  import type { Plugin } from 'svelte-exmarkdown';
 
   export let eventStore: Writable<BrokkEvent>;
   export let spinnerStore: Writable<SpinnerState>;
@@ -14,11 +16,17 @@
   let spinner: SpinnerState = { visible: false, message: '' };
   let chatContainer: HTMLElement;
   let stopAutoScroll: (() => void) | null = null;
+  let shikiPlugin: Plugin | null = null;
+  let isDarkTheme = false;
 
-  onMount(() => {
+  onMount(async () => {
     if (!chatContainer.id) {
       chatContainer.id = 'chat-container';
     }
+    // Load Shiki plugin once
+    shikiPlugin = await shikiPluginPromise;
+    // Check initial theme
+    isDarkTheme = document.querySelector('html')?.classList.contains('theme-dark') || false;
   });
 
   // Subscribe to store changes explicitly to handle every event
@@ -54,7 +62,6 @@
       }
     }
   });
-
 
   const spinnerUnsubscribe = spinnerStore.subscribe(state => {
     spinner = state;
@@ -100,12 +107,12 @@
   >
     {#each bubbles as bubble (bubble.id)}
       <div in:fade={{ duration: 200 }} out:fade={{ duration: 100 }}>
-        <MessageBubble {bubble} />
+        <MessageBubble {bubble} {shikiPlugin} />
       </div>
     {/each}
-  {#if spinner.visible}
-    <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
-      {spinner.message}
-    </div>
-  {/if}
+    {#if spinner.visible}
+      <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>
+        {spinner.message}
+      </div>
+    {/if}
   </div>
