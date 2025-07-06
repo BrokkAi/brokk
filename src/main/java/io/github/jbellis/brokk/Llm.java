@@ -3,6 +3,8 @@ package io.github.jbellis.brokk;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
@@ -63,7 +65,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
  */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
 
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
@@ -1026,10 +1029,26 @@ public class Llm {
             }
             logger.trace("Writing history to file {}", uniqueFilePath);
             Files.writeString(uniqueFilePath, formattedRequest + formattedTools + formattedResponse, options);
+
+            // Also persist the raw ChatRequest in a matching -request.json file
+            var requestFileName = uniqueFilePath.getFileName()
+                                                .toString()
+                                                .replaceFirst("\\.log$", "-request.json");
+            var requestPath     = uniqueFilePath.resolveSibling(requestFileName);
+
+            var requestOptions  = new StandardOpenOption[]{
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE
+            };
+            var requestJson = objectMapper.writerWithDefaultPrettyPrinter()
+                                          .writeValueAsString(request);
+            Files.writeString(requestPath, requestJson, requestOptions);
         } catch (IOException e) {
             logger.error("Failed to write LLM history file", e);
         }
     }
+
 
     public record NullSafeResponse(String text,
                                    List<ToolExecutionRequest> toolRequests,
