@@ -439,12 +439,11 @@ public class FileSelectionPanel extends JPanel {
             Path absolutePath = path.toAbsolutePath().normalize();
 
             String pathForReplacement;
-            if (!this.allowExternalFiles
-                    && absolutePath.startsWith(this.project.getRoot())) {
-                pathForReplacement = this.project.getRoot().relativize(absolutePath).toString();
-            } else {
-                pathForReplacement = absolutePath.toString();
-            }
+    if (absolutePath.startsWith(this.project.getRoot())) {
+        pathForReplacement = this.project.getRoot().relativize(absolutePath).toString();
+    } else {
+        pathForReplacement = absolutePath.toString();
+    }
 
             String summaryPathString = pathForReplacement; // same as replacement target
             String displayFileName = Objects.requireNonNull(absolutePath.getFileName()).toString();
