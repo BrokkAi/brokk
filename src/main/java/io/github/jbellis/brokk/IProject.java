@@ -144,6 +144,15 @@ public interface IProject extends AutoCloseable {
     default List<String> loadTextHistory() { return List.of(); }
     default List<String> addToInstructionsHistory(String item, int maxItems) { throw new UnsupportedOperationException(); }
 
+    /* Blitz-history: (parallel instructions, post-processing instructions) */
+    default java.util.List<java.util.List<String>> loadBlitzHistory() { return java.util.List.of(); }
+    default java.util.List<java.util.List<String>> addToBlitzHistory(String parallelInstructions,
+                                                                      String postProcessingInstructions,
+                                                                      int maxItems)
+    {
+        throw new UnsupportedOperationException();
+    }
+
     // Git specific info
     default boolean isGitHubRepo() { return false; }
     default boolean isGitIgnoreSet() { return false; }

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.analyzer.Language;
 
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public final class WorktreeProject extends AbstractProject {
@@ -199,6 +200,16 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setArchitectOptions(io.github.jbellis.brokk.agents.ArchitectAgent.ArchitectOptions options, boolean runInWorktree) {
         parent.setArchitectOptions(options, runInWorktree);
+    }
+
+    @Override
+    public List<List<String>> loadBlitzHistory() {
+        return parent.loadBlitzHistory();
+    }
+
+    @Override
+    public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
+        return parent.addToBlitzHistory(parallel, post, maxItems);
     }
 
     @Override

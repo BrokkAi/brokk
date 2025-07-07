@@ -362,6 +362,7 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                     executorService = Executors.newFixedThreadPool(poolSize);
                     var frozenContext = contextManager.topContext();
+                    List<FileProcessingResult> results = new ArrayList<>();
 
                     // ---- 1.  Sort by on-disk size, smallest first ----
                     var sortedFiles = filesToProcess.stream()
@@ -388,6 +389,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                             processedFileCount.set(1); // Mark the first file as processed
                             // Publish result for the first file
                             publish(new ProgressData(processedFileCount.get(), firstResult.file().toString(), firstResult.errorMessage()));
+                            results.add(firstResult);
                         }
 
                         // Early exit if user cancelled during first file processing
@@ -419,7 +421,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                     });
                     executorService.shutdown(); // No new tasks will be submitted
 
-                    List<FileProcessingResult> results = new ArrayList<>();
                     // Collect results for remaining files. Loop totalFiles - 1 times since one file was processed upfront.
                     // If filesToProcess is 0 or 1, this loop won't run.
                     for (int i = 0; i < filesToProcess.size() - 1; i++) {

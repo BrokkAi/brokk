@@ -7,34 +7,26 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
+import io.github.jbellis.brokk.gui.util.ScaledIcon;
+import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.Messages;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-
-import io.github.jbellis.brokk.gui.util.ScaledIcon;
-import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.util.Messages;
-
-import static java.util.Objects.requireNonNull;
-
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-
-import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
-import static io.github.jbellis.brokk.gui.Constants.H_GAP;
-import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
-import static io.github.jbellis.brokk.gui.Constants.V_GAP;
+import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 
 public class BlitzForgeDialog extends JDialog {
     private final Chrome chrome;
@@ -62,10 +54,12 @@ public class BlitzForgeDialog extends JDialog {
     private JTextField contextFilterTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
     private static final int TOKEN_SAFETY_MARGIN = 32768;
+    private static final int MAX_BLITZ_HISTORY_ITEMS = 50;
+    private static final int HISTORY_TRUNCATION_LENGTH = 100;
 
     // Tracks the most recent cost estimate and user balance
     private volatile double estimatedCost = 0.0;
-    private volatile float userBalance    = Float.NaN;
+    private volatile float userBalance = Float.NaN;
 
     // Cache (file -> token count) to avoid recomputation on every UI refresh
     private final Map<ProjectFile, Long> tokenCountCache = new ConcurrentHashMap<>();
@@ -104,11 +98,11 @@ public class BlitzForgeDialog extends JDialog {
      */
     private static final class ColorDotIcon implements Icon {
         private final Color color;
-        private final int   diameter;
+        private final int diameter;
 
         private ColorDotIcon(Color color, int diameter) {
-            this.color     = Objects.requireNonNull(color, "color");
-            this.diameter  = diameter;
+            this.color = Objects.requireNonNull(color, "color");
+            this.diameter = diameter;
         }
 
         @Override
@@ -120,9 +114,14 @@ public class BlitzForgeDialog extends JDialog {
         }
 
         @Override
-        public int getIconWidth()  { return diameter; }
+        public int getIconWidth() {
+            return diameter;
+        }
+
         @Override
-        public int getIconHeight() { return diameter; }
+        public int getIconHeight() {
+            return diameter;
+        }
     }
 
     public BlitzForgeDialog(Frame owner, Chrome chrome) {
@@ -150,9 +149,9 @@ public class BlitzForgeDialog extends JDialog {
         setLayout(new BorderLayout(10, 10));
 
         JPanel contentPanel = new JPanel();
-contentPanel.setLayout(new GridBagLayout());
+        contentPanel.setLayout(new GridBagLayout());
 // Initialize early so it is non-null when updateCostEstimate() is triggered during UI construction
-selectedFilesCountLabel = new JLabel("0 files selected");
+        selectedFilesCountLabel = new JLabel("0 files selected");
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
@@ -254,9 +253,9 @@ selectedFilesCountLabel = new JLabel("0 files selected");
         JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
         leftPanel.add(fileSelectionPanel, BorderLayout.CENTER);
         JButton addFilesButton = new JButton("Add Files");
-addFilesButton.addActionListener(e -> addSelectedFilesToTable());
-JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-addButtonPanel.add(addFilesButton);
+        addFilesButton.addActionListener(e -> addSelectedFilesToTable());
+        JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        addButtonPanel.add(addFilesButton);
         horizontalSplitPane.add(leftPanel);
 
         // Create the JTable and its scroll pane
@@ -337,9 +336,20 @@ addButtonPanel.add(addFilesButton);
 
         listFilesTextArea = new JTextArea(8, 40);
         listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
         });
         JScrollPane rawTextScroll = new JScrollPane(listFilesTextArea);
         rawTextPanel.add(listFilesInstructions, BorderLayout.NORTH);
@@ -348,7 +358,10 @@ addButtonPanel.add(addFilesButton);
 
         // --- Right: parsed-file table with language filter ---
         parsedTableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
         };
         parsedFilesTable = new JTable(parsedTableModel);
         JScrollPane parsedScroll = new JScrollPane(parsedFilesTable);
@@ -359,9 +372,9 @@ addButtonPanel.add(addFilesButton);
         listLanguageCombo = new JComboBox<>();
         listLanguageCombo.addItem(ALL_LANGUAGES_OPTION);
         chrome.getProject().getAnalyzerLanguages().stream()
-              .map(Language::toString)
-              .sorted()
-              .forEach(listLanguageCombo::addItem);
+                .map(Language::toString)
+                .sorted()
+                .forEach(listLanguageCombo::addItem);
         listLanguageCombo.setSelectedItem(ALL_LANGUAGES_OPTION);
         listLanguageCombo.addActionListener(e -> {
             updateParsedFilesTable();
@@ -376,7 +389,7 @@ addButtonPanel.add(addFilesButton);
 
         JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
         rightPanel.add(rightTopPanel, BorderLayout.NORTH);
-        rightPanel.add(parsedScroll,   BorderLayout.CENTER);
+        rightPanel.add(parsedScroll, BorderLayout.CENTER);
 
         // Side-by-side panels (50 % each) without a resizable splitter
         JPanel splitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
@@ -401,12 +414,12 @@ addButtonPanel.add(addFilesButton);
         gbc.fill = GridBagConstraints.BOTH;
 
         JPanel combined = new JPanel(new GridLayout(1, 2, H_GAP, 0));
-        
+
         // ---- parallel processing panel --------------------------------
         JPanel parallelProcessingPanel = new JPanel(new GridBagLayout());
         var ppTitleBorder = BorderFactory.createTitledBorder("Parallel processing");
         parallelProcessingPanel.setBorder(BorderFactory.createCompoundBorder(ppTitleBorder,
-                                                                            BorderFactory.createEmptyBorder(5, 5, 5, 5)));
+                                                                             BorderFactory.createEmptyBorder(5, 5, 5, 5)));
         GridBagConstraints paraGBC = new GridBagConstraints();
         paraGBC.insets = new Insets(0, 0, 0, 0); // Removed per-cell insets
         paraGBC.fill = GridBagConstraints.HORIZONTAL;
@@ -420,9 +433,28 @@ addButtonPanel.add(addFilesButton);
         paraGBC.fill = GridBagConstraints.HORIZONTAL;
         paraGBC.anchor = GridBagConstraints.WEST;
 
-        var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // No horizontal gap for FlowLayout initially
-        instructionsPanel.add(new JLabel("Instructions:"));
-        instructionsPanel.add(Box.createHorizontalStrut(H_GAP)); // Manual H_GAP
+        var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // explicit H_GAP components
+        var instructionsLabel = new JLabel("Instructions:");
+        instructionsPanel.add(instructionsLabel);
+
+        // spacing between label and History button
+        instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // History dropdown button (scaled to label height)
+        JButton blitzHistoryButton = new JButton("History ▼");
+        blitzHistoryButton.setToolTipText("Select a previous BlitzForge instruction");
+        blitzHistoryButton.addActionListener(ev -> showBlitzHistoryMenu(blitzHistoryButton));
+
+        var labelHeight = instructionsLabel.getPreferredSize().height;
+        var btnSize = blitzHistoryButton.getPreferredSize();
+        blitzHistoryButton.setMargin(new Insets(0, 5, 0, 5));   // small horizontal padding
+        Dimension newSize = new Dimension(btnSize.width, labelHeight - 4);
+        blitzHistoryButton.setPreferredSize(newSize);
+        blitzHistoryButton.setMinimumSize(newSize);
+        blitzHistoryButton.setMaximumSize(newSize);
+
+        instructionsPanel.add(blitzHistoryButton);
+        instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
 
         var infoIcon = new JLabel(smallInfoIcon);
         infoIcon.setToolTipText("""
@@ -433,6 +465,7 @@ addButtonPanel.add(addFilesButton);
                                 """);
         instructionsPanel.add(infoIcon);
         parallelProcessingPanel.add(instructionsPanel, paraGBC);
+
 
 
         // Instructions TextArea
@@ -448,6 +481,8 @@ addButtonPanel.add(addFilesButton);
         JScrollPane instructionsScrollPane = new JScrollPane(instructionsArea);
         parallelProcessingPanel.add(instructionsScrollPane, paraGBC);
 
+
+        /* -------------------------------------------------------------- */
         // Action Row
         paraGBC.gridy++;
         paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
@@ -488,9 +523,9 @@ addButtonPanel.add(addFilesButton);
         // Add colored-dot speed indicator next to each model alias
         var service = chrome.getContextManager().getService();
         modelComboBox.setRenderer(new DefaultListCellRenderer() {
-            private final Icon redDot    = new ColorDotIcon(Color.RED,    10);
+            private final Icon redDot = new ColorDotIcon(Color.RED, 10);
             private final Icon yellowDot = new ColorDotIcon(Color.YELLOW, 10);
-            private final Icon greenDot  = new ColorDotIcon(new Color(0, 170, 0), 10); // deeper green for visibility
+            private final Icon greenDot = new ColorDotIcon(new Color(0, 170, 0), 10); // deeper green for visibility
 
             @Override
             public Component getListCellRendererComponent(JList<?> list,
@@ -507,23 +542,23 @@ addButtonPanel.add(addFilesButton);
                 panel.setBackground(getBackground());
 
                 // Determine metric + color
-                var model   = service.getModel(fav.modelName(), fav.reasoning());
+                var model = service.getModel(fav.modelName(), fav.reasoning());
                 Color color = Color.GRAY;
                 String tooltip = "unknown capacity";
                 if (model != null) {
                     Integer maxConc = service.getMaxConcurrentRequests(model);
                     if (maxConc != null) {
                         tooltip = "%,d max concurrent requests".formatted(maxConc);
-                        color   = (maxConc <= 5) ? Color.RED
-                                                 : (maxConc <= 50) ? Color.YELLOW
-                                                                   : new Color(0, 170, 0);
+                        color = (maxConc <= 5) ? Color.RED
+                                               : (maxConc <= 50) ? Color.YELLOW
+                                                                 : new Color(0, 170, 0);
                     } else {
                         Integer tpm = service.getTokensPerMinute(model);
                         if (tpm != null) {
                             tooltip = "%,d tokens/minute".formatted(tpm);
-                            color   = (tpm <= 1_000_000)  ? Color.RED
-                                                          : (tpm <= 10_000_000) ? Color.YELLOW
-                                                                                : new Color(0, 170, 0);
+                            color = (tpm <= 1_000_000) ? Color.RED
+                                                       : (tpm <= 10_000_000) ? Color.YELLOW
+                                                                             : new Color(0, 170, 0);
                         }
                     }
                 }
@@ -531,7 +566,7 @@ addButtonPanel.add(addFilesButton);
                 Icon dot = switch (color.getRGB()) {
                     case 0xFFFF0000 -> redDot;
                     case 0xFFFFFF00 -> yellowDot;
-                    default         -> greenDot;
+                    default -> greenDot;
                 };
 
                 panel.setToolTipText(tooltip);
@@ -756,7 +791,7 @@ addButtonPanel.add(addFilesButton);
         opGBC.anchor = GridBagConstraints.WEST;
         opGBC.fill = GridBagConstraints.NONE;
 
-        parallelOutputCombo = new JComboBox<>(new String[] {
+        parallelOutputCombo = new JComboBox<>(new String[]{
                 "Include none",
                 "Include all",
                 "Include changed files"
@@ -931,10 +966,63 @@ addButtonPanel.add(addFilesButton);
         add(buttonPanel, BorderLayout.SOUTH);
     }
 
+    /**
+     * Display a dropdown menu containing recent BlitzForge instructions.
+     * Selecting an entry populates the Instructions and Post-processing fields.
+     */
+    private void showBlitzHistoryMenu(Component invoker)
+    {
+        var historyEntries = chrome.getProject().loadBlitzHistory();
+        JPopupMenu popup = new JPopupMenu();
+
+        if (historyEntries.isEmpty()) {
+            JMenuItem empty = new JMenuItem("(No history items)");
+            empty.setEnabled(false);
+            popup.add(empty);
+        } else {
+            for (int i = historyEntries.size() - 1; i >= 0; i--) {
+                var entry = historyEntries.get(i);
+                String firstLine = entry.isEmpty() ? "" : entry.get(0).replace('\n', ' ');
+                String display = firstLine.length() > HISTORY_TRUNCATION_LENGTH
+                                 ? firstLine.substring(0, HISTORY_TRUNCATION_LENGTH) + "..."
+                                 : firstLine;
+
+                JMenuItem item = new JMenuItem(display);
+
+                // Build tooltip with all saved lines
+                StringBuilder tooltip = new StringBuilder("<html><pre>");
+                for (var line : entry) {
+                    tooltip.append(line.replace("&", "&amp;")
+                                           .replace("<", "&lt;")
+                                           .replace(">", "&gt;")
+                                           .replace("\"", "&quot;"))
+                            .append("<br><br>");
+                }
+                tooltip.append("</pre></html>");
+                item.setToolTipText(tooltip.toString());
+
+                int idx = i; // capture for lambda
+                item.addActionListener(e -> {
+                    var selected = historyEntries.get(idx);
+                    if (!selected.isEmpty()) {
+                        instructionsArea.setText(selected.get(0));
+                        if (selected.size() > 1) {
+                            postProcessingInstructionsArea.setText(selected.get(1));
+                        }
+                    }
+                });
+                popup.add(item);
+            }
+        }
+
+        // Removed direct access to package-private field; popup will still work
+        popup.show(invoker, 0, invoker.getHeight());
+    }
+
     private void updateCostEstimate() {
-        var cm      = chrome.getContextManager();
+        var cm = chrome.getContextManager();
         var service = cm.getService();
-        var fav     = (Service.FavoriteModel) modelComboBox.getSelectedItem();
+        var fav = (Service.FavoriteModel) modelComboBox.getSelectedItem();
         requireNonNull(fav);
 
         var pricing = service.getModelPricing(fav.modelName());
@@ -942,7 +1030,10 @@ addButtonPanel.add(addFilesButton);
         List<ProjectFile> files = getSelectedFilesForCost();
         int n = files.size();
         selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
-        if (n == 0) { costEstimateLabel.setText(" "); return; }
+        if (n == 0) {
+            costEstimateLabel.setText(" ");
+            return;
+        }
 
         long tokensFiles = files.parallelStream()
                 .mapToLong(this::getTokenCount)
@@ -959,7 +1050,9 @@ addButtonPanel.add(addFilesButton);
         int relatedK = 0;
         try {
             var txt = Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
-            if (!txt.isEmpty()) relatedK = Integer.parseInt(txt);
+            if (!txt.isEmpty()) {
+                relatedK = Integer.parseInt(txt);
+            }
         } catch (NumberFormatException ex) {
             // Invalid number → treat as zero related classes
             relatedK = 0;
@@ -967,20 +1060,20 @@ addButtonPanel.add(addFilesButton);
         long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
 
         long totalInput = tokensFiles + workspaceAdd + relatedAdd;
-        long estOutput  = Math.min(4000, totalInput / 2);
-        double cost     = pricing.estimateCost(totalInput, 0, estOutput);
-        estimatedCost   = cost;
+        long estOutput = Math.min(4000, totalInput / 2);
+        double cost = pricing.estimateCost(totalInput, 0, estOutput);
+        estimatedCost = cost;
 
         costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", cost));
     }
-    
+
     private void fetchUserBalance() {
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Fetch balance",
                                 () -> cm.getService().getUserBalance())
-          .thenAccept(balance -> userBalance = balance);
+                .thenAccept(balance -> userBalance = balance);
     }
-    
+
     /**
      * Returns the cached token count of a file, computing it once if necessary.
      */
@@ -993,7 +1086,7 @@ addButtonPanel.add(addFilesButton);
             }
         });
     }
-    
+
     /**
      * Gather the currently selected files (no validation).
      */
@@ -1001,7 +1094,7 @@ addButtonPanel.add(addFilesButton);
         try {
             if (entireProjectScopeRadioButton.isSelected()) {
                 var files = chrome.getProject().getRepo().getTrackedFiles().stream()
-                                   .filter(ProjectFile::isText);
+                        .filter(ProjectFile::isText);
                 String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
                 if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
                     files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
@@ -1013,15 +1106,19 @@ addButtonPanel.add(addFilesButton);
                 String text = listFilesTextArea.getText();
                 var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
                 return projectFiles.parallelStream()
-                                   .filter(ProjectFile::isText)
-                                   .filter(pf -> {
-                                       boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                                       if (!nameMatch) return false;
-                                       String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                                       if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
-                                       return langSel.equals(pf.getLanguage().toString());
-                                   })
-                                   .toList();
+                        .filter(ProjectFile::isText)
+                        .filter(pf -> {
+                            boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
+                            if (!nameMatch) {
+                                return false;
+                            }
+                            String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
+                            if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                                return true;
+                            }
+                            return langSel.equals(pf.getLanguage().toString());
+                        })
+                        .toList();
             }
 
             // select-files scope
@@ -1152,16 +1249,20 @@ addButtonPanel.add(addFilesButton);
         String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
 
         List<ProjectFile> matches = tracked.parallelStream()
-                                           .filter(ProjectFile::isText)
-                                           .filter(pf -> {
-                                               boolean nameMatch = text.contains(pf.toString())
-                                                                 || text.contains(pf.getFileName());
-                                               if (!nameMatch) return false;
-                                               if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
-                                               return langSel.equals(pf.getLanguage().toString());
-                                           })
-                                           .sorted(Comparator.comparing(ProjectFile::toString))
-                                           .toList();
+                .filter(ProjectFile::isText)
+                .filter(pf -> {
+                    boolean nameMatch = text.contains(pf.toString())
+                                        || text.contains(pf.getFileName());
+                    if (!nameMatch) {
+                        return false;
+                    }
+                    if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                        return true;
+                    }
+                    return langSel.equals(pf.getLanguage().toString());
+                })
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
 
         matches.forEach(pf -> parsedTableModel.addRow(new Object[]{pf.getRelPath().toString()}));
         selectedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s") + " selected");
@@ -1231,9 +1332,13 @@ addButtonPanel.add(addFilesButton);
                     .filter(ProjectFile::isText)
                     .filter(pf -> {
                         boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                        if (!nameMatch) return false;
+                        if (!nameMatch) {
+                            return false;
+                        }
                         String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                        if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
+                        if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                            return true;
+                        }
                         return langSel.equals(pf.getLanguage().toString());
                     })
                     .toList();
@@ -1288,9 +1393,9 @@ addButtonPanel.add(addFilesButton);
         };
         String selectedInclude = (String) parallelOutputCombo.getSelectedItem();
         String parallelOutputMode = switch (selectedInclude) {
-            case "Include none"          -> "none";
+            case "Include none" -> "none";
             case "Include changed files" -> "changed";
-            default                      -> "all";
+            default -> "all";
         };
         boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();
@@ -1302,6 +1407,11 @@ addButtonPanel.add(addFilesButton);
         }
 
         String action = (String) requireNonNull(actionComboBox.getSelectedItem());
+
+        // Persist Blitz-history entry
+        chrome.getProject().addToBlitzHistory(instructions,
+                                              postProcessingInstructions,
+                                              MAX_BLITZ_HISTORY_ITEMS);
 
         setVisible(false); // Hide this dialog
 
