@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.*;
+import java.util.Objects;
 import io.github.jbellis.brokk.analyzer.ExternalFile;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.FrozenFragment;
@@ -16,6 +17,7 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -693,18 +695,26 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      * @return A JPanel containing the search bar, optional toolbar, and content
      */
     public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel) {
+        return createSearchableContentPanel(markdownPanels, toolbarPanel, true);
+    }
+
+    public static JPanel createSearchableContentPanel(List<MarkdownOutputPanel> markdownPanels, @Nullable JPanel toolbarPanel, boolean wrapInScrollPane) {
         if (markdownPanels.isEmpty()) {
             return new JPanel(); // Return empty panel if no content
         }
 
-        // If single panel, create a scroll pane for it
+        // If single panel, create a scroll pane for it if requested
         JComponent contentComponent;
         var componentsWithChatBackground = new ArrayList<JComponent>();
         if (markdownPanels.size() == 1) {
-            var scrollPane = new JScrollPane(markdownPanels.getFirst());
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
-            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-            contentComponent = scrollPane;
+            if (wrapInScrollPane) {
+                var scrollPane = new JScrollPane(markdownPanels.getFirst());
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+                contentComponent = scrollPane;
+            } else {
+                contentComponent = markdownPanels.getFirst();
+            }
         } else {
             // Multiple panels - create container with BoxLayout
             var messagesContainer = new JPanel();
@@ -715,10 +725,14 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 messagesContainer.add(panel);
             }
 
-            var scrollPane = new JScrollPane(messagesContainer);
-            scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-            contentComponent = scrollPane;
+            if (wrapInScrollPane) {
+                var scrollPane = new JScrollPane(messagesContainer);
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+                contentComponent = scrollPane;
+            } else {
+                contentComponent = messagesContainer;
+            }
         }
 
         // Create main content panel to hold search bar and content
@@ -901,47 +915,28 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
             // 2. Output-only fragments (Task / History / Search)
             if (workingFragment.getType().isOutputFragment()) {
-                // (unchanged from previous implementation)
                 var outputFragment = (ContextFragment.OutputFragment) workingFragment;
-                JPanel messagesContainer = new JPanel();
-                messagesContainer.setLayout(new BoxLayout(messagesContainer, BoxLayout.Y_AXIS));
-                messagesContainer.setBackground(themeManager.isDarkTheme()
-                                                ? UIManager.getColor("Panel.background")
-                                                : Color.WHITE);
-
-                var scrollPane = new JScrollPane(messagesContainer);
-                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
-
-                var compactionFutures = new ArrayList<CompletableFuture<?>>();
-                var markdownPanels = new ArrayList<MarkdownOutputPanel>();
                 var escapeHtml = outputFragment.isEscapeHtml();
-
+                var combinedMessages = new ArrayList<ChatMessage>();
+                
                 for (TaskEntry entry : outputFragment.entries()) {
-                    var markdownPanel = new MarkdownOutputPanel(escapeHtml);
-                    markdownPanel.updateTheme(themeManager.isDarkTheme());
-                    markdownPanel.setText(entry);
-                    markdownPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.GRAY));
-                    messagesContainer.add(markdownPanel);
-                    markdownPanels.add(markdownPanel);
-                    compactionFutures.add(markdownPanel.scheduleCompaction());
+                    if (entry.isCompressed()) {
+                        
+                        combinedMessages.add(Messages.create(Objects.toString(entry.summary(), "Summary not available"), ChatMessageType.SYSTEM));
+                    } else {
+                        combinedMessages.addAll(castNonNull(entry.log()).messages());
+                    }
                 }
 
-                // Use shared utility method to create searchable content panel (without navigation for preview)
-                JPanel previewContentPanel = createSearchableContentPanel(markdownPanels, null);
+                var markdownPanel = new MarkdownOutputPanel(escapeHtml);
+                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                markdownPanel.setText(combinedMessages);
+                markdownPanel.scheduleCompaction();
 
-                // When all panels are compacted, scroll to the top
-                CompletableFuture
-                        .allOf(compactionFutures.toArray(CompletableFuture[]::new))
-                        .thenRun(() -> SwingUtilities.invokeLater(() -> {
-                            // Find the scroll pane within the searchable content panel
-                            Component foundScrollPane = findScrollPaneIn(previewContentPanel);
-                            if (foundScrollPane instanceof JScrollPane jsp) {
-                                jsp.getViewport().setViewPosition(new Point(0, 0));
-                            }
-                        }));
+                // Use shared utility method to create searchable content panel without scroll pane
+                JPanel previewContentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
 
-                showPreviewFrame(contextManager, title, previewContentPanel); // Use new panel with search
+                showPreviewFrame(contextManager, title, previewContentPanel);
                 return;
             }
 

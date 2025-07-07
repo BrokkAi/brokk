@@ -25,13 +25,35 @@ public final class ClasspathHttpServer {
     private final int port;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
 
-    private static final int FIXED_PORT = 27783;
+    private static final int START_PORT = 27783;
+    private static final int MAX_PORT_ATTEMPTS = 10;
 
     private ClasspathHttpServer() throws IOException {
-        // Bind to loopback address on a fixed port
-        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), FIXED_PORT), 0);
-        port = server.getAddress().getPort();
-        logger.info("Starting embedded HTTP server on port {}", port);
+        int currentPort = START_PORT;
+        IOException lastException = null;
+        HttpServer tempServer = null;
+        int tempPort = -1;
+
+        // Try binding to ports starting from START_PORT up to MAX_PORT_ATTEMPTS
+        for (int attempt = 0; attempt < MAX_PORT_ATTEMPTS; attempt++) {
+            try {
+                tempServer = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), currentPort), 0);
+                tempPort = tempServer.getAddress().getPort();
+                logger.info("Starting embedded HTTP server on port {}", tempPort);
+                break;
+            } catch (IOException e) {
+                logger.warn("Port {} is in use, trying next port", currentPort);
+                lastException = e;
+                currentPort++;
+            }
+        }
+
+        if (tempServer == null) {
+            throw new IOException("Could not find an available port after " + MAX_PORT_ATTEMPTS + " attempts", lastException);
+        }
+        
+        this.server = tempServer;
+        this.port = tempPort;
 
         // Handle requests by serving resources from the classpath
         server.createContext("/", this::handleRequest);

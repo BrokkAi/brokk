@@ -117,11 +117,11 @@ public final class MOPWebViewHost extends JPanel {
                     // Now that the page is loaded, flush any buffered commands
                     flushBufferedCommands();
                     // Show the panel only after the page is fully loaded
-                    SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
+                    // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 } else if (newState == javafx.concurrent.Worker.State.FAILED) {
                     logger.error("WebView Page Load Failed");
                     // Show the panel even on failure to display any error content
-                    SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
+                    // SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
                 }
             });
 
@@ -143,6 +143,7 @@ public final class MOPWebViewHost extends JPanel {
             }
             // Apply initial theme
             applyTheme(Theme.create(darkTheme));
+            SwingUtilities.invokeLater(() -> requireNonNull(fxPanel).setVisible(true));
         });
     }
 
