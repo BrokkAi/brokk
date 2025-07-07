@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.github.jbellis.brokk.analyzer.{CodeUnit, JavaAnalyzer}
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.semanticcpg.language.*
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertThrows, assertTrue}
 import org.junit.jupiter.api.Test
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 import java.util.Optional
 import scala.jdk.OptionConverters.RichOptional
 import scala.jdk.javaapi.*
@@ -642,7 +641,9 @@ class JavaAnalyzerTest {
 
   /** Helper to get a prebuilt analyzer */
   private def getAnalyzer = {
-    JavaAnalyzer(Path.of("src/test/resources/testcode-java"))
+    val tempFile = Files.createTempFile("brokk-java-cpg-", ".bin")
+    tempFile.toFile.deleteOnExit()
+    JavaAnalyzer(Path.of("src/test/resources/testcode-java"), java.util.Collections.emptySet[String](), tempFile)
   }
 
   @Test

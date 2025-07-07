@@ -8,7 +8,7 @@ import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.util.Optional
 import scala.io.Source
 import scala.util.boundary.break
@@ -26,7 +26,10 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
 
   def this(sourcePath: Path, excludedFiles: java.util.Set[String]) =
-    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles))
+    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin")))
+
+  def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
+    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
 
   def this(sourcePath: Path) =
     this(sourcePath, java.util.Collections.emptySet[String]())
@@ -340,13 +343,14 @@ object JavaAnalyzer {
 
   import scala.jdk.CollectionConverters.*
 
-  private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String]): Cpg = {
+  private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
     // Build the CPG
     Config()
       .withInputPath(absPath.toString)
+      .withOutputPath(cpgPath.toString)
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)

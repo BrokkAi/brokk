@@ -111,7 +111,7 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         val absFileNameProvider = (relativeName: String) => tempDir.resolve(relativeName)
         assertion(cpg, tempDir, absFileNameProvider)
       } finally {
-        tempDir.deleteRecursively
+        tempDir.deleteRecursively()
       }
     }
   }

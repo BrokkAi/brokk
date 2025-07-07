@@ -131,7 +131,7 @@ object IncrementalUtils {
         astBuilder(buildDir)
         cpg
       } finally {
-        buildDir.deleteRecursively
+        buildDir.deleteRecursively()
       }
     }
   }

@@ -30,7 +30,7 @@ trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with
         .withOutputPath(tempDir.resolve("cpg.bin").toString)
       f(newConfig)
     } finally {
-      tempDir.deleteRecursively
+      tempDir.deleteRecursively()
     }
   }
 
