@@ -9,25 +9,23 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
   override implicit def defaultConfig: Config = Config()
 
   "an incremental build from an empty project" in {
-    withTestConfig { configA =>
+    withIncrementalTestConfig { (configA, configB) =>
       val projectA = emptyProject(configA)
-      withTestConfig { configB =>
-        val projectB = project(
-          configB,
-          """
-            |public class Foo {
-            | public static void main(String[] args) {
-            |   System.out.println("Hello, world!");
-            | }
-            |}
-            |""".stripMargin, "Foo.java")
-        testIncremental(projectA, projectB)
-      }
+      val projectB = project(
+        configB,
+        """
+          |public class Foo {
+          | public static void main(String[] args) {
+          |   System.out.println("Hello, world!");
+          | }
+          |}
+          |""".stripMargin, "Foo.java")
+      testIncremental(projectA, projectB)
     }
   }
 
   "an incremental build from a single file change" in {
-    withTestConfig { configA =>
+    withIncrementalTestConfig { (configA, configB) =>
       val projectA = project(configA,
         """
           |public class Foo {
@@ -36,23 +34,21 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           | }
           |}
           |""".stripMargin, "Foo.java")
-      withTestConfig { configB =>
-        val projectB = project(configB,
-          """
-            |public class Foo {
-            | public static void main(String[] args) {
-            |   System.out.println("Hello, my incremental world!");
-            | }
-            |}
-            |""".stripMargin, "Foo.java")
+      val projectB = project(configB,
+        """
+          |public class Foo {
+          | public static void main(String[] args) {
+          |   System.out.println("Hello, my incremental world!");
+          | }
+          |}
+          |""".stripMargin, "Foo.java")
 
-        testIncremental(projectA, projectB)
-      }
+      testIncremental(projectA, projectB)
     }
   }
 
   "an incremental build from a single file change with unchanged files present" in {
-    withTestConfig { configA =>
+    withIncrementalTestConfig { (configA, configB) =>
       val projectA = project(configA,
         """
           |public class Foo {
@@ -70,27 +66,25 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           | }
           |}
           |""".stripMargin, "test/Bar.java")
-      withTestConfig { configB =>
-        val projectB = project(configB,
-          """
-            |public class Foo {
-            | public static void main(String[] args) {
-            |   System.out.println("Hello, my incremental world!");
-            | }
-            |}
-            |""".stripMargin, "Foo.java").moreCode(
-          """
-            |package test;
-            |
-            |public class Bar {
-            | public int test(int a) {
-            |   return 1 + a;
-            | }
-            |}
-            |""".stripMargin, "test/Bar.java")
+      val projectB = project(configB,
+        """
+          |public class Foo {
+          | public static void main(String[] args) {
+          |   System.out.println("Hello, my incremental world!");
+          | }
+          |}
+          |""".stripMargin, "Foo.java").moreCode(
+        """
+          |package test;
+          |
+          |public class Bar {
+          | public int test(int a) {
+          |   return 1 + a;
+          | }
+          |}
+          |""".stripMargin, "test/Bar.java")
 
-        testIncremental(projectA, projectB)
-      }
+      testIncremental(projectA, projectB)
     }
   }
 

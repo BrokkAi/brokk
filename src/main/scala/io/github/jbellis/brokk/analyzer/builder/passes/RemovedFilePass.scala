@@ -19,7 +19,7 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   extends ForkJoinParallelCpgPass[FileChange](cpg) {
 
   private val logger = LoggerFactory.getLogger(getClass)
-  private var pathToFileMap = mutable.Map.empty[String, File]
+  private val pathToFileMap = mutable.Map.empty[String, File]
 
   override def init(): Unit = {
     val projectRoot = cpg.projectRoot
@@ -30,10 +30,10 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   }
 
   override def generateParts(): Array[FileChange] = changedFiles.collect {
-    case x: RemovedFile => x
-    case x: ModifiedFile => x
-  }
-    .filterNot(_.path.getFileName.toString == FileTraversal.UNKNOWN)   // avoid special nodes
+      case x: RemovedFile => x
+      case x: ModifiedFile => x
+    }
+    .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
     .toArray
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
@@ -44,16 +44,23 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
     }
   }
 
+  private def isSpecialNodeName(name: String): Boolean = {
+    name == NamespaceTraversal.globalNamespaceName ||
+      name == Defines.Any ||
+      name == File.PropertyDefaults.Name ||
+      name == FileTraversal.UNKNOWN
+  }
+
   private def obtainNodesToDelete(fileNode: File): Seq[StoredNode] = {
     // io.joern.x2cpg.passes.base.FileCreationPass tells us what we need to know about how File nodes interact
     // with other entities. TLDR: (NAMESPACE_BLOCK | TYPE_DECL | METHOD | COMMENT) -[SOURCE_FILE]-> (FILE)
     val fileChildren = fileNode._sourceFileIn
       .collect {
         // avoid special nodes
-        case x: NamespaceBlock if x.name != NamespaceTraversal.globalNamespaceName => x
-        case x: Namespace if x.name != NamespaceTraversal.globalNamespaceName => x
-        case x: TypeDecl if x.name != Defines.Any => x
-        case x: Type if x.name != Defines.Any => x
+        case x: NamespaceBlock if !isSpecialNodeName(x.fullName) => x
+        case x: Namespace if !isSpecialNodeName(x.name) => x
+        case x: TypeDecl if !isSpecialNodeName(x.fullName) => x
+        case x: Type if !isSpecialNodeName(x.fullName) => x
       }
       .cast[AstNode] // All nodes from here inherit the AstNode abstract type
       .flatMap(_.ast)

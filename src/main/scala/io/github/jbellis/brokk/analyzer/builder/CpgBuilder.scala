@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
+import io.github.jbellis.brokk.analyzer.builder.passes.base.{IdempotentContainsEdgePass, IdempotentFileCreationPass, IdempotentNamespaceCreator}
 import io.joern.x2cpg.X2CpgConfig
 import io.joern.x2cpg.passes.base.*
 import io.joern.x2cpg.passes.callgraph.*
@@ -94,16 +95,16 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     cpg
   }
 
+
   protected def basePasses(cpg: Cpg): Iterator[CpgPassBase] = {
     Iterator(
-      new FileCreationPass(cpg),
-      new NamespaceCreator(cpg),
-      new TypeDeclStubCreator(cpg),
+      new IdempotentFileCreationPass(cpg),
+      new IdempotentNamespaceCreator(cpg),
       new MethodStubCreator(cpg),
       new ParameterIndexCompatPass(cpg),
       new MethodDecoratorPass(cpg),
       new AstLinkerPass(cpg),
-      new ContainsEdgePass(cpg),
+      new IdempotentContainsEdgePass(cpg),
       new TypeRefPass(cpg),
       new TypeEvalPass(cpg),
     )

@@ -8,7 +8,7 @@ import org.scalatest.Inside
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
-import java.nio.file.{Files, Paths, StandardOpenOption}
+import java.nio.file.{Files, Path, Paths, StandardOpenOption}
 import scala.jdk.CollectionConverters.*
 
 trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with Inside {
@@ -25,14 +25,16 @@ trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with
   protected def withTestConfig(f: R => Unit)(implicit initialConfig: R = defaultConfig): Unit = {
     val tempDir = Files.createTempDirectory("brokk-cpg-test-")
     try {
-      val newConfig = initialConfig
-        .withInputPath(tempDir.toString)
-        .withOutputPath(tempDir.resolve("cpg.bin").toString)
+      val newConfig = setConfigPaths(tempDir, initialConfig)
       f(newConfig)
     } finally {
-      tempDir.deleteRecursively()
+      tempDir.deleteRecursively(suppressExceptions = true)
     }
   }
+
+  protected def setConfigPaths(dir: Path, config: R): R = config
+    .withInputPath(dir.toString)
+    .withOutputPath(dir.resolve("cpg.bin").toString)
 
 }
 

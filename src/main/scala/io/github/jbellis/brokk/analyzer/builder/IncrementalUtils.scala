@@ -85,10 +85,14 @@ object IncrementalUtils {
   private def createNewIncrementalBuildDirectory(projectRoot: Path, fileChanges: Seq[FileChange]): Path = {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
 
-    fileChanges.collect { case x: AddedFile => x }.foreach { case AddedFile(path) =>
+    fileChanges.collect {
+      case x: AddedFile => x.path
+      case x: ModifiedFile => x.path
+    }.foreach { path =>
       val relativePath = Paths.get(path.toString.stripPrefix(projectRoot.toString).stripPrefix(File.separator))
       val newPath = tempDir.resolve(relativePath)
-      if (!Files.exists(newPath.getParent)) Files.createDirectories(newPath)
+      val newParentDir = newPath.getParent
+      if (!Files.exists(newParentDir)) Files.createDirectories(newParentDir)
       Files.copy(path, newPath)
     }
 

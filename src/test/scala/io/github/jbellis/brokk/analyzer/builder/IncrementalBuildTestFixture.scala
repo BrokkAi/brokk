@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.CpgTestFixture.*
+import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.nodes.AstNode
@@ -8,6 +9,7 @@ import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
+import java.nio.file.Files
 import scala.util.{Failure, Success, Using}
 
 trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
@@ -33,6 +35,19 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
       val fromScratchCpg = use(afterChange.buildAndOpen)
       verifyConsistency(updatedCpg, fromScratchCpg)
     }.failed.foreach(e => throw e) // failures are exceptions, thus must be propagated
+  }
+
+  protected def withIncrementalTestConfig(f: (R, R) => Unit)(implicit initialConfig: () => R = () => defaultConfig): Unit = {
+    val tempDirA = Files.createTempDirectory("brokk-incremental-cpg-A-test-")
+    val tempDirB = Files.createTempDirectory("brokk-incremental-cpg-B-test-")
+    try {
+      val newConfigA = setConfigPaths(tempDirA, initialConfig())
+      val newConfigB = setConfigPaths(tempDirB, initialConfig())
+      f(newConfigA, newConfigB)
+    } finally {
+      tempDirA.deleteRecursively(suppressExceptions = true)
+      tempDirB.deleteRecursively(suppressExceptions = true)
+    }
   }
 
   /**
@@ -62,14 +77,14 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     }
 
     // We should also expect at least one internal file and method
-    withClue("No internal file detected.") {
+    withClue("No internal file(s) detected.") {
       updated.file.nameNot(FileTraversal.UNKNOWN).size should be > 0
     }
-    withClue("No internal method detected.") {
+    withClue("No internal method(s) detected.") {
       updated.method.isExternal(false).size should be > 0
     }
 
-    // Assert no common odities in the CPG, i.e, might result from non-idempotency of base passes
+    // Assert no common oddities in the CPG, i.e, might result from non-idempotency of base passes
     updated.expression.count(_.in(EdgeTypes.AST).size != 1) shouldBe 0
     assertSingleEdgePairs(EdgeTypes.AST)
     assertSingleEdgePairs(EdgeTypes.CALL)
@@ -100,16 +115,22 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
 
     // Determine basic AST equivalence
     withClue("Not all methods have the same type decl parents.") {
-      fromScratch.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.toList shouldBe
-        updated.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.toList
+      def methodParentDump(cpg: Cpg): String =
+        cpg.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
+
+      methodParentDump(fromScratch) shouldBe methodParentDump(updated)
     }
     withClue("Not all namespace blocks have the same type decl children.") {
-      fromScratch.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.toList shouldBe
-        updated.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.toList
+      def namespaceBlockChildrenDump(cpg: Cpg): String =
+        cpg.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
+
+      namespaceBlockChildrenDump(fromScratch) shouldBe namespaceBlockChildrenDump(updated)
     }
-    withClue("Not all files have the source-file children.") {
-      fromScratch.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.toList shouldBe
-        updated.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.toList
+    withClue("Not all files have the same source-file children.") {
+      def fileSourceChildren(cpg: Cpg): String =
+        cpg.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.mkString("\n")
+
+      fileSourceChildren(fromScratch) shouldBe fileSourceChildren(updated)
     }
   }
 
