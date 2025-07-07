@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder.javasrc
 
+import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.github.jbellis.brokk.analyzer.builder.{CpgTestFixture, IncrementalBuildTestFixture}
 import io.joern.javasrc2cpg.Config
 

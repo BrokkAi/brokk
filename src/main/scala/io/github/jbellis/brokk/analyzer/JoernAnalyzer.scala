@@ -16,7 +16,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 import java.io.Closeable
-import java.nio.file.{Path, Paths}
+import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
 import scala.collection.concurrent.TrieMap
@@ -25,8 +25,8 @@ import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
 import scala.jdk.OptionConverters.RichOptional
+import scala.util.Try
 import scala.util.matching.Regex
-import scala.util.{Failure, Success, Try}
 
 /**
  * An abstract base for language-specific analyzers.
@@ -1243,26 +1243,12 @@ trait GraphPassApplier[R <: X2CpgConfig[R]] {
   /**
    * Runs the AST creator for the given CPG. This assumes the CPG may be non-empty.
    *
+   * @param cpg    the CPG to apply changes to. Should correspond to `config.outputPath`.
    * @param config the language frontend configuration.
    * @tparam R the config type.
    * @return the cpg given.
    */
-  def createAst(config: R): Try[Cpg]
-
-  protected def withNewOrExistingCpg[R <: X2CpgConfig[?]](config: R)(applyPasses: (Cpg) => Unit): Try[Cpg] = {
-    val outputPath = Paths.get(config.outputPath)
-    Try {
-      val cpg = Cpg.withStorage(outputPath)
-      Try {
-        applyPasses(cpg)
-      } match {
-        case Success(_) => cpg
-        case Failure(exception) =>
-          cpg.close()
-          throw exception
-      }
-    }
-  }
+  def createAst(cpg: Cpg, config: R): Try[Cpg]
 
   /**
    * Given a CPG will create the meta data node if none exists. If one exists, we assume that the given input path points

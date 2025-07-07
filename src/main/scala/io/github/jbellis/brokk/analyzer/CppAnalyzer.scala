@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.c2cpg.astcreation.CGlobal
 import io.joern.c2cpg.parser.FileDefaults
 import io.joern.c2cpg.passes.*
@@ -11,7 +13,6 @@ import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, T
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.semanticcpg.language.*
 
-import java.io.IOException
 import java.nio.file.Path
 import java.util.Optional
 import scala.collection.mutable
@@ -742,24 +743,16 @@ object CppAnalyzer extends GraphPassApplier[CConfig] {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    val config = CConfig()
+    CConfig()
       .withInputPath(absPath.toString)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
-    // Other CConfig options can be set here by chaining .withXyz methods, e.g.
-    // .withIncludePathsAutoDiscovery(true)
-    // .withDefines(Set("MY_DEFINE"))
-
-    val newCpg = createAst(config).getOrElse {
-      throw new IOException(s"Failed to create C/C++ CPG for $absPath")
-    }
-    applyPasses(newCpg).getOrElse {
-      throw new IOException("Failed to apply post-processing on C/C++ CPG")
-    }
+      .buildAndThrow
+      .open
   }
 
-  override def createAst(config: CConfig): Try[Cpg] = withNewOrExistingCpg(config) { (cpg) =>
+  override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
     createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
     val report = new Report()
     val global = new CGlobal()
@@ -773,6 +766,7 @@ object CppAnalyzer extends GraphPassApplier[CConfig] {
     new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config).createAndApply()
     new FullNameUniquenessPass(cpg).createAndApply()
     report.print()
+    cpg
   }
 
   private def gatherFileExtensions(config: CConfig): Set[String] = {

@@ -1,19 +1,14 @@
 package io.github.jbellis.brokk.analyzer.builder
 
-import io.github.jbellis.brokk.analyzer.JavaAnalyzer
 import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
-import io.joern.c2cpg.Config as CConfig
-import io.joern.javasrc2cpg.Config as JavaSrcConfig
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 
-import java.io.IOException
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
-import scala.util.Using
 
 /**
  * A trait to be implemented by a language-specific incremental CPG builder.
@@ -23,14 +18,14 @@ import scala.util.Using
 trait IncrementalCpgBuilder[R <: X2CpgConfig[R]] {
 
   /**
-   * Given a CPG and a configuration object, incrementally update the existing CPG with the changed files at the path
-   * determined by the configuration object.
+   * Given an initialised CPG and a configuration object, incrementally build the existing CPG with the changed files 
+   * at the path determined by the configuration object.
    *
-   * @param cpg    the CPG to be updated.
+   * @param cpg    the CPG to be built or updated.
    * @param config the language-specific configuration object containing the input path of source files to re-build
    *               from.
    */
-  def update(cpg: Cpg, config: R): Cpg
+  def build(cpg: Cpg, config: R): Cpg
 
 }
 
@@ -50,7 +45,7 @@ object IncrementalCpgBuilder {
     val rootPath = cpg.metaData.root.headOption.map(Paths.get(_)).getOrElse(Paths.get(".")) // default to relative
     val existingFiles = cpg.file.map { file =>
       val path = rootPath.resolve(file.name)
-      PathAndHash(rootPath.resolve(file.name).toString, file.hash.getOrElse(""))
+      PathAndHash(path.toString, file.hash.getOrElse(""))
     }.toSeq
     // The below will include files unrelated to project source code, but will be filtered out by the language frontend
     val newFiles = Files.walk(projectRoot, FileVisitOption.FOLLOW_LINKS)
@@ -110,7 +105,7 @@ object IncrementalCpgBuilder {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
 
     fileChanges.collect { case x: AddedFile => x }.foreach { case AddedFile(path) =>
-      val newPath = Paths.get(path.toString.stripSuffix(projectRoot.toString))
+      val newPath = tempDir.resolve(Paths.get(path.toString.stripSuffix(projectRoot.toString)))
       if (!Files.exists(newPath.getParent)) Files.createDirectories(newPath)
       Files.copy(path, newPath)
     }
@@ -135,10 +130,10 @@ object IncrementalCpgBuilder {
      * Builds the ASTs for new files from a temporary directory.
      *
      * @param fileChanges all file changes.
-     * @param astBuilder builds on top of the CPG defined at the CPG project root.
+     * @param astBuilder  builds on top of the CPG defined at the CPG project root.
      * @return the updated CPG.
      */
-    def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: (Path) => Unit): Cpg = {
+    def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: Path => Unit): Cpg = {
       val buildDir = createNewIncrementalBuildDirectory(cpg.projectRoot, fileChanges)
 
       // We need to ensure this CPG is serialized
@@ -150,38 +145,10 @@ object IncrementalCpgBuilder {
         astBuilder(buildDir)
         Cpg.withStorage(cpgPath) // re-open graph
       } finally {
-//        buildDir.deleteRecursively
+        // TODO: Consider cleanup strategy
+        //        buildDir.deleteRecursively
       }
     }
-  }
-
-  given javaBuilder: IncrementalCpgBuilder[JavaSrcConfig] with {
-
-    override def update(cpg: Cpg, config: JavaSrcConfig): Cpg = {
-      val fileChanges = determineChangedFiles(cpg, Paths.get(config.inputPath))
-      cpg.removeStaleFiles(fileChanges)
-      cpg.buildAddedAsts(fileChanges, (buildDir) => build(config.withInputPath(buildDir.toString)))
-    }
-
-    private def build(config: JavaSrcConfig): Unit = {
-      Using.resource(JavaAnalyzer.createAst(config).getOrElse {
-        throw new IOException("Failed to create Java CPG")
-      }) { cpg =>
-        JavaAnalyzer.applyPasses(cpg).getOrElse {
-          throw new IOException("Failed to apply post-processing on Java CPG")
-        }
-      }
-    }
-
-  }
-
-  given cBuilder: IncrementalCpgBuilder[CConfig] with {
-
-    override def update(cpg: Cpg, config: CConfig): Cpg = {
-      // TODO: Handle
-      Cpg.empty
-    }
-
   }
 
 }

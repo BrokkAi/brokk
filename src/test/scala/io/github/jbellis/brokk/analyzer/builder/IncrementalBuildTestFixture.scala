@@ -1,14 +1,14 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.CpgTestFixture.*
-import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.nodes.AstNode
 import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
-import scala.util.Using
+import scala.util.{Failure, Success, Using}
 
 trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   this: CpgTestFixture[R] =>
@@ -21,11 +21,15 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
       beforeChange.config.inputPath should not be afterChange.config.inputPath
     }
+    // TODO: Not sure this is the best way to orchestrate the build process
+    Using.resource(beforeChange.buildAndOpen) // Build and close initial CPG
+    afterChange.copy(config = beforeChange.config).writeFiles // place new files at the "old" path
     Using.Manager { use =>
-      val initialCpg = use(beforeChange.buildCpg)
-      afterChange.copy(config = beforeChange.config).buildProject // place new files at the "old" path
-      val updatedCpg = initialCpg.updateWith(afterChange.config)
-      val fromScratchCpg = use(afterChange.buildCpg)
+      val updatedCpg = afterChange.config.build match {
+        case Failure(e) => fail("Exception occurred while incrementally updating CPG.", e)
+        case Success(config) => use(config.open)
+      }
+      val fromScratchCpg = use(afterChange.buildAndOpen)
       verifyConsistency(updatedCpg, fromScratchCpg)
     }.failed.foreach(e => throw e) // failures are exceptions, thus must be propagated
   }
@@ -47,9 +51,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
         updated.graph.allEdges
           .collect { case e if e.edgeKind == updated.graph.schema.getEdgeKindByLabel(edgeKind) => e }
           .groupCount { e => (e.src.id(), e.dst.id()) }
-          .values
-          .filter(_ > 1)
-          .size shouldBe 0
+          .values.count(_ > 1) shouldBe 0
       }
     }
 
@@ -67,7 +69,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     }
 
     // Assert no common odities in the CPG, i.e, might result from non-idempotency of base passes
-    updated.expression.filter(_.in(EdgeTypes.AST).size != 1).size shouldBe 0
+    updated.expression.count(_.in(EdgeTypes.AST).size != 1) shouldBe 0
     assertSingleEdgePairs(EdgeTypes.AST)
     assertSingleEdgePairs(EdgeTypes.CALL)
     assertSingleEdgePairs(EdgeTypes.REF)

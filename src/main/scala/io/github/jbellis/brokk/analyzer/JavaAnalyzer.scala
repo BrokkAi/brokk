@@ -1,5 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.javasrc2cpg.Config
 import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
 import io.joern.joerncli.CpgBasedTool
@@ -13,7 +15,7 @@ import java.nio.file.Path
 import java.util.Optional
 import scala.util.boundary.break
 import scala.util.matching.Regex
-import scala.util.{Try, boundary} // Added for modern early exit
+import scala.util.{Failure, Success, Try, boundary} // Added for modern early exit
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer
@@ -353,21 +355,16 @@ object JavaAnalyzer extends GraphPassApplier[Config] {
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
     // Build the CPG
-    val config = Config()
+    Config()
       .withInputPath(absPath.toString)
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-    
-    val newCpg = createAst(config).getOrElse {
-      throw new IOException("Failed to create Java CPG")
-    }
-    applyPasses(newCpg).getOrElse {
-      throw new IOException("Failed to apply post-processing on Java CPG")
-    }
+      .buildAndThrow
+      .open
   }
 
-  override def createAst(config: Config): Try[Cpg] = withNewOrExistingCpg(config) { (cpg) =>
+  override def createAst(cpg: Cpg, config: Config): Try[Cpg] = Try {
     createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
     val astCreationPass = new AstCreationPass(config, cpg)
     astCreationPass.createAndApply()
@@ -379,6 +376,7 @@ object JavaAnalyzer extends GraphPassApplier[Config] {
       TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
       new TypeInferencePass(cpg).createAndApply()
     }
+    cpg
   }
 
 }

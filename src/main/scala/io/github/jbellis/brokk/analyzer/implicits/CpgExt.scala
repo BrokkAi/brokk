@@ -1,11 +1,9 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
-import io.github.jbellis.brokk.analyzer.builder.IncrementalCpgBuilder
-import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 
-import java.nio.file.Paths
+import java.nio.file.{Path, Paths}
 
 
 /**
@@ -20,10 +18,7 @@ object CpgExt {
     /**
      * @return the root directory of the project where this CPG was generated from. Defaults to the current directory.
      */
-    def projectRoot = cpg.metaData.root.headOption.map(Paths.get(_)).getOrElse(Paths.get("."))
-
-    def updateWith[R <: X2CpgConfig[R]](config: R)(using builder: IncrementalCpgBuilder[R]): Cpg =
-      builder.update(cpg, config)
+    def projectRoot: Path = cpg.metaData.root.headOption.map(Paths.get(_)).getOrElse(Paths.get("."))
 
   }
 
