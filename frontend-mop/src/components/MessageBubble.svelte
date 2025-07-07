@@ -6,7 +6,8 @@
     import type {Bubble} from '../types';
     import Icon from "@iconify/svelte";
     import type {Plugin} from 'svelte-exmarkdown';
-    import { ensureLang } from '../shiki-plugin';
+    import { derived } from 'svelte/store';
+    import { ensureAndTrack, loadedLangs } from '../languageStore';
     import CopyablePre from './CopyablePre.svelte';
 
     export let bubble: Bubble;
@@ -30,20 +31,29 @@
     $: title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
     $: iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
 
-    // Dynamically load languages if needed based on markdown content
-    $: {
-        if (bubble.markdown) {
-            const codeBlocks = bubble.markdown.matchAll(/```(\w+)/g);
-            for (const match of codeBlocks) {
-                const lang = match[1].toLowerCase();
-                if (lang && lang !== 'text' && lang !== 'plaintext') {
-                    ensureLang(lang);
-                }
-            }
-        }
-    }
+    // Languages that are needed for this bubble's markdown
+    $: neededLangs = Array.from(
+      bubble.markdown.matchAll(/```(\w+)/g),
+      m => m[1].toLowerCase()
+    ).filter(lang => lang && lang !== 'text' && lang !== 'plaintext');
 
-    const plugins = [gfmPlugin(), remarkBreaks(), shikiPlugin, { renderer: { pre: CopyablePre } }];
+    // As soon as we know which languages are needed, start loading them.
+    // This is a fire-and-forget operation.
+    $: neededLangs.forEach(ensureAndTrack);
+
+    // This derived store becomes true once all needed languages for this bubble are loaded.
+    const allLangsLoaded = derived(loadedLangs, $loadedLangs =>
+      neededLangs.every(lang => $loadedLangs.has(lang))
+    );
+
+    // The plugins array is reactive. It includes the shikiPlugin only when it's
+    // available AND all required languages for this bubble have been loaded.
+    $: plugins = [
+        gfmPlugin(),
+        remarkBreaks(),
+        ...(shikiPlugin && $allLangsLoaded ? [shikiPlugin] : []),
+        { renderer: { pre: CopyablePre } }
+    ];
 </script>
 
 <div
