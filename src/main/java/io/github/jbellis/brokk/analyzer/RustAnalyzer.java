@@ -303,12 +303,4 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return nameFromSuper;
     }
 
-    @Override
-    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-        if (!fullSignature.endsWith(";")) {
-            fullSignature += ";";
-        }
-        return baseIndent + fullSignature;
-    }
 }

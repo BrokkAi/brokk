@@ -1110,7 +1110,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      * @param baseIndent The indentation string for this line.
      * @return The fully formatted field signature line.
      */
-    protected abstract String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file);
+    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+
+        if (requiresSemicolons() && !fullSignature.endsWith(";")) {
+            fullSignature += ";";
+        }
+
+        return baseIndent + fullSignature;
+    }
+
+    /**
+     * Whether this language requires semicolons after field declarations.
+     * Override in subclasses that don't use semicolons (e.g., Python, Go).
+     */
+    protected boolean requiresSemicolons() {
+        return true;
+    }
 
     /**
      * Determines a visibility or export prefix (e.g., "export ", "public ") for a given node.

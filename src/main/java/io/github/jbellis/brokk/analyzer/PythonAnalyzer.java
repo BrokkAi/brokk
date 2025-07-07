@@ -196,9 +196,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-        // Python doesn't typically end field assignments with semicolons
-        return baseIndent + fullSignature;
+    protected boolean requiresSemicolons() {
+        return false;
     }
 }

@@ -183,12 +183,4 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return CS_SYNTAX_PROFILE;
     }
 
-    @Override
-    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-        if (!fullSignature.endsWith(";")) {
-            fullSignature += ";";
-        }
-        return baseIndent + fullSignature;
-    }
 }
