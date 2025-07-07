@@ -10,9 +10,10 @@ import io.shiftleft.semanticcpg.language.*
 
 import java.nio.file.Path
 import java.util.Optional
+import scala.io.Source
 import scala.util.boundary.break
 import scala.util.matching.Regex
-import scala.util.{Try, boundary} // Added for modern early exit
+import scala.util.{Try, Using, boundary}
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer
@@ -193,22 +194,14 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     val start = chosen.lineNumber.get
     val end = chosen.lineNumberEnd.get
 
-    val maybeCode = try {
-      val lines = scala.io.Source
-        .fromFile(file.absPath().toFile)
-        .getLines()
+    Try(Using.resource(Source.fromFile(file.absPath().toFile))
+      (_.getLines()
         .slice(start - 1, end) // Use slice for safer indexing
-        .mkString("\n")
-      Some(lines)
-    } catch {
-      case _: Throwable => None
+        .mkString("\n")))
+      .toOption match {
+      case Some(code) => IAnalyzer.FunctionLocation(file, start, end, code)
+      case None => throw new SymbolNotFoundException("Could not read code for chosen method.")
     }
-
-    if (maybeCode.isEmpty) {
-      throw new SymbolNotFoundException("Could not read code for chosen method.")
-    }
-
-    IAnalyzer.FunctionLocation(file, start, end, maybeCode.get)
   }
 
   /**
