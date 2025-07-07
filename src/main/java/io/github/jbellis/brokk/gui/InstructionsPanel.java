@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui;
 import com.github.tjake.jlama.model.AbstractModel;
 import com.github.tjake.jlama.model.functions.Generator;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
@@ -33,6 +34,7 @@ import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -63,6 +65,7 @@ import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 
@@ -1122,12 +1125,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             var result = new CodeAgent(contextManager, model).runTask(input, false);
             // code agent has displayed status in llmoutput
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                // Save the partial result (if we didn't interrupt before we got any replies)
-                if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
-                    chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-                    contextManager.addToHistory(result, false);
-                }
-                populateInstructionsArea(input);
+                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+                maybeAddInterruptedResult(input, result);
             } else {
                 chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(result, false);
@@ -1141,35 +1140,59 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Ask" command.
      * This runs inside the Runnable passed to contextManager.submitAction.
      */
-    private void executeAskCommand(StreamingChatLanguageModel model, String question) {
+    private static TaskResult executeAskCommand(IContextManager cm, StreamingChatLanguageModel model, String question) {
+        List<ChatMessage> messages;
         try {
-            var contextManager = chrome.getContextManager();
-            if (question.isBlank()) {
-                chrome.toolError("Please provide a question");
-                return;
-            }
-
-            // stream from coder using the provided model
-            var messages = CodePrompts.instance.collectAskMessages(contextManager, question);
-            var response = contextManager.getLlm(model, "Ask: " + question).sendRequest(messages, true);
-            if (response.error() != null) {
-                chrome.toolError("Error during 'Ask': " + response.error().getMessage());
-            } else if (response.isEmpty()) {
-                chrome.systemOutput("Ask command completed with no = data.");
-            } else {
-                // Construct SessionResult for 'Ask'
-                var sessionResult = new TaskResult(contextManager,
-                                                   "Ask: " + question,
-                                                   List.copyOf(chrome.getLlmRawMessages()),
-                                                   Set.of(), // No undo contents for Ask
-                                                   new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
-                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-                contextManager.addToHistory(sessionResult, false);
-                chrome.systemOutput("Ask command complete!");
-            }
+            messages = CodePrompts.instance.collectAskMessages(cm, question);
         } catch (InterruptedException e) {
-            throw new CancellationException(e.getMessage());
+            return new TaskResult(cm,
+                                  "Ask: " + question,
+                                  List.of(),
+                                  Set.of(),
+                                  new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+        var llm = cm.getLlm(model, "Ask: " + question);
+
+        return executeAskCommand(llm, messages, cm, question);
+    }
+
+    public static @NotNull TaskResult executeAskCommand(Llm llm, List<ChatMessage> messages, IContextManager cm, String question) {
+        // Build and send the request to the LLM
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages, true);
+        } catch (InterruptedException e) {
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+        }
+
+        // Determine stop details based on the response
+        if (response != null) {
+            if (response.error() != null) {
+                String explanation = Objects.requireNonNullElse(response.error().getMessage(), "Unknown LLM error");
+                stop = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, explanation);
+            } else if (response.isEmpty()) {
+                stop = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, "Empty response from LLM");
+            } else {
+                stop = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            }
+        }
+
+        // construct TaskResult
+        requireNonNull(stop);
+        return new TaskResult(cm,
+                              "Ask: " + question,
+                              List.copyOf(cm.getIo().getLlmRawMessages()),
+                              Set.of(),   // Ask never changes files
+                              stop);
+    }
+
+    public void maybeAddInterruptedResult(String input, TaskResult result) {
+        if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
+            logger.debug(result.actionDescription() + " command cancelled with partial results");
+            chrome.getContextManager().addToHistory(result, false);
+        }
+        populateInstructionsArea(input);
     }
 
         public void maybeAddInterruptedResult(String action, String input) {
@@ -1488,7 +1511,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         chrome.getProject().addToInstructionsHistory(input, 20);
         clearCommandInput();
         // disableButtons() is called by submitAction via chrome.disableActionButtons()
-        submitAction(ACTION_ASK, input, () -> executeAskCommand(modelToUse, input));
+        submitAction(ACTION_ASK, input, () -> {
+            var result = executeAskCommand(contextManager, modelToUse, input);
+
+            // Display result in the LLM output panel
+            chrome.setLlmOutput(result.output());
+
+            // Persist to history regardless of success/failure
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
+            maybeAddInterruptedResult(input, result);
+
+            // Provide a brief status update
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                chrome.llmOutput("Ask command complete!", ChatMessageType.CUSTOM);
+            } else {
+                chrome.llmOutput("Ask command finished with status: " + result.stopDetails(), ChatMessageType.CUSTOM);
+            }
+        });
     }
 
     public void runSearchCommand() {
@@ -1513,9 +1552,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         clearCommandInput();
         disableButtons();
         // Submit the action, calling the private execute method inside the lambda
-        submitAction(ACTION_SEARCH, input, () -> {
-            executeSearchCommand(searchModel, input);
-        });
+        submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));
     }
 
     public void runRunCommand() {

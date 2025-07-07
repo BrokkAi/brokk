@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.gui.Chrome;
+import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.util.Environment;
@@ -53,7 +54,7 @@ public class BlitzForgeProgressDialog extends JDialog {
     private final int totalFiles;
     private final AtomicInteger processedFileCount = new AtomicInteger(0); // Tracks files processed
     private final AtomicInteger llmLineCount = new AtomicInteger(0); // Tracks LLM output lines for all files
-    private final javax.swing.Timer labelUpdateDebounceTimer; // Debounces updates to llmLineCountLabel
+    private final javax.swing.Timer llmLineCountTimer; // Periodically updates llmLineCountLabel
     private final JLabel llmLineCountLabel; // Displays total LLM output lines
     private volatile @Nullable ExecutorService executorService = null; // Thread pool for parallel processing
 
@@ -131,6 +132,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                    ContextManager cm,
                                                    StreamingChatLanguageModel model,
                                                    String instructions,
+                                                   String action,
                                                    boolean includeWorkspace,
                                                    @Nullable Integer relatedK,
                                                    @Nullable String perFileCommandTemplate,
@@ -146,8 +148,6 @@ public class BlitzForgeProgressDialog extends JDialog {
             dialogConsoleIO.systemOutput("Processing cancelled by user for file: " + file);
             return new FileProcessingResult(file, errorMessage, "");
         }
-
-        var agent = new CodeAgent(cm, model, dialogConsoleIO);
 
         List<ChatMessage> readOnlyMessages = new ArrayList<>();
         try {
@@ -231,27 +231,31 @@ public class BlitzForgeProgressDialog extends JDialog {
             }
         }
 
-        // actually kick off the processing
-        try {
-            var result = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
-
-            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                Thread.currentThread().interrupt(); // Preserve interrupt status
-                errorMessage = "Processing interrupted.";
-                dialogConsoleIO.systemOutput("File processing for " + file + " was interrupted.");
-            } else if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                errorMessage = "Processing failed: " + result.stopDetails().reason();
-                String explanation = result.stopDetails().explanation();
-                if (!explanation.isEmpty()) {
-                    errorMessage += " - " + explanation;
-                }
-                dialogConsoleIO.toolError(errorMessage, "Agent Processing Error");
-            }
-            // else publish() logs success
-        } catch (Throwable t) {
-            errorMessage = "Unexpected error: " + t.getMessage();
-            logger.error("Unexpected failure while processing {}", file, t);
+        // run the task
+        TaskResult result;
+        if (action.equals("Ask")) {
+            var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
+            var llm = cm.getLlm(model, "Ask", true);
+            llm.setOutput(dialogConsoleIO);
+            result = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions);
+        } else { // "Code"
+            var agent = new CodeAgent(cm, model, dialogConsoleIO);
+            result = agent.runSingleFileEdit(file, instructions, readOnlyMessages);
         }
+        // output the result
+        if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+            Thread.currentThread().interrupt(); // Preserve interrupt status
+            errorMessage = "Processing interrupted.";
+            dialogConsoleIO.systemOutput("File processing for " + file + " was interrupted.");
+        } else if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            errorMessage = "Processing failed: " + result.stopDetails().reason();
+            String explanation = result.stopDetails().explanation();
+            if (!explanation.isEmpty()) {
+                errorMessage += " - " + explanation;
+            }
+            dialogConsoleIO.toolError(errorMessage, "Agent Processing Error");
+        }
+        // else publish() logs success
 
         // ---- optional context filtering -----------------------------
         String finalLlmOutput = dialogConsoleIO.getLlmOutput();
@@ -272,9 +276,9 @@ public class BlitzForgeProgressDialog extends JDialog {
         return new FileProcessingResult(file, errorMessage, finalLlmOutput);
     }
 
-
     public BlitzForgeProgressDialog(Frame owner,
                                     String instructions,
+                                    String action,
                                     Service.FavoriteModel selectedFavorite,
                                     List<ProjectFile> filesToProcess,
                                     Chrome chrome,
@@ -319,8 +323,9 @@ public class BlitzForgeProgressDialog extends JDialog {
         topPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 0, 10));
         add(topPanel, BorderLayout.NORTH);
 
-        this.labelUpdateDebounceTimer = new javax.swing.Timer(100, e -> llmLineCountLabel.setText("Lines received: " + llmLineCount.get()));
-        this.labelUpdateDebounceTimer.setRepeats(false);
+        this.llmLineCountTimer = new javax.swing.Timer(100, e -> llmLineCountLabel.setText("Lines received: " + llmLineCount.get()));
+        this.llmLineCountTimer.setRepeats(true); // Make it a repeating timer
+        this.llmLineCountTimer.setCoalesce(true); // Optimize for EDT
 
         add(outputPanel, BorderLayout.CENTER);
 
@@ -373,6 +378,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                                 contextManager,
                                                                 model,
                                                                 instructions,
+                                                                action,
                                                                 includeWorkspace,
                                                                 relatedK,
                                                                 perFileCommandTemplate,
@@ -402,6 +408,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                                              contextManager,
                                                                              model,
                                                                              instructions,
+                                                                             action,
                                                                              includeWorkspace,
                                                                              relatedK,
                                                                              perFileCommandTemplate,
@@ -503,7 +510,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                 if (executorService != null && !executorService.isTerminated()) {
                     executorService.shutdownNow();
                 }
-                labelUpdateDebounceTimer.stop(); // Stop the timer for LLM line count updates
+                llmLineCountTimer.stop(); // Stop the timer for LLM line count updates
                 cancelButton.setText("Close"); // Change button text to "Close"
                 // Remove existing action listener and add one to simply close the dialog
                 Arrays.stream(cancelButton.getActionListeners()).forEach(cancelButton::removeActionListener);
@@ -706,7 +713,12 @@ public class BlitzForgeProgressDialog extends JDialog {
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
                 llmLineCount.addAndGet((int) newLines);
-                SwingUtilities.invokeLater(labelUpdateDebounceTimer::restart);
+                // Start the timer if it's not already running
+                SwingUtilities.invokeLater(() -> {
+                    if (!dialog.llmLineCountTimer.isRunning()) {
+                        dialog.llmLineCountTimer.start();
+                    }
+                });
             }
         }
 

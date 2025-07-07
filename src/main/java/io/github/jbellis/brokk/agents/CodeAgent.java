@@ -208,7 +208,7 @@ public class CodeAgent {
      */
     public TaskResult runSingleFileEdit(ProjectFile file,
                                         String instructions,
-                                        List<ChatMessage> readOnlyMessages) throws IOException
+                                        List<ChatMessage> readOnlyMessages)
     {
         // 0.  Setup: coder, parser, initial messages, and initial LoopContext
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);

@@ -40,6 +40,7 @@ public class BlitzForgeDialog extends JDialog {
     private final Chrome chrome;
     private JTextArea instructionsArea;
     private JComboBox<Service.FavoriteModel> modelComboBox;
+    private JComboBox<String> actionComboBox;
     private JLabel tokenWarningLabel;
     private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
@@ -446,6 +447,25 @@ addButtonPanel.add(addFilesButton);
         instructionsArea.setWrapStyleWord(true);
         JScrollPane instructionsScrollPane = new JScrollPane(instructionsArea);
         parallelProcessingPanel.add(instructionsScrollPane, paraGBC);
+
+        // Action Row
+        paraGBC.gridy++;
+        paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
+        paraGBC.gridx = 0;
+        paraGBC.gridwidth = 1;
+        paraGBC.weightx = 0.0;
+        paraGBC.weighty = 0;
+        paraGBC.fill = GridBagConstraints.NONE;
+        paraGBC.anchor = GridBagConstraints.EAST;
+        parallelProcessingPanel.add(new JLabel("Action"), paraGBC);
+
+        paraGBC.gridx = 2;
+        paraGBC.weightx = 0.0;
+        paraGBC.fill = GridBagConstraints.NONE;
+        paraGBC.anchor = GridBagConstraints.WEST;
+        actionComboBox = new JComboBox<>(new String[]{"Code", "Ask"});
+        actionComboBox.setSelectedItem("Code");
+        parallelProcessingPanel.add(actionComboBox, paraGBC);
 
         // Model Row
         paraGBC.gridy++;
@@ -1281,12 +1301,15 @@ addButtonPanel.add(addFilesButton);
             return;
         }
 
+        String action = (String) requireNonNull(actionComboBox.getSelectedItem());
+
         setVisible(false); // Hide this dialog
 
         // Show progress dialog
         var progressDialog = new BlitzForgeProgressDialog(
                 (Frame) getOwner(),
                 instructions,
+                action,
                 selectedFavorite,
                 filesToProcessList,
                 chrome,
