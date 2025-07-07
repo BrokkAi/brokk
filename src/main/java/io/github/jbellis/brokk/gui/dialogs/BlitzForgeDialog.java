@@ -33,6 +33,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
 import static io.github.jbellis.brokk.gui.Constants.H_GAP;
+import static io.github.jbellis.brokk.gui.Constants.V_GLUE;
+import static io.github.jbellis.brokk.gui.Constants.V_GAP;
 
 public class BlitzForgeDialog extends JDialog {
     private final Chrome chrome;
@@ -76,6 +78,7 @@ public class BlitzForgeDialog extends JDialog {
     private javax.swing.table.DefaultTableModel parsedTableModel;
     private JTable parsedFilesTable;
     private JLabel parsedFilesCountLabel;
+    private JLabel selectedFilesCountLabel;
     private JComboBox<String> listLanguageCombo;
     private JLabel entireProjectFileCountLabel;
 
@@ -146,7 +149,9 @@ public class BlitzForgeDialog extends JDialog {
         setLayout(new BorderLayout(10, 10));
 
         JPanel contentPanel = new JPanel();
-        contentPanel.setLayout(new GridBagLayout());
+contentPanel.setLayout(new GridBagLayout());
+// Initialize early so it is non-null when updateCostEstimate() is triggered during UI construction
+selectedFilesCountLabel = new JLabel("0 files selected");
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
@@ -200,6 +205,7 @@ public class BlitzForgeDialog extends JDialog {
         entireProjectFileCountLabel = new JLabel(" ");
         entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
         entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
+        entireProjectFileCountLabel.setVisible(false);
 
         // Spacer to push content to the top (remaining vertical space)
         epGBC.gridx = 0;
@@ -223,7 +229,7 @@ public class BlitzForgeDialog extends JDialog {
                 __ -> {
                 },
                 true, // include project files in autocomplete
-                "Ctrl-Enter to add files to the list below."
+                "Ctrl-Enter to add files to the list on the right"
         );
         fileSelectionPanel = new FileSelectionPanel(fspConfig);
         var inputComponent = fileSelectionPanel.getFileInputComponent();
@@ -243,8 +249,14 @@ public class BlitzForgeDialog extends JDialog {
         // Side-by-side panels (50 % each) without a resizable splitter
         JPanel horizontalSplitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
 
-        // Left side: FileSelectionPanel
-        horizontalSplitPane.add(fileSelectionPanel);
+        // Left side: FileSelectionPanel with "Add Files" button underneath
+        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
+        leftPanel.add(fileSelectionPanel, BorderLayout.CENTER);
+        JButton addFilesButton = new JButton("Add Files");
+addFilesButton.addActionListener(e -> addSelectedFilesToTable());
+JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+addButtonPanel.add(addFilesButton);
+        horizontalSplitPane.add(leftPanel);
 
         // Create the JTable and its scroll pane
         tableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0);
@@ -297,7 +309,11 @@ public class BlitzForgeDialog extends JDialog {
         JButton removeButton = new JButton("Remove Selected");
         removeButton.addActionListener(e -> removeSelectedFilesFromTable());
         removeButtonPanel.add(removeButton);
-        selectFilesCardPanel.add(removeButtonPanel, BorderLayout.SOUTH);
+        // Combine Add Files and Remove Selected on a single bottom row
+        JPanel bottomButtonsPanel = new JPanel(new GridLayout(1, 2, H_GAP, 0));
+        bottomButtonsPanel.add(addButtonPanel);    // left side, right-aligned within its cell
+        bottomButtonsPanel.add(removeButtonPanel); // right side
+        selectFilesCardPanel.add(bottomButtonsPanel, BorderLayout.SOUTH);
 
         scopeCardsPanel.add(selectFilesCardPanel, "SELECT");
 
@@ -354,6 +370,7 @@ public class BlitzForgeDialog extends JDialog {
 
         /* bottom-right: file count */
         parsedFilesCountLabel = new JLabel("0 files");
+        parsedFilesCountLabel.setVisible(false);
         parsedFilesCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
 
         JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
@@ -432,6 +449,7 @@ public class BlitzForgeDialog extends JDialog {
 
         // Model Row
         paraGBC.gridy++;
+        paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
         paraGBC.gridx = 0;
         paraGBC.gridwidth = 1;
         paraGBC.weightx = 0.0;
@@ -525,6 +543,7 @@ public class BlitzForgeDialog extends JDialog {
         parallelProcessingPanel.add(tokenWarningLabel, paraGBC);
 
 
+        // Per-file command
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.anchor = GridBagConstraints.EAST;
@@ -552,6 +571,7 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.fill = GridBagConstraints.NONE;
         paraGBC.gridwidth = 1;
 
+        // Related files
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.weightx = 0;
@@ -569,6 +589,7 @@ public class BlitzForgeDialog extends JDialog {
         relatedClassesCombo.setSelectedItem("0");
         parallelProcessingPanel.add(relatedClassesCombo, paraGBC);
 
+        // Workspace
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.anchor = GridBagConstraints.EAST;
@@ -846,6 +867,7 @@ public class BlitzForgeDialog extends JDialog {
 
         scopePanel.add(scopeRadioPanel, BorderLayout.NORTH);
         scopePanel.add(scopeCardsPanel, BorderLayout.CENTER);
+        scopePanel.add(selectedFilesCountLabel, BorderLayout.SOUTH);
 
         contentPanel.add(scopePanel, gbc);
 
@@ -899,6 +921,7 @@ public class BlitzForgeDialog extends JDialog {
 
         List<ProjectFile> files = getSelectedFilesForCost();
         int n = files.size();
+        selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
         if (n == 0) { costEstimateLabel.setText(" "); return; }
 
         long tokensFiles = files.parallelStream()
@@ -1001,7 +1024,7 @@ public class BlitzForgeDialog extends JDialog {
             files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
         }
         long count = files.count();
-        entireProjectFileCountLabel.setText(count + " file" + (count == 1 ? "" : "s"));
+        selectedFilesCountLabel.setText(count + " file" + (count == 1 ? "" : "s") + " selected");
     }
 
     /* ---------------- existing method ------------------------------ */
@@ -1121,7 +1144,7 @@ public class BlitzForgeDialog extends JDialog {
                                            .toList();
 
         matches.forEach(pf -> parsedTableModel.addRow(new Object[]{pf.getRelPath().toString()}));
-        parsedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s"));
+        selectedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s") + " selected");
         updateCostEstimate();
     }
 
