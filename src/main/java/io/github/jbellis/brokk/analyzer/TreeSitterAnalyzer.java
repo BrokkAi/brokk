@@ -36,7 +36,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     private final Map<CodeUnit, List<Range>> sourceRanges = new ConcurrentHashMap<>();
     private final IProject project;
     protected final Set<String> normalizedExcludedFiles;
-    
+
     /** Stores information about a definition found by a query match, including associated modifier keywords and decorators. */
     protected record DefinitionInfoRecord(String primaryCaptureName, String simpleName, List<String> modifierKeywords, List<TSNode> decoratorNodes) {}
 
@@ -587,9 +587,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
             }
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-            if (!decoratorNodesForMatch.isEmpty()) {
-                log.trace("  Decorators for this match: {} decorators", decoratorNodesForMatch.size());
-            }
 
 
             // Process each potential definition found in the match
@@ -617,8 +614,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
                     if (simpleName != null && !simpleName.isBlank()) {
                         declarationNodes.putIfAbsent(definitionNode, new DefinitionInfoRecord(captureName, simpleName, sortedModifierStrings, decoratorNodesForMatch));
-                        log.trace("MATCH [{}]: Found potential definition: Capture [{}], Node Type [{}], Simple Name [{}], Modifiers [{}], Decorators [{}] -> Storing.",
-                                  match.getId(), captureName, definitionNode.getType(), simpleName, sortedModifierStrings, decoratorNodesForMatch.size());
                     } else {
                         if (simpleName == null) {
                             log.warn("Could not determine simple name (NULL) for definition capture {} (Node Type [{}], Line {}) in file {}.",
@@ -666,12 +661,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     // Add similar checks for other languages if they have field-like constructs that can be functions
                 }
             }
-            
+
             // Skip creating non-exported class.definition CUs if they are wrapped in export_statement,
             // as they're already handled by export patterns
-            if (primaryCaptureName.equals("class.definition") && 
-                ("interface_declaration".equals(node.getType()) || 
-                 "class_declaration".equals(node.getType()) || 
+            if (primaryCaptureName.equals("class.definition") &&
+                ("interface_declaration".equals(node.getType()) ||
+                 "class_declaration".equals(node.getType()) ||
                  "enum_declaration".equals(node.getType()))) {
                 TSNode parent = node.getParent();
                 if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
@@ -755,7 +750,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 log.debug("buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.", node.getType(), primaryCaptureName, simpleName);
                 continue;
             }
-            
+
             // Handle potential duplicates (e.g. JS export and direct lexical declaration).
             // If `cu` is `equals()` to `existingCUforKeyLookup` (e.g., overloads), signatures are accumulated.
             // If they are not `equals()` but have same FQName, this logic might replace based on export preference.
@@ -884,7 +879,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         var profile = getLanguageSyntaxProfile();
         SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
 
-        TSNode nodeForContent = definitionNode; 
+        TSNode nodeForContent = definitionNode;
 
         // Handle cases where the definitionNode is a wrapper (e.g., export_statement, decorated_definition)
         // and nodeForContent should be the actual declaration node inside it.
@@ -901,10 +896,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     case FUNCTION_LIKE:
                         typeMatch = profile.functionLikeNodeTypes().contains(innerType);
                         break;
-                    case FIELD_LIKE: 
+                    case FIELD_LIKE:
                         typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                         break;
-                    case ALIAS_LIKE: 
+                    case ALIAS_LIKE:
                         typeMatch = (project.getAnalyzerLanguage() == Language.TYPESCRIPT && "type_alias_declaration".equals(innerType));
                         break;
                     default: break;
@@ -1037,7 +1032,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                  break;
         }
 
-        String result = String.join("\n", signatureLines).stripTrailing(); 
+        String result = String.join("\n", signatureLines).stripTrailing();
         log.trace("buildSignatureString: DefNode={}, SimpleName={}, Capture='{}', nodeForContent={}, Modifiers='{}', Signature (first line): '{}'",
                   definitionNode.getType(), simpleName, primaryCaptureName, nodeForContent.getType(), exportPrefix, (result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY")));
         return result;
@@ -1194,7 +1189,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         // The asyncPrefix logic is removed as it's now part of the unified exportPrefix.
         String paramsText = formatParameterList(paramsNode, src);
         String returnTypeText = formatReturnType(returnTypeNode, src);
-        
+
         // Extract type parameters if available
         String typeParamsText = "";
         if (profile.typeParametersFieldName() != null && !profile.typeParametersFieldName().isEmpty()) {
@@ -1259,8 +1254,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /** Extracts a substring from the source code based on node boundaries. */
     protected String textSlice(TSNode node, String src) {
         if (node == null || node.isNull()) return "";
-        
-        // Get the byte array representation of the source 
+
+        // Get the byte array representation of the source
         // This may be cached for better performance in a real implementation
         byte[] bytes;
         try {
@@ -1268,10 +1263,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            return src.substring(Math.min(node.getStartByte(), src.length()), 
+            return src.substring(Math.min(node.getStartByte(), src.length()),
                                 Math.min(node.getEndByte(), src.length()));
         }
-        
+
         // Extract using correct byte indexing
         return textSliceFromBytes(node.getStartByte(), node.getEndByte(), bytes);
     }
@@ -1285,13 +1280,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         } catch (Exception e) {
             // Fallback in case of encoding error
             log.warn("Error getting bytes from source: {}. Falling back to substring (may truncate UTF-8 content)", e.getMessage());
-            return src.substring(Math.min(startByte, src.length()), 
+            return src.substring(Math.min(startByte, src.length()),
                                 Math.min(endByte, src.length()));
         }
-        
+
         return textSliceFromBytes(startByte, endByte, bytes);
     }
-    
+
     /** Helper method that correctly extracts UTF-8 byte slice into a String */
     private String textSliceFromBytes(int startByte, int endByte, byte[] bytes) {
         if (startByte < 0 || endByte > bytes.length || startByte >= endByte) {
@@ -1299,7 +1294,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     startByte, endByte, bytes.length);
             return "";
         }
-        
+
         int len = endByte - startByte;
         return new String(bytes, startByte, len, StandardCharsets.UTF_8);
     }

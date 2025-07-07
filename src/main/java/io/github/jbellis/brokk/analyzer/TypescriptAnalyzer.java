@@ -17,7 +17,6 @@ import java.util.Optional;
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
 
-
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
             Set.of("class_declaration", "interface_declaration", "enum_declaration", "abstract_class_declaration", "module", "internal_module"),
@@ -38,15 +37,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             "return_type", // TypeScript has explicit return types
             // typeParametersFieldName
             "type_parameters", // Standard field name for type parameters in TS
-            // captureConfiguration
+            // captureConfiguration - using unified naming convention
             Map.of(
-                "class.definition", SkeletonType.CLASS_LIKE,
-                "interface.definition", SkeletonType.CLASS_LIKE,
-                "enum.definition", SkeletonType.CLASS_LIKE,
-                "module.definition", SkeletonType.CLASS_LIKE,
-                "function.definition", SkeletonType.FUNCTION_LIKE,
-                "field.definition", SkeletonType.FIELD_LIKE,
-                "typealias.definition", SkeletonType.ALIAS_LIKE, // New mapping
+                "type.definition", SkeletonType.CLASS_LIKE,      // Classes, interfaces, enums, namespaces
+                "function.definition", SkeletonType.FUNCTION_LIKE, // Functions, methods
+                "value.definition", SkeletonType.FIELD_LIKE,     // Variables, fields, constants
+                "typealias.definition", SkeletonType.ALIAS_LIKE,  // Type aliases
                 "decorator.definition", SkeletonType.UNSUPPORTED, // Keep as UNSUPPORTED but handle differently
                 "keyword.modifier", SkeletonType.UNSUPPORTED
             ),
@@ -249,7 +245,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
 
-        // Remove trailing semicolons to match test expectations
+        // Remove trailing semicolons
         fullSignature = fullSignature.replaceAll(";\\s*$", "");
 
         // Special handling for enum members - add comma instead of semicolon
@@ -262,6 +258,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         return baseIndent + fullSignature + suffix;
     }
+
 
 
     @Override
@@ -409,6 +406,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // Clean up and deduplicate skeletons to match test expectations
         var cleaned = new HashMap<CodeUnit, String>();
         for (var entry : skeletons.entrySet()) {
+            CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
             // Remove trailing commas in enums: ",\n}" -> "\n}"
@@ -419,6 +417,16 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 skeleton = skeleton.replaceAll(";\\s*$", "");
             }
 
+            // Remove semicolons from type alias lines anywhere in the skeleton
+            skeleton = skeleton.lines()
+                .map(line -> {
+                    if ((line.contains("type ") || line.contains("export type ")) && line.contains(" = ")) {
+                        return line.replaceAll(";\\s*$", "");
+                    }
+                    return line;
+                })
+                .collect(java.util.stream.Collectors.joining("\n"));
+
 
             // Remove duplicate lines within skeletons and handle default exports
             skeleton = deduplicateSkeletonLines(skeleton);
@@ -428,6 +436,20 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         return cleaned;
+    }
+
+    private boolean isTypeAlias(CodeUnit cu) {
+        // Check if this field-type CodeUnit represents a type alias
+        // We can identify this by checking if there are signatures that contain "type " and " = "
+        List<String> sigList = signatures.get(cu);
+        if (sigList != null) {
+            for (String sig : sigList) {
+                if ((sig.contains("type ") || sig.contains("export type ")) && sig.contains(" = ")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

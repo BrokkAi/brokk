@@ -181,6 +181,7 @@ public class TypescriptAnalyzerTest {
                 doSomething(): void { ... }
               }
               export function innerFunc(): void { ... }
+              const nestedArrow = () => { ... }
               export const innerConst: number = 42
               export interface InnerInterface {
                 id: number

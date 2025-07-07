@@ -43,7 +43,7 @@ public class SkeletonPrinter {
 
     private static boolean useColors = true;
     private static boolean skeletonOnly = false;
-    
+
     private static boolean matchesLanguage(Path path, Language language) {
         var fileName = path.getFileName().toString().toLowerCase();
         return switch (language.name()) {
@@ -81,7 +81,7 @@ public class SkeletonPrinter {
             }
         }
     }
-    
+
     private record SingleFileProject(Path root, Path filePath, Language language) implements IProject {
 
         @Override
@@ -173,11 +173,11 @@ public class SkeletonPrinter {
             System.err.println("Error: Path is neither a regular file nor a directory: " + inputPath);
         }
     }
-    
+
     private static void printDirectorySkeletons(Path directory, Language language) {
         var project = new DirectoryProject(directory.toAbsolutePath(), language);
         var allFiles = project.getAllFiles();
-        
+
         if (allFiles.isEmpty()) {
             System.out.println("No matching files found in directory: " + directory);
             return;
@@ -197,46 +197,46 @@ public class SkeletonPrinter {
             var parentDir = file.absPath().getParent();
             var singleFileProject = new SingleFileProject(parentDir, file.absPath(), language);
             var analyzer = createAnalyzer(singleFileProject, language);
-            
+
             if (analyzer == null) {
                 System.err.println("Error: Could not create analyzer for file: " + file);
                 continue;
             }
-            
+
             printFileSkeletons(analyzer, file);
         }
     }
-    
+
     private static void printSingleFileSkeletons(Path filePath, Language language) {
         // Verify the file matches the language
         if (!matchesLanguage(filePath, language)) {
             System.err.println("Error: File extension does not match language " + language + ": " + filePath);
             return;
         }
-        
+
         // Create a project that contains just this file
         var parentDir = filePath.getParent();
         if (parentDir == null) {
             parentDir = Path.of(".");
         }
-        
+
         var project = new SingleFileProject(parentDir.toAbsolutePath(), filePath.toAbsolutePath(), language);
         var analyzer = createAnalyzer(project, language);
-        
+
         if (analyzer == null) {
             System.err.println("Error: Could not create analyzer for language: " + language);
             return;
         }
-        
+
         var projectFile = new ProjectFile(parentDir.toAbsolutePath(), parentDir.toAbsolutePath().relativize(filePath.toAbsolutePath()));
-        
+
         System.out.println(colorize(BOLD + CYAN, "=== SKELETON ANALYSIS FOR " + language.name() + " FILE ==="));
         System.out.println(colorize(BLUE, "File: ") + filePath);
         if (!skeletonOnly) {
             System.out.println(colorize(YELLOW, "Use --skeleton-only to show only skeleton output"));
         }
         System.out.println();
-        
+
         printFileSkeletons(analyzer, projectFile);
     }
 
@@ -281,7 +281,7 @@ public class SkeletonPrinter {
                 .sorted((entry1, entry2) -> {
                     CodeUnit cu1 = entry1.getKey();
                     CodeUnit cu2 = entry2.getKey();
-                    
+
                     // Try to sort by source position if analyzer supports it
                     if (analyzer instanceof TreeSitterAnalyzer treeAnalyzer) {
                         Integer pos1 = getSourceStartPosition(treeAnalyzer, cu1);
@@ -290,7 +290,7 @@ public class SkeletonPrinter {
                             return Integer.compare(pos1, pos2);
                         }
                     }
-                    
+
                     // Fallback to alphabetical by name if position not available
                     return cu1.fqName().compareTo(cu2.fqName());
                 })
@@ -310,7 +310,7 @@ public class SkeletonPrinter {
             sourceRangesField.setAccessible(true);
             @SuppressWarnings("unchecked")
             var sourceRanges = (java.util.Map<CodeUnit, java.util.List<Object>>) sourceRangesField.get(analyzer);
-            
+
             var ranges = sourceRanges.get(cu);
             if (ranges != null && !ranges.isEmpty()) {
                 // Get the first range and extract startByte using reflection
