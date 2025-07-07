@@ -1,6 +1,36 @@
 /* Markdown-specific styles to match Swing's MarkdownComponentData styling */
 /* Scoped to .bubble to apply only to chat message content */
 
+/* Shiki CSS variables for dark theme */
+.theme-dark {
+  --shiki-foreground: #9eacba;
+  --shiki-background: #293134;
+  --shiki-token-constant: #a2afbe;
+  --shiki-token-string: #d66e05;
+  --shiki-token-comment: #5d6a71;
+  --shiki-token-keyword: #93c763;
+  --shiki-token-parameter: #dcdcdc;
+  --shiki-token-function: #9eacba;
+  --shiki-token-string-expression: #d66e05;
+  --shiki-token-punctuation: #9eacba;
+  --shiki-token-link: #4ec9b0;
+}
+
+/* Shiki CSS variables for light theme */
+.theme-light {
+  --shiki-foreground: #131313;
+  --shiki-background: #ffffff;
+  --shiki-token-constant: #3a7d7e;
+  --shiki-token-string: #d248ae;
+  --shiki-token-comment: #438c2e;
+  --shiki-token-keyword: #3200f9;
+  --shiki-token-parameter: #24292e;
+  --shiki-token-function: #131313;
+  --shiki-token-string-expression: #d248ae;
+  --shiki-token-punctuation: #131313;
+  --shiki-token-link: #3200f9;
+}
+
 h1, h2, h3, h4, h5, h6 {
   margin-top: 18px;
   margin-bottom: 12px;
@@ -70,9 +100,9 @@ pre > code {
 }
 
 pre {
-  border-radius: 10px;
   padding: 15px;
-  border-left: 5px solid var(--code-block-border);
+  margin: 0;
+  background-color: var(--shiki-background);
 }
 
 table {

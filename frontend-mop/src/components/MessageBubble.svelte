@@ -7,9 +7,10 @@
     import Icon from "@iconify/svelte";
     import type {Plugin} from 'svelte-exmarkdown';
     import {ensureLang} from '../shiki-plugin';
+    import CopyablePre from './CopyablePre.svelte';
 
     export let bubble: Bubble;
-    export let shikiPlugin: Plugin | null = null;
+    export let shikiPlugin: Plugin;
 
     /* Map bubble type to CSS variable names for highlight and background colors */
     const hlVar = {
@@ -43,7 +44,7 @@
         }
     }
 
-    $: plugins = shikiPlugin ? [gfmPlugin(), remarkBreaks(), shikiPlugin] : [gfmPlugin(), remarkBreaks()];
+    const plugins = [gfmPlugin(), remarkBreaks(), shikiPlugin, { renderer: { pre: CopyablePre } }];
 </script>
 
 <div
@@ -63,19 +64,7 @@
       color: var(--chat-text);
     "
     >
-        <Markdown class="bubble" md={bubble.markdown} {plugins}>
-            {#snippet pre(props)}
-                {@const {children, ...rest} = props }
-                {@const lang = props['data-language'] || 'text'}
-                <div class="custom-code-block">
-                    <div class="custom-code-header">
-                        <Icon icon="mdi:code-braces" />
-                        <span class="language-name">{lang}</span>
-                    </div>
-                    <pre {...rest}>{@render children?.()}</pre>
-                </div>
-            {/snippet}
-        </Markdown>
+        <Markdown class="bubble" md={bubble.markdown} {plugins} />
     </div>
 </div>
 
@@ -123,5 +112,28 @@
     .language-name {
         text-transform: uppercase;
         opacity: 0.7;
+    }
+
+    .spacer {
+        flex: 1;
+    }
+
+    .copy-btn {
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        color: var(--chat-text);
+        opacity: 0.6;
+        padding: 0.2em;
+        transition: opacity 0.2s;
+    }
+
+    .copy-btn:hover {
+        opacity: 1;
+    }
+
+    .copy-btn:focus {
+        outline: none;
+        opacity: 1;
     }
 </style>
