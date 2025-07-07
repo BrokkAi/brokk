@@ -123,13 +123,13 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> getSingleFileMessages(String styleGuide,
-                                                         EditBlockParser parser,
-                                                         List<ChatMessage> readOnlyMessages,
-                                                         List<ChatMessage> taskMessages,
-                                                         UserMessage request,
-                                                         Set<ProjectFile> changedFiles,
-                                                         List<ChatMessage> originalWorkspaceEditableMessages)
+    public final List<ChatMessage> getSingleFileCodeMessages(String styleGuide,
+                                                             EditBlockParser parser,
+                                                             List<ChatMessage> readOnlyMessages,
+                                                             List<ChatMessage> taskMessages,
+                                                             UserMessage request,
+                                                             Set<ProjectFile> changedFiles,
+                                                             List<ChatMessage> originalWorkspaceEditableMessages)
     {
         var messages = new ArrayList<ChatMessage>();
 
