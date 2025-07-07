@@ -20,7 +20,7 @@ class FileChangeTest extends FileChangeTestFixture {
       newFiles = Seq(F("Foo.txt"), F("foo/Bar.txt"))
     ) { (cpg, projectRootPath, absFileName) =>
       IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
-        AddedFile(absFileName("Foo.txt")), AddedFile(absFileNa¬me("foo/Bar.txt"))
+        AddedFile(absFileName("Foo.txt")), AddedFile(absFileName("foo/Bar.txt"))
       )
     }
   }
