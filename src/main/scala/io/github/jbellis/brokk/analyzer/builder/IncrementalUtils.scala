@@ -3,21 +3,12 @@ package io.github.jbellis.brokk.analyzer.builder
 import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
-import io.joern.x2cpg.X2CpgConfig
-import io.joern.x2cpg.passes.base.*
-import io.joern.x2cpg.passes.callgraph.*
-import io.joern.x2cpg.passes.frontend.MetaDataPass
-import io.joern.x2cpg.passes.typerelations.*
-import io.joern.x2cpg.passes.frontend.MetaDataPass
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
 
+import java.io.File
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
-import scala.util.Try
-
-import io.shiftleft.codepropertygraph.generated.Cpg
 
 object IncrementalUtils {
 
@@ -95,7 +86,8 @@ object IncrementalUtils {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
 
     fileChanges.collect { case x: AddedFile => x }.foreach { case AddedFile(path) =>
-      val newPath = tempDir.resolve(Paths.get(path.toString.stripSuffix(projectRoot.toString)))
+      val relativePath = Paths.get(path.toString.stripPrefix(projectRoot.toString).stripPrefix(File.separator))
+      val newPath = tempDir.resolve(relativePath)
       if (!Files.exists(newPath.getParent)) Files.createDirectories(newPath)
       Files.copy(path, newPath)
     }
@@ -135,5 +127,5 @@ object IncrementalUtils {
       }
     }
   }
-  
+
 }

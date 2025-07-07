@@ -21,11 +21,12 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
       beforeChange.config.inputPath should not be afterChange.config.inputPath
     }
-    // TODO: Not sure this is the best way to orchestrate the build process
-    Using.resource(beforeChange.buildAndOpen) // Build and close initial CPG
-    afterChange.copy(config = beforeChange.config).writeFiles // place new files at the "old" path
+    val beforeConfig = beforeChange.config
+    Using.resource(beforeChange.buildAndOpen) // Build and close initial CPG, serializing it at `config.outputPath`
+    afterChange.copy(config = beforeConfig).writeFiles // place new files at the "old" path
     Using.Manager { use =>
-      val updatedCpg = afterChange.config.build match {
+      // Old path now has new files, so re-build this for updates
+      val updatedCpg = beforeConfig.build match {
         case Failure(e) => fail("Exception occurred while incrementally updating CPG.", e)
         case Success(config) => use(config.open)
       }
@@ -62,10 +63,10 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
 
     // We should also expect at least one internal file and method
     withClue("No internal file detected.") {
-      updated.file.nameNot(FileTraversal.UNKNOWN).size should be > 1
+      updated.file.nameNot(FileTraversal.UNKNOWN).size should be > 0
     }
     withClue("No internal method detected.") {
-      updated.method.whereNot(_.isExternal).size should be > 1
+      updated.method.isExternal(false).size should be > 0
     }
 
     // Assert no common odities in the CPG, i.e, might result from non-idempotency of base passes
