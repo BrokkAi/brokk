@@ -322,8 +322,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return baseIndent + fullSignature + suffix;
     }
 
-
-
     @Override
     protected String renderClassHeader(TSNode classNode, String src,
                                        String exportAndModifierPrefix, // This now comes from captured @keyword.modifier list

@@ -3,12 +3,7 @@
 ; ============================================================================
 ; member_name: [(property_identifier) (private_property_identifier) (string) (number) (computed_property_name)]
 ; interface_member_name: [(property_identifier) (string) (number) (computed_property_name)]
-
 ; Namespace/Module declarations are handled by specific patterns below (ambient and non-ambient)
-
-; ============================================================================
-; EXPORT STATEMENTS
-; ============================================================================
 
 ; Export statements (both default and regular) for class-like declarations
 (export_statement
@@ -60,18 +55,10 @@
     name: (type_identifier) @typealias.name) @typealias.definition)
 
 
-; ============================================================================
-; TYPE ALIAS DECLARATIONS (non-export)
-; ============================================================================
-
 ; Non-export type alias declarations
 (program
   (type_alias_declaration
     name: (type_identifier) @typealias.name) @typealias.definition)
-
-; ============================================================================
-; LEXICAL DECLARATIONS (const, let) - consolidated patterns
-; ============================================================================
 
 ; Arrow functions in export const/let declarations
 (export_statement
@@ -107,10 +94,6 @@
       name: (identifier) @value.name
       value: (_)) @value.definition))
 
-; ============================================================================
-; VARIABLE DECLARATIONS - consolidated patterns
-; ============================================================================
-
 ; Export variable declarations
 (export_statement
   "export" @keyword.modifier
@@ -134,10 +117,6 @@
       ["var" "let" "const"] @keyword.modifier
       (variable_declarator
         name: (identifier) @value.name) @value.definition)))
-
-; ============================================================================
-; AMBIENT DECLARATIONS (declare statements)
-; ============================================================================
 
 ; Ambient function declarations (declare function)
 (program
@@ -176,10 +155,6 @@
     "declare" @keyword.modifier
     (internal_module
       name: (_) @type.name) @type.definition))
-
-; ============================================================================
-; GENERIC NAMESPACE/MODULE CONTEXT PATTERNS
-; ============================================================================
 
 ; Generic pattern for declarations inside any module/namespace context
 ; This consolidates patterns for both regular namespaces and ambient namespaces
@@ -232,10 +207,6 @@
           name: (type_identifier) @typealias.name) @typealias.definition)
     ])
 
-; ============================================================================
-; FUNCTION DECLARATIONS
-; ============================================================================
-
 ; Top-level non-export function declarations
 (program
   (function_declaration
@@ -278,10 +249,6 @@
     (internal_module
       name: (_) @type.name) @type.definition))
 
-; ============================================================================
-; FUNCTION SIGNATURES (Overloads)
-; ============================================================================
-
 ; Export function signatures (overloads)
 (export_statement
   "export" @keyword.modifier
@@ -294,10 +261,6 @@
   (function_signature
     name: (identifier) @function.name
     type_parameters: (_)? @function.type_parameters) @function.definition)
-
-; ============================================================================
-; CLASS/INTERFACE MEMBERS
-; ============================================================================
 
 ; Method definitions (with optional decorators and modifiers) - uses member_name pattern
 (
@@ -339,10 +302,6 @@
 (interface_body
   (property_signature
     name: [(property_identifier) (string) (number) (computed_property_name)] @value.name) @value.definition)
-
-; ============================================================================
-; ENUM MEMBERS
-; ============================================================================
 
 ; Enum members for proper enum reconstruction - capture individual members
 (enum_body

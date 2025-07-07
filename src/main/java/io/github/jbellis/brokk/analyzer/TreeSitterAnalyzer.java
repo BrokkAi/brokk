@@ -588,7 +588,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
             decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-
             // Process each potential definition found in the match
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();
@@ -1112,11 +1111,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
      */
     protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-
         if (requiresSemicolons() && !fullSignature.endsWith(";")) {
             fullSignature += ";";
         }
-
         return baseIndent + fullSignature;
     }
 
@@ -1270,7 +1267,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /** Extracts a substring from the source code based on node boundaries. */
     protected String textSlice(TSNode node, String src) {
         if (node == null || node.isNull()) return "";
-
         // Get the byte array representation of the source
         // This may be cached for better performance in a real implementation
         byte[] bytes;
