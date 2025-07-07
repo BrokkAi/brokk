@@ -50,7 +50,7 @@
     // available AND all required languages for this bubble have been loaded.
     $: plugins = [
         gfmPlugin(),
-        remarkBreaks(),
+        { remarkPlugin: [remarkBreaks] },
         ...(shikiPlugin && $allLangsLoaded ? [shikiPlugin] : []),
         { renderer: { pre: CopyablePre } }
     ];
