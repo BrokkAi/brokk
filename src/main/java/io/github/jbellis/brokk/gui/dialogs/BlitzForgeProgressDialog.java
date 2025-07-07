@@ -291,7 +291,8 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     boolean buildFirst,
                                     String postProcessingInstructions)
     {
-        super(owner, "BlitzForge Progress", true);
+        super(owner, "BlitzForge Progress", false);
+        chrome.disableActionButtons();
         this.totalFiles = filesToProcess.size();
 
         setLayout(new BorderLayout(10, 10));
@@ -507,6 +508,7 @@ public class BlitzForgeProgressDialog extends JDialog {
 
             @Override
             protected void done() {
+                chrome.enableActionButtons();
                 // Ensure executor service is shut down if it's still running
                 if (executorService != null && !executorService.isTerminated()) {
                     executorService.shutdownNow();
