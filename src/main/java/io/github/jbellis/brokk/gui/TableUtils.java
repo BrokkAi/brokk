@@ -13,8 +13,18 @@ import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
+import io.github.jbellis.brokk.util.DebugFlags;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public final class TableUtils {
+    private static final Logger logger = LogManager.getLogger(TableUtils.class);
+
+    private static void dbg(String fmt, Object... args) {
+        if (DebugFlags.FILE_BADGE_DIAGNOSTICS && logger.isDebugEnabled()) {
+            logger.debug("[FILE_BADGE] " + fmt, args);
+        }
+    }
 
     private static final int DEFAULT_SCROLLBAR_WIDTH_PX = 15;
 
@@ -122,6 +132,12 @@ public final class TableUtils {
             SwingUtilities.invokeLater(() -> showOverflowPopup(chrome, table, row, col, files));
             return;
         }
+
+        dbg("OS={}, java={}, LAF={}, dpi={}",
+            System.getProperty("os.name"),
+            Runtime.version(),
+            UIManager.getLookAndFeel(),
+            Toolkit.getDefaultToolkit().getScreenResolution());
         
         // Find the exact column width using the table and column index
         int colWidth = table.getColumnModel().getColumn(col).getWidth();
@@ -129,9 +145,11 @@ public final class TableUtils {
         // Create a wrapping FileReferenceList with a width that accounts for a potential vertical scrollbar,
         // which prevents re-wrapping and incorrect height calculations.
         int scrollbarWidth = UIManager.getInt("ScrollBar.width");
-        if (scrollbarWidth <= 0) {
+        boolean usedFallback = scrollbarWidth <= 0;
+        if (usedFallback) {
             scrollbarWidth = DEFAULT_SCROLLBAR_WIDTH_PX; // A reasonable fallback for platforms where this isn't set
         }
+        dbg("colWidth={}, scrollbarWidth={}, usingFallback={}", colWidth, scrollbarWidth, usedFallback);
         var fullList = new WrappingFileReferenceList(files, colWidth - scrollbarWidth);
         fullList.setOpaque(false); // For visual continuity
 
@@ -195,7 +213,11 @@ public final class TableUtils {
 
         // To correctly cap the height, we need to set the preferred size
         // of the scroll pane itself, BEFORE it gets packed.
+        dbg("fullList pref BEFORE layout = {}", fullList.getPreferredSize());
+        fullList.doLayout();
+        dbg("fullList pref AFTER layout = {}", fullList.getPreferredSize());
         Dimension listPrefSize = fullList.getPreferredSize();
+        dbg("scroll prefSize = {}", scroll.getPreferredSize());
 
         if (!files.isEmpty()) {
             JLabel sampleLabel = fullList.createBadgeLabel(files.get(0).getFileName());
@@ -203,6 +225,7 @@ public final class TableUtils {
             int rowHeight = sampleLabel.getPreferredSize().height + vgap;
             int maxHeight = rowHeight * 4; // 4 rows
             maxHeight += 4; // Safety margin
+            dbg("rowHeight={}, maxHeight={}, sampleLabelSize={}", rowHeight, maxHeight, sampleLabel.getPreferredSize());
 
             if (listPrefSize.height > maxHeight) {
                 scroll.setPreferredSize(new Dimension(listPrefSize.width, maxHeight));
@@ -240,6 +263,7 @@ public final class TableUtils {
 
         // Now pack. It will use the scroll pane's preferred size, which might be capped.
         popup.pack();
+        dbg("popup packed size = {}", popup.getPreferredSize());
 
         // Show popup below the specific cell
         var cellRect = table.getCellRect(row, col, true);

@@ -26,6 +26,7 @@ import io.github.jbellis.brokk.util.HtmlToMarkdown;
 import io.github.jbellis.brokk.util.ImageUtil;
 import io.github.jbellis.brokk.util.Messages;
 import io.github.jbellis.brokk.util.StackTrace;
+import io.github.jbellis.brokk.util.DebugFlags;
 import okhttp3.OkHttpClient;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -57,6 +58,12 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 public class WorkspacePanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(WorkspacePanel.class);
+
+    private static void dbg(String fmt, Object... args) {
+        if (DebugFlags.FILE_BADGE_DIAGNOSTICS && logger.isDebugEnabled()) {
+            logger.debug("[FILE_BADGE] " + fmt, args);
+        }
+    }
     private final String EMPTY_CONTEXT = "Empty Workspace--use Edit or Read or Summarize to add content";
 
     private static final OkHttpClient httpClient = new OkHttpClient.Builder()
@@ -517,7 +524,9 @@ public class WorkspacePanel extends JPanel {
         private int calculatePreferredHeight(JPanel panel) {
             // Force layout to get accurate measurements
             panel.doLayout();
-            return (int) Math.ceil(panel.getPreferredSize().getHeight()) + 4; // Add small padding
+            var pref = (int) Math.ceil(panel.getPreferredSize().getHeight()) + 4; // Add small padding
+            dbg("rowHeightCalc: panelPref={}, finalPref={}", panel.getPreferredSize(), pref);
+            return pref;
         }
     }
 
