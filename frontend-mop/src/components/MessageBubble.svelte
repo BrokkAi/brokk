@@ -6,6 +6,7 @@
     import type {Bubble} from '../types';
     import Icon from "@iconify/svelte";
     import type {Plugin} from 'svelte-exmarkdown';
+    import { ensureLang } from '../shiki-plugin';
     import CopyablePre from './CopyablePre.svelte';
 
     export let bubble: Bubble;
@@ -28,6 +29,20 @@
     /* Use provided title/icon if available, otherwise fall back to defaults */
     $: title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
     $: iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
+
+    // Dynamically load languages if needed based on markdown content
+    $: {
+        if (bubble.markdown) {
+            const codeBlocks = bubble.markdown.matchAll(/```(\w+)/g);
+            for (const match of codeBlocks) {
+                const lang = match[1].toLowerCase();
+                if (lang && lang !== 'text' && lang !== 'plaintext') {
+                    ensureLang(lang);
+                }
+            }
+        }
+    }
+
     const plugins = [gfmPlugin(), remarkBreaks(), shikiPlugin, { renderer: { pre: CopyablePre } }];
 </script>
 
