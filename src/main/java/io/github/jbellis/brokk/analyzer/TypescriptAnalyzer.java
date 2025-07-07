@@ -13,9 +13,40 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.regex.Pattern;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
+
+    // Compiled regex patterns for memory efficiency
+    private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
+    private static final Pattern ENUM_COMMA_CLEANUP = Pattern.compile(",\\s*\\r?\\n(\\s*})");
+    private static final Pattern TYPE_ALIAS_LINE = Pattern.compile("(type |export type ).*=.*");
+
+    // Fast lookups for type checks
+    private static final Set<String> FUNCTION_NODE_TYPES = Set.of(
+        "function_declaration", "generator_function_declaration", "function_signature"
+    );
+    private static final Set<String> SIGNATURE_NODE_TYPES = Set.of(
+        "method_signature", "construct_signature", "abstract_method_signature"
+    );
+
+    // Class keyword mapping for fast lookup
+    private static final Map<String, String> CLASS_KEYWORDS = Map.of(
+        "interface_declaration", "interface",
+        "enum_declaration", "enum",
+        "module", "namespace",
+        "internal_module", "namespace",
+        "ambient_declaration", "namespace",
+        "abstract_class_declaration", "class"
+    );
+
+    // Cache for text slices to reduce string creation
+    private final Map<String, String> textSliceCache = new ConcurrentHashMap<>();
+
+    // Cache for ambient context checks to avoid tree traversal
+    private final Map<TSNode, Boolean> ambientContextCache = new ConcurrentHashMap<>();
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
@@ -67,6 +98,28 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     public TypescriptAnalyzer(IProject project) {
         this(project, Collections.emptySet());
+    }
+
+    // Optimized textSlice with caching for frequently accessed slices
+    private String cachedTextSlice(TSNode node, String src) {
+        if (node == null || node.isNull()) {
+            return "";
+        }
+
+        // Initialize cache if null (can happen during parent constructor execution)
+        if (textSliceCache == null) {
+            return textSlice(node, src);
+        }
+
+        // Use more efficient key generation
+        long key = ((long) node.getStartByte() << 32) | node.getEndByte();
+        String keyStr = key + ":" + src.hashCode();
+        return textSliceCache.computeIfAbsent(keyStr, k -> textSlice(node, src));
+    }
+
+    private String cachedTextSliceStripped(TSNode node, String src) {
+        String text = cachedTextSlice(node, src);
+        return text.strip();
     }
 
     @Override
@@ -125,7 +178,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         if (returnTypeNode == null || returnTypeNode.isNull()) {
             return "";
         }
-        String text = textSlice(returnTypeNode, src).strip();
+        String text = cachedTextSliceStripped(returnTypeNode, src);
         // A type_annotation node in TS is typically ": type"
         // We only want the "type" part for the suffix.
         if (text.startsWith(":")) {
@@ -180,21 +233,22 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             bodySuffix = " " + bodyPlaceholder(); // Always use placeholder for arrow functions in skeletons
         } else {
             String keyword = "";
-            if ("function_declaration".equals(funcNode.getType()) || "generator_function_declaration".equals(funcNode.getType()) || "function_signature".equals(funcNode.getType())) {
+            String nodeType = funcNode.getType();
+            if (FUNCTION_NODE_TYPES.contains(nodeType)) {
                 // Function signatures in ambient contexts should not include the "function" keyword
-                if ("function_signature".equals(funcNode.getType()) && isInAmbientContext(funcNode)) {
+                if ("function_signature".equals(nodeType) && isInAmbientContext(funcNode)) {
                     keyword = "";
                 } else {
                     keyword = "function";
-                    if ("generator_function_declaration".equals(funcNode.getType())) keyword += "*";
+                    if ("generator_function_declaration".equals(nodeType)) keyword += "*";
                 }
-            } else if ("constructor".equals(functionName) && "method_definition".equals(funcNode.getType())) {
+            } else if ("constructor".equals(functionName) && "method_definition".equals(nodeType)) {
                 keyword = "constructor";
                 functionName = ""; // constructor name is part of keyword
-            } else if ("construct_signature".equals(funcNode.getType())) {
+            } else if ("construct_signature".equals(nodeType)) {
                 keyword = "new";
                 functionName = ""; // constructor signatures use "new" keyword instead of function name
-            } else if ("method_definition".equals(funcNode.getType())) {
+            } else if ("method_definition".equals(nodeType)) {
                 String nodeTextStart = textSlice(funcNode.getStartByte(), Math.min(funcNode.getEndByte(), funcNode.getStartByte() + 4), src);
                 if (nodeTextStart.startsWith("get ")) {
                     keyword = "get";
@@ -205,37 +259,46 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
 
             String endMarker = "";
-            if (!hasBody && !"arrow_function".equals(funcNode.getType())) {
+            if (!hasBody && !"arrow_function".equals(nodeType)) {
                 // Interface method signatures, abstract method signatures, non-ambient function signatures, and constructor signatures should not have semicolons per TypeScript conventions
-                boolean isFunctionSignatureInAmbient = "function_signature".equals(funcNode.getType()) && isInAmbientContext(funcNode);
-                boolean isNonAmbientFunctionSignature = "function_signature".equals(funcNode.getType()) && !isInAmbientContext(funcNode);
+                boolean isFunctionSignatureInAmbient = "function_signature".equals(nodeType) && isInAmbientContext(funcNode);
+                boolean isNonAmbientFunctionSignature = "function_signature".equals(nodeType) && !isInAmbientContext(funcNode);
 
-                if (!"method_signature".equals(funcNode.getType()) && !"construct_signature".equals(funcNode.getType()) && !"abstract_method_signature".equals(funcNode.getType()) && !isNonAmbientFunctionSignature) {
+                if (!SIGNATURE_NODE_TYPES.contains(nodeType) && !isNonAmbientFunctionSignature) {
                     endMarker = ";";
                 }
             }
 
             // Assemble: combinedPrefix [keyword] [functionName] [typeParams] paramsText returnTypeSuffix endMarker
-            List<String> parts = new ArrayList<>();
-            if (!combinedPrefix.isEmpty()) parts.add(combinedPrefix);
-            if (!keyword.isEmpty()) parts.add(keyword);
+            var signatureBuilder = new StringBuilder();
+            if (!combinedPrefix.isEmpty()) {
+                signatureBuilder.append(combinedPrefix);
+            }
+            if (!keyword.isEmpty()) {
+                if (signatureBuilder.length() > 0) signatureBuilder.append(" ");
+                signatureBuilder.append(keyword);
+            }
             if (!functionName.isEmpty() || (keyword.equals("constructor") && functionName.isEmpty())) {
                 // Add functionName + typeParams for regular functions and constructors
-                parts.add(functionName + typeParamsText);
+                if (signatureBuilder.length() > 0 && !keyword.equals("constructor")) {
+                    signatureBuilder.append(" ");
+                }
+                signatureBuilder.append(functionName).append(typeParamsText);
             } else if (keyword.equals("new")) {
                 // For constructor signatures, add type parameters separately since there's no function name
                 if (!typeParamsText.isEmpty()) {
-                    parts.add(typeParamsText);
+                    if (signatureBuilder.length() > 0) signatureBuilder.append(" ");
+                    signatureBuilder.append(typeParamsText);
                 }
             }
 
             // Special handling for constructor signatures to add space before parameters
-            String baseSignature = String.join(" ", parts).strip();
             if (keyword.equals("new")) {
-                signature = baseSignature + " " + paramsText + tsReturnTypeSuffix + endMarker;
+                signatureBuilder.append(" ").append(paramsText).append(tsReturnTypeSuffix).append(endMarker);
             } else {
-                signature = baseSignature + paramsText + tsReturnTypeSuffix + endMarker;
+                signatureBuilder.append(paramsText).append(tsReturnTypeSuffix).append(endMarker);
             }
+            signature = signatureBuilder.toString().strip();
             bodySuffix = hasBody ? " " + bodyPlaceholder() : "";
         }
         return indent + signature.strip() + bodySuffix;
@@ -246,7 +309,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
 
         // Remove trailing semicolons
-        fullSignature = fullSignature.replaceAll(";\\s*$", "");
+        fullSignature = TRAILING_SEMICOLON.matcher(fullSignature).replaceAll("");
 
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
@@ -267,16 +330,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                                        String signatureText, // This is the raw text slice from class start to body start
                                        String baseIndent)
     {
-        String classKeyword;
-        switch (classNode.getType()) {
-            case "interface_declaration": classKeyword = "interface"; break;
-            case "enum_declaration": classKeyword = "enum"; break;
-            case "module": classKeyword = "namespace"; break;
-            case "internal_module": classKeyword = "namespace"; break;
-            case "ambient_declaration": classKeyword = "namespace"; break;
-            case "abstract_class_declaration": classKeyword = "class"; break;
-            default: classKeyword = "class"; break;
-        }
+        String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), "class");
 
         String remainingSignature = signatureText.stripLeading();
 
@@ -341,7 +395,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             TSNode exportKeyword = parent.getChild(0);
             if (exportKeyword != null && parent.getChildCount() > 1) {
                 TSNode defaultKeyword = parent.getChild(1);
-                if (defaultKeyword != null && "default".equals(textSlice(defaultKeyword, src).strip())) {
+                if (defaultKeyword != null && "default".equals(cachedTextSliceStripped(defaultKeyword, src))) {
                     modifiers.append("default ");
                 }
             }
@@ -351,7 +405,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 5); i++) {
             TSNode child = nodeToCheck.getChild(i);
             if (child != null && !child.isNull()) {
-                String childText = textSlice(child, src).strip();
+                String childText = cachedTextSliceStripped(child, src);
                 // Check for common TypeScript modifiers
                 if (Set.of("declare", "abstract", "static", "readonly", "async", "const", "let", "var").contains(childText)) {
                     modifiers.append(childText).append(" ");
@@ -389,6 +443,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * In ambient contexts, function signatures should not include the "function" keyword.
      */
     protected boolean isInAmbientContext(TSNode node) {
+        // Handle null cache during parent constructor execution
+        if (ambientContextCache == null) {
+            return checkAmbientContextDirect(node);
+        }
+
+        return ambientContextCache.computeIfAbsent(node, n -> checkAmbientContextDirect(n));
+    }
+
+    private boolean checkAmbientContextDirect(TSNode node) {
         TSNode parent = node.getParent();
         while (parent != null && !parent.isNull()) {
             if ("ambient_declaration".equals(parent.getType())) {
@@ -404,29 +467,33 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         var skeletons = super.getSkeletons(file);
 
         // Clean up and deduplicate skeletons to match test expectations
-        var cleaned = new HashMap<CodeUnit, String>();
+        var cleaned = new HashMap<CodeUnit, String>(skeletons.size());
         for (var entry : skeletons.entrySet()) {
             CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
             // Remove trailing commas in enums: ",\n}" -> "\n}"
-            skeleton = skeleton.replaceAll(",\\s*\\r?\\n(\\s*})", "\n$1");
+            skeleton = ENUM_COMMA_CLEANUP.matcher(skeleton).replaceAll("\n$1");
 
             // Remove trailing semicolons from non-exported arrow functions only
             if (skeleton.contains("=>") && skeleton.strip().endsWith("};") && !skeleton.startsWith("export")) {
-                skeleton = skeleton.replaceAll(";\\s*$", "");
+                skeleton = TRAILING_SEMICOLON.matcher(skeleton).replaceAll("");
             }
 
-            // Remove semicolons from type alias lines anywhere in the skeleton
-            skeleton = skeleton.lines()
-                .map(line -> {
-                    if ((line.contains("type ") || line.contains("export type ")) && line.contains(" = ")) {
-                        return line.replaceAll(";\\s*$", "");
-                    }
-                    return line;
-                })
-                .collect(java.util.stream.Collectors.joining("\n"));
-
+            // Remove semicolons from type alias lines anywhere in the skeleton - optimize with StringBuilder
+            var lines = skeleton.split("\n");
+            var skeletonBuilder = new StringBuilder(skeleton.length());
+            for (int i = 0; i < lines.length; i++) {
+                String line = lines[i];
+                if (TYPE_ALIAS_LINE.matcher(line).find()) {
+                    line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
+                }
+                skeletonBuilder.append(line);
+                if (i < lines.length - 1) {
+                    skeletonBuilder.append("\n");
+                }
+            }
+            skeleton = skeletonBuilder.toString();
 
             // Remove duplicate lines within skeletons and handle default exports
             skeleton = deduplicateSkeletonLines(skeleton);
@@ -456,12 +523,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * Remove duplicate lines within a skeleton while preserving order and structure.
      */
     private String deduplicateSkeletonLines(String skeleton) {
-        var lines = skeleton.lines().toList();
-        var result = new ArrayList<String>();
-        var seen = new HashSet<String>();
+        var lines = skeleton.split("\n");
+        var result = new ArrayList<String>(lines.length);
+        var seen = new HashSet<String>(lines.length);
 
         for (String line : lines) {
-            String trimmedLine = line.strip();
+            String trimmedLine = line.trim();
 
             // Keep structural lines and only deduplicate content
             if (trimmedLine.isEmpty() || trimmedLine.equals("{") || trimmedLine.equals("}")) {
@@ -474,18 +541,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             boolean isDuplicate = false;
             for (String seenLine : seen) {
                 // Check if the seen line is an export version of the current line
-                if (seenLine.startsWith("export ") && seenLine.substring(7).equals(trimmedLine)) {
+                if (seenLine.startsWith("export ") && seenLine.length() > 7 && seenLine.substring(7).equals(trimmedLine)) {
                     isDuplicate = true;
                     break;
                 }
                 // Check if the current line is an export version of a seen line
-                if (trimmedLine.startsWith("export ") && trimmedLine.substring(7).equals(seenLine)) {
+                if (trimmedLine.startsWith("export ") && trimmedLine.length() > 7 && trimmedLine.substring(7).equals(seenLine)) {
                     // Replace the non-export version with the export version
                     seen.remove(seenLine);
                     seen.add(trimmedLine);
                     // Find and replace the line in result
                     for (int i = 0; i < result.size(); i++) {
-                        if (result.get(i).strip().equals(seenLine)) {
+                        if (result.get(i).trim().equals(seenLine)) {
                             result.set(i, line);
                             break;
                         }
@@ -507,17 +574,26 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * If skeleton contains both regular and default export lines, keep only the default export.
      */
     private String extractDefaultExportIfPresent(String skeleton) {
-        var lines = skeleton.lines().toList();
-        boolean hasDefaultExport = lines.stream().anyMatch(line -> line.strip().startsWith("export default"));
+        var lines = skeleton.split("\n");
+        boolean hasDefaultExport = false;
+
+        // Quick check for default export without creating stream - avoid strip() in loop
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("export default")) {
+                hasDefaultExport = true;
+                break;
+            }
+        }
 
         if (!hasDefaultExport) {
             return skeleton;
         }
 
         // Filter out non-default exports if default exports exist
-        var result = new ArrayList<String>();
+        var result = new ArrayList<String>(lines.length);
         for (String line : lines) {
-            String trimmed = line.strip();
+            String trimmed = line.trim();
             if (trimmed.startsWith("export default") || !trimmed.startsWith("export ")) {
                 result.add(line);
             }
@@ -596,7 +672,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Find the declaration keyword (const, let) and variable_declarator
             for (int i = 0; i < lexicalDeclaration.getChildCount(); i++) {
                 TSNode child = lexicalDeclaration.getChild(i);
-                String childText = textSlice(child, src);
+                String childText = cachedTextSlice(child, src);
                 if ("const".equals(childText) || "let".equals(childText)) {
                     declarationKeyword = childText;
                 } else if ("variable_declarator".equals(child.getType())) {
@@ -619,7 +695,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (functionName.isEmpty()) {
                     TSNode nameNode = variableDeclarator.getChildByFieldName("name");
                     if (nameNode != null && !nameNode.isNull()) {
-                        functionName = textSlice(nameNode, src);
+                        functionName = cachedTextSlice(nameNode, src);
                     }
                 }
 
@@ -637,13 +713,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (profile.typeParametersFieldName() != null && !profile.typeParametersFieldName().isEmpty()) {
                     TSNode typeParamsNode = arrowFunctionNode.getChildByFieldName(profile.typeParametersFieldName());
                     if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                        typeParamsText = textSlice(typeParamsNode, src);
+                        typeParamsText = cachedTextSlice(typeParamsNode, src);
                     }
                 }
 
                 // Check if arrow function is async by looking for async keyword in the lexical declaration
                 boolean isAsync = false;
-                String arrowFunctionText = textSlice(arrowFunctionNode, src);
+                String arrowFunctionText = cachedTextSlice(arrowFunctionNode, src);
                 if (arrowFunctionText.startsWith("async ")) {
                     isAsync = true;
                 }
@@ -671,12 +747,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
             // Remove trailing semicolons from arrow function assignments
             if (source.contains("=>") && source.strip().endsWith("};")) {
-                source = source.replaceAll(";\\s*$", "");
+                source = TRAILING_SEMICOLON.matcher(source).replaceAll("");
             }
 
             // Remove semicolons from function overload signatures
             String[] lines = source.split("\n");
-            StringBuilder cleaned = new StringBuilder();
+            var cleaned = new StringBuilder(source.length());
 
             for (int i = 0; i < lines.length; i++) {
                 String line = lines[i];
@@ -684,7 +760,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
                 // Remove semicolons from function overload signatures (lines ending with ; that don't have {)
                 if (trimmed.startsWith("export function") && trimmed.endsWith(";") && !trimmed.contains("{")) {
-                    line = line.replaceAll(";\\s*$", "");
+                    line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
                 }
 
                 cleaned.append(line);
@@ -701,14 +777,18 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Optional<String> getSkeleton(String fqName) {
-        // Find the CodeUnit for this FQN
-        Optional<CodeUnit> cuOpt = signatures.keySet().stream()
-                                          .filter(c -> c.fqName().equals(fqName))
-                                          .findFirst();
-        if (cuOpt.isPresent()) {
-            CodeUnit cu = cuOpt.get();
+        // Find the CodeUnit for this FQN - optimize with early termination
+        CodeUnit foundCu = null;
+        for (CodeUnit cu : signatures.keySet()) {
+            if (cu.fqName().equals(fqName)) {
+                foundCu = cu;
+                break;
+            }
+        }
+
+        if (foundCu != null) {
             // Find the top-level parent for this CodeUnit
-            CodeUnit topLevelParent = findTopLevelParent(cu);
+            CodeUnit topLevelParent = findTopLevelParent(foundCu);
 
             // Get the skeleton from getSkeletons and apply our cleanup
             Map<CodeUnit, String> skeletons = getSkeletons(topLevelParent.source());
@@ -719,22 +799,38 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
+    // Cache for parent-child relationships to avoid expensive contains() lookups
+    private final Map<CodeUnit, CodeUnit> parentCache = new ConcurrentHashMap<>();
+
     /**
      * Find the top-level parent CodeUnit for a given CodeUnit.
      * If the CodeUnit has no parent, it returns itself.
      */
     private CodeUnit findTopLevelParent(CodeUnit cu) {
-        // Look through all parent-child relationships to find if this CU is a child
+        // Build parent cache if not already done for this CU
+        if (!parentCache.containsKey(cu)) {
+            buildParentCache();
+        }
+
+        // Traverse up the parent chain
+        CodeUnit current = cu;
+        CodeUnit parent = parentCache.get(current);
+        while (parent != null) {
+            current = parent;
+            parent = parentCache.get(current);
+        }
+        return current;
+    }
+
+    private void buildParentCache() {
+        // Build reverse lookup map once
         for (var entry : childrenByParent.entrySet()) {
             CodeUnit parent = entry.getKey();
             List<CodeUnit> children = entry.getValue();
-            if (children.contains(cu)) {
-                // This CU is a child, recursively find the top-level parent
-                return findTopLevelParent(parent);
+            for (CodeUnit child : children) {
+                parentCache.put(child, parent);
             }
         }
-        // No parent found, this is a top-level CU
-        return cu;
     }
 
 
