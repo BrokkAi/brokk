@@ -3,19 +3,16 @@ package io.github.jbellis.brokk.analyzer
 import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.javasrc2cpg.Config
-import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
 import io.joern.joerncli.CpgBasedTool
-import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
-import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.semanticcpg.language.*
 
-import java.io.IOException
 import java.nio.file.Path
 import java.util.Optional
 import scala.util.boundary.break
 import scala.util.matching.Regex
-import scala.util.{Failure, Success, Try, boundary} // Added for modern early exit
+import scala.util.{Try, boundary} // Added for modern early exit
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer
@@ -346,7 +343,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 }
 
-object JavaAnalyzer extends GraphPassApplier[Config] {
+object JavaAnalyzer {
 
   import scala.jdk.CollectionConverters.*
 
@@ -362,21 +359,6 @@ object JavaAnalyzer extends GraphPassApplier[Config] {
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .buildAndThrow
       .open
-  }
-
-  override def createAst(cpg: Cpg, config: Config): Try[Cpg] = Try {
-    createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
-    val astCreationPass = new AstCreationPass(config, cpg)
-    astCreationPass.createAndApply()
-    astCreationPass.sourceParser.cleanupDelombokOutput()
-    astCreationPass.clearJavaParserCaches()
-    new OuterClassRefPass(cpg).createAndApply()
-    JavaConfigFileCreationPass(cpg).createAndApply()
-    if (!config.skipTypeInfPass) {
-      TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
-      new TypeInferencePass(cpg).createAndApply()
-    }
-    cpg
   }
 
 }

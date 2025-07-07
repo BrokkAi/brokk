@@ -2,22 +2,18 @@ package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
-import io.joern.c2cpg.astcreation.CGlobal
-import io.joern.c2cpg.parser.FileDefaults
-import io.joern.c2cpg.passes.*
-import io.joern.c2cpg.{C2Cpg, Config as CConfig}
-import io.joern.x2cpg.passes.frontend.TypeNodePass
-import io.joern.x2cpg.utils.Report
-import io.joern.x2cpg.{SourceFiles, Defines as X2CpgDefines}
+import io.joern.c2cpg.Config as CConfig
+import io.joern.x2cpg.Defines as X2CpgDefines
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
-import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 import io.shiftleft.semanticcpg.language.*
 
 import java.nio.file.Path
 import java.util.Optional
 import scala.collection.mutable
-import scala.util.Try
-import scala.util.matching.Regex // Added for mutable.ListBuffer
+import scala.io.Source
+import scala.util.matching.Regex
+import scala.util.{Try, Using} // Added for mutable.ListBuffer
 
 /** Analyzer for C and C++ source files (leveraging joern c2cpg). */
 class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
@@ -724,9 +720,8 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     val endLine = chosenMethod.lineNumberEnd.get
 
     val maybeCode = Try {
-      val lines = scala.io.Source.fromFile(file.absPath().toFile).getLines().slice(startLine - 1, endLine).mkString("\n")
-      Some(lines)
-    }.getOrElse(None)
+      Using.resource(Source.fromFile(file.absPath().toFile))(_.getLines().slice(startLine - 1, endLine).mkString("\n"))
+    }.toOption
 
     if (maybeCode.isEmpty) {
       throw new SymbolNotFoundException(s"Could not read source code for method: ${chosenMethod.fullName}")
@@ -735,7 +730,7 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   }
 }
 
-object CppAnalyzer extends GraphPassApplier[CConfig] {
+object CppAnalyzer {
 
   import scala.jdk.CollectionConverters.*
 
@@ -750,44 +745,6 @@ object CppAnalyzer extends GraphPassApplier[CConfig] {
       .withIncludeComments(false)
       .buildAndThrow
       .open
-  }
-
-  override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
-    createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
-    val report = new Report()
-    val global = new CGlobal()
-    val preprocessedFiles = allPreprocessedFiles(config)
-    new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
-      .createAndApply()
-    new AstCreationPass(cpg, preprocessedFiles, Set(FileDefaults.CHeaderFileExtension), config, global, report)
-      .createAndApply()
-    TypeNodePass.withRegisteredTypes(global.typesSeen(), cpg).createAndApply()
-    new TypeDeclNodePass(cpg, config).createAndApply()
-    new FunctionDeclNodePass(cpg, global.unhandledMethodDeclarations(), config).createAndApply()
-    new FullNameUniquenessPass(cpg).createAndApply()
-    report.print()
-    cpg
-  }
-
-  private def gatherFileExtensions(config: CConfig): Set[String] = {
-    FileDefaults.SourceFileExtensions ++
-      FileDefaults.CppHeaderFileExtensions ++
-      Option.when(config.withPreprocessedFiles)(FileDefaults.PreprocessedExt).toList
-  }
-
-  private def allPreprocessedFiles(config: CConfig): List[String] = {
-    if (config.withPreprocessedFiles) {
-      SourceFiles
-        .determine(
-          config.inputPath,
-          Set(FileDefaults.PreprocessedExt),
-          ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
-          ignoredFilesRegex = Option(config.ignoredFilesRegex),
-          ignoredFilesPath = Option(config.ignoredFiles)
-        )
-    } else {
-      List.empty
-    }
   }
 
 }

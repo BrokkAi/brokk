@@ -74,7 +74,7 @@ object CpgTestFixture {
      * @param builder the incremental CPG builder.
      * @return the resulting CPG.
      */
-    def buildAndOpen(using builder: IncrementalCpgBuilder[R]): Cpg = {
+    def buildAndOpen(using builder: CpgBuilder[R]): Cpg = {
       writeFiles
       config.build.failed.foreach(e => throw e)
       config.open

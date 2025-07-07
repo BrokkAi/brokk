@@ -11,7 +11,7 @@ class SimpleBuildTest extends CpgTestFixture[Config] {
 
   override protected implicit def defaultConfig: Config = Config()
 
-  "a basic program" should {
+  "a basic Java program" should {
     withTestConfig { config =>
       val cpg = project(config,
         """package com.world.hello;

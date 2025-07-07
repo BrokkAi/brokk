@@ -10,7 +10,6 @@ import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 
 import java.nio.file.{Files, Path}
-import scala.jdk.CollectionConverters.*
 import scala.util.Using
 
 class FileChangeTest extends FileChangeTestFixture {
@@ -20,8 +19,8 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Nil,
       newFiles = Seq(F("Foo.txt"), F("foo/Bar.txt"))
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
-        AddedFile(absFileName("Foo.txt")), AddedFile(absFileName("foo/Bar.txt"))
+      IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+        AddedFile(absFileName("Foo.txt")), AddedFile(absFileNa¬me("foo/Bar.txt"))
       )
     }
   }
@@ -31,7 +30,7 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Seq(F("Foo.txt")),
       newFiles = Seq(F("Foo.txt", "changed"))
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+      IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
         ModifiedFile(absFileName("Foo.txt"))
       )
     }
@@ -42,7 +41,7 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Seq(F("Foo.txt"), F("foo/Bar.txt")),
       newFiles = Nil
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+      IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
         RemovedFile(absFileName("Foo.txt")), RemovedFile(absFileName("foo/Bar.txt"))
       )
     }
@@ -53,7 +52,7 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Seq(F("Foo.txt")),
       newFiles = Seq(F("bar/Foo.txt"))
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+      IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
         RemovedFile(absFileName("Foo.txt")), AddedFile(absFileName("bar/Foo.txt"))
       )
     }
@@ -64,7 +63,7 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Seq(F("Foo.txt", "removed"), F("foo/Bar.txt", "changed")),
       newFiles = Seq(F("foo/Bar.txt"), F("foo/Baz.txt", "new"))
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalCpgBuilder.determineChangedFiles(cpg, projectRootPath) shouldBe List(
+      IncrementalUtils.determineChangedFiles(cpg, projectRootPath) shouldBe List(
         RemovedFile(absFileName("Foo.txt")), ModifiedFile(absFileName("foo/Bar.txt")), AddedFile(absFileName("foo/Baz.txt"))
       )
     }

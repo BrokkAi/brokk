@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
-import io.github.jbellis.brokk.analyzer.builder.IncrementalCpgBuilder
+import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 
@@ -25,7 +25,7 @@ object X2CpgConfigExt {
      * @param builder the builder associated with the frontend specified by the instance of 'config'.
      * @return this configuration.
      */
-    def build(using builder: IncrementalCpgBuilder[R]): Try[R] = withNewOrExistingCpg { cpg =>
+    def build(using builder: CpgBuilder[R]): Try[R] = withNewOrExistingCpg { cpg =>
       builder.build(cpg, config)
       config
     }
@@ -33,7 +33,7 @@ object X2CpgConfigExt {
     /**
      * Alias for [[build]] where exceptions are thrown if one occurs.
      */
-    def buildAndThrow(using builder: IncrementalCpgBuilder[R]): R = {
+    def buildAndThrow(using builder: CpgBuilder[R]): R = {
       build.failed.foreach(e => throw e)
       config
     }

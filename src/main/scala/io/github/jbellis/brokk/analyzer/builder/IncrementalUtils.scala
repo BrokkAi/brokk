@@ -4,32 +4,22 @@ import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.joern.x2cpg.X2CpgConfig
+import io.joern.x2cpg.passes.base.*
+import io.joern.x2cpg.passes.callgraph.*
+import io.joern.x2cpg.passes.frontend.MetaDataPass
+import io.joern.x2cpg.passes.typerelations.*
+import io.joern.x2cpg.passes.frontend.MetaDataPass
 import io.shiftleft.codepropertygraph.generated.Cpg
+import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
 
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
 import scala.jdk.CollectionConverters.*
+import scala.util.Try
 
-/**
- * A trait to be implemented by a language-specific incremental CPG builder.
- *
- * @tparam R the language's configuration object.
- */
-trait IncrementalCpgBuilder[R <: X2CpgConfig[R]] {
+import io.shiftleft.codepropertygraph.generated.Cpg
 
-  /**
-   * Given an initialised CPG and a configuration object, incrementally build the existing CPG with the changed files 
-   * at the path determined by the configuration object.
-   *
-   * @param cpg    the CPG to be built or updated.
-   * @param config the language-specific configuration object containing the input path of source files to re-build
-   *               from.
-   */
-  def build(cpg: Cpg, config: R): Cpg
-
-}
-
-object IncrementalCpgBuilder {
+object IncrementalUtils {
 
   private[brokk] case class PathAndHash(path: String, contents: String)
 
@@ -135,21 +125,15 @@ object IncrementalCpgBuilder {
      */
     def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: Path => Unit): Cpg = {
       val buildDir = createNewIncrementalBuildDirectory(cpg.projectRoot, fileChanges)
-
       // We need to ensure this CPG is serialized
       assert(cpg.graph.storagePathMaybe.isDefined, "CPG seems to be in-memory. Expected CPG to have serializable path.")
-      val cpgPath = cpg.graph.storagePathMaybe.get
-      cpg.close()
-
       try {
         astBuilder(buildDir)
-        Cpg.withStorage(cpgPath) // re-open graph
+        cpg
       } finally {
-        // TODO: Consider cleanup strategy
-        //        buildDir.deleteRecursively
+        buildDir.deleteRecursively
       }
     }
   }
-
+  
 }
-

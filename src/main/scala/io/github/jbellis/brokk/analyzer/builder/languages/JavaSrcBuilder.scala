@@ -1,38 +1,33 @@
 package io.github.jbellis.brokk.analyzer.builder.languages
 
-import io.github.jbellis.brokk.analyzer.JavaAnalyzer
-import io.github.jbellis.brokk.analyzer.builder.IncrementalCpgBuilder
-import io.github.jbellis.brokk.analyzer.builder.IncrementalCpgBuilder.*
+import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.joern.javasrc2cpg.Config as JavaSrcConfig
-import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.semanticcpg.language.*
+import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
+import io.joern.x2cpg.passes.frontend.{JavaConfigFileCreationPass, TypeNodePass}
+import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
-import java.io.IOException
-import java.nio.file.Paths
-import scala.util.Using
+import scala.jdk.CollectionConverters.*
+import scala.util.Try
 
 object JavaSrcBuilder {
 
-  given javaBuilder: IncrementalCpgBuilder[JavaSrcConfig] with {
+  given javaBuilder: CpgBuilder[JavaSrcConfig] with {
 
-    override def build(cpg: Cpg, config: JavaSrcConfig): Cpg = {
-      if (cpg.metaData.nonEmpty) {
-        val fileChanges = IncrementalCpgBuilder.determineChangedFiles(cpg, Paths.get(config.inputPath))
-        cpg.removeStaleFiles(fileChanges)
-        cpg.buildAddedAsts(fileChanges, buildDir => buildCpgFromConfig(cpg, config.withInputPath(buildDir.toString)))
-      } else {
-        buildCpgFromConfig(cpg, config)
-      }
-    }
+    override protected val language: String = "Java"
 
-    private def buildCpgFromConfig(cpg: Cpg, config: JavaSrcConfig): Cpg = {
-      Using.resource(JavaAnalyzer.createAst(cpg, config).getOrElse {
-        throw new IOException("Failed to create Java CPG")
-      }) { cpg =>
-        JavaAnalyzer.applyPasses(cpg).getOrElse {
-          throw new IOException("Failed to apply post-processing on Java CPG")
-        }
+    override def createAst(cpg: Cpg, config: JavaSrcConfig): Try[Cpg] = Try {
+      createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)
+      val astCreationPass = new AstCreationPass(config, cpg)
+      astCreationPass.createAndApply()
+      astCreationPass.sourceParser.cleanupDelombokOutput()
+      astCreationPass.clearJavaParserCaches()
+      new OuterClassRefPass(cpg).createAndApply()
+      JavaConfigFileCreationPass(cpg).createAndApply()
+      if (!config.skipTypeInfPass) {
+        TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
+        new TypeInferencePass(cpg).createAndApply()
       }
+      cpg
     }
 
   }

@@ -17,7 +17,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
    * Tests the incremental construction of a project via two changes. Each change must have configurations pointing to
    * different directories to avoid collisions.
    */
-  def testIncremental(beforeChange: MockProject[R], afterChange: MockProject[R])(using builder: IncrementalCpgBuilder[R]): Unit = {
+  def testIncremental(beforeChange: MockProject[R], afterChange: MockProject[R])(using builder: CpgBuilder[R]): Unit = {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
       beforeChange.config.inputPath should not be afterChange.config.inputPath
     }
@@ -85,30 +85,30 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
 
     // Determine all major structures are present and loosely equivalent
     withClue("Not all methods are equivalent in the updated graph.") {
-      fromScratch.method.fullName.toSet shouldBe updated.method.fullName.toSet
+      fromScratch.method.fullName.sorted.toList shouldBe updated.method.fullName.sorted.toList
     }
     withClue("Not all type declarations are equivalent in the updated graph.") {
-      fromScratch.typeDecl.fullName.toSet shouldBe updated.typeDecl.fullName.toSet
+      fromScratch.typeDecl.fullName.sorted.toList shouldBe updated.typeDecl.fullName.sorted.toList
     }
     withClue("Not all namespace blocks are equivalent in the updated graph.") {
-      fromScratch.namespaceBlock.fullName.toSet shouldBe updated.namespaceBlock.fullName.toSet
+      fromScratch.namespaceBlock.fullName.sorted.toList shouldBe updated.namespaceBlock.fullName.sorted.toList
     }
     withClue("Not all imports are equivalent in the updated graph.") {
-      fromScratch.imports.importedEntity.toSet shouldBe updated.imports.importedEntity.toSet
+      fromScratch.imports.importedEntity.sorted.toList shouldBe updated.imports.importedEntity.sorted.toList
     }
 
     // Determine basic AST equivalence
     withClue("Not all methods have the same type decl parents.") {
-      fromScratch.method.map(m => (m.fullName -> m.typeDecl.map(_.fullName).sorted.l)).toSet shouldBe
-        updated.method.map(m => (m.fullName -> m.typeDecl.map(_.fullName).sorted.l)).toSet
+      fromScratch.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.toList shouldBe
+        updated.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.toList
     }
     withClue("Not all namespace blocks have the same type decl children.") {
-      fromScratch.namespaceBlock.map(n => (n.name -> n.typeDecl.map(_.fullName).sorted.l)).toSet shouldBe
-        updated.namespaceBlock.map(n => (n.name -> n.typeDecl.map(_.fullName).sorted.l)).toSet
+      fromScratch.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.toList shouldBe
+        updated.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.toList
     }
     withClue("Not all files have the source-file children.") {
-      fromScratch.file.map(f => (f.name -> f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).toSet shouldBe
-        updated.file.map(f => (f.name -> f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).toSet
+      fromScratch.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.toList shouldBe
+        updated.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.toList
     }
   }
 
