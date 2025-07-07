@@ -25,9 +25,11 @@ public final class ClasspathHttpServer {
     private final int port;
     private final AtomicBoolean isShuttingDown = new AtomicBoolean(false);
 
+    private static final int FIXED_PORT = 27783;
+
     private ClasspathHttpServer() throws IOException {
-        // Bind to loopback address on a random available port
-        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        // Bind to loopback address on a fixed port
+        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), FIXED_PORT), 0);
         port = server.getAddress().getPort();
         logger.info("Starting embedded HTTP server on port {}", port);
 
@@ -97,10 +99,8 @@ public final class ClasspathHttpServer {
             } else {
                 var headers = exchange.getResponseHeaders();
                 headers.add("Content-Type", guessContentType(resourcePath));
-                // Add cache control for static assets
-                if (!path.endsWith(".html")) {
-                    headers.add("Cache-Control", "max-age=3600");
-                }
+                // Add cache control for all static assets, including HTML
+                headers.add("Cache-Control", "public, max-age=31536000, immutable");
                 exchange.sendResponseHeaders(200, 0);
                 in.transferTo(exchange.getResponseBody());
             }
