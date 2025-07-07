@@ -11,6 +11,9 @@ import ts from 'shiki/langs/typescript.mjs';
 import python from 'shiki/langs/python.mjs';
 import java from 'shiki/langs/java.mjs';
 import bash from 'shiki/langs/bash.mjs';
+import json from 'shiki/langs/json.mjs';
+import yaml from 'shiki/langs/yaml.mjs';
+import markdown from 'shiki/langs/markdown.mjs';
 
 // Define a CSS variables theme
 const cssVarsTheme = createCssVariablesTheme({
@@ -33,7 +36,7 @@ const languageAttributeTransformer = {
 // Singleton promise for the Shiki highlighter
 const highlighterPromise = createHighlighterCore({
   themes: [cssVarsTheme],
-  langs: [js, ts, python, bash],
+  langs: [js, ts, python, java, bash, json, yaml, markdown],
   engine: createJavaScriptRegexEngine({
     target: 'ES2018',
     forgiving: true
