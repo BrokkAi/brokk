@@ -15,6 +15,8 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.regex.Pattern;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.LinkedHashMap;
+import java.nio.file.Files;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
@@ -42,11 +44,30 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         "abstract_class_declaration", "class"
     );
 
-    // Cache for text slices to reduce string creation
-    private final Map<String, String> textSliceCache = new ConcurrentHashMap<>();
+    // Cache configuration constants
+    private static final int MAX_TEXT_CACHE_SIZE = 10000;
+    private static final int MAX_AMBIENT_CACHE_SIZE = 5000;
+    private static final int MAX_PARENT_CACHE_SIZE = 2500;
 
-    // Cache for ambient context checks to avoid tree traversal
-    private final Map<TSNode, Boolean> ambientContextCache = new ConcurrentHashMap<>();
+    // Bounded LRU cache for text slices
+    private final Map<String, String> textSliceCache = Collections.synchronizedMap(
+        new LinkedHashMap<String, String>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > MAX_TEXT_CACHE_SIZE;
+            }
+        }
+    );
+
+    // Bounded LRU cache for ambient context checks - use position-based keys to avoid TSNode retention
+    private final Map<String, Boolean> ambientContextCache = Collections.synchronizedMap(
+        new LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                return size() > MAX_AMBIENT_CACHE_SIZE;
+            }
+        }
+    );
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
@@ -275,19 +296,19 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 signatureBuilder.append(combinedPrefix);
             }
             if (!keyword.isEmpty()) {
-                if (signatureBuilder.length() > 0) signatureBuilder.append(" ");
+                if (!signatureBuilder.isEmpty()) signatureBuilder.append(" ");
                 signatureBuilder.append(keyword);
             }
             if (!functionName.isEmpty() || (keyword.equals("constructor") && functionName.isEmpty())) {
                 // Add functionName + typeParams for regular functions and constructors
-                if (signatureBuilder.length() > 0 && !keyword.equals("constructor")) {
+                if (!signatureBuilder.isEmpty() && !keyword.equals("constructor")) {
                     signatureBuilder.append(" ");
                 }
                 signatureBuilder.append(functionName).append(typeParamsText);
             } else if (keyword.equals("new")) {
                 // For constructor signatures, add type parameters separately since there's no function name
                 if (!typeParamsText.isEmpty()) {
-                    if (signatureBuilder.length() > 0) signatureBuilder.append(" ");
+                    if (!signatureBuilder.isEmpty()) signatureBuilder.append(" ");
                     signatureBuilder.append(typeParamsText);
                 }
             }
@@ -356,7 +377,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
              // Case where class keyword is not followed by space, e.g. "class<T>"
              remainingSignature = remainingSignature.substring(classKeyword.length()).stripLeading();
         }
-
 
         // remainingSignature is now "ClassName<Generics> extends Base implements Iface"
         // exportAndModifierPrefix already has a trailing space if it's not empty.
@@ -446,7 +466,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return checkAmbientContextDirect(node);
         }
 
-        return ambientContextCache.computeIfAbsent(node, n -> checkAmbientContextDirect(n));
+        // Use position-based key instead of TSNode reference to avoid memory leaks
+        String nodeKey = node.getStartByte() + ":" + node.getEndByte();
+        return ambientContextCache.computeIfAbsent(nodeKey, k -> checkAmbientContextDirect(node));
     }
 
     private boolean checkAmbientContextDirect(TSNode node) {
@@ -464,9 +486,45 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         var skeletons = super.getSkeletons(file);
 
-        // Clean up and deduplicate skeletons to match test expectations
-        var cleaned = new HashMap<CodeUnit, String>(skeletons.size());
+        // First, remove duplicate CodeUnits for arrow functions
+        // Arrow functions get captured both as function definitions and variable declarations
+        var deduplicatedSkeletons = new HashMap<String, Map.Entry<CodeUnit, String>>();
+        var arrowFunctionInfo = new HashMap<String, CodeUnit>(); // basename -> function CodeUnit
+
+        // First pass: collect all function-type arrow functions
         for (var entry : skeletons.entrySet()) {
+            CodeUnit cu = entry.getKey();
+            if (cu.isFunction()) {
+                String basename = getBaseName(cu.fqName());
+                arrowFunctionInfo.put(basename, cu);
+            }
+        }
+
+        // Second pass: process all CodeUnits, skipping field versions when function versions exist
+        for (var entry : skeletons.entrySet()) {
+            CodeUnit cu = entry.getKey();
+            String fqn = cu.fqName();
+            String basename = getBaseName(fqn);
+
+            // Skip arrow functions that are nested inside function bodies (not direct namespace/module declarations)
+            if (cu.isFunction() && isNestedInFunctionBody(basename, entry.getValue())) {
+                continue;
+            }
+
+            // Handle arrow function duplicates: prefer function-type over field-type
+            if (cu.kind() == CodeUnitType.FIELD && fqn.startsWith("_module_.")) {
+                if (arrowFunctionInfo.containsKey(basename)) {
+                    // Function version exists, skip this field version
+                    continue;
+                }
+            }
+
+            deduplicatedSkeletons.put(fqn, entry);
+        }
+
+        // Clean up and deduplicate skeletons to match test expectations
+        var cleaned = new HashMap<CodeUnit, String>(deduplicatedSkeletons.size());
+        for (var entry : deduplicatedSkeletons.values()) {
             CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
@@ -478,7 +536,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 skeleton = TRAILING_SEMICOLON.matcher(skeleton).replaceAll("");
             }
 
-            // Remove semicolons from type alias lines anywhere in the skeleton - optimize with StringBuilder
+            // Remove semicolons from type alias lines and filter out nested arrow functions
+            skeleton = filterNestedArrowFunctions(skeleton, cu);
+
             var lines = skeleton.split("\n");
             var skeletonBuilder = new StringBuilder(skeleton.length());
             for (int i = 0; i < lines.length; i++) {
@@ -528,6 +588,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         for (String line : lines) {
             String trimmedLine = line.trim();
 
+
             // Keep structural lines and only deduplicate content
             if (trimmedLine.isEmpty() || trimmedLine.equals("{") || trimmedLine.equals("}")) {
                 result.add(line);
@@ -535,7 +596,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
 
             // Handle interface/class/enum header duplication (e.g., "export interface Point {" vs "interface Point {")
-            // Check if this line is a non-export version of a previous export line
+            // Also handle function signature variations (skeleton vs full source)
             boolean isDuplicate = false;
             for (String seenLine : seen) {
                 // Check if the seen line is an export version of the current line
@@ -558,6 +619,25 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     isDuplicate = true;
                     break;
                 }
+
+                // Handle function signature variations: "func() => { ... }" vs "func() => { implementation }"
+                if (isFunctionSignatureVariation(seenLine, trimmedLine)) {
+                    // Prefer the skeleton version (with { ... }) over full implementation
+                    if (trimmedLine.contains("{ ... }")) {
+                        // Current line is skeleton, replace the implementation
+                        seen.remove(seenLine);
+                        seen.add(trimmedLine);
+                        for (int i = 0; i < result.size(); i++) {
+                            if (result.get(i).trim().equals(seenLine)) {
+                                result.set(i, line);
+                                break;
+                            }
+                        }
+                    }
+                    // Either way, it's a duplicate
+                    isDuplicate = true;
+                    break;
+                }
             }
 
             if (!isDuplicate && seen.add(trimmedLine)) {
@@ -566,6 +646,177 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         return String.join("\n", result);
+    }
+
+    /**
+     * Check if two lines represent the same function signature with different body representations.
+     * E.g., "const func = () => { ... }" vs "const func = () => { implementation }"
+     */
+    private boolean isFunctionSignatureVariation(String line1, String line2) {
+        // Quick check: both must contain "=>" for arrow functions, or both contain "function"
+        boolean bothArrow = line1.contains("=>") && line2.contains("=>");
+        boolean bothFunction = line1.contains("function ") && line2.contains("function ");
+
+        if (!bothArrow && !bothFunction) {
+            return false;
+        }
+
+        // Extract signature part (everything before the body)
+        String sig1 = extractFunctionSignature(line1);
+        String sig2 = extractFunctionSignature(line2);
+
+        return sig1.equals(sig2) && !sig1.isEmpty();
+    }
+
+    private String extractFunctionSignature(String line) {
+        // For arrow functions: extract everything up to "=> " (including arrow)
+        if (line.contains("=>")) {
+            int arrowIndex = line.indexOf("=>");
+            if (arrowIndex > 0) {
+                // Include the "=> " part but not the body
+                return line.substring(0, arrowIndex + 2).trim();
+            }
+        }
+
+        // For regular functions: extract everything up to the opening brace
+        if (line.contains("function ")) {
+            int braceIndex = line.indexOf("{");
+            if (braceIndex > 0) {
+                return line.substring(0, braceIndex).trim();
+            }
+        }
+
+        return "";
+    }
+
+    /**
+     * Extract the base name from an FQN (remove _module_. prefix if present)
+     */
+    private String getBaseName(String fqn) {
+        if (fqn.startsWith("_module_.")) {
+            return fqn.substring("_module_.".length());
+        }
+        return fqn;
+    }
+
+    /**
+     * Check if an arrow function is nested inside a function body rather than being a direct declaration.
+     * This helps filter out arrow functions like 'const nestedArrow = () => ...' that are defined
+     * inside function bodies and should not appear in skeletons.
+     */
+    private boolean isNestedInFunctionBody(String basename, String skeleton) {
+        // For arrow functions, check the skeleton structure
+        // Arrow functions that are direct namespace/module declarations should have proper declaration syntax
+        String[] lines = skeleton.split("\n");
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            // Check if this line contains our arrow function with a proper declaration pattern
+            if (trimmed.contains(basename + " =") && trimmed.contains("=>")) {
+                // Check if it has proper declaration keywords (const/let/export at line start)
+                if (trimmed.startsWith("const ") || trimmed.startsWith("let ") ||
+                    trimmed.startsWith("export const ") || trimmed.startsWith("export let ")) {
+                    return false; // This is a proper direct declaration
+                }
+                // If it appears without proper declaration keywords, it's likely nested
+                return true;
+            }
+        }
+
+        // Default: assume it's nested if we can't identify it as a direct declaration
+        return false;
+    }
+
+    /**
+     * Filter out nested arrow functions from skeletons based on context analysis.
+     * This method looks at the CodeUnit context and source file structure to identify
+     * arrow functions that are incorrectly captured at the wrong scope level.
+     */
+    private String filterNestedArrowFunctions(String skeleton, CodeUnit cu) {
+        // Only apply filtering to namespace/module skeletons where nested functions might appear
+        if (!cu.isClass() || !skeleton.contains("=>")) {
+            return skeleton;
+        }
+
+        // Read the source file to understand the actual structure
+        String sourceContent;
+        try {
+            sourceContent = Files.readString(cu.source().absPath());
+        } catch (Exception e) {
+            log.debug("Could not read source file for nested function filtering: {}", e.getMessage());
+            return skeleton; // If we can't read the source, don't filter
+        }
+
+        var lines = skeleton.split("\n");
+        var filteredLines = new ArrayList<String>();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            // Check if this is a const arrow function line
+            if (trimmed.startsWith("const ") && trimmed.contains("=>") && trimmed.contains("{ ... }")) {
+                // Extract the function name
+                var matcher = java.util.regex.Pattern.compile("const\\s+(\\w+)\\s*=").matcher(trimmed);
+                if (matcher.find()) {
+                    String functionName = matcher.group(1);
+
+                    // Check if this function is actually defined inside another function in the source
+                    if (isActuallyNestedInSource(functionName, sourceContent)) {
+                        continue; // Skip this line - it's a nested function
+                    }
+                }
+            }
+
+            filteredLines.add(line);
+        }
+
+        return String.join("\n", filteredLines);
+    }
+
+    /**
+     * Check if a function is actually nested inside another function in the source code.
+     */
+    private boolean isActuallyNestedInSource(String functionName, String sourceContent) {
+        // Look for the function definition in the source
+        String functionPattern = "const\\s+" + functionName + "\\s*=.*=>";
+        var pattern = java.util.regex.Pattern.compile(functionPattern);
+        var matcher = pattern.matcher(sourceContent);
+
+        if (matcher.find()) {
+            int functionStart = matcher.start();
+
+            // Look backwards from the function definition to find if it's inside a function body
+            String beforeFunction = sourceContent.substring(0, functionStart);
+
+            // Count open/close braces to determine nesting level
+            int braceDepth = 0;
+            boolean insideFunctionBody = false;
+
+            // Simple heuristic: if we find an unmatched opening brace from a function,
+            // this arrow function is nested
+            for (int i = beforeFunction.length() - 1; i >= 0; i--) {
+                char c = beforeFunction.charAt(i);
+                if (c == '}') {
+                    braceDepth++;
+                } else if (c == '{') {
+                    braceDepth--;
+                    if (braceDepth < 0) {
+                        // We found an unmatched opening brace - check if it's from a function
+                        String precedingContext = beforeFunction.substring(Math.max(0, i - 50), i);
+                        if (precedingContext.contains("function ") || precedingContext.contains(") => ") ||
+                            precedingContext.contains("): ") || precedingContext.contains(") {")) {
+                            insideFunctionBody = true;
+                            break;
+                        }
+                        braceDepth = 0;  // Reset for next potential function
+                    }
+                }
+            }
+
+            return insideFunctionBody;
+        }
+
+        return false;
     }
 
     /**
@@ -665,15 +916,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // This is a const/let declaration containing an arrow function
             TSNode variableDeclarator = null;
             TSNode arrowFunctionNode = null;
-            String declarationKeyword = "";
 
             // Find the declaration keyword (const, let) and variable_declarator
             for (int i = 0; i < lexicalDeclaration.getChildCount(); i++) {
                 TSNode child = lexicalDeclaration.getChild(i);
                 String childText = cachedTextSlice(child, src);
-                if ("const".equals(childText) || "let".equals(childText)) {
-                    declarationKeyword = childText;
-                } else if ("variable_declarator".equals(child.getType())) {
+                if ("variable_declarator".equals(child.getType())) {
                     variableDeclarator = child;
                     // Look for arrow_function in the value
                     for (int j = 0; j < child.getChildCount(); j++) {
@@ -797,39 +1045,61 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
-    // Cache for parent-child relationships to avoid expensive contains() lookups
-    private final Map<CodeUnit, CodeUnit> parentCache = new ConcurrentHashMap<>();
+    // Bounded LRU cache for parent-child relationships using string keys to avoid object retention
+    private final Map<String, String> parentCache = Collections.synchronizedMap(
+        new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
+                return size() > MAX_PARENT_CACHE_SIZE;
+            }
+        }
+    );
 
     /**
      * Find the top-level parent CodeUnit for a given CodeUnit.
      * If the CodeUnit has no parent, it returns itself.
      */
     private CodeUnit findTopLevelParent(CodeUnit cu) {
-        // Build parent cache if not already done for this CU
-        if (!parentCache.containsKey(cu)) {
-            buildParentCache();
+        String cuKey = cu.fqName();
+
+        // Check if we have the top-level result cached
+        String topLevelKey = parentCache.get(cuKey + ":toplevel");
+        if (topLevelKey != null) {
+            // Find the CodeUnit by fqName
+            for (CodeUnit candidate : signatures.keySet()) {
+                if (candidate.fqName().equals(topLevelKey)) {
+                    return candidate;
+                }
+            }
         }
 
-        // Traverse up the parent chain
+        // Build parent chain lazily
         CodeUnit current = cu;
-        CodeUnit parent = parentCache.get(current);
+        CodeUnit parent = findDirectParent(current);
         while (parent != null) {
+            // Cache the relationship using string keys
+            parentCache.put(current.fqName(), parent.fqName());
             current = parent;
-            parent = parentCache.get(current);
+            parent = findDirectParent(current);
         }
+
+        // Cache the top-level result
+        parentCache.put(cuKey + ":toplevel", current.fqName());
         return current;
     }
 
-    private void buildParentCache() {
-        // Build reverse lookup map once
+    /**
+     * Find direct parent of a CodeUnit by looking in childrenByParent map
+     */
+    private CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : childrenByParent.entrySet()) {
             CodeUnit parent = entry.getKey();
             List<CodeUnit> children = entry.getValue();
-            for (CodeUnit child : children) {
-                parentCache.put(child, parent);
+            if (children.contains(cu)) {
+                return parent;
             }
         }
+        return null;
     }
-
 
 }
