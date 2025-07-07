@@ -19,6 +19,16 @@ const cssVarsTheme = createCssVariablesTheme({
   fontStyle: true
 });
 
+// Custom transformer to add data-language attribute dynamically
+const languageAttributeTransformer = {
+  name: 'add-language-attributes',
+  pre(node) {
+    node.properties = node.properties || {};
+    node.properties['data-language'] = this.options.lang;
+    return node;
+  }
+};
+
 // Singleton promise for the Shiki plugin
 export const shikiPluginPromise: Promise<Plugin> = createHighlighterCore({
   themes: [cssVarsTheme],
@@ -28,7 +38,15 @@ export const shikiPluginPromise: Promise<Plugin> = createHighlighterCore({
     forgiving: true
   }),
 }).then(highlighter => ({
-  rehypePlugin: [rehypeShikiFromHighlighter, highlighter, { theme: 'css-vars', colorsRendering: 'css-vars' }]
+  rehypePlugin: [
+    rehypeShikiFromHighlighter,
+    highlighter,
+    {
+      theme: 'css-vars',
+      colorsRendering: 'css-vars',
+      transformers: [languageAttributeTransformer]
+    }
+  ]
 }));
 
 // Function to dynamically load additional languages
