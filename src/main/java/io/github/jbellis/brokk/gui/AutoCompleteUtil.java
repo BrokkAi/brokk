@@ -126,6 +126,35 @@ public class AutoCompleteUtil {
     }
 
     /**
+     * Extracts the text token immediately preceding the caret position in a JTextComponent.
+     * The token is defined as the sequence of non-whitespace characters before the caret.
+     * This is useful for providing context for autocompletion.
+     *
+     * @param comp The JTextComponent from which to extract the token.
+     * @return The text token before the caret, or an empty string if none exists.
+     */
+    public static String getWordBeforeCaret(JTextComponent comp) {
+        try {
+            int caretPos = comp.getCaretPosition();
+            String text = comp.getDocument().getText(0, caretPos);
+
+            int start = text.length();
+            while (start > 0) {
+                char c = text.charAt(start - 1);
+                if (Character.isWhitespace(c)) {
+                    break;
+                }
+                start--;
+            }
+
+            return text.substring(start);
+        } catch (Exception e) {
+            logger.warn("Could not get word before caret", e);
+            return "";
+        }
+    }
+
+    /**
      * Helper to get the description text, handling ShorthandCompletion.
      */
     private static @Nullable String getCompletionDescription(Completion c) {

@@ -32,10 +32,20 @@ import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import com.google.common.base.Splitter;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.DocumentEvent;
@@ -63,6 +73,7 @@ import java.util.function.BiConsumer;
 import java.util.stream.Stream;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 
@@ -126,6 +137,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private @Nullable String lastCheckedInputText = null;
     private @Nullable float[][] lastCheckedEmbeddings = null;
     private @Nullable List<FileReferenceData> pendingQuickContext = null;
+    private final @Nullable InstructionCompletionProvider instructionCompletionProvider;
 
     public InstructionsPanel(Chrome chrome) {
         super(new BorderLayout(2, 2));
@@ -285,6 +297,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // Add this panel as a listener to context changes, only if CM is available
         this.contextManager.addContextListener(this);
+
+        // --- Autocomplete Setup ---
+        if (this.contextManager != null) {
+            instructionCompletionProvider = new InstructionCompletionProvider(this.contextManager);
+            var autoCompletion = new AutoCompletion(instructionCompletionProvider);
+            autoCompletion.setAutoActivationEnabled(true);
+            autoCompletion.setAutoActivationDelay(100);
+            autoCompletion.install(instructionsArea);
+        } else {
+            instructionCompletionProvider = null;
+        }
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
@@ -1618,6 +1641,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     @Override
     public void contextChanged(Context newCtx) {
+        if (instructionCompletionProvider != null) {
+            instructionCompletionProvider.refreshSymbolsFromContext();
+        }
         // Otherwise, proceed with the normal suggestion logic by submitting a task
         logger.debug("Context changed externally, triggering suggestion check.");
         triggerContextSuggestion(null); // Use null ActionEvent to indicate non-timer trigger
@@ -1868,6 +1894,127 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 isPopupOpen = false; // Reset guard on any other error
                 logger.error("Error showing @ popup", ex);
             }
+        }
+    }
+
+    /**
+     * A custom completion provider for the instructions text area.
+     * It provides both file path and code symbol completions.
+     */
+    private class InstructionCompletionProvider extends DefaultCompletionProvider {
+        private final ContextManager contextManager;
+        private volatile List<String> cachedSymbols = List.of();
+
+        public InstructionCompletionProvider(ContextManager contextManager) {
+            this.contextManager = requireNonNull(contextManager);
+            refreshSymbolsFromContext(); // Initial population
+        }
+
+        /**
+         * Asynchronously refreshes the cache of code symbols from the current workspace context.
+         * This should be called when the context changes.
+         */
+        public void refreshSymbolsFromContext() {
+            long myGen = suggestionGeneration.incrementAndGet();
+            suggestionWorker.submit(() -> {
+                if (myGen != suggestionGeneration.get()) return; // Stale task
+
+                logger.debug("Refreshing symbol cache for autocomplete");
+                IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+                if (analyzer == null) return;
+
+                var sources = contextManager.liveContext().allFragments()
+                                            .flatMap(f -> f.sources().stream())
+                                            .collect(Collectors.toSet());
+                if (sources.isEmpty()) {
+                    cachedSymbols = List.of();
+                    return;
+                }
+
+                var fullSymbols = analyzer.getSymbols(sources);
+                var symbols = new HashSet<String>();
+                // Add FQNs
+                symbols.addAll(fullSymbols);
+                // Add short names from sources
+                sources.forEach(s -> symbols.add(s.shortName()));
+                // Add short names from FQNs
+                fullSymbols.stream()
+                           .map(s -> {
+                               List<String> parts = Splitter.on('.').splitToList(s);
+                               return parts.isEmpty() ? null : parts.getLast();
+                           })
+                           .filter(Objects::nonNull)
+                           .forEach(symbols::add);
+
+                var sortedSymbols = new ArrayList<>(symbols);
+                Collections.sort(sortedSymbols); // Sort for stable order
+                cachedSymbols = List.copyOf(sortedSymbols);
+                logger.debug("Refreshed autocomplete symbol cache with {} symbols", cachedSymbols.size());
+            });
+        }
+
+        @Override
+        public String getAlreadyEnteredText(JTextComponent comp) {
+            return AutoCompleteUtil.getWordBeforeCaret(comp);
+        }
+
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String pattern = getAlreadyEnteredText(comp);
+            if (pattern.isBlank() || pattern.length() < 2) { // Don't show for very short patterns
+                return List.of();
+            }
+
+            var allCompletions = new ArrayList<Completion>();
+            allCompletions.addAll(getFileCompletions(pattern));
+            allCompletions.addAll(getSymbolCompletions(pattern));
+            return allCompletions;
+        }
+
+        private List<Completion> getFileCompletions(String pattern) {
+            var project = contextManager.getProject();
+            if (!project.hasGit()) return List.of();
+
+            var trackedFiles = project.getRepo().getTrackedFiles();
+            if (trackedFiles.isEmpty()) return List.of();
+
+            var candidatePaths = trackedFiles.stream()
+                                             .map(ProjectFile::absPath)
+                                             .collect(Collectors.toSet());
+
+            var comps = Completions.scoreShortAndLong(
+                    pattern,
+                    candidatePaths,
+                    p -> p.getFileName().toString(),
+                    Path::toString,
+                    p -> 0, // No tie-breaker needed for now
+                    this::createPathCompletion);
+
+            return comps.stream().map(c -> (Completion) c).toList();
+        }
+
+        private ShorthandCompletion createPathCompletion(Path path) {
+            Path relPath = contextManager.getRoot().relativize(path);
+            String replacementText = relPath.toString();
+            String summary = "[File] " + replacementText;
+            return new ShorthandCompletion(this, relPath.getFileName().toString(), replacementText, summary);
+        }
+
+        private List<Completion> getSymbolCompletions(String pattern) {
+            var lowerPattern = pattern.toLowerCase(Locale.ROOT);
+            return cachedSymbols.stream()
+                                .filter(s -> s.toLowerCase(Locale.ROOT).contains(lowerPattern))
+                                .limit(50) // Avoid overwhelming the UI
+                                .map(this::createSymbolCompletion)
+                                .map(c -> (Completion) c)
+                                .toList();
+        }
+
+        private ShorthandCompletion createSymbolCompletion(String fqName) {
+            String shortName = fqName.substring(fqName.lastIndexOf('.') + 1);
+            // Use FQ name for replacement to be unambiguous
+            String summary = "[Symbol] " + shortName;
+            return new ShorthandCompletion(this, shortName, fqName, summary);
         }
     }
 }
