@@ -18,6 +18,7 @@ import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -1025,13 +1026,34 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             }
 
             // 6. Everything else (virtual fragments, skeletons, etc.)
-            var previewPanel = new PreviewTextPanel(contextManager,
-                                                    null,
-                                                    workingFragment.text(),
-                                                    workingFragment.syntaxStyle(),
-                                                    themeManager,
-                                                    workingFragment);
-            showPreviewFrame(contextManager, title, previewPanel);
+            if (workingFragment.isText() && workingFragment.syntaxStyle().equals(SyntaxConstants.SYNTAX_STYLE_MARKDOWN)) {
+                // Render as Markdown using a minimal TaskEntry wrapper
+                var markdownPanel = new MarkdownOutputPanel(false); // false = do not escape HTML
+                markdownPanel.updateTheme(themeManager.isDarkTheme());
+                
+                // Create a minimal TaskEntry to wrap the markdown content
+                var taskEntry = new TaskEntry(-1, 
+                    new ContextFragment.TaskFragment(contextManager, 
+                        List.of(dev.langchain4j.data.message.AiMessage.from(workingFragment.text())), 
+                        workingFragment.description()),
+                    null);
+                markdownPanel.setText(taskEntry);
+
+                var scrollPane = new JScrollPane(markdownPanel);
+                scrollPane.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+                scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
+                showPreviewFrame(contextManager, title, scrollPane);
+            } else {
+                // Fallback to default text panel
+                var previewPanel = new PreviewTextPanel(contextManager,
+                                                        null,
+                                                        workingFragment.text(),
+                                                        workingFragment.syntaxStyle(),
+                                                        themeManager,
+                                                        workingFragment);
+                showPreviewFrame(contextManager, title, previewPanel);
+            }
         } catch (IOException ex) {
             toolError("Error reading fragment content: " + ex.getMessage());
             logger.error("Error reading fragment content for preview", ex);
