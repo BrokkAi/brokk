@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.PreviewTextPanel;
 import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
+import io.github.jbellis.brokk.gui.mop.MarkdownOutputPool;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
@@ -255,6 +256,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return null;
             });
         }
+
+        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
     }
 
     /**
@@ -736,7 +739,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
 
         // Create main content panel to hold search bar and content
-        var contentPanel = new SearchableContentPanel(componentsWithChatBackground);
+        var contentPanel = new SearchableContentPanel(componentsWithChatBackground, markdownPanels);
         componentsWithChatBackground.add(contentPanel);
 
         // Create searchable component adapter and generic search bar
@@ -784,6 +787,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
      */
     public void showPreviewFrame(ContextManager contextManager, String title, JComponent contentComponent) {
         JFrame previewFrame = newFrame(title);
+        previewFrame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
         previewFrame.setContentPane(contentComponent);
         previewFrame.setBackground(themeManager.isDarkTheme()
                                         ? UIManager.getColor("chat_background")
@@ -819,6 +823,20 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         // Other preview types should use DISPOSE_ON_CLOSE for normal close behavior
         if (contentComponent instanceof PreviewTextPanel) {
             previewFrame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+        }
+
+        if (contentComponent instanceof SearchableContentPanel scp) {
+            var panels = scp.getMarkdownPanels();
+            if (!panels.isEmpty()) {
+                previewFrame.addWindowListener(new WindowAdapter() {
+                    @Override
+                    public void windowClosed(WindowEvent e) {
+                        for (var panel : scp.getMarkdownPanels()) {
+                            MarkdownOutputPool.instance().giveBack(panel);
+                        }
+                    }
+                });
+            }
         }
 
         // Add ESC key binding to close the window (delegates to windowClosing)
@@ -916,7 +934,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
             // 2. Output-only fragments (Task / History / Search)
             if (workingFragment.getType().isOutputFragment()) {
                 var outputFragment = (ContextFragment.OutputFragment) workingFragment;
-                var escapeHtml = outputFragment.isEscapeHtml();
+                // var escapeHtml = outputFragment.isEscapeHtml();
                 var combinedMessages = new ArrayList<ChatMessage>();
                 
                 for (TaskEntry entry : outputFragment.entries()) {
@@ -928,7 +946,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                     }
                 }
 
-                var markdownPanel = new MarkdownOutputPanel(escapeHtml);
+                var markdownPanel = MarkdownOutputPool.instance().borrow();
                 markdownPanel.updateTheme(themeManager.isDarkTheme());
                 markdownPanel.setText(combinedMessages);
                 markdownPanel.scheduleCompaction();
@@ -1541,10 +1559,16 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     private static class SearchableContentPanel extends JPanel implements ThemeAware {
         private final List<JComponent> componentsWithChatBackground;
+        private final List<MarkdownOutputPanel> markdownPanels;
 
-        public SearchableContentPanel(List<JComponent> componentsWithChatBackground) {
+        public SearchableContentPanel(List<JComponent> componentsWithChatBackground, List<MarkdownOutputPanel> markdownPanels) {
             super(new BorderLayout());
             this.componentsWithChatBackground = componentsWithChatBackground;
+            this.markdownPanels = markdownPanels;
+        }
+
+        public List<MarkdownOutputPanel> getMarkdownPanels() {
+            return markdownPanels;
         }
 
         @Override
