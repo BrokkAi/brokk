@@ -7,8 +7,9 @@ import io.joern.x2cpg.Defines as X2CpgDefines
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.LoggerFactory
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
 import scala.collection.mutable
 import scala.io.Source
@@ -735,11 +736,18 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 object CppAnalyzer {
 
+  private val logger = LoggerFactory.getLogger(getClass)
+
   import scala.jdk.CollectionConverters.*
 
   def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
+
+    if Files.exists(cpgPath) then
+      logger.info(s"Updating C/C++ CPG at '$cpgPath'")
+    else
+      logger.info(s"Creating C/C++ CPG at '$cpgPath'")
 
     CConfig()
       .withInputPath(absPath.toString)

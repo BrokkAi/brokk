@@ -29,15 +29,19 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
     }
   }
 
-  override def generateParts(): Array[FileChange] = changedFiles.collect {
-      case x: RemovedFile => x
-      case x: ModifiedFile => x
-    }
-    .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
-    .toArray
+  override def generateParts(): Array[FileChange] = {
+    val filesToRemove = changedFiles.collect {
+        case x: RemovedFile => x
+        case x: ModifiedFile => x
+      }
+      .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
+      .toArray
+    logger.info(s"Removing ${filesToRemove.length} files from the CPG")
+    filesToRemove
+  }
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
-    logger.info(s"Removing nodes associated with '${part.path}'")
+    logger.debug(s"Removing nodes associated with '${part.path}'")
     pathToFileMap.get(part.path.toString) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
       case None => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")

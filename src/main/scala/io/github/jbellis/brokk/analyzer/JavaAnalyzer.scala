@@ -7,8 +7,9 @@ import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.LoggerFactory
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
 import scala.io.Source
 import scala.util.boundary.break
@@ -341,11 +342,18 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 object JavaAnalyzer {
 
+  private val logger = LoggerFactory.getLogger(getClass)
+
   import scala.jdk.CollectionConverters.*
 
   private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
+
+    if Files.exists(cpgPath) then
+      logger.info(s"Updating Java CPG at '$cpgPath'")
+    else
+      logger.info(s"Creating Java CPG at '$cpgPath'")
 
     // Build the CPG
     Config()

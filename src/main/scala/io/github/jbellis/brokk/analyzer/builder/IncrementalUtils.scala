@@ -5,6 +5,7 @@ import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.nio.file.{FileVisitOption, Files, Path, Paths}
@@ -12,6 +13,7 @@ import scala.jdk.CollectionConverters.*
 
 object IncrementalUtils {
 
+  private val logger = LoggerFactory.getLogger(getClass)
   private[brokk] case class PathAndHash(path: String, contents: String)
 
   /**
@@ -84,11 +86,14 @@ object IncrementalUtils {
    */
   private def createNewIncrementalBuildDirectory(projectRoot: Path, fileChanges: Seq[FileChange]): Path = {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
-
-    fileChanges.collect {
+    val filesToMove = fileChanges.collect {
       case x: AddedFile => x.path
       case x: ModifiedFile => x.path
-    }.foreach { path =>
+    }
+    
+    logger.info(s"Moving ${filesToMove.size} files to an incremental build directory at '$tempDir'")
+      
+    filesToMove.foreach { path =>
       val relativePath = Paths.get(path.toString.stripPrefix(projectRoot.toString).stripPrefix(File.separator))
       val newPath = tempDir.resolve(relativePath)
       val newParentDir = newPath.getParent
