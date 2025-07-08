@@ -15,7 +15,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.IOException
-import java.nio.file.{Path, Paths}
+import java.nio.file.Paths
 import scala.util.{Try, Using}
 
 /**
@@ -45,9 +45,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!")
-      val fileChanges = IncrementalUtils
-        .determineChangedFiles(cpg, Paths.get(config.inputPath))
-        .filter(f => isRelevantFile(f.path))
+      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, Paths.get(config.inputPath))
       logger.debug(s"All file changes ${fileChanges.mkString("\n")}")
       cpg.removeStaleFiles(fileChanges)
         .buildAddedAsts(fileChanges, buildDir => runPasses(cpg, config.withInputPath(buildDir.toString)))
@@ -55,14 +53,6 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
       runPasses(cpg, config)
     }
   }
-
-  /**
-   * Used to determine if this file is relevant to the frontend or not.
-   *
-   * @param f the file path.
-   * @return true if this file is intended to be parsed, false if otherwise.
-   */
-  protected def isRelevantFile(f: Path): Boolean
 
   protected def runPasses(cpg: Cpg, config: R): Cpg = {
     Using.resource(createAst(cpg, config).getOrElse {
@@ -143,7 +133,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     Iterator(
       new MethodRefLinker(cpg),
       new idempotent.callgraph.StaticCallLinker(cpg),
-      new DynamicCallLinker(cpg)
+      new idempotent.callgraph.DynamicCallLinker(cpg)
     )
   }
 

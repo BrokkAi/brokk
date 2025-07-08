@@ -10,7 +10,6 @@ import io.joern.x2cpg.SourceFiles
 import io.joern.x2cpg.utils.Report
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
-import java.nio.file.Path
 import scala.util.Try
 
 object CBuilder {
@@ -18,8 +17,6 @@ object CBuilder {
   given cBuilder: CpgBuilder[CConfig] with {
 
     override protected val language: String = "C/C++"
-    private lazy val relevantFileExtensions =
-      FileDefaults.SourceFileExtensions ++ FileDefaults.CppHeaderFileExtensions ++ FileDefaults.PreprocessedExt
 
     override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
@@ -37,9 +34,6 @@ object CBuilder {
       report.print()
       cpg
     }
-
-    override protected def isRelevantFile(f: Path): Boolean =
-      f.getFileName.toString.split('.').lastOption.exists(ext => relevantFileExtensions.contains(s".$ext"))
 
   }
 
