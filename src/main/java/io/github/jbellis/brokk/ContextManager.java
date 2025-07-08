@@ -1,7 +1,17 @@
 package io.github.jbellis.brokk;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
@@ -25,10 +35,13 @@ import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 
 import javax.swing.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,6 +71,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
  */
 public class ContextManager implements IContextManager, AutoCloseable {
     private static final Logger logger = LogManager.getLogger(ContextManager.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
     private AnalyzerWrapper analyzerWrapper;
@@ -1423,16 +1437,136 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
-    public SummarizeWorker submitSummarizePastedText(String pastedContent) {
-        var worker = new SummarizeWorker(this, pastedContent, 12) {
-            @Override
-            protected void done() {
-                io.postSummarize();
-            }
-        };
+    /**
+     * A record to hold the result of analyzing pasted text.
+     */
+    public record PasteAnalysis(String summary, String syntaxStyle) {}
 
-        worker.execute();
-        return worker;
+    /**
+     * Analyzes pasted text content to determine its syntax style and generate a summary.
+     * It uses an LLM with a tool-calling mechanism and will retry if the LLM provides an invalid syntax style.
+     *
+     * @param pastedContent The text content that was pasted.
+     * @return A CompletableFuture that will resolve to a PasteAnalysis record.
+     */
+    public CompletableFuture<PasteAnalysis> analyzePastedText(String pastedContent) {
+        return CompletableFuture.supplyAsync(() -> {
+            // Get all public static final String fields from SyntaxConstants
+            List<String> validSyntaxStyles = Arrays.stream(SyntaxConstants.class.getFields())
+                    .filter(field -> Modifier.isPublic(field.getModifiers()) &&
+                                     Modifier.isStatic(field.getModifiers()) &&
+                                     Modifier.isFinal(field.getModifiers()) &&
+                                     field.getType().equals(String.class))
+                    .map(field -> {
+                        try {
+                            return (String) field.get(null);
+                        } catch (IllegalAccessException e) {
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+
+            var pdt = new PasteDescriptionTool();
+            List<ToolSpecification> toolSpecs = ToolSpecifications.toolSpecificationsFrom(pdt);
+
+            var modelConfig = project.getCodeModelConfig();
+            var service = getService();
+            StreamingChatLanguageModel model = service.getModel(modelConfig.name(), modelConfig.reasoning());
+            if (model == null) {
+                logger.error("Could not get model for paste analysis. Falling back to defaults.");
+                return new PasteAnalysis("Pasted text (model unavailable)", "text/plain");
+            }
+            var llm = getLlm(model, "Analyze pasted text");
+
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(SystemMessage.from("""
+                    You are an expert at analyzing text snippets. Your task is to determine the syntax type of the provided text and write a concise, one-line summary.
+                    You MUST choose a syntax style from the provided list.
+                    Finally, you MUST call the 'describePasteContents' tool with your analysis.
+                    """));
+            messages.add(UserMessage.from(String.format("""
+                    Analyze the following text and select the best syntax style from this list:
+                    %s
+                    
+                    --- TEXT TO ANALYZE ---
+                    %s
+                    """, String.join(", ", validSyntaxStyles), pastedContent)));
+
+            for (int i = 0; i < 3; i++) { // Allow up to 3 attempts
+                try {
+                    Llm.StreamingResult result;
+                    try {
+                        // Use the Llm wrapper to send the request, which handles tool emulation correctly
+                        result = llm.sendRequest(messages, toolSpecs, ToolChoice.AUTO, false);
+                    } catch (InterruptedException e) {
+                        throw new CancellationException(e.getMessage());
+                    }
+
+                    if (result.error() != null) {
+                        logger.error("Error during LLM call for paste analysis", result.error());
+                        break;
+                    }
+
+                    AiMessage response = result.aiMessage();
+                    messages.add(response);
+
+                    if (response.hasToolExecutionRequests()) {
+                        ToolExecutionRequest request = response.toolExecutionRequests().get(0);
+                        if ("describePasteContents".equals(request.name())) {
+                            Map<String, Object> args;
+                            try {
+                                args = OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<>() {});
+                            } catch (JsonProcessingException e) {
+                                logger.error("Failed to parse tool arguments", e);
+                                messages.add(new ToolExecutionResultMessage(request.id(), request.name(), "Error: Invalid JSON in arguments. " + e.getMessage()));
+                                continue;
+                            }
+
+                            String syntaxStyle = (String) args.get("syntaxStyle");
+                            String summary = (String) args.get("summary");
+
+                            if (summary == null || syntaxStyle == null) {
+                                String errorMsg = "Tool call must include both 'summary' and 'syntaxStyle' arguments. Please try again.";
+                                messages.add(new ToolExecutionResultMessage(request.id(), request.name(), errorMsg));
+                                logger.warn("LLM tool call was missing arguments. Retrying.");
+                                continue;
+                            }
+
+                            if (validSyntaxStyles.contains(syntaxStyle)) {
+                                logger.debug("LLM successfully analyzed pasted text. Style: {}, Summary: {}", syntaxStyle, summary);
+                                return new PasteAnalysis(summary, syntaxStyle);
+                            } else {
+                                String errorMsg = String.format("Invalid syntax style '%s' provided. You must choose one of the styles from the original list. Please try again.", syntaxStyle);
+                                messages.add(new ToolExecutionResultMessage(request.id(), request.name(), errorMsg));
+                                logger.warn("LLM provided invalid syntax style: {}. Retrying.", syntaxStyle);
+                            }
+                        }
+                    } else {
+                        messages.add(UserMessage.from("You did not call the 'describePasteContents' tool. Please analyze the text and call the tool with the syntax style and summary."));
+                        logger.warn("LLM did not call the required tool. Retrying.");
+                    }
+                } catch (Throwable e) {
+                     logger.error("Error during LLM call for paste analysis", e);
+                     break; // Exit loop on error
+                }
+            }
+
+            logger.error("Failed to get valid analysis from LLM after multiple retries. Falling back to defaults.");
+            return new PasteAnalysis("Pasted text (analysis failed)", "text/plain");
+
+        }, backgroundTasks);
+    }
+
+    @SuppressWarnings({"UnusedMethod", "UnusedVariable"})
+    private static class PasteDescriptionTool {
+        @Tool("Records the analysis of the pasted text, including its syntax style and a summary.")
+        public void describePasteContents(
+                @P("A concise, one-line summary of the text content.") String summary,
+                @P("The syntax style from the provided list (e.g., 'text/java').") String syntaxStyle
+        ) {
+            // This method is a schema definition for the LLM; it doesn't need to be called.
+        }
     }
 
     public SummarizeWorker submitSummarizeTaskForConversation(String input) {

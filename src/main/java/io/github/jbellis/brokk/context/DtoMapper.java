@@ -206,7 +206,7 @@ public class DtoMapper {
             case UsageFragmentDto usageDto ->
                 new ContextFragment.UsageFragment(usageDto.id(), mgr, usageDto.targetIdentifier());
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()));
+                new ContextFragment.PasteTextFragment(pasteTextDto.id(), mgr, pasteTextDto.text(), CompletableFuture.completedFuture(pasteTextDto.description()), CompletableFuture.completedFuture("text/plain"));
             case PasteImageFragmentDto pasteImageDto -> {
                 Image image = base64ToImage(pasteImageDto.base64ImageData());
                 yield new ContextFragment.AnonymousImageFragment(pasteImageDto.id(), mgr, image, CompletableFuture.completedFuture(pasteImageDto.description()));
@@ -353,6 +353,8 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
                     usageFragment.id(), usageFragment.targetIdentifier());
             case ContextFragment.PasteTextFragment pasteTextFragment -> {
                 String description = getFutureDescription(pasteTextFragment.descriptionFuture, "Paste of ");
+                // Note: syntaxStyle is not saved in the DTO, so it will be lost on session save/load.
+                // It will default to "text/plain" upon deserialization.
                 yield new PasteTextFragmentDto(pasteTextFragment.id(), pasteTextFragment.text(), description);
             }
             case ContextFragment.AnonymousImageFragment pasteImageFragment -> {
@@ -398,7 +400,7 @@ private static BrokkFile fromImageFileDtoToBrokkFile(ImageFileDto ifd, IContextM
         }
         return description;
     }
-    
+
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry) {
         TaskFragmentDto logDto = null;
         if (entry.log() != null) {
