@@ -9,6 +9,7 @@
     import { derived } from 'svelte/store';
     import { ensureAndTrack, loadedLangs } from '../languageStore';
     import CopyablePre from './CopyablePre.svelte';
+    import { editBlockPlugin } from '../lib/edit-block-plugin';
 
     export let bubble: Bubble;
     export let shikiPlugin: Plugin;
@@ -51,6 +52,7 @@
     $: plugins = [
         gfmPlugin(),
         { remarkPlugin: [remarkBreaks] },
+        editBlockPlugin(),
         ...(shikiPlugin && $allLangsLoaded ? [shikiPlugin] : []),
         { renderer: { pre: CopyablePre } }
     ];

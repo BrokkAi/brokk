@@ -17,7 +17,8 @@
   <h1>Brokk MOP - Development Mode</h1>
   <p>Events from Java will be logged to the console and displayed raw below.</p>
   <h3>Dev Tools</h3>
-  <button onclick="simulateAskResponse()">Simulate Ask Response</button>
+  <button onclick="simulateAskResponse()">Simulate Ask</button>
+  <button onclick="simulateEdit()">Simulate Edit</button>
   <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle Theme</button>
   <button onclick="window.brokk.clear()">Clear Log</button>
   <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
@@ -213,6 +214,224 @@ Both approaches:
     let index = 0;
     simulateEvent('clear');
     simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+    const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+    const interval = setInterval(() => {
+      if (index < chunks.length) {
+        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+        index++;
+      } else {
+        clearInterval(interval);
+      }
+    }, 10);
+  }
+
+  function simulateEdit() {
+    const contentUser = `fix it`;
+    const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
+
+Here's the plan:
+1. Modify the temporary stub in \`index.html\` to use a single buffer with a sequence number.
+2. Update the replay logic in \`index.ts\` to process this unified buffer in sequence order.
+
+Here are the *SEARCH/REPLACE* blocks to implement these changes:
+
+\`\`\`
+frontend-mop/index.html
+<<<<<<< SEARCH
+    // Immediately define brokk with a proxy to buffer all early calls from Java
+    (function() {
+      const callQueue = []; // Stores {method, args} for all calls except onEvent
+      const eventBuffer = []; // Stores payloads for onEvent
+
+      window.brokk = new Proxy({
+        _callQueue: callQueue,
+        _eventBuffer: eventBuffer
+      }, {
+        get(target, prop) {
+          // Allow direct access to internal queues
+          if (prop === '_callQueue' || prop === '_eventBuffer') {
+            return target[prop];
+          }
+          // Return a stub function for any other property access
+          return (...args) => {
+            if (prop === 'onEvent') {
+              console.log('Buffering early event from Java:', JSON.stringify(args));
+              eventBuffer.push(...args);
+            } else {
+              console.log('Buffering early call from Java to', prop);
+              callQueue.push({ method: prop, args });
+            }
+            // Provide default return values for synchronous methods
+            if (prop === 'getSelection') {
+              return '';
+            }
+            return undefined;
+          };
+        }
+      });
+    })();
+=======
+    // Immediately define brokk with a proxy to buffer all early calls from Java
+    (function() {
+      const buffer = []; // Unified buffer for all calls and events
+      let seq = 0; // Sequence number to maintain order
+
+      window.brokk = new Proxy({
+        _buffer: buffer
+      }, {
+        get(target, prop) {
+          // Allow direct access to internal buffer
+          if (prop === '_buffer') {
+            return target[prop];
+          }
+          // Return a stub function for any other property access
+          return (...args) => {
+            if (prop === 'onEvent') {
+              console.log('Buffering early event from Java:', JSON.stringify(args));
+              buffer.push({ type: 'event', payload: args[0], seq: seq++ });
+            } else {
+              console.log('Buffering early call from Java to', prop);
+              buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
+            }
+            // Provide default return values for synchronous methods
+            if (prop === 'getSelection') {
+              return '';
+            }
+            return undefined;
+          };
+        }
+      });
+    })();
+>>>>>>> REPLACE
+\`\`\`
+
+\`\`\`
+frontend-mop/src/index.ts
+<<<<<<< SEARCH
+// Retrieve buffered calls and events from the early stub
+const pendingCalls = window.brokk._callQueue || [];
+const bufferedEvents = window.brokk._eventBuffer || [];
+
+// Replace the temporary brokk proxy with the real implementation
+window.brokk = {
+  _callQueue: [],
+  _eventBuffer: [],
+  onEvent: (payload) => {
+    console.log('Received event from Java bridge:', JSON.stringify(payload));
+    eventStore.set(payload);
+
+    // ACK after a frame render to ensure UI has updated
+    if (payload.epoch) {
+      requestAnimationFrame(() => {
+        if (window.javaBridge) {
+          window.javaBridge.onAck(payload.epoch);
+        }
+      });
+    }
+  },
+  getSelection: () => {
+    return window.getSelection()?.toString() ?? '';
+  },
+  clear: () => {
+    eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
+  },
+  setTheme: (dark) => {
+    themeStore.set(dark);
+    if (dark) {
+      document.body.classList.add('theme-dark');
+    } else {
+      document.body.classList.remove('theme-dark');
+    }
+  },
+  showSpinner: (message) => {
+    spinnerStore.set(message);
+  }
+};
+
+// Process any buffered events first to maintain temporal order
+if (bufferedEvents.length > 0) {
+  console.log('Replaying', bufferedEvents.length, 'buffered events');
+  bufferedEvents.forEach(event => {
+    window.brokk.onEvent(event);
+  });
+}
+
+// Then replay any other buffered method calls
+if (pendingCalls.length > 0) {
+  console.log('Replaying', pendingCalls.length, 'buffered method calls');
+  pendingCalls.forEach(({ method, args }) => {
+    console.log('Replaying call to', method, 'with args:', args);
+    const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+    if (typeof brokk[method] === 'function') {
+      brokk[method](...args);
+    } else {
+      console.warn('Method', method, 'no longer exists; skipping replay');
+    }
+  });
+}
+=======
+// Retrieve buffered calls and events from the early stub
+const buffer = window.brokk._buffer || [];
+
+// Replace the temporary brokk proxy with the real implementation
+window.brokk = {
+  _buffer: [],
+  onEvent: (payload) => {
+    console.log('Received event from Java bridge:', JSON.stringify(payload));
+    eventStore.set(payload);
+
+    // ACK after a frame render to ensure UI has updated
+    if (payload.epoch) {
+      requestAnimationFrame(() => {
+        if (window.javaBridge) {
+          window.javaBridge.onAck(payload.epoch);
+        }
+      });
+    }
+  },
+  getSelection: () => {
+    return window.getSelection()?.toString() ?? '';
+  },
+  clear: () => {
+    eventStore.set({ type: 'chunk', text: '', isNew: true, msgType: 'SYSTEM', epoch: 0 });
+  },
+  setTheme: (dark) => {
+    themeStore.set(dark);
+    if (dark) {
+      document.body.classList.add('theme-dark');
+    } else {
+      document.body.classList.remove('theme-dark');
+    }
+  },
+  showSpinner: (message) => {
+    spinnerStore.set(message);
+  }
+};
+
+// Replay buffered calls and events in sequence order
+if (buffer.length > 0) {
+  console.log('Replaying', buffer.length, 'buffered items');
+  buffer.sort((a, b) => a.seq - b.seq).forEach(item => {
+    if (item.type === 'event') {
+      console.log('Replaying event with epoch:', item.payload.epoch);
+      window.brokk.onEvent(item.payload);
+    } else {
+      console.log('Replaying call to', item.method, 'with args:', item.args);
+      const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
+      if (typeof brokk[item.method] === 'function') {
+        brokk[item.method](...item.args);
+      } else {
+        console.warn('Method', item.method, 'no longer exists; skipping replay');
+      }
+    }
+  });
+}
+>>>>>>> REPLACE
+\`\`\`
+    `;
+    let index = 0;
+    simulateEvent('clear');
+    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false});
     const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
     const interval = setInterval(() => {
       if (index < chunks.length) {

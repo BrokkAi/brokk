@@ -90,11 +90,11 @@ if (buffer.length > 0) {
     if (item.type === 'event' && item.payload) {
       console.log('Replaying event with epoch:', JSON.stringify(item.payload));
       window.brokk.onEvent(item.payload);
-    } else {
+    } else if (item.type === 'call' && item.method) {
       console.log('Replaying call to', item.method, 'with args:', item.args);
       const brokk = window.brokk as Record<string, (...args: unknown[]) => unknown>;
       if (typeof brokk[item.method] === 'function') {
-        brokk[item.method](...item.args);
+        brokk[item.method](...(item.args ?? []));
       } else {
         console.warn('Method', item.method, 'no longer exists; skipping replay');
       }
