@@ -88,4 +88,55 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
     }
   }
 
+  "an incremental build with file inheritance across files" in {
+    withIncrementalTestConfig { (configA, configB) =>
+      val projectA = project(configA,
+        """
+          |public class Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, base!");
+          | }
+          |}
+          |""".stripMargin, "Base.java").moreCode(
+        """
+          |public class SuperA extends Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, super A!");
+          | }
+          |}
+          |""".stripMargin, "SuperA.java").moreCode(
+        """
+          |public class SuperB extends Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, super B!");
+          | }
+          |}
+          |""".stripMargin, "SuperB.java")
+      val projectB = project(configB,
+        """
+          |public class Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, base (but different)!");
+          | }
+          |}
+          |""".stripMargin, "Base.java").moreCode(
+        """
+          |public class SuperA extends Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, super A!");
+          | }
+          |}
+          |""".stripMargin, "SuperA.java").moreCode(
+        """
+          |public class SuperB extends Base {
+          | public void foo(String[] args) {
+          |   System.out.println("Hello, super B (but different)!");
+          | }
+          |}
+          |""".stripMargin, "SuperB.java")
+
+      testIncremental(projectA, projectB)
+    }
+  }
+
 }

@@ -1,8 +1,29 @@
-package io.github.jbellis.brokk.analyzer.builder.passes.base
+/*
+ * Copyright 2025 The Joern Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Portions Copyright 2025 Brokk, inc.
+ *
+ * This file has been modified from its original version.
+ * The original file can be found at: https://github.com/joernio/joern/blob/3e923e15368e64648e6c5693ac014a2cac83990a/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/base/FileCreationPass.scala
+ */
+package io.github.jbellis.brokk.analyzer.builder.passes.idempotent.base
 
-import io.joern.x2cpg.passes.base.FileCreationPass
+import io.joern.x2cpg.utils.LinkingUtil
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes, NodeTypes, PropertyNames}
+import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
@@ -12,7 +33,7 @@ import scala.collection.mutable
  * Re-implements [[FileCreationPass]] with only feeding source nodes to the linker that don't already have a
  * `SOURCE_FILE` edge.
  */
-class IdempotentFileCreationPass(cpg: Cpg) extends FileCreationPass(cpg) {
+class FileCreationPass(cpg: Cpg) extends CpgPass(cpg) with LinkingUtil {
 
   private val srcLabels = List(NodeTypes.NAMESPACE_BLOCK, NodeTypes.TYPE_DECL, NodeTypes.METHOD, NodeTypes.COMMENT)
 

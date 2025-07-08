@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.nodes.AstNode
-import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes}
+import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes, PropertyNames}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
@@ -71,6 +71,22 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
       }
     }
 
+    // Helper functions
+    def methodParentDump(cpg: Cpg): String =
+      cpg.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
+
+    def namespaceBlockChildrenDump(cpg: Cpg): String =
+      cpg.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
+
+    def fileSourceChildren(cpg: Cpg): String =
+      cpg.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.propertiesMap.getOrDefault(PropertyNames.FULL_NAME, x.code).toString)).sorted.l)).sorted.mkString("\n")
+
+    def typeHierarchy(cpg: Cpg): String =
+      cpg.typ.map(t => (t.fullName, t.derivedType.fullName.sorted.l)).sorted.mkString("\n")
+
+    def callGraph(cpg: Cpg): String =
+      cpg.method.map(m => (m.fullName, m.caller(NoResolve).fullName.sorted.l)).sorted.mkString("\n")
+
     // Assert only one meta data node exists
     withClue("The number of meta data nodes is not 1.") {
       updated.metaData.size shouldBe 1
@@ -115,22 +131,21 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
 
     // Determine basic AST equivalence
     withClue("Not all methods have the same type decl parents.") {
-      def methodParentDump(cpg: Cpg): String =
-        cpg.method.map(m => (m.fullName, m.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
-
       methodParentDump(fromScratch) shouldBe methodParentDump(updated)
     }
     withClue("Not all namespace blocks have the same type decl children.") {
-      def namespaceBlockChildrenDump(cpg: Cpg): String =
-        cpg.namespaceBlock.map(n => (n.name, n.typeDecl.map(_.fullName).sorted.l)).sorted.mkString("\n")
-
       namespaceBlockChildrenDump(fromScratch) shouldBe namespaceBlockChildrenDump(updated)
     }
     withClue("Not all files have the same source-file children.") {
-      def fileSourceChildren(cpg: Cpg): String =
-        cpg.file.map(f => (f.name, f._sourceFileIn.cast[AstNode].map(x => (x.label, x.code)).sorted.l)).sorted.mkString("\n")
-
       fileSourceChildren(fromScratch) shouldBe fileSourceChildren(updated)
+    }
+
+    // Determine interprocedural and intertype equivalence
+    withClue("Type hierarchies are not equivalent.") {
+      typeHierarchy(fromScratch) shouldBe typeHierarchy(updated)
+    }
+    withClue("Call graphs are not equivalent.") {
+      callGraph(fromScratch) shouldBe callGraph(updated)
     }
   }
 
