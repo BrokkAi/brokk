@@ -15,7 +15,7 @@ public class StringDocument extends AbstractBufferDocument {
 
     public StringDocument(String content, String name, boolean readOnly) {
         super();
-        this.content = (content != null) ? content : "";
+        this.content = content;
         this.readOnly = readOnly;
         setName(name); // Set names before reading
         setShortName(name); // Use full name as short name for strings
@@ -82,7 +82,7 @@ public class StringDocument extends AbstractBufferDocument {
             System.err.println("Warning: Attempting to set content on a read-only StringDocument: " + getName());
             return; // Or throw an exception
         }
-        this.content = (newContent != null) ? newContent : "";
+        this.content = newContent;
         // Re-initialize based on the new content
         resetLineCache();
         initializeAndRead();

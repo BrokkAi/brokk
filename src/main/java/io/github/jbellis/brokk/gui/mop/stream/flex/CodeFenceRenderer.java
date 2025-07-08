@@ -6,8 +6,6 @@ import com.vladsch.flexmark.html.renderer.NodeRenderer;
 import com.vladsch.flexmark.html.renderer.NodeRendererContext;
 import com.vladsch.flexmark.html.renderer.NodeRenderingHandler;
 import com.vladsch.flexmark.util.data.DataHolder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -17,12 +15,11 @@ import java.util.Set;
  * with data attributes instead of actual HTML code blocks.
  */
 public class CodeFenceRenderer implements NodeRenderer {
-    private static final Logger logger = LogManager.getLogger(CodeFenceRenderer.class);
     
     private final IdProvider idProvider;
     
     public CodeFenceRenderer(DataHolder options) {
-        this.idProvider = options.get(IdProvider.ID_PROVIDER);
+        this.idProvider = IdProvider.ID_PROVIDER.get(options);
     }
     
     @Override

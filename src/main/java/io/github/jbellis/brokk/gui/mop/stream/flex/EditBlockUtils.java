@@ -1,9 +1,11 @@
 package io.github.jbellis.brokk.gui.mop.stream.flex;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -13,11 +15,11 @@ import java.util.regex.Pattern;
  * Used by both the prompt parser and the flexmark markdown parser.
  */
 public final class EditBlockUtils {
-    
+
     // Pattern for the "<<<<<<< SEARCH [filename]" line (filename optional)
     public static final Pattern HEAD =
             Pattern.compile("^ {0,3}<{5,9}\\s+SEARCH(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
-    
+
     // Pattern for the "=======" divider line
     public static final Pattern DIVIDER =
             Pattern.compile("^ {0,3}={5,9}(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
@@ -25,16 +27,15 @@ public final class EditBlockUtils {
     // Pattern for the ">>>>>>> REPLACE [filename]" line (filename optional)
     public static final Pattern UPDATED =
             Pattern.compile("^ {0,3}>{5,9}\\s+REPLACE(?:\\s+(\\S.*))?\\s*$", Pattern.MULTILINE);
-    
+
     // Pattern for opening code fence (captures optional language or filename token)
     public static final Pattern OPENING_FENCE =
             Pattern.compile("^ {0,3}```(?:\\s*(\\S[^`\\s]*))?\\s*$");
-    
+
     // Default fence markers
-    public static final String[] DEFAULT_FENCE = {"```", "```"};
+    public static final List<String> DEFAULT_FENCE = List.of("```", "```");
 
     private EditBlockUtils() {}
-    
     /**
      * Determines if a string looks like a path or filename.
      * Simple heuristic: contains a dot or slash character.
@@ -43,7 +44,7 @@ public final class EditBlockUtils {
      * @return true if the string appears to be a path
      */
     public static boolean looksLikePath(String s) {
-        return s != null && (s.contains(".") || s.contains("/"));
+        return s.contains(".") || s.contains("/");
     }
 
     /**
@@ -55,13 +56,13 @@ public final class EditBlockUtils {
      * @return cleaned text with fences and filename lines removed
      */
     public static String stripQuotedWrapping(String block, String fname) {
-        if (block == null || block.isEmpty()) {
+        if (block.isEmpty()) {
             return block;
         }
         String[] lines = block.split("\n", -1);
 
         // If first line ends with the filename's filename
-        if (fname != null && lines.length > 0) {
+        if (!fname.isBlank() && lines.length > 0) {
             String fn = new File(fname).getName();
             if (lines[0].trim().endsWith(fn)) {
                 lines = Arrays.copyOfRange(lines, 1, lines.length);
@@ -69,8 +70,8 @@ public final class EditBlockUtils {
         }
         // If triple-backtick block
         if (lines.length >= 2
-                && lines[0].startsWith(DEFAULT_FENCE[0])
-                && lines[lines.length - 1].startsWith(DEFAULT_FENCE[1])) {
+                && lines[0].startsWith(DEFAULT_FENCE.getFirst())
+                && lines[lines.length - 1].startsWith(DEFAULT_FENCE.getLast())) {
             lines = Arrays.copyOfRange(lines, 1, lines.length - 1);
         }
         String result = String.join("\n", lines);
@@ -87,9 +88,9 @@ public final class EditBlockUtils {
      * @param line the line to process
      * @return extracted filename or null if none found
      */
-    public static String stripFilename(String line) {
+    public static @Nullable String stripFilename(String line) {
         String s = line.trim();
-        if (s.equals("...") || s.equals(DEFAULT_FENCE[0])) {
+        if (s.equals("...") || s.equals(DEFAULT_FENCE.getFirst())) {
             return null;
         }
         // remove trailing colons, leading #, etc.
@@ -109,16 +110,17 @@ public final class EditBlockUtils {
      * @param currentPath fallback filename if nothing better is found
      * @return best filename guess based on context
      */
+    @Nullable
     public static String findFileNameNearby(String[] lines,
-                                   int headIndex,
-                                   Set<ProjectFile> projectFiles,
-                                   String currentPath)
+                                            int headIndex,
+                                            Set<ProjectFile> projectFiles,
+                                            @Nullable String currentPath)
     {
         // Guard against empty arrays
-        if (lines == null || lines.length == 0 || headIndex < 0) {
+        if (lines.length == 0 || headIndex < 0) {
             return currentPath;
         }
-        
+
         // Search up to 3 lines above headIndex
         int start = Math.max(0, headIndex - 3);
         var candidates = new ArrayList<String>();
@@ -166,6 +168,7 @@ public final class EditBlockUtils {
         }
 
         // 4) Fallback to the first raw candidate
-        return candidates.isEmpty() ? currentPath : candidates.getFirst();
+        if (candidates.isEmpty()) return currentPath; // Redundant check but safe
+        return candidates.getFirst();
     }
 }

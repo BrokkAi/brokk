@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.stream.Stream;
@@ -95,7 +96,7 @@ public class EditBlockParser {
         );
     }
 
-    protected String instructions(String input, String reminder) {
+    protected final String instructions(String input, @Nullable ProjectFile file, String reminder) {
         return """
         <rules>
         %s
@@ -122,9 +123,12 @@ public class EditBlockParser {
         and one to insert in the new location.
 
         Pay attention to which filenames the user wants you to edit, especially if they are asking
-        you to create a new filename. To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
+        you to create a new filename.
+        
+        Important! To create a new file OR to replace an *entire* existing file, use a *SEARCH/REPLACE*
         block with nothing in between the search and divider marker lines, and the new file's full contents between
-        the divider and replace marker lines.
+        the divider and replace marker lines. Rule of thumb: replace the entire file if you will need to
+        change more than half of it.
  
         If the user just says something like "ok" or "go ahead" or "do that", they probably want you
         to make SEARCH/REPLACE blocks for the code changes you just proposed.
@@ -142,10 +146,13 @@ public class EditBlockParser {
         %s
         </rules>
         
-        <goal>
+        <goal%s>
         %s
         </goal>
-        """.stripIndent().formatted(diffFormatInstructions(), reminder, input);
+        """.formatted(diffFormatInstructions(), 
+                      reminder,
+                      file == null ? "" : " target=\"%s\">".formatted(file),
+                      input);
     }
 
     public String diffFormatInstructions() {
@@ -195,19 +202,19 @@ public class EditBlockParser {
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {
         var blocks = new ArrayList<EditBlock.OutputBlock>();
 
-        String[] lines = content.split("\n", -1);
+        var lines = content.split("\n", -1);
         var plain     = new StringBuilder();
 
         int i = 0;
         String currentFilename = null;
 
         while (i < lines.length) {
-            String trimmed = lines[i].trim();
+            var trimmed = lines[i].trim();
 
             /* ----------------------------------------------------------
              * 1.  Block variant that begins with:  ```\n<filename>\n<<<<<<< SEARCH
              * ---------------------------------------------------------- */
-            if (trimmed.equals(DEFAULT_FENCE[0])
+            if (trimmed.equals(DEFAULT_FENCE.get(0))
                     && i + 2 < lines.length
                     && HEAD.matcher(lines[i + 2].trim()).matches()) {
 
@@ -218,11 +225,11 @@ public class EditBlockParser {
                 }
 
                 // The filename sits on the line immediately after the opening fence
-                String filenameLine   = lines[i + 1];
-                String candidatePath  = stripFilename(filenameLine);
+                var filenameLine   = lines[i + 1];
+                var candidatePath  = stripFilename(filenameLine);
                 currentFilename       = candidatePath != null && !candidatePath.isBlank()
                                         ? candidatePath
-                                        : findFileNameNearby(lines, i + 2, projectFiles, currentFilename);
+                        : findFileNameNearby(lines, i + 2, projectFiles, currentFilename);
 
                 // Advance to the <<<<<<< SEARCH marker
                 i = i + 2;                                             // now at HEAD line
@@ -252,10 +259,10 @@ public class EditBlockParser {
                                                              "Expected >>>>>>> REPLACE or =======");
                 }
 
-                String beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
-                                                          currentFilename);
-                String afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
-                                                          currentFilename);
+                var beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
+                                                          Objects.toString(currentFilename, ""));
+                var afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
+                                                          Objects.toString(currentFilename, ""));
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                 if (!afterJoined.isEmpty()  && !afterJoined.endsWith("\n"))  afterJoined  += "\n";
@@ -268,7 +275,7 @@ public class EditBlockParser {
                     i++;
                 }
                 // Consume the closing ``` fence (if present)
-                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE[0])) {
+                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
                     i++;
                 }
                 continue;   // restart main loop
@@ -310,10 +317,10 @@ public class EditBlockParser {
                                                              "Expected >>>>>>> REPLACE or =======");
                 }
 
-                String beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
-                                                          currentFilename);
-                String afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
-                                                          currentFilename);
+                var beforeJoined = stripQuotedWrapping(String.join("\n", beforeLines),
+                                                          Objects.toString(currentFilename, ""));
+                var afterJoined  = stripQuotedWrapping(String.join("\n", afterLines),
+                                                          Objects.toString(currentFilename, ""));
 
                 if (!beforeJoined.isEmpty() && !beforeJoined.endsWith("\n")) beforeJoined += "\n";
                 if (!afterJoined.isEmpty()  && !afterJoined.endsWith("\n"))  afterJoined  += "\n";
@@ -326,7 +333,7 @@ public class EditBlockParser {
                     i++;
                 }
                 // Optional closing fence for this form
-                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE[0])) {
+                if (i < lines.length && lines[i].trim().equals(DEFAULT_FENCE.get(0))) {
                     i++;
                 }
                 continue;
@@ -362,12 +369,12 @@ public class EditBlockParser {
                %s%s
                >>>>>>> REPLACE
                %s
-               """.formatted(DEFAULT_FENCE[0],
+               """.formatted(DEFAULT_FENCE.get(0),
                              block.filename(),
                              beforeText,
                              beforeText.endsWith("\n") ? "" : "\n",
                              afterText,
                              afterText.endsWith("\n") ? "" : "\n",
-                             DEFAULT_FENCE[1]);
+                             DEFAULT_FENCE.get(1));
     }
 }

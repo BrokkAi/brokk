@@ -1,15 +1,14 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 public final class PhpAnalyzer extends TreeSitterAnalyzer {
-    private static final TSLanguage PHP_LANGUAGE = new TreeSitterPhp();
+    // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
 
     private static final String NODE_TYPE_NAMESPACE_DEFINITION = "namespace_definition";
     private static final String NODE_TYPE_PHP_TAG = "php_tag";
@@ -23,7 +22,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of("class_declaration", "interface_declaration", "trait_declaration"), // classLikeNodeTypes
             Set.of("function_definition", "method_declaration"),                     // functionLikeNodeTypes
             Set.of("property_declaration", "const_declaration"),                     // fieldLikeNodeTypes (capturing the whole declaration)
-            Set.of("attribute_group"),                                               // decoratorNodeTypes (PHP attributes)
+            Set.of("attribute_list"),                                                // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             "name",                                                                  // identifierFieldName
             "body",                                                                  // bodyFieldName (applies to functions/methods, class body is declaration_list)
             "parameters",                                                            // parametersFieldName
@@ -41,20 +40,25 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             Set.of("visibility_modifier", "static_modifier", "abstract_modifier", "final_modifier", NODE_TYPE_READONLY_MODIFIER) // modifierNodeTypes
     );
 
+    @Nullable
     private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
-    private static TSQuery PHP_NAMESPACE_QUERY;
 
-    static {
-        try {
-            PHP_NAMESPACE_QUERY = new TSQuery(PHP_LANGUAGE, "(namespace_definition name: (namespace_name) @nsname)");
-        } catch (Exception e) { // TSQuery constructor can throw various exceptions including TSException
-            log.error("Failed to compile PHP namespace query", e);
-            PHP_NAMESPACE_QUERY = null;
-        }
-    }
+    @Nullable
+    private final ThreadLocal<TSQuery> phpNamespaceQuery;
+
 
     public PhpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.PHP, excludedFiles);
+        // Initialize the ThreadLocal for the PHP namespace query.
+        // getTSLanguage() is safe to call here.
+        this.phpNamespaceQuery = ThreadLocal.withInitial(() -> {
+            try {
+                return new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
+            } catch (Exception e) { // TSQuery constructor can throw various exceptions
+                log.error("Failed to compile phpNamespaceQuery for PhpAnalyzer ThreadLocal", e);
+                throw e; // Re-throw to indicate critical setup error for this thread's query
+            }
+        });
     }
 
     public PhpAnalyzer(IProject project) {
@@ -62,8 +66,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected TSLanguage getTSLanguage() {
-        return PHP_LANGUAGE;
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterPhp();
     }
 
     @Override
@@ -77,11 +81,12 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain)
+    {
         return switch (captureName) {
             case "class.definition", "interface.definition", "trait.definition" -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -110,26 +115,37 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     !"namespace.name".equals(captureName)) {       // Main query's namespace.name
                      log.debug("Ignoring capture in PhpAnalyzer: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
                 }
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }
 
     private String computeFilePackageName(ProjectFile file, TSNode rootNode, String src) {
-        if (PHP_NAMESPACE_QUERY == null) {
-            log.warn("PHP namespace query was not initialized. Cannot determine package name for {}", file);
-            return ""; // Fallback if query compilation failed
+        TSQuery currentPhpNamespaceQuery;
+        if (this.phpNamespaceQuery != null) { // Check if PhpAnalyzer constructor has initialized the ThreadLocal
+            currentPhpNamespaceQuery = this.phpNamespaceQuery.get();
+        } else {
+            // This block executes if computeFilePackageName is called (likely via determinePackageName)
+            // during the super() constructor phase, before this.phpNamespaceQuery (ThreadLocal) is initialized.
+            log.trace("PhpAnalyzer.computeFilePackageName: phpNamespaceQuery ThreadLocal is null, creating temporary query for file {}", file);
+            try {
+                currentPhpNamespaceQuery = new TSQuery(getTSLanguage(), "(namespace_definition name: (namespace_name) @nsname)");
+            } catch (Exception e) {
+                log.error("Failed to compile temporary namespace query for PhpAnalyzer in computeFilePackageName for file {}: {}", file, e.getMessage(), e);
+                return ""; // Cannot proceed without the query
+            }
         }
+
         TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(PHP_NAMESPACE_QUERY, rootNode);
+        cursor.exec(currentPhpNamespaceQuery, rootNode);
         TSQueryMatch match = new TSQueryMatch(); // Reusable match object
 
         if (cursor.nextMatch(match)) { // Assuming one namespace per file, take the first
             for (TSQueryCapture capture : match.getCaptures()) {
-                // Check capture name using query's method, not hardcoded string if IDs could change
-                if ("nsname".equals(PHP_NAMESPACE_QUERY.getCaptureNameForId(capture.getIndex()))) {
+                // Check capture name using query's method
+                if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
-                    if (nameNode != null) { // No need for !nameNode.isNull() if we just textSlice
+                    if (nameNode != null) {
                         return textSlice(nameNode, src).replace('\\', '.');
                     }
                 }
@@ -160,14 +176,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         // If this.fileScopedPackageNames is null, it means this method is being called
         // from the superclass (TreeSitterAnalyzer) constructor, before this PhpAnalyzer
-        // instance's fields (like fileScopedPackageNames) have been initialized.
-        // In this specific scenario, we cannot use the instance cache.
-        // We must compute the package name directly.
+        // instance's fields (like fileScopedPackageNames or phpNamespaceQueryInstance) have been initialized.
+        // In this specific scenario, we cannot use the instance cache for fileScopedPackageNames.
+        // We must compute the package name directly. computeFilePackageName will handle query initialization.
         if (this.fileScopedPackageNames == null) {
+            log.trace("PhpAnalyzer.determinePackageName called during super-constructor for file: {}", file);
             return computeFilePackageName(file, rootNode, src);
         }
 
-        // If fileScopedPackageNames is not null, the PhpAnalyzer instance is fully initialized,
+        // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully initialized,
         // and we can use the caching mechanism.
         return fileScopedPackageNames.computeIfAbsent(file, f -> computeFilePackageName(f, rootNode, src));
     }
@@ -190,36 +207,23 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return "  ";
     }
 
-    private String extractModifiers(TSNode node, String src) {
-        List<String> modifiers = new ArrayList<>();
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode child = node.getNamedChild(i);
+    private String extractModifiers(TSNode methodNode, String src) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < methodNode.getChildCount(); i++) {
+            TSNode child = methodNode.getChild(i);
             if (child == null || child.isNull()) continue;
-
             String type = child.getType();
-            if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // readonly_modifier is now in the set
-                 modifiers.add(textSlice(child, src));
-            } else if ("name".equals(child.getType()) ||
-                       "variable_name".equals(child.getType()) ||
-                       "formal_parameters".equals(child.getType()) ||
-                       NODE_TYPE_COMPOUND_STATEMENT.equals(child.getType()) || // body
-                       "declaration_list".equals(child.getType()) || // class body
-                       "type_declaration".equals(child.getType()) || // return type
-                       "base_clause".equals(child.getType()) || // extends
-                       "interface_clause".equals(child.getType()) || // implements
-                       "use_trait_clause".equals(child.getType()) || // use Trait
-                       "property_element".equals(child.getType()) ||
-                       "const_element".equals(child.getType()) ||
-                       "function".equals(type) || // keyword
-                       "class".equals(type) || // keyword
-                       "interface".equals(type) || // keyword
-                       "trait".equals(type) // keyword
-            ) {
+
+            if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
+                sb.append(textSlice(child, src)).append("\n");
+            } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
+                sb.append(textSlice(child, src)).append(" ");
+            } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
+            // Other child types (e.g., comments, other anonymous tokens before 'function') are skipped.
         }
-        if (modifiers.isEmpty()) return "";
-        return String.join(" ", modifiers) + " ";
+        return sb.toString();
     }
 
     @Override
@@ -227,17 +231,18 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         TSNode bodyNode = classNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         boolean isEmptyBody = (bodyNode == null || bodyNode.getNamedChildCount() == 0); // bodyNode.isNull() check removed
         String suffix = isEmptyBody ? " { }" : " {";
-        
+
         return signatureText.stripTrailing() + suffix;
     }
 
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix,
                                                String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
-        // Attributes are handled by the base class's buildSignatureString via getPrecedingDecorators.
+        // Attributes that are children of the funcNode (e.g., PHP attributes on methods)
+        // are collected by extractModifiers.
         // exportPrefix and asyncPrefix are "" for PHP. indent is also "" at this stage from base.
         String modifiers = extractModifiers(funcNode, src);
-        
+
         String ampersand = "";
         TSNode referenceModifierNode = null;
         // Iterate children to find reference_modifier, as its position can vary slightly.
@@ -255,19 +260,19 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         String formattedReturnType = "";
-        if (returnTypeText != null && !returnTypeText.isEmpty()) {
+        if (!returnTypeText.isEmpty()) {
             formattedReturnType = ": " + returnTypeText.strip();
         }
 
-        String ampersandPart = ampersand.isEmpty() ? "" : ampersand; 
+        String ampersandPart = ampersand.isEmpty() ? "" : ampersand;
 
         String mainSignaturePart = String.format("%sfunction %s%s%s%s",
                                          modifiers,
-                                         ampersandPart, 
+                                         ampersandPart,
                                          functionName,
-                                         paramsText, 
+                                         paramsText,
                                          formattedReturnType).stripTrailing();
-        
+
         TSNode bodyNode = funcNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         // If bodyNode is null or not a compound statement, it's an abstract/interface method.
         if (bodyNode != null && !bodyNode.isNull() && NODE_TYPE_COMPOUND_STATEMENT.equals(bodyNode.getType())) {

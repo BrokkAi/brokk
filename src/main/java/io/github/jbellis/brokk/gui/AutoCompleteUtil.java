@@ -5,6 +5,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -102,11 +103,17 @@ public class AutoCompleteUtil {
 
         // Calculate Description window width and show it
         var ttFontMetrics = textComponent.getFontMetrics(UIManager.getFont("ToolTip.font"));
-        boolean hasDescriptions = completions.stream().anyMatch(c -> getCompletionDescription(c) != null && !getCompletionDescription(c).isEmpty());
+        boolean hasDescriptions = completions.stream().anyMatch(c -> {
+            String desc = getCompletionDescription(c);
+            return desc != null && !desc.isEmpty();
+        });
         // disabled for https://github.com/bobbylight/AutoComplete/issues/97
         if (hasDescriptions) {
             int maxDescWidth = completions.stream()
-                    .mapToInt(c -> ttFontMetrics.stringWidth(getCompletionDescription(c)))
+                    .mapToInt(c -> {
+                        String desc = getCompletionDescription(c);
+                        return desc != null ? ttFontMetrics.stringWidth(desc) : 0;
+                    })
                     .max().orElse(300); // Default width
             // Apply hack factor for potentially monospaced font in description
             int descWidth = Math.min(MAX_POPUP_WIDTH, (int) (DESC_WIDTH_FACTOR * maxDescWidth) + HORIZONTAL_PADDING);
@@ -121,7 +128,7 @@ public class AutoCompleteUtil {
     /**
      * Helper to get the description text, handling ShorthandCompletion.
      */
-    private static String getCompletionDescription(Completion c) {
+    private static @Nullable String getCompletionDescription(Completion c) {
         if (c instanceof ShorthandCompletion sc) {
             // ShorthandCompletion often uses replacement text as the primary description
             return sc.getReplacementText();

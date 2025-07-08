@@ -5,6 +5,7 @@ target/
 
 ### IntelliJ IDEA ###
 .idea/modules.xml
+.idea/workspace.xml
 .idea/jarRepositories.xml
 .idea/compiler.xml
 .idea/libraries/
@@ -36,10 +37,20 @@ build/
 ### VS Code ###
 .vscode/
 
+### Metals ###
+.bloop/
+.bsp/
+.metals/
+project/.bloop/
+project/metals.sbt
+project/project/
+.direnv/
+
 ### Mac OS ###
 .DS_Store
 
 ### BROKK'S CONFIGURATION ###
 .brokk/**
 !.brokk/style.md
+!.brokk/review.md
 !.brokk/project.properties

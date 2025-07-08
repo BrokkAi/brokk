@@ -12,6 +12,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Function;
 
+import static java.util.Objects.requireNonNull;
+
 public class Completions {
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String pattern = input.trim();
@@ -29,7 +31,7 @@ public class Completions {
         boolean hierarchicalQuery = pattern.indexOf('.') >= 0 || pattern.indexOf('$') >= 0;
 
         // has a family resemblance to scoreShortAndLong but different enough that it doesn't fit
-        record Scored(CodeUnit cu, int score) {
+        record ScoredCU(CodeUnit cu, int score) { // Renamed local record to avoid conflict
         }
         return allDefs.stream()
                 .map(cu -> {
@@ -41,13 +43,13 @@ public class Completions {
                         // otherwise match ONLY the trailing symbol (class, method, field)
                         score = matcher.score(cu.identifier());
                     }
-                    return new Scored(cu, score);
+                    return new ScoredCU(cu, score);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<Scored>comparingInt(Scored::score)
+                .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                                 .thenComparing(sc -> sc.cu().fqName()))
                 .distinct()
-                .map(Scored::cu)
+                .map(ScoredCU::cu)
                 .toList();
     }
 
@@ -63,10 +65,11 @@ public class Completions {
 
         // Handle glob patterns [only in the last part of the path]
         if (pattern.contains("*") || pattern.contains("?")) {
-            Path parent = file.absPath().getParent();
-            while (parent.toString().contains("*") || parent.toString().contains("?")) {
+            var parent = file.absPath().getParent();
+            while (parent != null && (parent.getFileName().toString().contains("*") || parent.getFileName().toString().contains("?"))) {
                 parent = parent.getParent();
             }
+            requireNonNull(parent);
             var matcher = FileSystems.getDefault().getPathMatcher("glob:" + file.absPath());
             try (var stream = Files.walk(parent)) {
                 return stream
@@ -105,7 +108,7 @@ public class Completions {
         return new ProjectFile(root, root.relativize(p));
     }
 
-    private record Scored<T>(T source, int score, int tiebreakScore, boolean isShort) {
+    private record ScoredItem<T>(T source, int score, int tiebreakScore, boolean isShort) { // Renamed to avoid conflict
     }
 
     public static <T> List<ShorthandCompletion> scoreShortAndLong(String pattern,
@@ -123,18 +126,18 @@ public class Completions {
                     int minScore = Math.min(shortScore, longScore);
                     boolean isShort = shortScore <= longScore; // Prefer short match if scores are equal
                     int tiebreak = tiebreaker.apply(c);
-                    return new Scored<>(c, minScore, tiebreak, isShort);
+                    return new ScoredItem<>(c, minScore, tiebreak, isShort);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<Scored<T>>comparingInt(Scored::score)
-                                .thenComparingInt(Scored::tiebreakScore)
+                .sorted(Comparator.<ScoredItem<T>>comparingInt(ScoredItem::score)
+                                .thenComparingInt(ScoredItem::tiebreakScore)
                                 .thenComparing(sc -> extractShort.apply(sc.source)))
                 .toList();
 
         // Find the highest score among the "short" matches
         int maxShortScore = scoredCandidates.stream()
-                .filter(Scored::isShort)
-                .mapToInt(Scored::score)
+                .filter(ScoredItem::isShort)
+                .mapToInt(ScoredItem::score)
                 .max()
                 .orElse(Integer.MAX_VALUE); // If no short matches, keep all long matches
 

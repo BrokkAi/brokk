@@ -15,8 +15,8 @@ public class ComponentUtils {
             if (type.isInstance(comp)) {
                 result.add(type.cast(comp));
             }
-            if (comp instanceof Container) {
-                result.addAll(findComponentsOfType((Container) comp, type));
+            if (comp instanceof Container subContainer) {
+                result.addAll(findComponentsOfType(subContainer, type));
             }
         }
         return result;

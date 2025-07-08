@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
-import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.treesitter.TSLanguage;
@@ -11,73 +10,15 @@ import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
-import java.io.IOException;
-import io.github.jbellis.brokk.analyzer.SymbolNotFoundException;
 
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class GoAnalyzerTest {
-
-    // Minimal IProject implementation for testing
-    static class TestProject implements IProject {
-        private final Path root;
-
-        TestProject(Path root) {
-            this.root = root;
-        }
-
-        @Override
-        public Language getAnalyzerLanguage() {
-            return Language.GO;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            throw new UnsupportedOperationException("Repo not available in TestProject");
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            Set<ProjectFile> files = new HashSet<>();
-            try (var stream = Files.walk(root)) {
-                stream.filter(Files::isRegularFile)
-                      .filter(path -> path.toString().endsWith(".go"))
-                      .forEach(path -> files.add(new ProjectFile(root, root.relativize(path))));
-            } catch (IOException e) {
-                throw new UncheckedIOException(e);
-            }
-            return files;
-        }
-
-        @Override
-        public io.github.jbellis.brokk.agents.BuildAgent.BuildDetails getBuildDetails() {
-            // Instantiate the BuildDetails record with required arguments
-            // Required: List<String> includes, List<String> files, String target, String sourceVersion, String targetVersion, Set<String> excludedDirectories
-            // Providing empty/default values for testing purposes.
-            return new io.github.jbellis.brokk.agents.BuildAgent.BuildDetails(
-                    Collections.emptyList(), // includes
-                    Collections.emptyList(), // files
-                    "",                      // target
-                    "",                      // sourceVersion
-                    "",                      // targetVersion
-                    Collections.emptySet()   // excludedDirectories
-            );
-        }
-    }
-
     private static TestProject testProject;
     private static GoAnalyzer analyzer;
     private static final TSLanguage GO_LANGUAGE = new TreeSitterGo(); // For direct parsing tests
@@ -93,7 +34,7 @@ public class GoAnalyzerTest {
     static void setUp() {
         Path testCodeDir = Path.of("src/test/resources/testcode-go").toAbsolutePath();
         assertTrue(Files.exists(testCodeDir), "Test resource directory 'testcode-go' not found.");
-        testProject = new TestProject(testCodeDir);
+        testProject = new TestProject(testCodeDir, Language.GO);
         analyzer = new GoAnalyzer(testProject);
 
         packagesGoFile = new ProjectFile(testProject.getRoot(), "packages.go");
@@ -113,17 +54,12 @@ public class GoAnalyzerTest {
 
     private String getPackageNameViaAnalyzerHelper(String code) {
         TSParser parser = new TSParser();
-        TSTree tree = null;
-        try {
-            parser.setLanguage(GO_LANGUAGE);
-            tree = parser.parseString(null, code);
-            TSNode rootNode = tree.getRootNode();
-            // Pass null for definitionNode as it's not used by Go's determinePackageName for package clauses
-            return analyzer.determinePackageName(null, null, rootNode, code);
-        } finally {
-            // TSTree does not have a close method.
-            // TSParser does not have a close method.
-        }
+        TSTree tree;
+        parser.setLanguage(GO_LANGUAGE);
+        tree = parser.parseString(null, code);
+        TSNode rootNode = tree.getRootNode();
+        // Pass null for definitionNode as it's not used by Go's determinePackageName for package clauses
+        return analyzer.determinePackageName(null, null, rootNode, code);
     }
 
     @Test
@@ -160,68 +96,48 @@ public class GoAnalyzerTest {
     @Test
     void testDeterminePackageName_FromProjectFile_PackagesGo() throws IOException {
         TSParser parser = new TSParser();
-        TSTree tree = null;
-        try {
-            String content = Files.readString(packagesGoFile.absPath());
-            parser.setLanguage(GO_LANGUAGE);
-            tree = parser.parseString(null, content);
-            TSNode rootNode = tree.getRootNode();
-            assertEquals("main", analyzer.determinePackageName(packagesGoFile, null, rootNode, content));
-        } finally {
-            // TSTree does not have a close method.
-            // TSParser does not have a close method.
-        }
+        TSTree tree;
+        String content = Files.readString(packagesGoFile.absPath());
+        parser.setLanguage(GO_LANGUAGE);
+        tree = parser.parseString(null, content);
+        TSNode rootNode = tree.getRootNode();
+        assertEquals("main", analyzer.determinePackageName(packagesGoFile, null, rootNode, content));
     }
 
     @Test
     void testDeterminePackageName_FromProjectFile_AnotherGo() throws IOException {
         TSParser parser = new TSParser();
-        TSTree tree = null;
-        try {
-            String content = Files.readString(anotherGoFile.absPath());
-            parser.setLanguage(GO_LANGUAGE);
-            tree = parser.parseString(null, content);
-            TSNode rootNode = tree.getRootNode();
-            assertEquals("anotherpkg", analyzer.determinePackageName(anotherGoFile, null, rootNode, content));
-        } finally {
-            // TSTree does not have a close method.
-            // TSParser does not have a close method.
-        }
+        TSTree tree;
+        String content = Files.readString(anotherGoFile.absPath());
+        parser.setLanguage(GO_LANGUAGE);
+        tree = parser.parseString(null, content);
+        TSNode rootNode = tree.getRootNode();
+        assertEquals("anotherpkg", analyzer.determinePackageName(anotherGoFile, null, rootNode, content));
     }
 
     @Test
     void testDeterminePackageName_FromProjectFile_NoPkgGo() throws IOException {
         TSParser parser = new TSParser();
-        TSTree tree = null;
-        try {
-            String content = Files.readString(noPkgGoFile.absPath());
-            parser.setLanguage(GO_LANGUAGE);
-            tree = parser.parseString(null, content);
-            TSNode rootNode = tree.getRootNode();
-            assertEquals("", analyzer.determinePackageName(noPkgGoFile, null, rootNode, content));
-        } finally {
-            // TSTree does not have a close method.
-            // TSParser does not have a close method.
-        }
+        TSTree tree;
+        String content = Files.readString(noPkgGoFile.absPath());
+        parser.setLanguage(GO_LANGUAGE);
+        tree = parser.parseString(null, content);
+        TSNode rootNode = tree.getRootNode();
+        assertEquals("", analyzer.determinePackageName(noPkgGoFile, null, rootNode, content));
     }
 
     @Test
     void testDeterminePackageName_FromProjectFile_EmptyGo() throws IOException {
         TSParser parser = new TSParser();
-        TSTree tree = null;
-        try {
-            String content = Files.readString(emptyGoFile.absPath());
-            parser.setLanguage(GO_LANGUAGE);
-            tree = parser.parseString(null, content);
-            // Tree-sitter parsing an empty string results in a root node of type "ERROR"
-            // or a specific "source_file" node that is empty or contains only EOF.
-            // The query for package clause will simply not match.
-            TSNode rootNode = tree.getRootNode();
-            assertEquals("", analyzer.determinePackageName(emptyGoFile, null, rootNode, content));
-        } finally {
-            // TSTree does not have a close method.
-            // TSParser does not have a close method.
-        }
+        TSTree tree;
+        String content = Files.readString(emptyGoFile.absPath());
+        parser.setLanguage(GO_LANGUAGE);
+        tree = parser.parseString(null, content);
+        // Tree-sitter parsing an empty string results in a root node of type "ERROR"
+        // or a specific "source_file" node that is empty or contains only EOF.
+        // The query for package clause will simply not match.
+        TSNode rootNode = tree.getRootNode();
+        assertEquals("", analyzer.determinePackageName(emptyGoFile, null, rootNode, content));
     }
 
     @Test
@@ -235,7 +151,7 @@ public class GoAnalyzerTest {
                    "Analyzer's topLevelDeclarations should contain declarations.go. Current keys: " + analyzer.topLevelDeclarations.keySet());
         assertFalse(declarations.isEmpty(),
                     "Declarations set should not be empty for declarations.go. Check query and createCodeUnit logic. Actual declarations: " +
-                    declarations.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toList()));
+                    declarations.stream().map(CodeUnit::fqName).toList());
 
         ProjectFile pf = declarationsGoFile;
 
@@ -251,28 +167,28 @@ public class GoAnalyzerTest {
 
 
         assertTrue(declarations.contains(expectedFunc),
-                   "Declarations should contain MyTopLevelFunction. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain MyTopLevelFunction. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedStruct),
-                   "Declarations should contain MyStruct. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain MyStruct. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedInterface),
-                   "Declarations should contain MyInterface. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain MyInterface. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(otherFunc),
-                   "Declarations should contain anotherFunc. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain anotherFunc. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedVar),
-                   "Declarations should contain MyGlobalVar. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain MyGlobalVar. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedConst),
-                   "Declarations should contain MyGlobalConst. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain MyGlobalConst. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedMethod_GetFieldA),
-                   "Declarations should contain method MyStruct.GetFieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain method MyStruct.GetFieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedStructFieldA),
-                   "Declarations should contain struct field MyStruct.FieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain struct field MyStruct.FieldA. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
         assertTrue(declarations.contains(expectedInterfaceMethod_DoSomething),
-                   "Declarations should contain interface method MyInterface.DoSomething. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").collect(java.util.stream.Collectors.toList()));
+                   "Declarations should contain interface method MyInterface.DoSomething. Found: " + declarations.stream().map(cu -> cu.fqName() + "(" + cu.kind() + ")").toList());
 
 
         assertEquals(9, declarations.size(),
                     "Expected 9 declarations in declarations.go. Found: " +
-                    declarations.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toList()));
+                    declarations.stream().map(CodeUnit::fqName).toList());
     }
 
     @Test
@@ -424,16 +340,16 @@ public class GoAnalyzerTest {
         CodeUnit expectedFieldA = CodeUnit.field(pf, "declpkg", "MyStruct.FieldA");
         assertTrue(members.contains(expectedFieldA),
                    "Members of MyStruct should include FieldA. Found: " +
-                   members.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                   members.stream().map(CodeUnit::fqName).toList());
 
         CodeUnit expectedMethod = CodeUnit.fn(pf, "declpkg", "MyStruct.GetFieldA");
         assertTrue(members.contains(expectedMethod),
                    "Members of MyStruct should include GetFieldA method. Found: " +
-                   members.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                   members.stream().map(CodeUnit::fqName).toList());
 
         assertEquals(2, members.size(),
                      "MyStruct should have 2 members (FieldA and GetFieldA method). Actual: " +
-                     members.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                     members.stream().map(CodeUnit::fqName).toList());
     }
 
     @Test
@@ -446,11 +362,11 @@ public class GoAnalyzerTest {
         CodeUnit expectedMethod = CodeUnit.fn(pf, "declpkg", "MyInterface.DoSomething");
         assertTrue(members.contains(expectedMethod),
                    "Members of MyInterface should include DoSomething method. Found: " +
-                   members.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                   members.stream().map(CodeUnit::fqName).toList());
 
         assertEquals(1, members.size(),
                      "MyInterface should have 1 member (DoSomething method). Actual: " +
-                     members.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                     members.stream().map(CodeUnit::fqName).toList());
     }
 
     private String normalizeSource(String s) {
@@ -459,7 +375,7 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    void testGetClassSource_GoStruct() throws IOException {
+    void testGetClassSource_GoStruct() {
         // MyStruct in declarations.go
         String source = analyzer.getClassSource("declpkg.MyStruct");
         assertNotNull(source, "Source for declpkg.MyStruct should not be null");
@@ -468,7 +384,7 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    void testGetClassSource_GoInterface() throws IOException {
+    void testGetClassSource_GoInterface() {
         // MyInterface in declarations.go
         String source = analyzer.getClassSource("declpkg.MyInterface");
         assertNotNull(source, "Source for declpkg.MyInterface should not be null");
@@ -477,7 +393,7 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    void testGetMethodSource_GoFunction() throws IOException {
+    void testGetMethodSource_GoFunction() {
         // MyTopLevelFunction in declarations.go
         java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyTopLevelFunction");
         assertTrue(sourceOpt.isPresent(), "Source for declpkg.MyTopLevelFunction should be present.");
@@ -486,7 +402,7 @@ public class GoAnalyzerTest {
     }
 
     @Test
-    void testGetMethodSource_GoMethod() throws IOException {
+    void testGetMethodSource_GoMethod() {
         // GetFieldA method of MyStruct in declarations.go
         // FQN is now declpkg.MyStruct.GetFieldA
         java.util.Optional<String> sourceOpt = analyzer.getMethodSource("declpkg.MyStruct.GetFieldA");
@@ -535,7 +451,7 @@ public class GoAnalyzerTest {
         
         if (inputCUsForTest.size() < 5) { // Arbitrary threshold to ensure enough variety
             System.err.println("testGetSymbols_Go: Warning - Input CUs for test is smaller than expected. Actual found in file: " + 
-                               actualCUsInFile.stream().map(CodeUnit::fqName).collect(Collectors.toList()));
+                               actualCUsInFile.stream().map(CodeUnit::fqName).toList());
             // Potentially fail or log more assertively if this implies a regression in earlier stages
         }
         

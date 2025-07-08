@@ -1,13 +1,11 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.CompletionProvider;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 
@@ -17,6 +15,7 @@ import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -30,11 +29,9 @@ public class SymbolSelectionPanel extends JPanel {
 
     public SymbolSelectionPanel(IAnalyzer analyzer, Set<CodeUnitType> typeFilter) {
         super(new BorderLayout(8, 8));
-        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-
         this.typeFilter = typeFilter;
-        assert analyzer != null;
-        assert typeFilter != null;
+
+        setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         // Build text input with autocomplete at the top
         symbolInput = new JTextField(30);
@@ -54,7 +51,7 @@ public class SymbolSelectionPanel extends JPanel {
         } else {
             assert typeFilter.size() == 1 : "Expected exactly one type filter";
             var type = typeFilter.iterator().next();
-            autocompleteText = "Ctrl-space to autocomplete " + type.toString().toLowerCase() + " names";
+            autocompleteText = "Ctrl-space to autocomplete " + type.toString().toLowerCase(Locale.ROOT) + " names";
         }
         inputPanel.add(new JLabel(autocompleteText), BorderLayout.SOUTH);
         add(inputPanel, BorderLayout.CENTER);
@@ -130,9 +127,7 @@ public class SymbolSelectionPanel extends JPanel {
             }
 
             // Get completions using the brokk Completions utility
-            var completions = analyzer == null
-                            ? List.<CodeUnit>of()
-                            : Completions.completeSymbols(text, analyzer);
+            var completions = Completions.completeSymbols(text, analyzer);
 
             // Convert to RSTA completions, filtering by the requested types
             var L = completions.stream()

@@ -1,11 +1,17 @@
 package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.git.GitRepo;
+import io.github.jbellis.brokk.git.IGitRepo;
+import io.github.jbellis.brokk.issues.IssueProviderType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.util.Date;
 import java.util.HashMap;
@@ -24,14 +30,23 @@ public class GitPanel extends JPanel
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
 
-    // The “Commit” tab, now delegated to GitCommitTab
+    // The “Changes” tab, now delegated to GitCommitTab
     private final GitCommitTab commitTab;
 
-    // The “Log” tab extracted into its own class
+    // The “Log” tab
     private final GitLogTab gitLogTab;
 
     // The "Pull Requests" tab - conditionally added
+    @Nullable 
     private GitPullRequestsTab pullRequestsTab;
+
+    // The "Issues" tab - conditionally added
+    @Nullable
+    private GitIssuesTab issuesTab;
+
+    // Worktrees tab
+    @Nullable
+    private GitWorktreeTab gitWorktreeTab;
 
     // Tracks open file-history tabs by file path
     private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
@@ -77,19 +92,99 @@ public class GitPanel extends JPanel
         tabbedPane = new JTabbedPane();
         add(tabbedPane, BorderLayout.CENTER);
 
-        // 1) Commit tab (moved to GitCommitTab)
+        // 1) Changes tab (displays uncommitted changes, uses GitCommitTab internally)
         commitTab = new GitCommitTab(chrome, contextManager, this);
-        tabbedPane.addTab("Commit", commitTab);
+        tabbedPane.addTab("Changes", commitTab);
 
         // 2) Log tab (moved to GitLogTab)
         gitLogTab = new GitLogTab(chrome, contextManager);
         tabbedPane.addTab("Log", gitLogTab);
 
-        // 3) Pull Requests tab (conditionally added)
-        if (Boolean.getBoolean("brokk.prtab")) {
+        // Get project for GitHub specific tabs
+        var project = contextManager.getProject();
+
+        // 3) Worktrees tab (always added for Git repositories)
+        if (project.hasGit()) {
+            gitWorktreeTab = new GitWorktreeTab(chrome, contextManager, this);
+            tabbedPane.addTab("Worktrees", gitWorktreeTab);
+        }
+
+        // 4) Pull Requests tab (conditionally added)
+        if (project.isGitHubRepo()) {
             pullRequestsTab = new GitPullRequestsTab(chrome, contextManager, this);
             tabbedPane.addTab("Pull Requests", pullRequestsTab);
         }
+
+        // 5) Issues tab (conditionally added)
+        if (project.getIssuesProvider().type() != IssueProviderType.NONE) {
+            issuesTab = new GitIssuesTab(chrome, contextManager, this);
+            tabbedPane.addTab("Issues", issuesTab);
+        }
+
+        updateBorderTitle(); // Set initial title with branch name
+    }
+
+    /**
+     * Recreates the Issues tab, typically after a change in issue provider settings.
+     * This ensures the tab uses the correct IssueService and reflects the new provider.
+     */
+    public void recreateIssuesTab() {
+        SwingUtilities.invokeLater(() -> {
+            var project = contextManager.getProject();
+            int issuesTabIndex = -1;
+            if (issuesTab != null) {
+                issuesTabIndex = tabbedPane.indexOfComponent(issuesTab);
+                if (issuesTabIndex != -1) {
+                    tabbedPane.remove(issuesTabIndex);
+                }
+                MainProject.removeSettingsChangeListener(issuesTab); // Unregister old tab
+                issuesTab = null; // Clear the reference
+            }
+
+            // Re-evaluate condition for showing the issues tab
+            if (project.getIssuesProvider().type() != IssueProviderType.NONE)
+            {
+                issuesTab = new GitIssuesTab(chrome, contextManager, this); // New tab will register itself as listener
+                if (issuesTabIndex != -1) {
+                    tabbedPane.insertTab("Issues", null, issuesTab, "GitHub/Jira Issues", issuesTabIndex);
+                    tabbedPane.setSelectedIndex(issuesTabIndex);
+                } else {
+                    tabbedPane.addTab("Issues", issuesTab);
+                    tabbedPane.setSelectedIndex(tabbedPane.getTabCount() - 1);
+                }
+                logger.info("Recreated Issues tab for provider type: {}", project.getIssuesProvider().type());
+            } else {
+                logger.info("Issues tab not recreated as conditions are not met (provider: {}).",
+                            project.getIssuesProvider().type());
+            }
+            // No need to call updateIssueList() here, the new GitIssuesTab constructor does it.
+        });
+    }
+
+    private String getCurrentBranchName() {
+        try {
+            var project = contextManager.getProject();
+            IGitRepo repo = project.getRepo();
+            return ((GitRepo) repo).getCurrentBranch();
+        } catch (Exception e) {
+            logger.warn("Could not get current branch name", e);
+        }
+        return "";
+    }
+
+    private void updateBorderTitle() {
+        var branchName = getCurrentBranchName();
+        SwingUtilities.invokeLater(() -> {
+            var border = getBorder();
+            if (border instanceof TitledBorder titledBorder) {
+                String newTitle = !branchName.isBlank()
+                                  ? "Git (" + branchName + ") ▼"
+                                  : "Git ▼";
+                titledBorder.setTitle(newTitle);
+                revalidate();
+                repaint();
+            }
+        });
     }
 
     /**
@@ -103,6 +198,12 @@ public class GitPanel extends JPanel
 
         // Refresh log UI (branches, commits, stashes)
         gitLogTab.update();
+
+        // Refresh worktrees if the tab exists
+        if (gitWorktreeTab != null) {
+            gitWorktreeTab.refresh();
+        }
+        updateBorderTitle(); // Refresh title on repo update
     }
 
     /**
@@ -110,14 +211,6 @@ public class GitPanel extends JPanel
      */
     public void updateCommitPanel() {
         commitTab.updateCommitPanel();
-    }
-
-    /**
-     * Allows external code to set the commit message (e.g. from an LLM suggestion).
-     */
-    public void setCommitMessageText(String message)
-    {
-        commitTab.setCommitMessageText(message);
     }
 
     /**
@@ -234,7 +327,8 @@ public class GitPanel extends JPanel
         }
     }
 
-    public GitCommitTab getCommitTab() {
+    public GitCommitTab getCommitTab()
+    {
         return commitTab;
     }
 
@@ -260,12 +354,12 @@ public class GitPanel extends JPanel
             } else if (commitDate.getYear() == today.getYear()) {
                 return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd HH:mm"));
             } else {
-                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("YYYY MMM dd"));
+                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy MMM dd"));
             }
         } catch (Exception e) {
             // Log or handle potential timezone/conversion errors if necessary
             logger.warn("Error formatting commit date: {}", date, e);
-            return date.toString(); // Fallback
+            return date.toInstant().toString(); // Fallback
         }
     }
 }

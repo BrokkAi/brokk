@@ -1,21 +1,17 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.joern.dataflowengineoss.layers.dataflows.OssDataFlow
 import io.joern.javasrc2cpg.{Config, JavaSrc2Cpg}
 import io.joern.joerncli.CpgBasedTool
-import io.joern.x2cpg.X2Cpg
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
-import io.shiftleft.semanticcpg.layers.LayerCreatorContext
 
 import java.io.IOException
 import java.nio.file.Path
 import java.util.Optional
-import scala.util.matching.Regex
-import scala.util.Try
-import scala.util.boundary
-import boundary.break // Added for modern early exit
+import scala.util.{Try, boundary}
+import scala.util.boundary.break
+import scala.util.matching.Regex // Added for modern early exit
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer
@@ -219,6 +215,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
    * then falling back to heuristics.
    * For classes: packageName = everything up to last dot, className = last segment, memberName = empty
    * For members: packageName = everything up to class, className = class part, memberName = member
+   *
    * @param expectedType The type of CodeUnit expected by the caller (CLASS, FUNCTION, or FIELD).
    */
   protected[analyzer] def parseFqName(fqName: String, expectedType: CodeUnitType): CodeUnit.Tuple3[String, String, String] = boundary {
@@ -309,7 +306,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
       throw new IllegalArgumentException(s"Expected a class FQCN but parsing indicated a member: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
     if (parts._2().isEmpty && !fqcn.isEmpty) { // Class name part should not be empty if fqcn was not empty
-        throw new IllegalArgumentException(s"Parsed class name is empty for FQCN: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(s"Parsed class name is empty for FQCN: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
     Try(CodeUnit.cls(file, parts._1(), parts._2())).toOption
   }
@@ -320,7 +317,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
       throw new IllegalArgumentException(s"Expected a method FQCN but parsing indicated it was not a member: $fqmn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
     if (parts._2().isEmpty) { // Class name part must not be empty for a method
-        throw new IllegalArgumentException(s"Parsed class name is empty for method FQCN: $fqmn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(s"Parsed class name is empty for method FQCN: $fqmn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
     val pkg = parts._1()
     val className = parts._2()
@@ -333,8 +330,8 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     if (parts._3().isEmpty) { // Member part (field name) must not be empty
       throw new IllegalArgumentException(s"Expected a field FQCN but parsing indicated it was not a member: $fqfn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
-     if (parts._2().isEmpty) { // Class name part must not be empty for a field
-        throw new IllegalArgumentException(s"Parsed class name is empty for field FQCN: $fqfn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+    if (parts._2().isEmpty) { // Class name part must not be empty for a field
+      throw new IllegalArgumentException(s"Parsed class name is empty for field FQCN: $fqfn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
     }
     val pkg = parts._1()
     val className = parts._2()
@@ -345,7 +342,8 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 }
 
-object JavaAnalyzer {
+object JavaAnalyzer extends GraphPassApplier {
+
   import scala.jdk.CollectionConverters.*
 
   private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String]): Cpg = {
@@ -353,18 +351,17 @@ object JavaAnalyzer {
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
     // Build the CPG
-    val scalaExcludedFiles = excludedFiles.asScala.toSeq
     val config = Config()
       .withInputPath(absPath.toString)
       .withEnableTypeRecovery(true)
-      .withIgnoredFiles(scalaExcludedFiles)
+      .withDefaultIgnoredFilesRegex(Nil)
+      .withIgnoredFiles(excludedFiles.asScala.toSeq)
 
     val newCpg = JavaSrc2Cpg().createCpg(config).getOrElse {
       throw new IOException("Failed to create Java CPG")
     }
-    X2Cpg.applyDefaultOverlays(newCpg)
-    val context = new LayerCreatorContext(newCpg)
-    new OssDataFlow(OssDataFlow.defaultOpts).create(context)
+    applyPasses(newCpg)
     newCpg
   }
+
 }

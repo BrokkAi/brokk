@@ -1,11 +1,11 @@
 package io.github.jbellis.brokk.gui.mop.stream;
 
 import io.github.jbellis.brokk.gui.mop.stream.blocks.ComponentData;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.swing.*;
 import java.util.HashSet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -65,7 +65,10 @@ public final class Reconciler {
         registry.keySet().removeIf(id -> {
             if (!seen.contains(id)) {
                 // logger.debug("Removing component with id {}", id);
-                container.remove(registry.get(id).comp);
+                var entry = registry.get(id);
+                if (entry != null) {
+                    container.remove(entry.comp);
+                }
                 return true;
             }
             return false;
@@ -78,7 +81,14 @@ public final class Reconciler {
             if (entry == null) continue; // should not happen
             var current = (i < container.getComponentCount()) ? container.getComponent(i) : null;
             if (current != entry.comp) {
-                container.add(entry.comp, i); // inserts or moves in-place
+                int targetIndex = i;
+                int currentCount = container.getComponentCount();
+                if (targetIndex > currentCount || targetIndex < 0) {
+                    logger.warn("Reconciler: Invalid targetIndex {} for component id {} (container count: {}). "
+                                + "Correcting by appending.", targetIndex, cd.id(), currentCount);
+                    targetIndex = currentCount; // append at end
+                }
+                container.add(entry.comp, targetIndex); // inserts or moves in-place
             }
         }
         // Trim extras (if any)

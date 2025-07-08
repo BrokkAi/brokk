@@ -5,8 +5,9 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import io.github.jbellis.brokk.EditBlock;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -104,6 +105,10 @@ public class EditBlockConflictsParser extends EditBlockParser {
 
         Use the *FULL* filename, as shown to you by the user. This appears on each of the three marker lines.
         No other text should appear on the marker lines.
+        
+        You should expect to encounter git merge conflict markers in the files you are editing. These
+        bear some resemblance to your *SEARCH/REPLACE* blocks. To avoid confusion, ALWAYS remember to
+        include the filename after the *SEARCH/REPLACE* delimiters, including the dividing marker!
         """.stripIndent();
     }
 
@@ -115,7 +120,7 @@ public class EditBlockConflictsParser extends EditBlockParser {
     private static final Pattern REPLACE = Pattern.compile("^\\s*>{5,9} REPLACE\\s*(\\S+?)\\s*$", Pattern.MULTILINE);
 
     public EditBlock.ExtendedParseResult parse(String content) {
-        return parse(content, null);
+        return parse(content, Collections.emptySet());
     }
 
     @Override
@@ -304,7 +309,7 @@ public class EditBlockConflictsParser extends EditBlockParser {
     private static void revertLinesToLeftover(StringBuilder leftover,
                                               String searchLine,
                                               List<String> collectedLines,
-                                              String trailingLine)
+                                              @Nullable String trailingLine)
     {
         leftover.append(searchLine).append("\n");
         for (var ln : collectedLines) {
@@ -329,10 +334,8 @@ public class EditBlockConflictsParser extends EditBlockParser {
         for (var ln : beforeLines) {
             leftover.append(ln).append("\n");
         }
-        if (afterLines != null) {
-            for (var ln : afterLines) {
-                leftover.append(ln).append("\n");
-            }
+        for (var ln : afterLines) {
+            leftover.append(ln).append("\n");
         }
     }
 

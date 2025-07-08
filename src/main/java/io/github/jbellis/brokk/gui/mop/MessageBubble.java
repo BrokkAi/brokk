@@ -1,18 +1,15 @@
 package io.github.jbellis.brokk.gui.mop;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Base component for chat message panels with common styling and structure.
  * Provides a standardized layout with header (icon + title) and content area.
  */
 public class MessageBubble extends JPanel {
-    private static final Logger logger = LogManager.getLogger(MessageBubble.class);
 
     /**
      * A panel that draws a rounded background and a highlight bar on the left.
@@ -38,13 +35,13 @@ public class MessageBubble extends JPanel {
             setBorder(BorderFactory.createEmptyBorder(padding, padding + highlightThickness, padding, padding));
 
             // Allow content to expand properly for centering
-            if (content instanceof JComponent) {
-                ((JComponent) content).setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
+            if (content instanceof JComponent jComponent) {
+                jComponent.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
             }
             
             // Center JLabel
-            if (content instanceof JLabel) {
-                ((JLabel) content).setHorizontalAlignment(SwingConstants.CENTER);
+            if (content instanceof JLabel jLabel) {
+                jLabel.setHorizontalAlignment(SwingConstants.CENTER);
             }
             
             add(content, BorderLayout.CENTER); // Add original content
@@ -89,9 +86,9 @@ public class MessageBubble extends JPanel {
      * @param messageBgColor   The background color for the message (optional)
      * @param chatBgColor      The background color for the chat panel (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor,
-                         Color messageBgColor, Color chatBgColor)
+                         @Nullable Color messageBgColor, @Nullable Color chatBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, chatBgColor);
@@ -107,8 +104,8 @@ public class MessageBubble extends JPanel {
      * @param highlightColor   The color to use for the left highlight bar
      * @param messageBgColor   The background color for the message (optional)
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
-                         boolean isDarkTheme, Color highlightColor, Color messageBgColor)
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
+                         boolean isDarkTheme, Color highlightColor, @Nullable Color messageBgColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
                    messageBgColor, null);
@@ -123,7 +120,7 @@ public class MessageBubble extends JPanel {
      * @param isDarkTheme      Whether dark theme is active
      * @param highlightColor   The color to use for the left highlight bar
      */
-    public MessageBubble(String title, String iconText, Component contentComponent,
+    public MessageBubble(String title, Icon iconText, Component contentComponent,
                          boolean isDarkTheme, Color highlightColor)
     {
         initialize(title, iconText, contentComponent, isDarkTheme, highlightColor, 
@@ -133,9 +130,9 @@ public class MessageBubble extends JPanel {
     /**
      * Common initialization method for all constructors.
      */
-    private void initialize(String title, String iconText, Component contentComponent,
-                            boolean isDarkTheme, Color highlightColor, 
-                            Color customMessageBgColor, Color customChatBgColor)
+    private void initialize(String title, Icon iconText, Component contentComponent,
+                            boolean isDarkTheme, Color highlightColor,
+                            @Nullable Color customMessageBgColor, @Nullable Color customChatBgColor)
     {
         setLayout(new BorderLayout());
         Color chatBgColor = customChatBgColor != null ? 
@@ -158,46 +155,43 @@ public class MessageBubble extends JPanel {
         contentArea.setOpaque(false);
         contentArea.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        // Only add header if both title and iconText are not null
-        if (title != null && iconText != null) {
-            // Add a header row with icon and label
-            JPanel headerPanel = new JPanel(new BorderLayout());
-            headerPanel.setBackground(getBackground());
-            headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        // Add a header row with icon and label
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(getBackground());
+        headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-            // Create a simple panel with BoxLayout for the icon and title
-            JPanel iconTitlePanel = new JPanel();
-            iconTitlePanel.setLayout(new BoxLayout(iconTitlePanel, BoxLayout.X_AXIS));
-            iconTitlePanel.setOpaque(false);
+        // Create a simple panel with BoxLayout for the icon and title
+        JPanel iconTitlePanel = new JPanel();
+        iconTitlePanel.setLayout(new BoxLayout(iconTitlePanel, BoxLayout.X_AXIS));
+        iconTitlePanel.setOpaque(false);
 
-            // Icon
-            JLabel iconLabel = new JLabel(iconText);
-            iconLabel.setForeground(highlightColor);
-            iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD, 16f));
-            iconTitlePanel.add(iconLabel);
+        // Icon
+        JLabel iconLabel = new JLabel(iconText);
+        iconLabel.setForeground(highlightColor);
+        iconLabel.setFont(iconLabel.getFont().deriveFont(Font.BOLD, 16f));
+        iconTitlePanel.add(iconLabel);
 
-            // Title
-            JLabel titleLabel = new JLabel(" " + title);  // Add a space after the icon
-            titleLabel.setForeground(highlightColor);
-            titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
-            iconTitlePanel.add(titleLabel);
+        // Title
+        JLabel titleLabel = new JLabel(" " + title);  // Add a space after the icon
+        titleLabel.setForeground(highlightColor);
+        titleLabel.setFont(titleLabel.getFont().deriveFont(Font.BOLD, 16f));
+        iconTitlePanel.add(titleLabel);
 
-            // Add the panel with icon+title to the WEST position of the BorderLayout
-            headerPanel.add(iconTitlePanel, BorderLayout.WEST);
+        // Add the panel with icon+title to the WEST position of the BorderLayout
+        headerPanel.add(iconTitlePanel, BorderLayout.WEST);
 
-            // Set minimum and preferred size for header panel to ensure it spans the full width
-            headerPanel.setMinimumSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
-            headerPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
+        // Set minimum and preferred size for header panel to ensure it spans the full width
+        headerPanel.setMinimumSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
+        headerPanel.setPreferredSize(new Dimension(Integer.MAX_VALUE, headerPanel.getPreferredSize().height));
 
-            // Add a horizontal glue to push everything to the left
-            headerPanel.add(Box.createHorizontalGlue(), BorderLayout.CENTER);
+        // Add a horizontal glue to push everything to the left
+        headerPanel.add(Box.createHorizontalGlue(), BorderLayout.CENTER);
 
-            // Add header to the content area
-            contentArea.add(headerPanel);
+        // Add header to the content area
+        contentArea.add(headerPanel);
 
-            // Add a small gap between header and content
-            contentArea.add(Box.createRigidArea(new Dimension(0, 5)));
-        }
+        // Add a small gap between header and content
+        contentArea.add(Box.createRigidArea(new Dimension(0, 5)));
 
         // Wrap the content component in our custom panel for rounded background + highlight
         int arcSize = 15;

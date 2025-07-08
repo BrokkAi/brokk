@@ -37,17 +37,11 @@ public class SearchTools {
     // code analysis tools expect clean FQNs or symbol names without parameter lists.
 
     private static String stripParams(String sym) {
-        if (sym == null) {
-            return null;
-        }
         // Remove trailing (...) if it looks like a parameter list
         return sym.replaceAll("(?<=\\w)\\([^)]*\\)$", "");
     }
 
     private static List<String> stripParams(List<String> syms) {
-        if (syms == null) {
-            return List.of();
-        }
         return syms.stream()
                    .map(SearchTools::stripParams)
                    .toList();
@@ -66,10 +60,6 @@ public class SearchTools {
      * @return A tuple containing: 1) the common package prefix, 2) the list of compressed symbol names
      */
     public static Tuple2<String, List<String>> compressSymbolsWithPackagePrefix(List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) {
-            return new Tuple2<>("", List.of());
-        }
-
         List<String[]> packageParts = symbols.stream()
                 .filter(Objects::nonNull) // Filter nulls just in case
                 .map(s -> s.split("\\."))
@@ -102,7 +92,7 @@ public class SearchTools {
         if (maxPrefixLength > 0) {
             String commonPrefix = String.join(".", Arrays.copyOfRange(firstParts, 0, maxPrefixLength)) + ".";
             List<String> compressedSymbols = symbols.stream()
-                    .map(s -> s != null && s.startsWith(commonPrefix) ? s.substring(commonPrefix.length()) : s)
+                    .map(s -> s.startsWith(commonPrefix) ? s.substring(commonPrefix.length()) : s)
                     .collect(Collectors.toList());
             return new Tuple2<>(commonPrefix, compressedSymbols);
         }
@@ -117,7 +107,7 @@ public class SearchTools {
      * @return A formatted string with compressed symbols if possible
      */
     private String formatCompressedSymbols(String label, List<String> symbols) {
-        if (symbols == null || symbols.isEmpty()) {
+        if (symbols.isEmpty()) {
             return label + ": None found";
         }
 
@@ -157,7 +147,7 @@ public class SearchTools {
             List<String> filePaths
     ) {
         assert getAnalyzer().isCpg() : "Cannot get summaries: Code Intelligence is not available.";
-        if (filePaths == null || filePaths.isEmpty()) {
+        if (filePaths.isEmpty()) {
             return "Cannot get summaries: file paths list is empty";
         }
 
@@ -647,7 +637,7 @@ public class SearchTools {
             @P("Directory path relative to the project root (e.g., '.', 'src/main/java')")
             String directoryPath
     ) {
-        if (directoryPath == null || directoryPath.isBlank()) {
+        if (directoryPath.isBlank()) {
             throw new IllegalArgumentException("Directory path cannot be empty");
         }
 

@@ -13,6 +13,8 @@ import java.awt.event.MouseListener;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import com.github.difflib.patch.Patch;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * RevisionBar is the thin vertical bar at the left or right side
@@ -21,6 +23,7 @@ import com.github.difflib.patch.Patch;
 public class RevisionBar extends JComponent
 {
     private static final long serialVersionUID = 1L;
+    private static final Logger logger = LogManager.getLogger(RevisionBar.class);
 
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanel;
@@ -32,8 +35,16 @@ public class RevisionBar extends JComponent
         this.filePanel = filePanel;
         this.original = original;
 
-        setBorder(BorderFactory.createLineBorder(
-                ColorUtil.darker(ColorUtil.darker(Colors.getPanelBackground()))));
+        // Apply a border color that follows the current Look and Feel
+        Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = UIManager.getColor("Separator.foreground");
+        }
+        if (borderColor == null) {
+            // Fallback: derive from panel background
+            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+        }
+        setBorder(BorderFactory.createLineBorder(borderColor));
         addMouseListener(getMouseListener());
         setPreferredSize(new Dimension(20, 200));
         setMinimumSize(new Dimension(10, 100));
@@ -45,7 +56,12 @@ public class RevisionBar extends JComponent
         super.paintComponent(g);
 
         Rectangle r = getDrawableRectangle();
-        g.setColor(Color.white);
+        // Use the current theme's background color
+        Color bg = UIManager.getColor("Panel.background");
+        if (bg == null) {
+            bg = getBackground();
+        }
+        g.setColor(bg);
         g.fillRect(r.x, r.y, r.width, r.height);
 
         Patch<String> patch = diffPanel.getPatch();
@@ -78,6 +94,20 @@ public class RevisionBar extends JComponent
             g.setColor(ColorUtil.getColor(delta, diffPanel.isDarkTheme()));
             g.fillRect(r.x, y, r.width, height);
         }
+    }
+
+    @Override
+    public void updateUI() {
+        super.updateUI();
+        // Re-apply border with theme-aware color whenever LAF changes
+        Color borderColor = UIManager.getColor("Component.borderColor");
+        if (borderColor == null) {
+            borderColor = UIManager.getColor("Separator.foreground");
+        }
+        if (borderColor == null) {
+            borderColor = ColorUtil.darker(Colors.getPanelBackground());
+        }
+        setBorder(BorderFactory.createLineBorder(borderColor));
     }
 
     /**
@@ -152,24 +182,32 @@ public class RevisionBar extends JComponent
                     if (anchor > lineBefore && anchor < lineAfter) {
                         // "Jump" to that delta: set it selected, then show on left side
                         diffPanel.setSelectedDelta(delta);
-                        diffPanel.getScrollSynchronizer().showDelta(delta);
+
+                        var scrollSync = diffPanel.getScrollSynchronizer();
+                        if (scrollSync != null) {
+                            scrollSync.showDelta(delta);
+                        }
                         return;
                     }
                 }
 
                 // If none found, just scroll to that line
+                FilePanel targetPanel;
                 if (original) {
                     // If this is the original side, we consider the left panel
-                    diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.LEFT),
-                            line
-                    );
+                    targetPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
                 } else {
                     // Otherwise, scroll the right panel
-                    diffPanel.getScrollSynchronizer().scrollToLine(
-                            diffPanel.getFilePanel(BufferDiffPanel.RIGHT),
-                            line
-                    );
+                    targetPanel = diffPanel.getFilePanel(BufferDiffPanel.PanelSide.RIGHT);
+                }
+
+                if (targetPanel != null) {
+                    var scrollSync = diffPanel.getScrollSynchronizer();
+                    if (scrollSync != null) {
+                        scrollSync.scrollToLine(targetPanel, line);
+                    }
+                } else {
+                    logger.warn("Target panel for scroll is null. Original: {}", original);
                 }
             }
         };

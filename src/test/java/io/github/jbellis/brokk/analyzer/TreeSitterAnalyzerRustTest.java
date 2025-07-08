@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.IProject;
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -11,12 +11,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static io.github.jbellis.brokk.analyzer.TreeSitterAnalyzerTest.createTestProject;
+import static io.github.jbellis.brokk.testutil.TestProject.createTestProject;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class TreeSitterAnalyzerRustTest {
 
-    private static TreeSitterAnalyzerTest.TestProject rsTestProject;
+    private static TestProject rsTestProject;
     private static RustAnalyzer rsAnalyzer;
     private static ProjectFile pointRsFile;
 

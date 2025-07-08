@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.gui.Chrome;
+import org.jetbrains.annotations.Nullable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -11,49 +12,133 @@ import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Stream;
+
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
 
-    private TrayIcon brokkTrayIcon = null;
+    @FunctionalInterface
+    public interface ShellCommandRunner {
+        String run(Consumer<String> outputConsumer) throws SubprocessException, InterruptedException;
+    }
+
+    // Default factory creates the real runner. Tests can replace this.
+    public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
+            (cmd, projectRoot) -> (outputConsumer) -> runShellCommandInternal(cmd, projectRoot, outputConsumer);
+
+
+    @Nullable private TrayIcon brokkTrayIcon = null;
 
     private Environment() {
     }
-    
-    /**
-     * Runs a shell command using the appropriate shell for the current OS, returning {stdout, stderr}.
-     * The command is executed in the directory specified by `root`.
-     */
-    public ProcessResultInternal runShellCommand(String command, Path root)
-    throws IOException, InterruptedException
-    {
-        Process process = isWindows()
-                          ? createProcessBuilder(root, "cmd.exe", "/c", command).start()
-                          : createProcessBuilder(root, "/bin/sh", "-c", command).start();
 
+    /**
+     * Runs a shell command using the appropriate shell for the current OS,
+     * returning combined stdout and stderr. The command is executed in the directory
+     * specified by {@code root}. Output lines are passed to the consumer as they are generated.
+     * @param command The command to execute.
+     * @param root The working directory for the command.
+     * @param outputConsumer A consumer that accepts output lines (from stdout or stderr) as they are produced.
+     * @throws SubprocessException if the command fails to start, times out, or returns a non-zero exit code.
+     * @throws InterruptedException if the thread is interrupted.
+     */
+    public String runShellCommand(String command, Path root, Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException
+    {
+        return shellCommandRunnerFactory.apply(command, root).run(outputConsumer);
+    }
+
+    private static String runShellCommandInternal(String command, Path root, Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException {
+        logger.debug("Running internal `{}` in `{}`", command, root);
+        String shell = isWindows() ? "cmd.exe" : "/bin/sh";
+        String[] shellCommand = isWindows()
+                                ? new String[]{"cmd.exe", "/c", command}
+                                : new String[]{"/bin/sh", "-c", command};
+
+        ProcessBuilder pb = createProcessBuilder(root, shellCommand);
+        Process process;
         try {
-            // Wait for the process to finish; this call *is* interruptible
+            process = pb.start();
+        } catch (IOException e) {
+            throw new StartupException("unable to start %s in %s for command: `%s` (%s)".formatted(shell, root, command, e.getMessage()), "");
+        }
+
+        // start draining stdout/stderr immediately to avoid pipe-buffer deadlock
+        CompletableFuture<String> stdoutFuture =
+                CompletableFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
+        CompletableFuture<String> stderrFuture =
+                CompletableFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
+
+        String combinedOutput;
+        try {
             if (!process.waitFor(120, TimeUnit.SECONDS)) {
-                process.destroyForcibly();
-                // TODO need a better way to signal timed out
-                return new ProcessResultInternal(-1, "", "");
+                process.destroyForcibly(); // ensure the process is terminated
+                // Collect any output produced before timeout
+                String stdout = stdoutFuture.join();
+                String stderr = stderrFuture.join();
+                combinedOutput = formatOutput(stdout, stderr);
+                throw new TimeoutException("process '%s' did not complete within 120 seconds".formatted(command), combinedOutput);
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
-            throw ie;
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
+            logger.warn("Process '{}' interrupted.", command);
+            throw ie; // Propagate InterruptedException
         }
 
-        // Once the process has exited, read its entire output safely
-        var stdout = new String(process.getInputStream().readAllBytes());
-        var stderr = new String(process.getErrorStream().readAllBytes());
+        // process has exited – collect whatever is left
+        String stdout = stdoutFuture.join();
+        String stderr = stderrFuture.join();
+        combinedOutput = formatOutput(stdout, stderr);
+        int exitCode = process.exitValue();
 
-        return new ProcessResultInternal(process.exitValue(), stdout, stderr);
+        if (exitCode != 0) {
+            throw new FailureException("process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput);
+        }
+
+        return combinedOutput;
+    }
+
+    private static String readStream(java.io.InputStream in, java.util.function.Consumer<String> outputConsumer) {
+        var lines = new java.util.ArrayList<String>();
+        try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                outputConsumer.accept(line);
+                lines.add(line);
+            }
+        } catch (IOException e) {
+            logger.error("Error reading stream", e);
+            // If an error occurs during streaming, consumer has processed what it could.
+            // The returned string will contain lines accumulated so far.
+        }
+        return String.join("\n", lines);
+    }
+
+    private static final String ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
+
+    private static String formatOutput(String stdout, String stderr) {
+        stdout = stdout.trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
+        stderr = stderr.trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
+
+        if (stdout.isEmpty() && stderr.isEmpty()) {
+            return "";
+        }
+        if (stdout.isEmpty()) {
+            return stderr;
+        }
+        if (stderr.isEmpty()) {
+            return stdout;
+        }
+        return "stdout:\n" + stdout + "\n\nstderr:\n" + stderr;
     }
 
     private static ProcessBuilder createProcessBuilder(Path root, String... command) {
@@ -73,69 +158,68 @@ public class Environment {
     }
 
     /**
-     * Run a shell command in the given root directory, returning stdout or stderr in an OperationResult.
+     * Base exception for subprocess errors.
      */
-    public ProcessResult captureShellCommand(String command, Path root) throws InterruptedException {
-        ProcessResultInternal result;
-        try {
-            result = runShellCommand(command, root);
-        } catch (IOException e) {
-            return new ProcessResult(e.getMessage(), "");
+    public static abstract class SubprocessException extends IOException {
+        private final String output;
+
+        public SubprocessException(String message, String output) {
+            super(message);
+            this.output = output;
         }
 
-        var ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
-        var stdout = result.stdout().trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
-        var stderr = result.stderr().trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
-        var combinedOut = new StringBuilder();
-        if (!stdout.isEmpty()) {
-            if (!stderr.isEmpty()) {
-                combinedOut.append("stdout: ");
-            }
-            combinedOut.append(stdout);
-        }
-        if (!stderr.isEmpty()) {
-            if (!stdout.isEmpty()) {
-                combinedOut.append("\n\n").append("stderr: ");
-            }
-            combinedOut.append(stderr);
-        }
-        var output = combinedOut.toString();
-
-        if (result.status() > 0) {
-            return new ProcessResult("`%s` returned code %d".formatted(command, result.status()), output);
-        }
-        return new ProcessResult(null, output);
-    }
-
-    public record ProcessResult(String error, String output) {
-        public ProcessResult {
-            assert output != null : "Output cannot be null";
+        public String getOutput() {
+            return output;
         }
     }
 
-    public record ProcessResultInternal(int status, String stdout, String stderr) {}
-    
+    /**
+     * Exception thrown when a subprocess fails to start.
+     */
+    public static class StartupException extends SubprocessException {
+        public StartupException(String message, String output) {
+            super(message, output);
+        }
+    }
+
+    /**
+     * Exception thrown when a subprocess times out.
+     */
+    public static class TimeoutException extends SubprocessException {
+        public TimeoutException(String message, String output) {
+            super(message, output);
+        }
+    }
+
+    /**
+     * Exception thrown when a subprocess returns a non-zero exit code.
+     */
+    public static class FailureException extends SubprocessException {
+        public FailureException(String message, String output) {
+            super(message, output);
+        }
+    }
+
     /**
      * Determines if the current operating system is Windows.
      */
     public static boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase(Locale.ENGLISH).contains("win");
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
     }
 
     public static boolean isMacOs() {
-        return System.getProperty("os.name").toLowerCase(Locale.ENGLISH).contains("mac");
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac");
     }
 
     /**
      * Sends a desktop notification asynchronously.
      *
-     * @param title    The title of the notification.
      * @param message  The message body of the notification.
      */
     public void sendNotificationAsync(String message) {
         CompletableFuture.runAsync(() -> {
             try {
-                String os = System.getProperty("os.name").toLowerCase();
+                String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
                 if (isSystemTrayNotificationSupported()) {
                     sendSystemTrayNotification(message);
                 } else if (os.contains("linux")) {
@@ -194,5 +278,43 @@ public class Environment {
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
         pb.start();
+    }
+
+    /**
+     * Opens the specified URL in the default web browser.
+     * Handles common errors like browser unavailability.
+     *
+     * @param url      The URL to open.
+     * @param ancestor The parent window for displaying error dialogs, can be null.
+     */
+    public static void openInBrowser(String url, Window ancestor) {
+        try {
+            if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                logger.warn("Desktop.Action.BROWSE not supported, cannot open URL: {}", url);
+                JOptionPane.showMessageDialog(
+                        ancestor,
+                        "Sorry, unable to open browser automatically. Desktop API not supported.\nPlease visit: " + url,
+                        "Browser Unsupported",
+                        JOptionPane.WARNING_MESSAGE
+                );
+                return;
+            }
+            Desktop.getDesktop().browse(new java.net.URI(url));
+        } catch (UnsupportedOperationException ex) {
+            logger.error("Browser not supported on this platform (e.g., WSL): {}", url, ex);
+            JOptionPane.showMessageDialog(
+                    ancestor,
+                    "Sorry, unable to open browser automatically. This is a known problem on WSL.\nPlease visit: " + url,                    "Browser Unsupported",
+                    JOptionPane.WARNING_MESSAGE
+            );
+        } catch (Exception ex) {
+            logger.error("Failed to open URL: {}", url, ex);
+            JOptionPane.showMessageDialog(
+                    ancestor,
+                    "Failed to open the browser. Please visit:\n" + url,
+                    "Browser Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+        }
     }
 }

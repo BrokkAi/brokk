@@ -1,22 +1,24 @@
 package io.github.jbellis.brokk.gui;
 
 import com.google.common.collect.Streams;
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.agents.ValidationAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import javax.swing.*;
 import java.awt.*;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Handles the execution of the Deep Scan agents (Context and Validation)
@@ -32,29 +34,32 @@ class DeepScanDialog {
     private static final String READ_ONLY = "Read-only";
 
     /**
-     * Triggers the Deep Scan agents (Context and Validation) in the background,
-     * waits for their results, and then shows a modal dialog for user selection.
+     * Triggers the Deep Scan agents (Context and Validation) in the background.
+     * The returned CompletableFuture completes when the analysis is finished,
+     * right before the results dialog is shown.
      * Handles errors and interruptions gracefully.
      *
      * @param chrome The main application window reference.
      * @param goal   The user's instruction/goal for the scan.
      */
-    public static void triggerDeepScan(Chrome chrome, String goal) {
+    public static CompletableFuture<Void> triggerDeepScan(Chrome chrome, String goal) {
+        var analysisDoneFuture = new CompletableFuture<Void>();
         var contextManager = chrome.getContextManager();
-        if (goal.isBlank() || contextManager == null || contextManager.getProject() == null) {
-            chrome.toolErrorRaw("Please enter instructions before running Deep Scan.");
-            return;
+
+        if (goal.isBlank()) {
+            analysisDoneFuture.completeExceptionally(new IllegalArgumentException("Please enter instructions before running Deep Scan."));
+            return analysisDoneFuture;
         }
 
-        chrome.systemOutput("Starting Deep Scan");
+        SwingUtilities.invokeLater(() -> chrome.systemOutput("Starting Deep Scan"));
 
         // ContextAgent
         Future<ContextAgent.RecommendationResult> contextFuture = contextManager.submitBackgroundTask("Deep Scan: ContextAgent", () -> {
             logger.debug("Deep Scan: Running ContextAgent...");
-            var model = contextManager.getEditModel();
+            var model = contextManager.getSearchModel();
             // Use full workspace context for deep scan
             var agent = new ContextAgent(contextManager, model, goal, true);
-            var recommendations = agent.getRecommendations();
+            var recommendations = agent.getRecommendations(false);
             logger.debug("Deep Scan: ContextAgent proposed {} fragments with reasoning: {}",
                          recommendations.fragments().size(), recommendations.reasoning());
             return recommendations;
@@ -67,6 +72,8 @@ class DeepScanDialog {
             var relevantTestResults = agent.execute(goal);
             var ctx = contextManager.topContext();
             var filesInWorkspace = Streams.concat(ctx.editableFiles(), ctx.readonlyFiles())
+                    .filter(ContextFragment.PathFragment.class::isInstance)
+                    .map(ContextFragment.PathFragment.class::cast)
                     .map(ContextFragment.PathFragment::file)
                     .collect(Collectors.toSet());
             var files = relevantTestResults.stream()
@@ -86,21 +93,25 @@ class DeepScanDialog {
                     contextResult = contextFuture.get();
                     validationFiles = validationFuture.get();
                 } catch (ExecutionException ee) {
-                    if (ee.getCause() instanceof InterruptedException ie) {
+                    Throwable cause = requireNonNull(ee.getCause());
+                    if (cause instanceof InterruptedException ie) {
                         throw ie;
                     } else {
-                        chrome.toolErrorRaw("Error during Deep Scan execution: " + ee.getCause().getMessage());
-                        return;
+                        // For other execution exceptions, log, notify user, and complete future exceptionally.
+                        logger.error("Error during Deep Scan agent execution", cause);
+                        SwingUtilities.invokeLater(() -> chrome.toolError("Error during Deep Scan execution: " + cause.getMessage()));
+                        analysisDoneFuture.completeExceptionally(cause);
+                        return; // Exit the task
                     }
                 }
 
                 var contextFragments = contextResult.fragments();
-                var reasoning = contextResult.reasoning();
+            var reasoning = contextResult.reasoning();
 
-                // Convert validation files to ProjectPathFragments
-                var validationFragments = validationFiles.stream()
-                        .map(ContextFragment.ProjectPathFragment::new)
-                        .toList();
+            // Convert validation files to ProjectPathFragments
+            var validationFragments = validationFiles.stream()
+                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager)) // Pass contextManager
+                    .toList();
 
                 // Combine context agent fragments and validation agent fragments
                 // Group by primary file to handle potential overlaps (e.g., agent suggests summary, validation suggests file)
@@ -109,14 +120,14 @@ class DeepScanDialog {
 
                 // Add validation fragments first, then context fragments, so the latter overwrite the former on collision
                 Streams.concat(validationFragments.stream(), contextFragments.stream()).forEach(fragment -> {
-                    fragment.files(contextManager.getProject()).stream().findFirst().ifPresent(file -> {
+                    fragment.files().stream().findFirst().ifPresent(file -> { // No arguments for files()
                         fragmentMap.putIfAbsent(file, fragment);
                     });
                 });
 
                 var allSuggestedFragments = fragmentMap.values().stream()
                         // Sort by file path string for consistent order in dialog
-                        .sorted(Comparator.comparing(f -> f.files(contextManager.getProject()).stream()
+                        .sorted(Comparator.comparing(f -> f.files().stream() // No arguments for files()
                                 .findFirst()
                                 .map(Object::toString)
                                 .orElse("")))
@@ -125,65 +136,74 @@ class DeepScanDialog {
                 logger.debug("Deep Scan finished. Proposing {} unique fragments.", allSuggestedFragments.size());
 
                 if (allSuggestedFragments.isEmpty()) {
-                    if (contextManager.topContext().allFragments().findAny().isPresent()) {
+                    var topCtx = contextManager.topContext();
+                    if (topCtx.allFragments().findAny().isPresent()) {
                         chrome.systemOutput("Deep Scan complete with no additional recommendations");
                     } else {
                         chrome.systemOutput("Deep Scan complete with no recommendations");
                     }
+                    analysisDoneFuture.complete(null);
                 } else {
                     chrome.systemOutput("Deep Scan complete: Found %d relevant fragments".formatted(allSuggestedFragments.size()));
-                    SwingUtil.runOnEdt(() -> showDialog(chrome, allSuggestedFragments, reasoning));
-                }
+                    // Split allSuggestedFragments into test and project code fragments
+                    var testFilesSet = new HashSet<>(validationFiles);
+                    List<ContextFragment> projectCodeFragments = new ArrayList<>();
+                    List<ContextFragment> testCodeFragments = new ArrayList<>();
+                    for (ContextFragment fragment : allSuggestedFragments) {
+                        ProjectFile pf = fragment.files().stream()
+                                .findFirst()
+                                .orElseThrow();
+                        if (testFilesSet.contains(pf)) {
+                            testCodeFragments.add(fragment);
+                        } else {
+                            projectCodeFragments.add(fragment);
+                        }
+                    }
+                    // Pre-compute fragment-to-file mapping to avoid analyzer calls on EDT
+                    Map<ContextFragment, ProjectFile> fragmentFileMap = new HashMap<>();
+                    for (ContextFragment fragment : allSuggestedFragments) {
+                        ProjectFile pf = fragment.files().stream()
+                                .findFirst()
+                                .orElseThrow();
+                        fragmentFileMap.put(fragment, pf);
+                    }
+
+                    // Analysis is complete. Complete the future and then show the dialog.
+                    SwingUtil.runOnEdt(() -> {
+                        analysisDoneFuture.complete(null); // Complete future before showing dialog
+                        showDialog(chrome, projectCodeFragments, testCodeFragments, reasoning, fragmentFileMap);
+                    });
+                } // This correctly closes the 'else' for 'if (allSuggestedFragments.isEmpty())'
             } catch (InterruptedException ie) {
-                // Handle interruption of the user task thread (e.g., while waiting on future.get())
+                // This handles interruptions if they occur outside the future.get() calls
+                // or if rethrown and not caught by an inner block.
+                logger.debug("Deep Scan user task interrupted: {}", ie.getMessage());
+                SwingUtilities.invokeLater(() -> chrome.systemOutput("Deep Scan cancelled."));
+                // Cancel any potentially still running background tasks if they haven't been waited on yet
                 contextFuture.cancel(true);
                 validationFuture.cancel(true);
-                logger.debug("Deep Scan user task explicitly interrupted: {}", ie.getMessage());
-                chrome.systemOutput("Deep Scan cancelled");
+                analysisDoneFuture.completeExceptionally(ie);
+            } catch (Throwable t) { // Catch any other unexpected errors
+                logger.error("Unexpected error during Deep Scan user task processing", t);
+                SwingUtilities.invokeLater(() -> chrome.toolError("Unexpected error during Deep Scan: " + t.getMessage()));
+                analysisDoneFuture.completeExceptionally(t);
             }
         });
+        return analysisDoneFuture;
     }
-
 
     /**
      * Shows a modal dialog for the user to select files suggested by Deep Scan.
      * Files can be added as read-only, editable, or summarized.
      * This method MUST be called on the Event Dispatch Thread (EDT).
-     *
-     * @param chrome             The main application window reference.
-     * @param suggestedFragments List of unique ContextFragments suggested by ContextAgent and ValidationAgent, grouped by file.
-     * @param reasoning          The reasoning provided by the ContextAgent for the suggestions.
      */
-    private static void showDialog(Chrome chrome, List<ContextFragment> suggestedFragments, String reasoning) {
+    private static void showDialog(Chrome chrome, List<ContextFragment> projectCodeFragments, List<ContextFragment> testCodeFragments, String reasoning, Map<ContextFragment, ProjectFile> fragmentFileMap) {
         assert SwingUtilities.isEventDispatchThread(); // Ensure called on EDT
 
         var contextManager = chrome.getContextManager();
-        Project project = contextManager.getProject(); // Keep project reference
-        var testFilesSet = new HashSet<>(contextManager.getTestFiles()); // Set for quick lookups
-        boolean hasGit = project != null && project.hasGit();
-
-        // Separate fragments into code and tests based on their primary file
-        List<ContextFragment> projectCodeFragments = new ArrayList<>();
-        List<ContextFragment> testCodeFragments = new ArrayList<>();
-
-        for (ContextFragment fragment : suggestedFragments) {
-            // Determine the primary ProjectFile associated with the fragment
-            ProjectFile pf = fragment.files(project).stream()
-                    .findFirst()
-                    .filter(ProjectFile.class::isInstance)
-                    .orElse(null); // Get the ProjectFile or null
-
-            if (pf != null) {
-                if (testFilesSet.contains(pf)) {
-                    testCodeFragments.add(fragment);
-                } else {
-                    projectCodeFragments.add(fragment);
-                }
-            } else {
-                // Log fragments that don't map to a single ProjectFile (shouldn't happen with current agents)
-                logger.warn("Deep Scan Dialog: Skipping fragment without a clear ProjectFile: {}", fragment.shortDescription());
-            }
-        }
+        var project = contextManager.getProject(); // Keep project reference
+        boolean hasGit = project.hasGit();
+        var repo = project.getRepo();
 
         JDialog dialog = new JDialog(chrome.getFrame(), "Deep Scan Results", true); // Modal dialog
         dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
@@ -196,7 +216,7 @@ class DeepScanDialog {
         mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
         // --- LLM Reasoning Display ---
-        if (reasoning != null && !reasoning.isBlank()) {
+        if (!reasoning.isBlank()) {
             JTextArea reasoningArea = new JTextArea(reasoning);
             reasoningArea.setEditable(false);
             reasoningArea.setLineWrap(true);
@@ -227,11 +247,8 @@ class DeepScanDialog {
             JPanel rowPanel = new JPanel(new BorderLayout(5, 0));     // Use BorderLayout for better alignment
             rowPanel.setBorder(BorderFactory.createEmptyBorder(2, 0, 2, 0)); // Padding between rows
 
-            // Get the display name and tooltip (full path) from the fragment's file
-            ProjectFile pf = fragment.files(project).stream()
-                    .findFirst()
-                    .filter(ProjectFile.class::isInstance)
-                    .orElse(null); // Should not be null here based on earlier filtering
+            // Get the display name and tooltip (full path) from the pre-computed mapping
+            ProjectFile pf = fragmentFileMap.get(fragment);
 
             String fileName = (pf != null) ? pf.getFileName() : fragment.shortDescription();
             String toolTip = (pf != null) ? pf.toString() : fragment.description();
@@ -243,11 +260,11 @@ class DeepScanDialog {
             JComboBox<String> comboBox = new JComboBox<>(options);
 
             // Determine default action based on fragment type
-            if (fragment instanceof ContextFragment.SkeletonFragment && Arrays.asList(options).contains(SUMMARIZE)) {
+            if (fragment.getType() == ContextFragment.FragmentType.SKELETON && Arrays.asList(options).contains(SUMMARIZE)) {
                 comboBox.setSelectedItem(SUMMARIZE);
-            } else if (fragment instanceof ContextFragment.ProjectPathFragment) {
+            } else if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH) {
                 // EDIT if the file is in git, otherwise READ
-                var edit = hasGit && contextManager.getRepo().getTrackedFiles().contains(pf);
+                var edit = hasGit && repo.getTrackedFiles().contains(fragmentFileMap.get(fragment));
                 comboBox.setSelectedItem(edit ? EDIT : READ_ONLY);
             } else {
                 logger.error("Unexpected fragment {} returned to DeepScanDialog", fragment);
@@ -286,9 +303,15 @@ class DeepScanDialog {
         } else {
             for (ContextFragment fragment : projectCodeFragments) {
                 JPanel row = createFragmentRow.apply(fragment, projectOptions);
-                JComboBox<String> comboBox = (JComboBox<String>) row.getComponent(1); // Assuming combo is the second component (EAST)
-                projectCodeComboboxMap.put(comboBox, fragment);
-                projectCodeSection.add(row);
+                Component comp = row.getComponent(1);
+                if (comp instanceof JComboBox<?> cb) {
+                    @SuppressWarnings("unchecked")
+                    var casted = (JComboBox<String>) cb;
+                    projectCodeComboboxMap.put(casted, fragment);
+                    projectCodeSection.add(row);
+                } else {
+                    throw new IllegalStateException("Expected JComboBox at index 1, got " + comp.getClass());
+                }
             }
         }
         // Wrap project code section in a scroll pane
@@ -314,9 +337,15 @@ class DeepScanDialog {
         } else {
             for (ContextFragment fragment : testCodeFragments) {
                 JPanel row = createFragmentRow.apply(fragment, testOptions);
-                JComboBox<String> comboBox = (JComboBox<String>) row.getComponent(1); // Assuming combo is the second component (EAST)
-                testCodeComboboxMap.put(comboBox, fragment);
-                testCodeSection.add(row);
+                Component comp = row.getComponent(1);
+                if (comp instanceof JComboBox<?> cb) {
+                    @SuppressWarnings("unchecked")
+                    var casted = (JComboBox<String>) cb;
+                    testCodeComboboxMap.put(casted, fragment);
+                    testCodeSection.add(row);
+                } else {
+                    throw new IllegalStateException("Expected JComboBox at index 1, got " + comp.getClass());
+                }
             }
         }
         // Wrap test code section in a scroll pane
@@ -355,14 +384,14 @@ class DeepScanDialog {
 
                 switch (selectedAction) {
                     case SUMMARIZE:
-                        filesToSummarize.addAll(fragment.files(project));
+                        filesToSummarize.add(fragmentFileMap.get(fragment));
                         break;
                     case EDIT:
-                        if (hasGit) filesToEdit.addAll(fragment.files(project));
+                        if (hasGit) filesToEdit.add(fragmentFileMap.get(fragment));
                         else logger.warn("Edit action selected for {} but Git is not available. Ignoring.", fragment);
                         break;
                     case READ_ONLY:
-                        filesToReadOnly.addAll(fragment.files(project));
+                        filesToReadOnly.add(fragmentFileMap.get(fragment));
                         break;
                     case OMIT: // Do nothing
                     default:
@@ -377,12 +406,12 @@ class DeepScanDialog {
                 switch (selectedAction) {
                     // SUMMARIZE is not an option for tests via UI
                     case EDIT:
-                        if (hasGit) filesToEdit.addAll(fragment.files(project));
+                        if (hasGit) filesToEdit.add(fragmentFileMap.get(fragment));
                         else
                             logger.warn("Edit action selected for test {} but Git is not available. Ignoring.", fragment);
                         break;
                     case READ_ONLY:
-                        filesToReadOnly.addAll(fragment.files(project));
+                        filesToReadOnly.add(fragmentFileMap.get(fragment));
                         break;
                     case OMIT: // Do nothing
                     default:
@@ -392,9 +421,15 @@ class DeepScanDialog {
 
             contextManager.submitContextTask("Adding Deep Scan recommendations", () -> {
                 if (!filesToSummarize.isEmpty()) {
+                    if (!contextManager.getAnalyzerWrapper().isReady()) {
+                        contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                                          AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                                          JOptionPane.INFORMATION_MESSAGE);
+                        return;
+                    }
                     boolean success = contextManager.addSummaries(filesToSummarize, Set.of());
                     if (!success) {
-                        chrome.toolErrorRaw("No summarizable code found in selected files");
+                        chrome.systemOutput("No summarizable code found in selected files");
                     }
                 }
                 if (!filesToEdit.isEmpty()) {

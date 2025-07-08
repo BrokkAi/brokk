@@ -1,9 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
-import io.github.jbellis.brokk.AnalyzerWrapper;
-import io.github.jbellis.brokk.Completions;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.*;
 import io.github.jbellis.brokk.gui.AutoCompleteUtil;
 import io.github.jbellis.brokk.gui.FileSelectionPanel; // Import new panel
@@ -19,7 +16,6 @@ import javax.swing.*;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.event.*;
-import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
@@ -29,6 +25,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A selection dialog that presents a tabbed interface for selecting
@@ -41,29 +38,28 @@ public class MultiFileSelectionDialog extends JDialog {
         FILES, CLASSES
     }
 
-    public record Selection(List<BrokkFile> files, List<CodeUnit> classes) {
+    public record Selection(@Nullable List<BrokkFile> files, @Nullable List<CodeUnit> classes) {
         public boolean isEmpty() {
             return (files == null || files.isEmpty()) && (classes == null || classes.isEmpty());
         }
     }
 
-    private final Project project;
+    private final IProject project;
     private final AnalyzerWrapper analyzerWrapper;
-    private final Future<Set<ProjectFile>> completableProjectFilesFuture; // Keep for converting to List<Path>
 
     // UI Components - Files Tab
-    private FileSelectionPanel fileSelectionPanel; // Use the new panel
+    @Nullable private FileSelectionPanel fileSelectionPanel; // Use the new panel
 
     // UI Components - Classes Tab
-    private JTextArea classInput; // Keep for classes tab
-    private AutoCompletion classAutoCompletion; // Keep for classes tab
+    @Nullable private JTextArea classInput; // Keep for classes tab
+    @Nullable private AutoCompletion classAutoCompletion; // Keep for classes tab
 
     // Common UI Components
     private JTabbedPane tabbedPane;
     private final JButton okButton;
     private final JButton cancelButton;
 
-    private Selection selectionResult = null;
+    @Nullable private Selection selectionResult = null;
     private boolean confirmed = false;
     private final ExecutorService backgroundExecutor;
 
@@ -81,15 +77,10 @@ public class MultiFileSelectionDialog extends JDialog {
                                     boolean allowExternalFiles, Future<Set<ProjectFile>> completableFiles,
                                     Set<SelectionMode> modes) {
         super(parent, title, true);
-        assert parent != null;
-        assert contextManager != null;
-        assert title != null;
-        assert completableFiles != null;
-        assert modes != null && !modes.isEmpty();
+        assert !modes.isEmpty();
 
         this.project = contextManager.getProject();
         this.analyzerWrapper = contextManager.getAnalyzerWrapper();
-        this.completableProjectFilesFuture = completableFiles; // Store the original future
 
         this.backgroundExecutor = new LoggingExecutorService(Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "MultiFileSelectionDialog-BG");
@@ -113,9 +104,9 @@ public class MultiFileSelectionDialog extends JDialog {
                     f -> true, // Default filter, can be customized if needed
                     autocompletePathsForPanel,
                     true, // multiSelect = true
-                    null,  // No single file confirmed action for multi-select panel
+                    bf -> {},  // No-op single file confirmed action for multi-select panel
                     true, // includeProjectFilesInAutocomplete
-                    null   // customHintText
+                    buildFilesTabHintText(allowExternalFiles)
             );
             fileSelectionPanel = new FileSelectionPanel(panelConfig);
             fileSelectionPanel.setName("FilesPanel"); // For focusing logic
@@ -176,14 +167,22 @@ public class MultiFileSelectionDialog extends JDialog {
         setLocationRelativeTo(parent);
     }
 
+    private String buildFilesTabHintText(boolean allowExternalFiles) {
+        var sb = new StringBuilder("Ctrl-space to autocomplete project files.");
+        if (allowExternalFiles) {
+            sb.append(" External files may be selected from the tree.");
+        }
+        return sb.toString();
+    }
+
     private Future<List<Path>> convertProjectFilesToPaths(Future<Set<ProjectFile>> projectFilesFuture) {
         // This conversion happens when the Future completes.
         // We return a new CompletableFuture that will complete with the List<Path>.
         return CompletableFuture.supplyAsync(() -> {
             try {
                 return projectFilesFuture.get().stream()
-                                         .map(ProjectFile::absPath)
-                                         .collect(Collectors.toList());
+                        .map(ProjectFile::absPath)
+                        .collect(Collectors.toList());
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error converting project files to paths for autocompletion", e);
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -239,7 +238,7 @@ public class MultiFileSelectionDialog extends JDialog {
 
         if ("FilesPanel".equals(componentName) && fileSelectionPanel != null) {
             List<BrokkFile> filesResult = fileSelectionPanel.resolveAndGetSelectedFiles();
-            selectionResult = new Selection((filesResult != null && !filesResult.isEmpty()) ? List.copyOf(filesResult) : null, null);
+            selectionResult = new Selection(!filesResult.isEmpty() ? List.copyOf(filesResult) : null, null);
             confirmed = !selectionResult.isEmpty();
             if (!confirmed) selectionResult = null;
             dispose();
@@ -351,10 +350,11 @@ public class MultiFileSelectionDialog extends JDialog {
      */
     private List<String> splitQuotedString(String input) {
         List<String> tokens = new ArrayList<>();
-        if (input == null || input.isBlank()) return tokens;
+        if (input.isBlank()) return tokens;
         StringBuilder currentToken = new StringBuilder();
         boolean inQuotes = false;
-        for (char c : input.toCharArray()) {
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
             if (c == '"') {
                 inQuotes = !inQuotes;
             } else if (Character.isWhitespace(c) && !inQuotes) {
@@ -377,6 +377,7 @@ public class MultiFileSelectionDialog extends JDialog {
         return confirmed;
     }
 
+    @Nullable
     public Selection getSelection() {
         return selectionResult;
     }
@@ -395,8 +396,6 @@ public class MultiFileSelectionDialog extends JDialog {
 
         public SymbolCompletionProvider(AnalyzerWrapper analyzerWrapperParam, ExecutorService backgroundExecutor) {
             super();
-            assert analyzerWrapperParam != null;
-            assert backgroundExecutor != null;
             this.analyzerWrapperField = analyzerWrapperParam;
 
             this.completionsFuture = backgroundExecutor.submit(() -> {
@@ -418,38 +417,44 @@ public class MultiFileSelectionDialog extends JDialog {
             // For class input, which is always JTextArea, we need token extraction
             return getCurrentTokenTextForCompletion(comp);
         }
-        
+
         // Helper method for token extraction, similar to what was in FileSelectionPanel
         private String getCurrentTokenTextForCompletion(JTextComponent comp) {
             String text = comp.getText();
             int caretPos = comp.getCaretPosition();
             if (caretPos == 0) return "";
 
-            int tokenStart = caretPos -1;
-            boolean inQuotes = false;
+            int tokenStart = caretPos - 1;
+            // boolean inQuotes = false; // Unused variable
             char[] chars = text.toCharArray();
             int quoteCountBeforeCaret = 0;
-            for(int i=0; i < caretPos; i++) {
-                if(chars[i] == '"') quoteCountBeforeCaret++;
+            for (int i = 0; i < caretPos; i++) {
+                if (chars[i] == '"') quoteCountBeforeCaret++;
             }
-            inQuotes = (quoteCountBeforeCaret % 2) != 0;
+            boolean currentlyInQuotes = (quoteCountBeforeCaret % 2) != 0; // Renamed for clarity
 
             while (tokenStart >= 0) {
                 char c = chars[tokenStart];
                 if (c == '"') {
-                    inQuotes = !inQuotes;
-                } else if (Character.isWhitespace(c) && !inQuotes) {
-                    tokenStart++; 
+                    currentlyInQuotes = !currentlyInQuotes; // This logic seems to be for state *before* current char
+                } else if (Character.isWhitespace(c) && !currentlyInQuotes) {
+                    tokenStart++;
                     break;
                 }
                 if (tokenStart == 0) break;
                 tokenStart--;
             }
-            if(tokenStart < 0) tokenStart = 0;
+            if (tokenStart < 0) tokenStart = 0;
 
             String currentToken = text.substring(tokenStart, caretPos);
-             if (currentToken.startsWith("\"") && ! (text.substring(tokenStart,caretPos).chars().filter(ch -> ch == '"').count() % 2 == 0) ) {
-                return currentToken.substring(1);
+            // Simplified logic: if the token starts with a quote and we are effectively inside quotes (odd number of quotes from tokenStart to caretPos)
+            // then the pattern for completion is what's after the opening quote.
+            // This is a common behavior for completion within quoted strings.
+            if (currentToken.startsWith("\"")) {
+                long quotesInToken = currentToken.chars().filter(ch -> ch == '"').count();
+                if (quotesInToken % 2 != 0) { // Odd number of quotes means caret is likely inside an unterminated quote
+                    return currentToken.substring(1);
+                }
             }
             return currentToken;
         }
@@ -476,7 +481,9 @@ public class MultiFileSelectionDialog extends JDialog {
                                                         cu -> 0,
                                                         this::createClassCompletion);
 
-            AutoCompleteUtil.sizePopupWindows(classAutoCompletion, comp, matches);
+            if (classAutoCompletion != null) { // classAutoCompletion can be null if Classes tab is not created
+                AutoCompleteUtil.sizePopupWindows(classAutoCompletion, comp, matches);
+            }
             return matches.stream().map(c -> (Completion) c).toList();
         }
 

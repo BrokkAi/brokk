@@ -5,8 +5,6 @@ import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.DataKey;
 import com.vladsch.flexmark.util.data.MutableDataHolder;
 
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Flexmark extension for Brokk-specific Markdown syntax.
@@ -19,7 +17,7 @@ public class BrokkMarkdownExtension implements Parser.ParserExtension, HtmlRende
      * Default is true (enabled).
      */
     public static final DataKey<Boolean> ENABLE_EDIT_BLOCK = 
-            new DataKey<>("BROKK_ENABLE_EDIT_BLOCK", Boolean.TRUE);
+            new DataKey<>("BROKK_ENABLE_EDIT_BLOCK", true);
     
     private BrokkMarkdownExtension() {
     }
@@ -30,14 +28,14 @@ public class BrokkMarkdownExtension implements Parser.ParserExtension, HtmlRende
 
     @Override
     public void extend(Parser.Builder parserBuilder) {
-        if (parserBuilder.get(ENABLE_EDIT_BLOCK)) {
+        if (ENABLE_EDIT_BLOCK.get(parserBuilder)) {
             parserBuilder.customBlockParserFactory(new EditBlockParser.Factory());
         }
     }
 
     @Override
     public void extend(HtmlRenderer.Builder rendererBuilder, String rendererType) {
-        if (rendererBuilder.get(ENABLE_EDIT_BLOCK)) {
+        if (ENABLE_EDIT_BLOCK.get(rendererBuilder)) {
             rendererBuilder.nodeRendererFactory(new EditBlockRenderer.Factory());
         }
         rendererBuilder.nodeRendererFactory(new CodeFenceRenderer.Factory());

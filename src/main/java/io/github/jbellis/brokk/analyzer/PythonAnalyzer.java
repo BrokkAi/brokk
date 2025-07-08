@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterPython;
@@ -12,7 +13,7 @@ import java.util.Set;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
-    private static final TSLanguage PY_LANGUAGE = new TreeSitterPython();
+    // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile PY_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of("class_definition"),
             Set.of("function_definition"),
@@ -33,7 +34,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     );
 
     public PythonAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.PYTHON, excludedFiles);
     }
 
     public PythonAnalyzer(IProject project) {
@@ -41,8 +42,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected TSLanguage getTSLanguage() {
-        return PY_LANGUAGE;
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterPython();
     }
 
     @Override
@@ -51,11 +52,11 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName, // Changed from namespaceName
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         // The packageName parameter is now supplied by determinePackageName.
         // The classChain parameter is used for Joern-style short name generation.
 
@@ -65,42 +66,36 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             moduleName = moduleName.substring(0, moduleName.length() - 3); // e.g., "A"
         }
 
-        try {
-            return switch (captureName) {
-                case "class.definition" -> {
-                    String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
-                    yield CodeUnit.cls(file, packageName, finalShortName);
+        return switch (captureName) {
+            case "class.definition" -> {
+                String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
+                yield CodeUnit.cls(file, packageName, finalShortName);
+            }
+            case "function.definition" -> {
+                String finalShortName = classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
+                yield CodeUnit.fn(file, packageName, finalShortName);
+            }
+            case "field.definition" -> { // For class attributes or top-level variables
+                if (file.getFileName().equals("vars.py")) {
+                    log.trace("[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
+                              file.getFileName(), captureName, simpleName, packageName, classChain, moduleName);
                 }
-                case "function.definition" -> {
-                    String finalShortName = classChain.isEmpty() ? (moduleName + "." + simpleName) : (classChain + "." + simpleName);
-                    yield CodeUnit.fn(file, packageName, finalShortName);
+                String finalShortName;
+                if (classChain.isEmpty()) {
+                    // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of a "."
+                    // This also makes it consistent with how top-level functions are named (moduleName.funcName)
+                    finalShortName = moduleName + "." + simpleName;
+                } else {
+                    finalShortName = classChain + "." + simpleName;
                 }
-                case "field.definition" -> { // For class attributes or top-level variables
-                    if (file.getFileName().equals("vars.py")) {
-                        log.trace("[vars.py DEBUG PythonAnalyzer.createCodeUnit] file: {}, captureName: {}, simpleName: {}, packageName: {}, classChain: {}, moduleName: {}",
-                                 file.getFileName(), captureName, simpleName, packageName, classChain, moduleName);
-                    }
-                    String finalShortName;
-                    if (classChain.isEmpty()) {
-                        // For top-level variables, use "moduleName.variableName" to satisfy CodeUnit.field's expectation of a "."
-                        // This also makes it consistent with how top-level functions are named (moduleName.funcName)
-                        finalShortName = moduleName + "." + simpleName;
-                    } else {
-                        finalShortName = classChain + "." + simpleName;
-                    }
-                    yield CodeUnit.field(file, packageName, finalShortName);
-                }
-                default -> {
-                    // Log or handle unexpected captures if necessary
-                    log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                    yield null; // Returning null ignores the capture
-                }
-            };
-        } catch (IllegalArgumentException e) {
-            log.warn("Failed to create CodeUnit for capture '{}', name '{}', file '{}': {}",
-                     captureName, simpleName, file, e.getMessage());
-            return null; // Return null on error to avoid breaking the analysis stream
-        }
+                yield CodeUnit.field(file, packageName, finalShortName);
+            }
+            default -> {
+                // Log or handle unexpected captures if necessary
+                log.debug("Ignoring capture: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
+                yield null; // Returning null ignores the capture
+            }
+        };
     }
 
     @Override
@@ -116,7 +111,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
-        String pyReturnTypeSuffix = (returnTypeText != null && !returnTypeText.isEmpty()) ? " -> " + returnTypeText : "";
+        String pyReturnTypeSuffix = !returnTypeText.isEmpty() ? " -> " + returnTypeText : "";
         // The 'indent' parameter is now "" when called from buildSignatureString,
         // so it's effectively ignored here for constructing the stored signature.
         String signature = String.format("%s%sdef %s%s%s:", exportPrefix, asyncPrefix, functionName, paramsText, pyReturnTypeSuffix);

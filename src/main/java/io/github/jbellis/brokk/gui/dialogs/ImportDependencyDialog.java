@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.gui.dialogs;
 
+import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.TreeMap;
@@ -36,29 +38,31 @@ public class ImportDependencyDialog {
 
     public static void show(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
-        assert chrome.getContextManager() != null : "ContextManager must not be null to import a dependency";
-        assert chrome.getProject() != null : "Project must not be null to import a dependency";
-
         new DialogHelper(chrome).buildAndShow();
     }
 
     private static class DialogHelper {
         private final Chrome chrome;
-        private JDialog dialog;
-        private JRadioButton jarRadioButton;
-        private JRadioButton dirRadioButton;
-        private JPanel fspContainerPanel;
+        private JDialog dialog = new JDialog(); // Initialized
+        @Nullable
+        private JRadioButton jarRadioButton; // Null if not Java project
+        @Nullable
+        private JRadioButton dirRadioButton; // Null if not Java project
+        private JPanel fspContainerPanel = new JPanel(new BorderLayout()); // Initialized
+        @Nullable
         private FileSelectionPanel currentFileSelectionPanel;
-        private JTextArea previewArea;
-        private JButton importButton;
+        private JTextArea previewArea = new JTextArea(); // Initialized
+        private JButton importButton = new JButton("Import"); // Initialized
 
-        private SourceType currentSourceType = SourceType.JAR;
+        private SourceType currentSourceType = SourceType.JAR; // Default
+        @Nullable
         private BrokkFile selectedBrokkFileForImport;
         private final Path dependenciesRoot;
 
         DialogHelper(Chrome chrome) {
             this.chrome = chrome;
             this.dependenciesRoot = chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
+            // Initialize other fields that might be null based on conditions later
         }
 
         void buildAndShow() {
@@ -72,7 +76,7 @@ public class ImportDependencyDialog {
             gbc.insets = new Insets(5, 5, 5, 5);
             gbc.anchor = GridBagConstraints.WEST;
 
-            boolean allowJarImport = chrome.getProject().getAnalyzerLanguage() == Language.JAVA;
+            boolean allowJarImport = chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA);
             if (!allowJarImport) {
                 currentSourceType = SourceType.DIRECTORY; // Default to directory if JAR not allowed
             } else {
@@ -184,27 +188,32 @@ public class ImportDependencyDialog {
 
             Predicate<File> filter;
             Future<List<Path>> candidates;
-            var projectLanguage = chrome.getProject().getAnalyzerLanguage();
 
             if (currentSourceType == SourceType.JAR) {
-                // This branch is only reachable if projectLanguage is JAVA,
+                // This branch is only reachable if one of the project languages is Java,
                 // because the JAR radio button is only shown for Java projects.
-                assert projectLanguage == Language.JAVA : "JAR source type should only be possible for Java projects";
-                filter = file -> file.isDirectory() || file.getName().toLowerCase().endsWith(".jar");
+                assert chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA) : "JAR source type should only be possible for Java projects";
+                filter = file -> file.isDirectory() || file.getName().toLowerCase(Locale.ROOT).endsWith(".jar");
                 // For JARs, use Java language's candidates. Passing null to getDependencyCandidates might be
                 // for fetching general, non-project-specific JARs (e.g. from a global cache).
                 candidates = chrome.getContextManager().submitBackgroundTask("Scanning for JAR files",
-                                                                           () -> Language.JAVA.getDependencyCandidates(null));
+                                                                           () -> Language.JAVA.getDependencyCandidates(chrome.getProject()));
             } else { // DIRECTORY
                 filter = File::isDirectory;
-                if (projectLanguage == Language.JAVA) {
-                    // For Java projects, directory import does not use getDependencyCandidates for autocompletion.
+                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
+                    // For Java projects (even if mixed with other languages),
+                    // directory import does not use getDependencyCandidates for autocompletion.
                     // Users are expected to browse to specific source directories.
                     candidates = CompletableFuture.completedFuture(List.of());
                 } else {
-                    // For other languages, get dependency candidates for directories.
+                    // For non-Java projects, get dependency candidates from all configured languages.
                     candidates = chrome.getContextManager().submitBackgroundTask("Scanning for dependency directories",
-                                                                               () -> projectLanguage.getDependencyCandidates(chrome.getProject()));
+                        () -> {
+                            return chrome.getProject().getAnalyzerLanguages().stream()
+                                         .flatMap(lang -> lang.getDependencyCandidates(chrome.getProject()).stream())
+                                         .distinct()
+                                         .collect(Collectors.toList());
+                        });
                 }
             }
 
@@ -222,18 +231,18 @@ public class ImportDependencyDialog {
                 );
             } else { // DIRECTORY
                 String directoryHelpText;
-                if (projectLanguage == Language.JAVA) {
-                    // Java language, directory mode: No autocomplete candidates are provided.
+                if (chrome.getProject().getAnalyzerLanguages().contains(Language.JAVA)) {
+                    // Java language (even if mixed), directory mode: No autocomplete candidates are provided.
                     directoryHelpText = "Select a directory containing sources.\nSelected directory will be copied into the project.";
                 } else {
-                    // Non-Java language, directory mode: Autocomplete candidates ARE provided.
+                    // Non-Java language(s), directory mode: Autocomplete candidates ARE provided from all languages.
                     directoryHelpText = "Ctrl+Space to autocomplete common dependency directories.\nSelected directory will be copied into the project.";
                 }
                 fspConfig = new FileSelectionPanel.Config(
                         chrome.getProject(),
                         true, // allowExternalFiles
                         filter,
-                        candidates, // Candidates are empty for Java/Directory, or from projectLanguage.getDependencyCandidates for non-Java/Directory
+                        candidates, // Candidates are empty for Java/Directory, or from combined projectLanguages for non-Java/Directory
                         false, // multiSelect = false
                         this::handleFspSingleFileConfirmed,
                         false, // includeProjectFilesInAutocomplete
@@ -258,6 +267,12 @@ public class ImportDependencyDialog {
 
         private void onFspInputTextChange() {
             SwingUtilities.invokeLater(() -> { // Ensure UI updates are on EDT
+                if (currentFileSelectionPanel == null) {
+                    selectedBrokkFileForImport = null;
+                    previewArea.setText("");
+                    importButton.setEnabled(false);
+                    return;
+                }
                 String text = currentFileSelectionPanel.getInputText();
 
                 if (text.isEmpty()) {
@@ -304,7 +319,9 @@ public class ImportDependencyDialog {
             // This is called on double-click or enter in FSP if configured
             // It implies an explicit selection. Update text field which triggers document listener,
             // or directly update preview. Let's ensure text field is set.
-            currentFileSelectionPanel.setInputText(file.absPath().toString());
+            if (currentFileSelectionPanel != null) {
+                currentFileSelectionPanel.setInputText(file.absPath().toString());
+            }
             // The document listener on setInputText will call updatePreviewAndButtonState.
             // For robustness, also call it directly in case the text was already identical.
             updatePreviewAndButtonState(file);
@@ -319,11 +336,6 @@ public class ImportDependencyDialog {
             importButton.setEnabled(false);
             previewArea.setText(""); // Clear previous preview
 
-            if (file == null || file.absPath() == null) {
-                 previewArea.setText(""); // Clear preview for invalid file selection
-                 return;
-            }
-
             Path path = file.absPath();
             if (!Files.exists(path)) {
                 previewArea.setText("");
@@ -331,7 +343,7 @@ public class ImportDependencyDialog {
             }
 
             if (currentSourceType == SourceType.JAR) {
-                if (Files.isRegularFile(path) && path.toString().toLowerCase().endsWith(".jar")) {
+                if (Files.isRegularFile(path) && path.toString().toLowerCase(Locale.ROOT).endsWith(".jar")) {
                     selectedBrokkFileForImport = file;
                     previewArea.setText(generateJarPreviewText(path));
                     importButton.setEnabled(true);
@@ -353,7 +365,7 @@ public class ImportDependencyDialog {
         }
 
         private String generateJarPreviewText(Path jarPath) {
-            Map<String, Integer> classCountsByPackage = new HashMap<>();
+            Map<String, Integer> classCountsByPackage = new HashMap<>(); // Using concrete type for modification
             try (JarFile jarFile = new JarFile(jarPath.toFile())) {
                 Enumeration<JarEntry> entries = jarFile.entries();
                 while (entries.hasMoreElements()) {
@@ -378,7 +390,10 @@ public class ImportDependencyDialog {
         }
 
         private String generateDirectoryPreviewText(Path dirPath) {
-            List<String> extensions = chrome.getProject().getAnalyzerLanguage().getExtensions();
+            List<String> extensions = chrome.getProject().getAnalyzerLanguages().stream()
+                                            .flatMap(lang -> lang.getExtensions().stream())
+                                            .distinct()
+                                            .collect(Collectors.toList());
             Map<String, Long> counts = new TreeMap<>();
 
             long rootFileCount = 0;
@@ -387,7 +402,7 @@ public class ImportDependencyDialog {
                     String fileName = p.getFileName().toString();
                     int lastDot = fileName.lastIndexOf('.');
                     if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                        String ext = fileName.substring(lastDot + 1).toLowerCase();
+                        String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                         return extensions.contains(ext);
                     }
                     return false;
@@ -409,7 +424,7 @@ public class ImportDependencyDialog {
                                 String fileName = p.getFileName().toString();
                                 int lastDot = fileName.lastIndexOf('.');
                                 if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                                    String ext = fileName.substring(lastDot + 1).toLowerCase();
+                                    String ext = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                                     return extensions.contains(ext);
                                 }
                                 return false;
@@ -427,11 +442,23 @@ public class ImportDependencyDialog {
                 if (counts.isEmpty() && rootFileCount == 0) return "Error reading directory: " + e.getMessage();
             }
 
-            if (counts.isEmpty()) return "No relevant files found for project language (" + String.join(", ", extensions) + ").";
+            if (counts.isEmpty()) return "No relevant files found for project language(s) (" + String.join(", ", extensions) + ").";
 
-            String languageName = chrome.getProject().getAnalyzerLanguage().name().toLowerCase();
+            String languagesDisplay;
+            var projectLangs = chrome.getProject().getAnalyzerLanguages();
+            if (projectLangs.isEmpty()) {
+                languagesDisplay = "configured"; // Fallback, should ideally not happen for a valid project
+            } else if (projectLangs.size() == 1) {
+                languagesDisplay = projectLangs.iterator().next().name().toLowerCase(Locale.ROOT);
+            } else {
+                languagesDisplay = projectLangs.stream()
+                                               .map(l -> l.name().toLowerCase(Locale.ROOT))
+                                               .sorted()
+                                               .collect(Collectors.joining("/"));
+            }
+            final String finalLanguagesDisplay = languagesDisplay;
             return counts.entrySet().stream()
-                         .map(e -> e.getKey() + ": " + e.getValue() + " " + languageName + " file(s)")
+                         .map(e -> e.getKey() + ": " + e.getValue() + " " + finalLanguagesDisplay + " file(s)")
                          .collect(Collectors.joining("\n"));
         }
 
@@ -459,13 +486,17 @@ public class ImportDependencyDialog {
 
             } else { // DIRECTORY
                 var project = chrome.getProject();
-                var projectLanguage = project.getAnalyzerLanguage();
 
-                if (projectLanguage.isAnalyzed(project, sourcePath)) {
+                boolean isAlreadyAnalyzed = project.getAnalyzerLanguages().stream()
+                                                 .anyMatch(lang -> lang.isAnalyzed(project, sourcePath));
+                if (isAlreadyAnalyzed) {
                     int proceedResponse = JOptionPane.showConfirmDialog(dialog,
-                        "The selected directory might already be part of the project's analyzed sources.\n" +
-                        "Importing it as a dependency could lead to duplicate analysis or conflicts.\n\n" +
-                        "Proceed with import?",
+                        """
+                        The selected directory might already be part of the project's analyzed sources.
+                        Importing it as a dependency could lead to duplicate analysis or conflicts.
+
+                        Proceed with import?\
+                        """,
                         "Confirm Import", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
                     if (proceedResponse == JOptionPane.NO_OPTION) {
                         importButton.setEnabled(true); // Re-enable if user cancels here
@@ -492,10 +523,23 @@ public class ImportDependencyDialog {
                             if (Files.exists(targetPath)) {
                                 ImportDependencyDialog.deleteRecursively(targetPath); // Use static method
                             }
-                            ImportDependencyDialog.copyDirectoryRecursively(sourcePath, targetPath, projectLanguage.getExtensions()); // Use static method
+                            List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
+                                .flatMap(lang -> lang.getExtensions().stream())
+                                .distinct()
+                                .collect(Collectors.toList());
+                            ImportDependencyDialog.copyDirectoryRecursively(sourcePath, targetPath, allowedExtensions); // Use static method
                             SwingUtilities.invokeLater(() -> {
+                                String langNamesForOutput;
+                                var langs = project.getAnalyzerLanguages();
+                                if (langs.isEmpty()) { // Should not happen for a valid project
+                                    langNamesForOutput = "configured";
+                                } else if (langs.size() == 1) {
+                                    langNamesForOutput = langs.iterator().next().name();
+                                } else {
+                                    langNamesForOutput = langs.stream().map(Language::name).sorted().collect(Collectors.joining(", "));
+                                }
                                 chrome.systemOutput("Directory copied successfully to " + targetPath +
-                                                    " (filtered by project language: " + projectLanguage.name() +
+                                                    " (filtered by project language(s): " + langNamesForOutput +
                                                     "). Reopen project to incorporate the new files.");
                                 if (currentFileSelectionPanel != null) currentFileSelectionPanel.setInputText("");
                                 previewArea.setText("Directory copied successfully.");
@@ -533,7 +577,7 @@ public class ImportDependencyDialog {
                 int lastDot = fileName.lastIndexOf('.');
                 // Ensure dot is not the first or last character and an extension exists
                 if (lastDot > 0 && lastDot < fileName.length() - 1) {
-                    String extension = fileName.substring(lastDot + 1).toLowerCase();
+                    String extension = fileName.substring(lastDot + 1).toLowerCase(Locale.ROOT);
                     if (allowedExtensions.contains(extension)) {
                         Files.copy(file, destination.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
                     }

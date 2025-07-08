@@ -1,17 +1,23 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryException;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterJavascript;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Set;
 
-public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
-    private static final TSLanguage JS_LANGUAGE = new TreeSitterJavascript();
+public class JavascriptAnalyzer extends TreeSitterAnalyzer {
+    // JS_LANGUAGE field removed, createTSLanguage will provide new instances.
     private static final LanguageSyntaxProfile JS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of("class_declaration", "class_expression", "class"),
             Set.of("function_declaration", "arrow_function", "method_definition", "function_expression"),
@@ -31,21 +37,23 @@ public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
             Set.of() // modifierNodeTypes
     );
 
-    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) { super(project, excludedFiles); }
+    public JavascriptAnalyzer(IProject project, Set<String> excludedFiles) { super(project, Language.JAVASCRIPT, excludedFiles); }
     public JavascriptAnalyzer(IProject project) { this(project, Collections.emptySet()); }
 
-    @Override protected TSLanguage getTSLanguage() { return JS_LANGUAGE; }
+    @Override
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterJavascript();
+    }
 
     @Override protected String getQueryResource() { return "treesitter/javascript.scm"; }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName, // Changed from namespaceName
-                                      String classChain)
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain)
     {
-        // The packageName parameter is now supplied by determinePackageName.
         return switch (captureName) {
             case "class.definition" -> {
                 String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
@@ -63,9 +71,9 @@ public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
             case "field.definition" -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
-                    // For top-level variables, use a convention like "_module_.variableName"
-                    // to satisfy CodeUnit.field's expectation of a "."
-                    finalShortName = "_module_." + simpleName;
+                    // For top-level variables, use filename as a prefix to ensure uniqueness
+                    // and satisfy CodeUnit.field's expectation of a ".".
+                    finalShortName = file.getFileName() + "." + simpleName;
                 } else {
                     finalShortName = classChain + "." + simpleName;
                 }
@@ -73,7 +81,7 @@ public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
             }
             default -> {
                 log.debug("Ignoring capture in JavascriptAnalyzer: {} with name: {} and classChain: {}", captureName, simpleName, classChain);
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }
@@ -96,7 +104,28 @@ public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
-        String tsReturnTypeSuffix = (returnTypeText != null && !returnTypeText.isEmpty()) ? ": " + returnTypeText : "";
+        String inferredReturnType = returnTypeText;
+        // ProjectFile currentFile = null; // Unused variable removed
+
+        // Attempt to get current file from CU if available through funcNode context
+        // For now, type inference will be based on syntax, not file extension.
+        // If super.getProject().findFile(sourcePath) could be used, it would require sourcePath.
+
+        // Infer JSX.Element return type if no explicit return type is present AND:
+        // 1. It's an exported function/component starting with an uppercase letter (common React convention).
+        // OR
+        // 2. It's a method named "render" (classic React class component method).
+        boolean isExported = !exportPrefix.trim().isEmpty();
+        boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
+        boolean isRenderMethod = "render".equals(functionName);
+
+        if ((isRenderMethod || (isExported && isComponentName)) && returnTypeText.isEmpty()) {
+            if (returnsJsxElement(funcNode)) { // src parameter removed
+                inferredReturnType = "JSX.Element";
+            }
+        }
+
+        String tsReturnTypeSuffix = !inferredReturnType.isEmpty() ? ": " + inferredReturnType : "";
         String signature;
         String bodySuffix = " " + bodyPlaceholder();
 
@@ -109,6 +138,117 @@ public final class JavascriptAnalyzer extends TreeSitterAnalyzer {
         }
         return signature + bodySuffix; // Do not prepend indent here
     }
+
+    private boolean isJsxNode(TSNode node) {
+        if (node.isNull()) return false;
+        String type = node.getType();
+        return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
+    }
+
+    private boolean returnsJsxElement(TSNode funcNode) { // src parameter removed
+        TSNode bodyNode = funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        if (bodyNode == null || bodyNode.isNull()) {
+            return false;
+        }
+
+        // Case 1: Arrow function with implicit return: () => <div />
+        if ("arrow_function".equals(funcNode.getType())) {
+            if (isJsxNode(bodyNode)) { // bodyNode is the expression itself for implicit return
+                return true;
+            }
+        }
+
+        // Case 2: Explicit return statement: return <div />; or return (<div />);
+        // We need a small query to run over the bodyNode.
+        // Create a specific, local query for this check.
+        // TSLanguage and TSQuery are not AutoCloseable.
+        TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
+        try {
+            // Query for return statements that directly return a JSX element, or one wrapped in parentheses.
+            // Each line is a separate pattern; the query matches if any of them are found.
+            // The @jsx_return capture is on the JSX node itself.
+            // Queries for return statements that directly return a JSX element or one wrapped in parentheses.
+            // Note: Removed jsx_fragment queries as they were causing TSQueryErrorField,
+            // potentially due to grammar version or query engine specifics.
+            // Standard jsx_element (e.g. <></> becoming <JsxElement name={null}>) might cover fragments.
+            String jsxReturnQueryStr = """
+                (return_statement (jsx_element) @jsx_return)
+                (return_statement (jsx_self_closing_element) @jsx_return)
+                (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
+                (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
+                """.stripIndent();
+            // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
+            // Ensure cursor is handled if it were AutoCloseable.
+            TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            try {
+                cursor.exec(returnJsxQuery, bodyNode);
+                TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+                if (cursor.nextMatch(match)) {
+                    return true; // Found a JSX return
+                }
+            } finally {
+                // Manually close cursor if underlying native resource needs it,
+                // though the current TreeSitter binding might not require explicit closing for TSQueryCursor.
+                // For safety and future-proofing, if a close method were available, it would be called here.
+                // cursor.close(); // Example if TSQueryCursor had a close method
+            }
+        } catch (TSQueryException e) {
+            // Log specific query exceptions, which usually indicate a problem with the query string itself.
+            log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);
+        } catch (Exception e) { // Catch other broader exceptions during query execution
+            log.error("Error during JSX return type inference query execution: {}", e.getMessage(), e);
+        }
+        return false;
+    }
+
+    @Override
+    protected List<String> getExtraFunctionComments(TSNode bodyNode, String src, @Nullable CodeUnit functionCu) {
+        if (bodyNode.isNull()) {
+            return List.of();
+        }
+
+        // Only apply for .jsx or .tsx files, or if JSX syntax is clearly present.
+        // For simplicity, let's assume if this logic is active, it's for a JSX context.
+        // A more robust check might involve checking functionCu.source().getFileName().
+
+        Set<String> mutatedIdentifiers = new HashSet<>();
+        String mutationQueryStr = """
+            (assignment_expression left: (identifier) @mutated.id)
+            (assignment_expression left: (member_expression property: (property_identifier) @mutated.id))
+            (assignment_expression left: (subscript_expression index: _ @mutated.id))
+            (update_expression argument: (identifier) @mutated.id)
+            (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
+            """.stripIndent();
+
+        // TSLanguage and TSQuery are not AutoCloseable.
+        TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
+        try {
+            TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
+            TSQueryCursor cursor = new TSQueryCursor();
+            cursor.exec(mutationQuery, bodyNode);
+            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+            while (cursor.nextMatch(match)) {
+                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
+                    if ("mutated.id".equals(captureName)) {
+                        mutatedIdentifiers.add(textSlice(capture.getNode(), src));
+                    }
+                }
+            }
+        } catch (Exception e) { // Catch broader exceptions if TSQuery construction fails
+            log.error("Error querying function body for mutations: {}", e.getMessage(), e);
+        }
+
+        if (!mutatedIdentifiers.isEmpty()) {
+            List<String> sortedMutations = new ArrayList<>(mutatedIdentifiers);
+            Collections.sort(sortedMutations);
+            return List.of("// mutates: " + String.join(", ", sortedMutations));
+        }
+
+        return List.of();
+    }
+
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {

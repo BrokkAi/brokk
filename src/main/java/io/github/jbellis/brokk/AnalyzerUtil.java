@@ -1,29 +1,20 @@
 package io.github.jbellis.brokk;
 
-import io.github.jbellis.brokk.analyzer.CallSite;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
-import io.github.jbellis.brokk.analyzer.IAnalyzer;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects; // Added import
-import java.util.Optional; // Added import
-import java.util.Set;
+import java.io.IOException;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
-    @NotNull
     public static AnalyzerWrapper.CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
         StringBuilder code = new StringBuilder();
         Set<CodeUnit> sources = new HashSet<>();
@@ -104,7 +95,6 @@ public class AnalyzerUtil {
         return result;
     }
 
-    @NotNull
     public static Set<CodeUnit> coalesceInnerClasses(Set<CodeUnit> classes)
     {
         return classes.stream()
@@ -117,12 +107,56 @@ public class AnalyzerUtil {
                 .collect(Collectors.toSet());
     }
 
-    public static @NotNull Map<CodeUnit, String> getSkeletonStrings(IAnalyzer analyzer, Set<CodeUnit> classes) {
+    public static Map<CodeUnit, String> getSkeletonStrings(IAnalyzer analyzer, Set<CodeUnit> classes) {
         var coalescedUnits = coalesceInnerClasses(classes);
         return coalescedUnits.stream().parallel()
                 .map(cu -> Map.entry(cu, analyzer.getSkeleton(cu.fqName())))
                 .filter(entry -> entry.getValue().isPresent())
                 .collect(Collectors.toMap(Map.Entry::getKey, entry -> entry.getValue().get()));
+    }
+
+    public static List<String> testFilesToFQCNs(IAnalyzer analyzer, Collection<ProjectFile> files) {
+        if (analyzer instanceof JavaAnalyzer) {
+            // TODO remove this hack when we can get Joern to process the damn test files
+            return files.stream()
+                    .map(file -> {
+                        // Extract class name from filename (without extension)
+                        var fileName = file.getRelPath().getFileName().toString();
+                        var className = fileName.contains(".") 
+                                ? fileName.substring(0, fileName.lastIndexOf('.'))
+                                : fileName;
+                        
+                        // Read file content and extract package declaration
+                        try {
+                            var content = file.read();
+                            var packageName = extractPackageName(content);
+                            
+                            // Build FQCN: package.classname or just classname if no package
+                            return packageName.isEmpty() 
+                                    ? className 
+                                    : packageName + "." + className;
+                        } catch (IOException e) {
+                            // If we can't read the file, just use the simple class name
+                            logger.warn("Could not read file {}", file, e);
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .sorted()
+                    .toList();
+        }
+
+        var classUnitsInTestFiles = files.stream()
+                .flatMap(testFile -> analyzer.getDeclarationsInFile(testFile).stream())
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toSet());
+
+        var coalescedClasses = AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
+
+        return coalescedClasses.stream()
+                .map(CodeUnit::fqName)
+                .sorted() // for consistent test command generation
+                .toList();
     }
 
     private record StackEntry(String method, int depth) {
@@ -176,7 +210,7 @@ public class AnalyzerUtil {
      */
     public static Map<CodeUnit, String> getClassSkeletonsData(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return Map.of();
         }
 
@@ -201,7 +235,7 @@ public class AnalyzerUtil {
      */
     public static Map<String, String> getMethodSourcesData(IAnalyzer analyzer, List<String> methodNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available for getMethodSourcesData.";
-        if (methodNames == null || methodNames.isEmpty()) {
+        if (methodNames.isEmpty()) {
             return Map.of();
         }
 
@@ -209,7 +243,7 @@ public class AnalyzerUtil {
 
         // Iterate through each requested method name
         for (String methodName : methodNames) {
-            if (methodName != null && !methodName.isBlank()) {
+            if (!methodName.isBlank()) {
                 // Attempt to get the source code for the method
                 var methodSourceOpt = analyzer.getMethodSource(methodName);
                 if (methodSourceOpt.isPresent()) {
@@ -224,6 +258,24 @@ public class AnalyzerUtil {
         return sources;
     }
 
+    private static final Pattern PACKAGE_PATTERN = Pattern.compile("^\\s*package\\s+([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)\\s*;");
+
+    /**
+     * Extracts the package name from Java source code content.
+     * @param content The source code content
+     * @return The package name, or empty string if no package declaration found
+     */
+    private static String extractPackageName(String content) {
+        return content.lines()
+                .map(String::trim)
+                .filter(line -> !line.isEmpty() && !line.startsWith("//") && !line.startsWith("/*"))
+                .map(PACKAGE_PATTERN::matcher)
+                .filter(Matcher::matches)
+                .findFirst()
+                .map(matcher -> matcher.group(1))
+                .orElse("");
+    }
+
     /**
      * Retrieves class source code for the given class names, including filename headers.
      * @param analyzer The Analyzer instance.
@@ -232,7 +284,7 @@ public class AnalyzerUtil {
      */
     public static Map<String, String> getClassSourcesData(IAnalyzer analyzer, List<String> classNames) {
         assert analyzer.isCpg() : "CPG Analyzer is not available for getClassSourcesData.";
-        if (classNames == null || classNames.isEmpty()) {
+        if (classNames.isEmpty()) {
             return Map.of();
         }
 
@@ -240,7 +292,7 @@ public class AnalyzerUtil {
 
         // Iterate through each requested class name
         for (String className : classNames) {
-            if (className != null && !className.isBlank()) {
+            if (!className.isBlank()) {
                 // Attempt to get the source code for the class
                 var classSource = analyzer.getClassSource(className);
                 if (classSource != null && !classSource.isEmpty()) {

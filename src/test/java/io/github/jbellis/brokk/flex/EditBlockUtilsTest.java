@@ -21,11 +21,10 @@ public class EditBlockUtilsTest {
         
         // Test with fence removal
         assertEquals("content\n", 
-                     stripQuotedWrapping("```\ncontent\n```", null));
+                     stripQuotedWrapping("```\ncontent\n```", ""));
         
         // Test with empty input
-        assertEquals("", stripQuotedWrapping("", null));
-        assertNull(stripQuotedWrapping(null, null));
+        assertEquals("", stripQuotedWrapping("", ""));
     }
     
     @Test
@@ -119,7 +118,6 @@ public class EditBlockUtilsTest {
         // Test non-path strings
         assertFalse(looksLikePath("java"), "Language should not look like path");
         assertFalse(looksLikePath("cpp"), "Language should not look like path");
-        assertFalse(looksLikePath(null), "Null should not look like path");
         assertFalse(looksLikePath(""), "Empty string should not look like path");
     }
     

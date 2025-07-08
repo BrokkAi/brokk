@@ -34,7 +34,7 @@ public final class AutoScroller {
         if (Boolean.TRUE.equals(pane.getClientProperty("AutoScroller"))) {
             return;
         }
-        pane.putClientProperty("AutoScroller", Boolean.TRUE);
+        pane.putClientProperty("AutoScroller", true);
 
         var view = pane.getViewport().getView();
         var bar = pane.getVerticalScrollBar();

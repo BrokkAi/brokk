@@ -4,12 +4,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.ContextFragment;
-import io.github.jbellis.brokk.ContextManager;
-import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.ContextFragment;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,9 +47,13 @@ public final class QuickEditPrompts {
         %s
         ```
         </source>
-        """.stripIndent().formatted(relatedCode.format(), fileContents));
+        """.stripIndent().formatted(formatRelatedCode(relatedCode), fileContents));
 
         return List.of(um, new AiMessage("I will update the target code in the source file to implement your instructions."));
+    }
+
+    private String formatRelatedCode(ContextFragment.SkeletonFragment relatedCode) {
+        return relatedCode.format();
     }
 
     public String formatInstructions(String target, String instructions) {
@@ -76,7 +76,6 @@ public final class QuickEditPrompts {
      * Formats an intro with a short system-level prompt plus workspace/style guide details.
      */
     private SystemMessage systemMessage(String instructions, String styleGuide) {
-        assert styleGuide != null;
         var text = """
           <instructions>
           %s

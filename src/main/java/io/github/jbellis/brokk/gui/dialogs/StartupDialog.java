@@ -2,10 +2,11 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.Service;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -14,17 +15,20 @@ import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import javax.net.ssl.SSLHandshakeException;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 public class StartupDialog extends JDialog {
     private static final Logger logger = LogManager.getLogger(StartupDialog.class);
 
     private JFileChooser projectChooser;
     private JTextField keyField;
-    private Path selectedProjectPath = null;
+    private @Nullable Path selectedProjectPath = null;
     private boolean keyInitiallyValid;
-    private String initialKey;
+    private @Nullable String initialKey;
     private DialogMode dialogMode;
-    private Path initialProjectPath; // Used when mode is REQUIRE_KEY_ONLY
+    private @Nullable Path initialProjectPath; // Used when mode is REQUIRE_KEY_ONLY
 
     public enum DialogMode {
         REQUIRE_KEY_ONLY,      // Valid project exists, need key
@@ -32,7 +36,7 @@ public class StartupDialog extends JDialog {
         REQUIRE_BOTH           // Neither valid key nor project exists
     }
 
-    private StartupDialog(Frame owner, String initialKey, boolean keyInitiallyValid, Path initialProjectPath, DialogMode mode) {
+    private StartupDialog(@Nullable Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         super(owner, "Welcome to Brokk", true);
         io.github.jbellis.brokk.gui.Chrome.applyIcon(this);
         this.initialKey = initialKey;
@@ -207,6 +211,18 @@ public class StartupDialog extends JDialog {
                     keyField.requestFocusInWindow();
                     keyField.selectAll();
                     return;
+                } catch (SSLHandshakeException ex) {
+                    logger.warn("SSL Handshake error validating Brokk Key: {}", ex.getMessage());
+                    JOptionPane.showMessageDialog(this,
+                                                  "<html>Unable to connect to Brokk services. This often happens if you are behind " +
+                                                  "a corporate proxy or firewall that intercepts secure connections.<br><br>" +
+                                                  "Please ensure your operating system's trust store is configured to trust " +
+                                                  "any necessary corporate certificates. Brokk uses your system's default " +
+                                                  "trust mechanisms.</html>",
+                                                  "Connection Issue (Proxy/Firewall)", JOptionPane.ERROR_MESSAGE);
+                    keyField.requestFocusInWindow();
+                    keyField.selectAll();
+                    return;
                 } catch (IOException ex) {
                     logger.warn("Network error validating Brokk Key: {}", ex.getMessage());
                     JOptionPane.showMessageDialog(this, "Network error validating key: " + ex.getMessage() + "\nPlease check your connection or try again later.", "Network Error", JOptionPane.ERROR_MESSAGE);
@@ -222,8 +238,7 @@ public class StartupDialog extends JDialog {
             finalKeyToUse = this.initialKey;
         }
 
-        assert finalKeyToUse != null : "finalKeyToUse should have been set if no errors occurred.";
-        Project.setBrokkKey(finalKeyToUse);
+        MainProject.setBrokkKey(castNonNull(finalKeyToUse));
 
         // --- Determine the Project Path ---
         Path finalProjectPathToUse;
@@ -242,11 +257,6 @@ public class StartupDialog extends JDialog {
             finalProjectPathToUse = selectedFile.toPath();
         } else { // dialogMode == DialogMode.REQUIRE_KEY_ONLY
             assert this.initialProjectPath != null : "Invalid state for REQUIRE_KEY_ONLY mode: initialProjectPath must be set.";
-            if (this.initialProjectPath == null) { // Defensive check, should be caught by assert
-                logger.error("StartupDialog in REQUIRE_KEY_ONLY mode but initialProjectPath is null. This should not happen.");
-                JOptionPane.showMessageDialog(this, "Internal error: Project path missing. Please restart.", "Error", JOptionPane.ERROR_MESSAGE);
-                return; // Critical error
-            }
             finalProjectPathToUse = this.initialProjectPath;
         }
 
@@ -260,7 +270,7 @@ public class StartupDialog extends JDialog {
         dispose();
     }
 
-    public static Path showDialog(Frame owner, String initialKey, boolean keyInitiallyValid, Path initialProjectPath, DialogMode mode) {
+    public static @Nullable Path showDialog(@Nullable Frame owner, @Nullable String initialKey, boolean keyInitiallyValid, @Nullable Path initialProjectPath, DialogMode mode) {
         var dialog = new StartupDialog(owner, initialKey, keyInitiallyValid, initialProjectPath, mode);
         dialog.setVisible(true); // Blocks until dispose() is called
         return dialog.selectedProjectPath;

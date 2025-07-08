@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 
 import javax.swing.*;
@@ -63,7 +64,7 @@ public class Decompiler {
                     try {
                         Decompiler.deleteDirectoryRecursive(outputDir);
                     } catch (IOException e) {
-                        io.toolErrorRaw("Error deleting existing decompiled directory: " + e.getMessage());
+                        io.toolError("Error deleting existing decompiled directory: " + e.getMessage());
                         return; // Stop if deletion fails
                     }
                     // Recreate the directory after deletion
@@ -146,7 +147,7 @@ public class Decompiler {
                     }
                 } catch (Exception e) {
                     // Handle exceptions within the task
-                    io.toolErrorRaw("Error during decompilation process: " + e.getMessage());
+                    io.toolError("Error during decompilation process: " + e.getMessage());
                 } finally {
                     // 6. Clean up the temporary directory
                     if (tempDir != null) {
@@ -163,7 +164,7 @@ public class Decompiler {
             });
         } catch (IOException e) {
             // Error *before* starting the worker (e.g., creating directories)
-            io.toolErrorRaw("Error preparing decompilation: " + e.getMessage());
+            io.toolError("Error preparing decompilation: " + e.getMessage());
         }
     }
 
@@ -218,7 +219,7 @@ public class Decompiler {
             }
 
             @Override
-            public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            public FileVisitResult postVisitDirectory(Path dir, @Nullable IOException exc) throws IOException {
                 if (exc != null) {
                     logger.warn("Error visiting directory contents for deletion: {} ({})", dir, exc.getMessage());
                     throw exc; // Propagate error

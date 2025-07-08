@@ -6,6 +6,7 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -22,23 +23,6 @@ import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class LlmTest {
-
-    // Dummy ConsoleIO for testing purposes
-    static class NoOpConsoleIO implements IConsoleIO {
-        @Override
-        public void actionOutput(String msg) {
-        }
-
-        @Override
-        public void toolErrorRaw(String msg) {
-            System.out.println("Tool error: " + msg);
-        }
-        @Override public void llmOutput(String token, ChatMessageType type) {}
-        @Override public void systemOutput(String message) {}
-        @Override public void showOutputSpinner(String message) {}
-        @Override public void hideOutputSpinner() {}
-    }
-
     private static Llm llm;
     private static IContextManager contextManager; // Add field for ContextManager
 
@@ -54,8 +38,6 @@ public class LlmTest {
             public Path getRoot() {
                 return tempDir;
             }
-
-
         };
         var models = new Service(project);
         contextManager = new IContextManager() {
@@ -70,7 +52,7 @@ public class LlmTest {
             }
 
             @Override
-            public Service getModels() {
+            public Service getService() {
                 return models;
             }
         };
@@ -88,7 +70,7 @@ public class LlmTest {
 //    @Test
     void testModels() {
         // Get Models instance from ContextManager
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
         Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testModels test.");
 
@@ -99,7 +81,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
-                StreamingChatLanguageModel model = models.get(modelName, Project.ReasoningLevel.DEFAULT);
+                StreamingChatLanguageModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
                 var coder = contextManager.getLlm(model, "testModels");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -116,11 +98,11 @@ public class LlmTest {
 
                 var chatResponse = result.chatResponse();
                 assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                assertNotNull(chatResponse.aiMessage(), "AI message should not be null for model: " + modelName);
-                assertNotNull(chatResponse.aiMessage().text(), "AI message text should not be null for model: " + modelName);
-                assertFalse(chatResponse.aiMessage().text().isBlank(), "AI message text should not be blank for model: " + modelName);
+                assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
+                assertNotNull(result.originalMessage().text(), "AI message text should not be null for model: " + modelName);
+                assertFalse(result.originalMessage().text().isBlank(), "AI message text should not be blank for model: " + modelName);
 
-                var firstLine = chatResponse.aiMessage().text().lines().findFirst().orElse("");
+                var firstLine = result.originalMessage().text().lines().findFirst().orElse("");
                 System.out.println("Response from " + modelName + ": " + firstLine.substring(0, min(firstLine.length(), 50)) + "...");
             } catch (Throwable t) {
                 // Catch assertion errors or any other exceptions during the test for this model
@@ -142,7 +124,7 @@ public class LlmTest {
     // uncomment when you need it, this makes live API calls
 //    @Test
     void testToolCalling() {
-        var models = contextManager.getModels();
+        var models = contextManager.getService();
         var availableModels = models.getAvailableModels();
         Assumptions.assumeFalse(availableModels.isEmpty(), "No models available via LiteLLM, skipping testToolCalling test.");
 
@@ -156,7 +138,7 @@ public class LlmTest {
                 .forEach(modelName -> {
                     try {
                         System.out.println("Testing tool calling for model: " + modelName);
-                        StreamingChatLanguageModel model = models.get(modelName, Project.ReasoningLevel.DEFAULT);
+                        StreamingChatLanguageModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
                         var coder = contextManager.getLlm(model, "testToolCalling");
                         assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -172,17 +154,17 @@ public class LlmTest {
 
                         var chatResponse = result.chatResponse();
                         assertNotNull(chatResponse, "ChatResponse should not be null for model: " + modelName);
-                        assertNotNull(chatResponse.aiMessage(), "AI message should not be null for model: " + modelName);
+                        assertNotNull(result.originalMessage(), "AI message should not be null for model: " + modelName);
 
                         // ASSERTION 1: Check if a tool execution was requested
-                        assertTrue(chatResponse.aiMessage().hasToolExecutionRequests(),
-                                   "Model " + modelName + " did not request tool execution. Response: " + chatResponse.aiMessage().text());
+                        assertTrue(result.originalMessage().hasToolExecutionRequests(),
+                                   "Model " + modelName + " did not request tool execution. Response: " + chatResponse.text());
                         System.out.println("Tool call requested successfully by " + modelName);
 
                         // check that we can send the result back
-                        var tr = chatResponse.aiMessage().toolExecutionRequests().getFirst();
+                        var tr = result.originalMessage().toolExecutionRequests().getFirst();
                         // NB: this is a quick hack that does not actually pass arguments from the tool call
-                        messages.add(chatResponse.aiMessage());
+                        messages.add(result.originalMessage());
                         var term = new ToolExecutionResultMessage(tr.id(), tr.name(), new WeatherTool().getWeather("London"));
                         messages.add(term);
                         messages.add(new UserMessage("Given what you know about London, is this unusual?"));

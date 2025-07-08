@@ -3,20 +3,21 @@ package io.github.jbellis.brokk.gui.mop.stream.flex;
 import com.vladsch.flexmark.util.ast.Block;
 import com.vladsch.flexmark.util.sequence.BasedSequence;
 import io.github.jbellis.brokk.git.GitStatus;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Represents an EDIT BLOCK in the Flexmark AST.
  * These blocks have the format: &lt;<<<< SEARCH foo ===== REPLACE bar >>>>>.
  */
 public class EditBlockNode extends Block {
-    private BasedSequence openingMarker;
-    private BasedSequence searchKeyword;
-    private BasedSequence searchText;
-    private BasedSequence divider;
-    private BasedSequence replaceKeyword;
-    private BasedSequence replaceText;
-    private BasedSequence closingMarker;
-    private String filename;
+    private BasedSequence openingMarker = BasedSequence.NULL;
+    private BasedSequence searchKeyword = BasedSequence.NULL;
+    private BasedSequence searchText = BasedSequence.NULL;
+    private BasedSequence divider = BasedSequence.NULL;
+    private BasedSequence replaceKeyword = BasedSequence.NULL;
+    private BasedSequence replaceText = BasedSequence.NULL;
+    private BasedSequence closingMarker = BasedSequence.NULL;
+    private @Nullable String filename;
     private GitStatus status = GitStatus.UNKNOWN;
     
     /**
@@ -29,7 +30,7 @@ public class EditBlockNode extends Block {
     /**
      * Set the filename for this block.
      */
-    public void setFilename(String filename) {
+    public void setFilename(@Nullable String filename) {
         this.filename = filename;
     }
     
@@ -37,7 +38,6 @@ public class EditBlockNode extends Block {
      * Get the number of added lines in the edit block.
      */
     public int getAdds() {
-        if (replaceText == null) return 0;
         String content = replaceText.toString().trim();
         if (content.isEmpty()) return 0;
         return (int)content.lines().count();
@@ -47,7 +47,6 @@ public class EditBlockNode extends Block {
      * Get the number of deleted lines in the edit block.
      */
     public int getDels() {
-        if (searchText == null) return 0;
         String content = searchText.toString().trim();
         if (content.isEmpty()) return 0;
         return (int)content.lines().count();

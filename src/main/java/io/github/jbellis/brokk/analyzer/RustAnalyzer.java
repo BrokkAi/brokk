@@ -1,20 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
-
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterRust;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer {
-
-    private static final TSLanguage RS_LANGUAGE = new TreeSitterRust();
+    private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             /* classLikeNodeTypes  */ Set.of("impl_item", "trait_item", "struct_item", "enum_item"),
@@ -27,28 +25,26 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             /* returnTypeFieldName */ "return_type", // e.g., function_item.return_type
             /* typeParametersFieldName */ "type_parameters", // Rust generics
             /* capture → Skeleton  */ Map.of(
-                    "class.definition", SkeletonType.CLASS_LIKE,    // For struct, trait, enum
-                    "impl.definition", SkeletonType.CLASS_LIKE,     // For impl blocks
+                    "class.definition", SkeletonType.CLASS_LIKE,
+                    "impl.definition", SkeletonType.CLASS_LIKE,
                     "function.definition", SkeletonType.FUNCTION_LIKE,
                     "field.definition", SkeletonType.FIELD_LIKE
             ),
-            /* async keyword node   */ "", // Rust 'async' is a modifier, not a distinct node type like in JS. Handled by signature text.
-            /* modifier node types  */ Set.of("visibility_modifier") // For `pub`, `pub(crate)`, etc.
+            /* async keyword node   */ "",
+            /* modifier node types  */ Set.of("visibility_modifier")
     );
 
     public RustAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.RUST, excludedFiles);
     }
 
     public RustAnalyzer(IProject project) {
         this(project, Collections.emptySet());
     }
 
-    /* ---------- TreeSitterAnalyzer hooks ---------- */
-
     @Override
-    protected TSLanguage getTSLanguage() {
-        return RS_LANGUAGE;
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterRust();
     }
 
     @Override
@@ -78,12 +74,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         Path absFilePath = file.absPath();
         Path fileParentDir = absFilePath.getParent();
 
-        if (fileParentDir == null) {
-            // This should ideally not happen for valid project files
-            log.warn("File {} has no parent directory. Defaulting to empty package name.", absFilePath);
-            return "";
-        }
-
         // Determine the effective root for module path calculation (project_root/src/ or project_root/)
         Path srcDirectory = projectRoot.resolve("src");
         boolean usesSrcLayout = Files.isDirectory(srcDirectory) && absFilePath.startsWith(srcDirectory);
@@ -93,15 +83,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
         // If the file is lib.rs or main.rs, and its parent directory is the effectiveModuleRoot,
         // it's considered the crate root module (empty package path).
-        if ((fileNameStr.equals("lib.rs") || fileNameStr.equals("main.rs")) && fileParentDir.equals(effectiveModuleRoot)) {
+        if ((fileNameStr.equals("lib.rs") || fileNameStr.equals("main.rs")) &&
+            (fileParentDir != null && fileParentDir.equals(effectiveModuleRoot))) {
             return "";
         }
 
         // Calculate the path of the file's directory relative to the effectiveModuleRoot.
         Path relativeDirFromModuleRoot;
-        if (fileParentDir.startsWith(effectiveModuleRoot)) {
+        if (fileParentDir != null && fileParentDir.startsWith(effectiveModuleRoot)) {
             relativeDirFromModuleRoot = effectiveModuleRoot.relativize(fileParentDir);
-        } else if (fileParentDir.startsWith(projectRoot)) {
+        } else if (fileParentDir != null && fileParentDir.startsWith(projectRoot)) {
             // Fallback: file is not under effectiveModuleRoot (e.g. src/) but is under projectRoot.
             // This can happen if usesSrcLayout was true but the file is in a sibling dir to src, e.g. project_root/examples/
             // Treat as relative to projectRoot in such cases.
@@ -121,7 +112,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         if (".".equals(relativeDirModulePath) || relativeDirModulePath.startsWith(".निया")) { // Handle potential dot from root relativization
             relativeDirModulePath = "";
         }
-
 
         if (fileNameStr.equals("mod.rs")) {
             // For a file like 'src/foo/bar/mod.rs', relativeDirModulePath would be 'foo.bar'.
@@ -147,13 +137,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return relativeDirModulePath.isEmpty() ? fileNameStr : relativeDirModulePath + "." + fileNameStr;
     }
 
-    /** Map query captures → CodeUnit. */
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName,
-                                      String classChain) {
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         log.trace("RustAnalyzer.createCodeUnit: File='{}', Capture='{}', SimpleName='{}', Package='{}', ClassChain='{}'",
                   file.getFileName(), captureName, simpleName, packageName, classChain);
         return switch (captureName) {
@@ -177,26 +166,23 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             default -> {
                 log.warn("Unhandled capture name in RustAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
                          captureName, simpleName, file.getFileName());
-                yield null;
+                yield null; // Explicitly yield null
             }
         };
     }
 
-    /* ---------- signature rendering ---------- */
-
     @Override
     protected String bodyPlaceholder() {
-        return "..."; 
-    } // For functions/methods with bodies
+        return "...";
+    }
 
-    /** Detects visibility modifiers like `pub`, `pub(crate)`. */
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
         // A common pattern for Rust grammar is that visibility_modifier is a direct child.
         // We check the first few children as its position can vary slightly (e.g. after attributes).
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
-            if (child != null && !child.isNull() && "visibility_modifier".equals(child.getType())) {
+            if (!child.isNull() && "visibility_modifier".equals(child.getType())) {
                 String text = textSlice(child, src).strip();
                 return text + " ";
             }
@@ -207,20 +193,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String renderFunctionDeclaration(TSNode fnNode,
                                                String src,
-                                               String exportPrefix, // Visibility: "pub ", "pub(crate) ", or ""
-                                               String asyncPrefix,  // Async: "async " or "" (base class tries to populate this)
+                                               String exportPrefix,
+                                               String asyncPrefix,
                                                String functionName,
                                                String typeParamsText,
                                                String paramsText,
                                                String returnTypeText,
-                                               String indent) { // indent is "" when called from buildSignatureString
-
+                                               String indent) {
         String rt = returnTypeText.isBlank() ? "" : " -> " + returnTypeText;
         // exportPrefix is from getVisibilityPrefix. asyncPrefix from base class logic.
         String header = String.format("%s%s%sfn %s%s%s%s", indent, exportPrefix, asyncPrefix, functionName, typeParamsText, paramsText, rt).stripLeading();
 
         TSNode bodyNode = fnNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
-        if (bodyNode != null && !bodyNode.isNull()) {
+        if (!bodyNode.isNull()) {
             // For functions/methods with a body
             return header + " { " + bodyPlaceholder() + " }";
         } else {
@@ -230,12 +215,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderClassHeader(TSNode classNode, // e.g., struct_item, trait_item, impl_item
+    protected String renderClassHeader(TSNode classNode,
                                        String src,
-                                       String exportPrefix, // Visibility
-                                       String signatureText, // Base signature like "struct Foo", "trait Bar", "impl Point"
-                                       String baseIndent) { // baseIndent is "" when called from buildSignatureString
-
+                                       String exportPrefix,
+                                       String signatureText,
+                                       String baseIndent) {
         // signatureText is derived by TreeSitterAnalyzer using textSlice up to the body or end of node.
         // For Rust, this text (e.g. "struct Foo", "impl Point for Bar") is what we want, prefixed by visibility.
         return baseIndent + exportPrefix + signatureText + " {";
@@ -243,7 +227,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
-        // Rust structs, enums, traits, impls all use "}"
         return cu.isClass() ? "}" : "";
     }
 
@@ -262,29 +245,36 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // In `impl Type`, typeNode is `Type`.
             if (typeNode != null && !typeNode.isNull()) {
                 String typeNodeType = typeNode.getType();
-                switch (typeNodeType) {
-                    case "type_identifier": // e.g. MyType
-                        return Optional.of(textSlice(typeNode, src));
-                    case "generic_type": // e.g. MyType<T>
-                        TSNode genericTypeNameNode = typeNode.getChildByFieldName("type"); // This field holds the base type (e.g. MyType)
-                        if (genericTypeNameNode != null && !genericTypeNameNode.isNull() && "type_identifier".equals(genericTypeNameNode.getType())) {
-                            return Optional.of(textSlice(genericTypeNameNode, src));
+                return switch (typeNodeType) {
+                    case "type_identifier" -> Optional.of(textSlice(typeNode, src));
+                    case "generic_type" -> {
+                        TSNode genericTypeNameNode = typeNode.getChildByFieldName("type");
+                        if (!genericTypeNameNode.isNull() && "type_identifier".equals(genericTypeNameNode.getType())) {
+                            yield Optional.of(textSlice(genericTypeNameNode, src));
                         }
-                        break; // Fall through if specific part of generic_type not found
-                    case "scoped_type_identifier": // e.g. my_crate::MyType
-                        TSNode scopedNameNode = typeNode.getChildByFieldName("name"); // This field holds the final segment (e.g. MyType)
-                        if (scopedNameNode != null && !scopedNameNode.isNull() && "type_identifier".equals(scopedNameNode.getType())) {
-                            return Optional.of(textSlice(scopedNameNode, src));
+                        String fullGenericTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item (generic_type): Could not extract specific name. Using full text '{}'. Node: {}",
+                                 fullGenericTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullGenericTypeNodeText);
+                    }
+                    case "scoped_type_identifier" -> {
+                        TSNode scopedNameNode = typeNode.getChildByFieldName("name");
+                        if (!scopedNameNode.isNull() && "type_identifier".equals(scopedNameNode.getType())) {
+                            yield Optional.of(textSlice(scopedNameNode, src));
                         }
-                        break; // Fall through if specific part of scoped_type_identifier not found
-                }
-                // Fallback for unhandled structures within typeNode or if specific parts weren't found: use text of the whole typeNode.
-                String fullTypeNodeText = textSlice(typeNode, src);
-                log.warn("RustAnalyzer.extractSimpleName for impl_item: Type node was [{}], using its full text '{}' as a fallback simple name. Node: {}",
-                         typeNode.getType(), fullTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
-                return Optional.of(fullTypeNodeText);
+                        String fullScopedTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item (scoped_type_identifier): Could not extract specific name. Using full text '{}'. Node: {}",
+                                 fullScopedTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullScopedTypeNodeText);
+                    }
+                    default -> {
+                        String fullTypeNodeText = textSlice(typeNode, src);
+                        log.warn("RustAnalyzer.extractSimpleName for impl_item: Unhandled type node structure '{}'. Using full text '{}'. Node: {}",
+                                 typeNodeType, fullTypeNodeText, textSlice(decl, src).lines().findFirst().orElse(""));
+                        yield Optional.of(fullTypeNodeText);
+                    }
+                };
             }
-            // If typeNode is null or isNull
             String errorContext = String.format("Node type %s (text: '%s')",
                                                 decl.getType(),
                                                 textSlice(decl, src).lines().findFirst().orElse("").trim());

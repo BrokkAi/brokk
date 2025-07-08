@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.prompts;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.Project;
+import io.github.jbellis.brokk.IProject;
 
 import java.util.List;
 
@@ -12,7 +12,7 @@ public class CommitPrompts {
     
     private CommitPrompts() {}
 
-    public List<ChatMessage> collectMessages(Project project, String diffTxt) {
+    public List<ChatMessage> collectMessages(IProject project, String diffTxt) {
         if (diffTxt.isEmpty()) {
             return List.of();
         }

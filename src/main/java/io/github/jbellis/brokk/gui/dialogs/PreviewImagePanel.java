@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.gui.Chrome;
-import io.github.jbellis.brokk.gui.GuiTheme;
+import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -13,16 +13,14 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 
 public class PreviewImagePanel extends JPanel {
-    private final ContextManager contextManager;
+    @Nullable
     private final BrokkFile file;
-    private final GuiTheme guiTheme;
+    @Nullable
     private BufferedImage image;
 
-    public PreviewImagePanel(ContextManager contextManager, BrokkFile file, GuiTheme guiTheme) {
+    public PreviewImagePanel(@Nullable BrokkFile file) {
         super(new BorderLayout());
-        this.contextManager = contextManager;
         this.file = file;
-        this.guiTheme = guiTheme;
         loadImage();
         setupUI();
         registerEscapeKey();
@@ -69,11 +67,10 @@ public class PreviewImagePanel extends JPanel {
      * @param parentFrame    The parent frame.
      * @param contextManager The context manager.
      * @param file           The BrokkFile to preview.
-     * @param guiTheme       The GUI theme manager.
      */
-    public static void showInFrame(JFrame parentFrame, ContextManager contextManager, BrokkFile file, GuiTheme guiTheme) {
+    public static void showInFrame(JFrame parentFrame, ContextManager contextManager, BrokkFile file) {
         try {
-            PreviewImagePanel previewPanel = new PreviewImagePanel(contextManager, file, guiTheme);
+            PreviewImagePanel previewPanel = new PreviewImagePanel(file);
             showFrame(contextManager, file.toString(), previewPanel);
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(parentFrame, "Error displaying image: " + ex.getMessage(), "Display Error", JOptionPane.ERROR_MESSAGE);
@@ -86,11 +83,8 @@ public class PreviewImagePanel extends JPanel {
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); // Dispose frame on close
 
         var project = contextManager.getProject();
-        assert project != null;
         var storedBounds = project.getPreviewWindowBounds();
-        if (storedBounds != null) {
-            frame.setBounds(storedBounds);
-        }
+        frame.setBounds(storedBounds);
 
         // Add listener to save bounds
         frame.addComponentListener(new java.awt.event.ComponentAdapter() {

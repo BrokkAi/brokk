@@ -58,15 +58,7 @@ public class GitHistoryTab extends JPanel {
 
         // Context menu
         JPopupMenu historyContextMenu = new JPopupMenu();
-        if (chrome.themeManager != null) {
-            chrome.themeManager.registerPopupMenu(historyContextMenu);
-        } else {
-            SwingUtilities.invokeLater(() -> {
-                if (chrome.themeManager != null) {
-                    chrome.themeManager.registerPopupMenu(historyContextMenu);
-                }
-            });
-        }
+        chrome.themeManager.registerPopupMenu(historyContextMenu);
 
         JMenuItem addToContextItem       = new JMenuItem("Capture Diff");
         JMenuItem compareWithLocalItem   = new JMenuItem("Compare with Local");
@@ -195,13 +187,6 @@ public class GitHistoryTab extends JPanel {
         contextManager.submitBackgroundTask("Loading file history: " + file, () -> {
             try {
                 var repo = getRepo();
-                if (repo == null) {
-                    SwingUtilities.invokeLater(() -> {
-                        fileHistoryModel.setRowCount(0);
-                        fileHistoryModel.addRow(new Object[]{"Git repository not available", "", "", ""});
-                    });
-                    return null;
-                }
                 var history = repo.getFileHistory(file);
                 SwingUtilities.invokeLater(() -> {
                     fileHistoryModel.setRowCount(0);
@@ -210,9 +195,9 @@ public class GitHistoryTab extends JPanel {
                         return;
                     }
 
-                    var today = java.time.LocalDate.now();
+                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
                     for (var commit : history) {
-                        var formattedDate = GitLogTab.formatCommitDate(commit.date(), today);
+                        var formattedDate = GitUiUtil.formatCommitDate(commit.date(), today);
                         fileHistoryModel.addRow(new Object[]{
                                 commit.message(),
                                 commit.author(),
@@ -242,10 +227,6 @@ public class GitHistoryTab extends JPanel {
      * Returns the current GitRepo from ContextManager.
      */
     private GitRepo getRepo() {
-        var repo = contextManager.getProject().getRepo();
-        if (repo == null) {
-            logger.error("getRepo() returned null - no Git repository available");
-        }
-        return (GitRepo) repo;
+        return (GitRepo) contextManager.getProject().getRepo();
     }
 }

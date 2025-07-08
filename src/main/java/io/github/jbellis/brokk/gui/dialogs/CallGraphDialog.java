@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 import io.github.jbellis.brokk.analyzer.CallSite;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -23,27 +24,21 @@ public class CallGraphDialog extends JDialog {
     private final JLabel callSitesLabel;
     private final IAnalyzer analyzer;
 
-    // The selected method
+    @Nullable
     private String selectedMethod = null;
 
-    // The selected depth
     private int depth = 5;
 
-    // Indicates if the user confirmed the selection
     private boolean confirmed = false;
 
-    // The call graph map (caller/callee methods -> list of call sites)
+    @Nullable
     private Map<String, List<CallSite>> callGraph = null;
 
-    // Whether we're looking for callers (to) or callees (from)
-    private boolean isCallerGraph = true;
+    private boolean isCallerGraph;
 
     public CallGraphDialog(Frame parent, IAnalyzer analyzer, String title, boolean isCallerGraph) {
         super(parent, title, true); // modal dialog
-        assert parent != null;
-        assert title != null;
-        assert analyzer != null;
-        
+
         this.analyzer = analyzer;
         this.isCallerGraph = isCallerGraph;
 
@@ -146,7 +141,7 @@ public class CallGraphDialog extends JDialog {
      */
     private void updateCallGraph() {
         String methodName = selectionPanel.getSymbolText();
-        if (methodName == null || methodName.isEmpty()) {
+        if (methodName.isEmpty()) {
             callGraph = null;
             updateCallSitesCount(0);
             return;
@@ -160,13 +155,10 @@ public class CallGraphDialog extends JDialog {
         }
 
         // Count total call sites
-        int totalCallSites = 0;
-        if (callGraph != null) {
-            totalCallSites = callGraph.values().stream()
-                    .mapToInt(List::size)
-                    .sum();
-        }
-        
+        int totalCallSites = callGraph.values().stream()
+                .mapToInt(List::size)
+                .sum();
+
         updateCallSitesCount(totalCallSites);
     }
     
@@ -203,6 +195,7 @@ public class CallGraphDialog extends JDialog {
     /**
      * Return the selected method or null if none.
      */
+    @Nullable
     public String getSelectedMethod() {
         return selectedMethod;
     }
@@ -217,6 +210,7 @@ public class CallGraphDialog extends JDialog {
     /**
      * Return the call graph map (callers or callees)
      */
+    @Nullable
     public Map<String, List<CallSite>> getCallGraph() {
         return callGraph;
     }

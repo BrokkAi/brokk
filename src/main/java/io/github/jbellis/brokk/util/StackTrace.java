@@ -1,5 +1,8 @@
 package io.github.jbellis.brokk.util;
 
+import com.google.common.base.Splitter;
+import org.jetbrains.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -15,7 +18,7 @@ public class StackTrace {
     /**
      * The first line of the stack trace containing the error that happened.
      */
-    private final String exceptionType;
+    @Nullable private final String exceptionType;
     private final String originalStackTrace;
 
     /**
@@ -42,7 +45,7 @@ public class StackTrace {
      *
      * @return the exception type, or null if the first line couldn't be parsed
      */
-    public String getExceptionType() {
+    public @Nullable String getExceptionType() {
         return this.exceptionType;
     }
 
@@ -120,14 +123,14 @@ public class StackTrace {
     private static final String STACK_TRACE_LINE_REGEX = ".*\\s+at\\s+([^(]+)\\((?:([^:]+):([0-9]+)|([^)]+))\\).*$";
     private static final Pattern STACK_TRACE_LINE_PATTERN = Pattern.compile(STACK_TRACE_LINE_REGEX);
     
-    private static String parseExceptionType(String firstLine) {
-        String[] parts = firstLine.split(":");
-        if (parts.length < 1) {
+    private static @Nullable String parseExceptionType(String firstLine) {
+        List<String> parts = Splitter.on(':').splitToList(firstLine);
+        if (parts.isEmpty()) {
             return null;
         }
         
-        String[] typeParts = parts[0].split("\\.");
-        return typeParts[typeParts.length - 1];
+        List<String> typeParts = Splitter.on('.').splitToList(parts.get(0));
+        return typeParts.getLast();
     }
 
     /**
@@ -138,16 +141,16 @@ public class StackTrace {
      * @return a StackTrace containing the first (error) line and a list of {@code StackTraceElements},
      *         or null if no stack trace could be parsed
      */
-    public static StackTrace parse(String stackTraceString) {
-        String[] lines = stackTraceString.split("\n");
+    public static @Nullable StackTrace parse(String stackTraceString) {
+        List<String> lines = Splitter.on('\n').splitToList(stackTraceString);
         
         // Find the exception line (which might have a prefix) and the first stack trace line
-        int exceptionLineIndex = -1;
+        // int exceptionLineIndex = -1; // Unused variable
         int firstStackLineIndex = -1;
         
         // First find a stack trace line ("... at ...")
-        for (int i = 0; i < lines.length; i++) {
-            if (STACK_TRACE_LINE_PATTERN.matcher(lines[i]).matches()) {
+        for (int i = 0; i < lines.size(); i++) {
+            if (STACK_TRACE_LINE_PATTERN.matcher(lines.get(i)).matches()) {
                 firstStackLineIndex = i;
                 break;
             }
@@ -159,7 +162,7 @@ public class StackTrace {
         }
         
         // Check the line before the stack trace line for exception type
-        String firstLine = lines[firstStackLineIndex - 1];
+        String firstLine = lines.get(firstStackLineIndex - 1);
         String exceptionType = parseExceptionType(firstLine);
         if (exceptionType == null) {
             return null;
@@ -167,8 +170,8 @@ public class StackTrace {
         
         // Parse stack trace lines
         List<StackTraceElement> stackTraceLines = new ArrayList<>();
-        for (int i = firstStackLineIndex; i < lines.length; i++) {
-            Matcher matcher = STACK_TRACE_LINE_PATTERN.matcher(lines[i]);
+        for (int i = firstStackLineIndex; i < lines.size(); i++) {
+            Matcher matcher = STACK_TRACE_LINE_PATTERN.matcher(lines.get(i));
             if (!matcher.matches()) {
                 continue;
             }
@@ -200,9 +203,9 @@ public class StackTrace {
         // Build original stack trace from the relevant lines only
         StringBuilder relevantTrace = new StringBuilder();
         relevantTrace.append(firstLine).append("\n");
-        for (int i = firstStackLineIndex; i < lines.length; i++) {
-            if (STACK_TRACE_LINE_PATTERN.matcher(lines[i]).matches()) {
-                relevantTrace.append(lines[i]).append("\n");
+        for (int i = firstStackLineIndex; i < lines.size(); i++) {
+            if (STACK_TRACE_LINE_PATTERN.matcher(lines.get(i)).matches()) {
+                relevantTrace.append(lines.get(i)).append("\n");
             }
         }
         String cleanedTrace = relevantTrace.length() > 0

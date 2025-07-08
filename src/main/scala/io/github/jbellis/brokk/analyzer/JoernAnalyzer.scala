@@ -2,27 +2,29 @@ package io.github.jbellis.brokk.analyzer
 
 import flatgraph.storage.Serialization
 import io.github.jbellis.brokk.*
-import org.slf4j.LoggerFactory
-import io.joern.dataflowengineoss.layers.dataflows.OssDataFlow
 import io.joern.joerncli.CpgBasedTool
-import io.joern.x2cpg.{ValidationMode, X2Cpg}
+import io.joern.x2cpg.passes.base.*
+import io.joern.x2cpg.passes.callgraph.*
+import io.joern.x2cpg.passes.typerelations.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
-import io.shiftleft.codepropertygraph.generated.nodes.{Call, Method, TypeDecl, NamespaceBlock}
+import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
-import io.shiftleft.semanticcpg.layers.LayerCreatorContext
+import org.slf4j.LoggerFactory
 
-import java.io.{Closeable, IOException}
+import java.io.Closeable
 import java.nio.file.Path
 import java.util.Optional
+import java.util.concurrent.ConcurrentHashMap
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
+import scala.jdk.OptionConverters.RichOptional
 import scala.util.Try
 import scala.util.matching.Regex
-import scala.jdk.OptionConverters.RichOptional
 
 /**
  * An abstract base for language-specific analyzers.
@@ -51,6 +53,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   private var adjacency: Map[String, Map[String, Int]] = Map.empty
   private var reverseAdjacency: Map[String, Map[String, Int]] = Map.empty
   private var classesForPagerank: Set[String] = Set.empty
+
+  // Cache for directChildren to avoid expensive CPG queries
+  private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
+
   initializePageRank()
 
   /**
@@ -354,7 +360,6 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
    * - methods that return that class
    */
   protected def referencesToClassAsType(classFullName: String): List[CodeUnit] = {
-    import scala.jdk.CollectionConverters.*
     val typePattern =
       "^" +
         "(?:struct |class |union |enum )?" + // optional C/C++ keyword prefix
@@ -692,7 +697,6 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
                               isIncoming: Boolean,
                               maxDepth: Int
                             ): java.util.Map[String, java.util.List[CallSite]] = {
-    import scala.jdk.CollectionConverters.*
     val result = new java.util.HashMap[String, java.util.List[CallSite]]()
     val startMethods = cpg.method.filter(m => chopColon(m.fullName) == startingMethod).l
     if (startMethods.isEmpty) return result
@@ -874,7 +878,6 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   override def getDefinition(fqName: String): java.util.Optional[CodeUnit] = {
     // lots of similarity to searchDefinitions, but that uses pattern-matching fullName and this
     // uses fullNameExact so trying to share code seems like more trouble than it's worth
-    import scala.jdk.CollectionConverters.*
 
     // Try finding as a class
     val classMatch = cpg.typeDecl
@@ -1084,11 +1087,11 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         val name = td.name
         val fullName = td.fullName
         name == "<global>" || // Joern's pseudo-class for file-scope items
-        (name.startsWith("<") && name.endsWith(">") && name != "<global>") || // e.g. <operator>, <lambda>, but not file's <global> TypeDecl
-        fullName.contains(":") || // Filter fullNames like "ns:func_type()"
-        fullName.contains("(") || // Filter fullNames like "ns:func_type(int)"
-        fullName.contains("<lambda>") || // Lambda TypeDecls by fullName
-        fullName.startsWith("<operator>") // Operator TypeDecls by fullName
+          (name.startsWith("<") && name.endsWith(">") && name != "<global>") || // e.g. <operator>, <lambda>, but not file's <global> TypeDecl
+          fullName.contains(":") || // Filter fullNames like "ns:func_type()"
+          fullName.contains("(") || // Filter fullNames like "ns:func_type(int)"
+          fullName.contains("<lambda>") || // Lambda TypeDecls by fullName
+          fullName.startsWith("<operator>") // Operator TypeDecls by fullName
       }
       .foreach { td => // td is now a presumably valid user-defined type
         // Additional check: ensure the short name of the TypeDecl is also not problematic
@@ -1096,7 +1099,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         if (!td.name.contains(":") && !td.name.contains("(") && !(td.name.startsWith("<") && td.name.endsWith(">"))) {
           cuClass(td.fullName, file).foreach(declarations.add)
         } else {
-            logger.debug(s"Skipping TypeDecl in getDeclarationsInFile due to problematic short name: ${td.name} (fullName: ${td.fullName})")
+          logger.debug(s"Skipping TypeDecl in getDeclarationsInFile due to problematic short name: ${td.name} (fullName: ${td.fullName})")
         }
 
         td.method
@@ -1127,10 +1130,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
           // Note: parentTd.name == "<global>" is NOT filtered here because methods within
           // the file's true global scope (often represented by a TypeDecl named <global>) are legitimate.
           (name.startsWith("<") && name.endsWith(">") && name != "<global>") ||
-          name.contains(":") ||
-          name.contains("(") ||
-          fullName.contains("<lambda>") ||
-          fullName.startsWith("<operator>")
+            name.contains(":") ||
+            name.contains("(") ||
+            fullName.contains("<lambda>") ||
+            fullName.startsWith("<operator>")
         }
       }
       .foreach { m =>
@@ -1165,34 +1168,118 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   override def close(): Unit = cpg.close()
 
-  override def getSymbols(sources: java.util.Set[CodeUnit]): java.util.Set[String] = {
+  /**
+   * Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
+   *
+   * This implementation queries the Code Property Graph (CPG) to find parent-child
+   * relationships between code elements. The relationships are determined by the
+   * semantic structure of the analyzed code.
+   *
+   * '''CPG-based Child Resolution:'''
+   *  - '''Classes:''' Children include methods and fields from the CPG TypeDecl
+   *    - Filters out constructors (`<init>`), static initializers (`<clinit>`), and operators
+   *    - Excludes synthetic fields like `outerClass`
+   *    - Uses `resolveMethodName` for proper method name resolution
+   *  - '''Modules:''' Children include all other declarations in the same source file
+   *    - Useful for languages with file-based module systems
+   *  - '''Functions/Fields:''' No children (return empty list)
+   */
+  override def directChildren(cu: CodeUnit): java.util.List[CodeUnit] =
+
+    if cu == null then
+      return java.util.List.of()
+
+    // Check cache first to avoid expensive CPG queries
+    directChildrenCache.computeIfAbsent(cu, _ => computeDirectChildren(cu))
+
+  private def computeDirectChildren(cu: CodeUnit): java.util.List[CodeUnit] =
     import scala.jdk.CollectionConverters.*
 
-    val sourceUnits = sources.asScala
-    val sourceFiles = sourceUnits.map(_.source).toSet
-    val symbols = mutable.Set[String]()
+    cu match
+      // For classes: return methods and fields (short-circuit on synthetic ones)
+      case cls if cls.isClass =>
+        val children =
+          cpg.typeDecl
+            .fullNameExact(cls.fqName())
+            .headOption
+            .toList
+            .flatMap { td =>
+              toFile(td).toList.flatMap { file =>
+                val methods =
+                  td.method
+                    .filterNot(m => m.name == "<init>" || m.name == "<clinit>" || m.name.startsWith("<operator>"))
+                    .flatMap { m =>
+                      val fqn = resolveMethodName(chopColon(m.fullName))
+                      cuFunction(fqn, file)
+                    }
+                    .l
 
-    // Add short names of the source units themselves
-    sourceUnits.foreach(cu => symbols += cu.shortName())
+                val fields =
+                  td.member
+                    .filterNot(_.name == "outerClass")
+                    .flatMap(f => cuField(s"${td.fullName}.${f.name}", file))
+                    .l
 
-    // Find TypeDecls within the specified source files
-    cpg.typeDecl
-      .filter(td => toFile(td).exists(sourceFiles.contains))
-      .foreach { td =>
-        symbols += td.fullName.split('.').last // Add class short name
+                methods ++ fields
+              }
+            }
+        // Use LinkedHashSet for efficient deduplication while preserving order
+        val uniqueChildren = collection.mutable.LinkedHashSet[CodeUnit]()
+        uniqueChildren ++= children
+        uniqueChildren.toList.asJava
 
-        // Add method short names (resolved)
-        td.method
-          .nameNot("<init>", "<clinit>", "<lambda>.*") // Exclude constructors, static initializers, lambdas
-          .foreach { m =>
-            val resolvedName = resolveMethodName(chopColon(m.fullName))
-            symbols += resolvedName.split('.').last // Add method short name
-          }
+      // For module CUs: treat every other declaration in the same file as a “child”
+      case mod if mod.isModule =>
+        getDeclarationsInFile(mod.source()).asScala.filterNot(_ == mod).toList.asJava
 
-        // Add field short names
-        td.member.foreach(f => symbols += f.name) // Add just the field name
-      }
+      // Functions, fields, etc. have no children
+      case _ => java.util.List.of()
+}
 
-    symbols.asJava
+trait GraphPassApplier {
+
+  /**
+   * Runs the necessary "base" passes over an existing or new CPG generated by Joern. Think of this as fine-tuned
+   * "base passes" that turn an AST to a CPG.
+   *
+   * @param cpg some updated or new CPG to apply passes to. This CPG will be mutated.
+   */
+  protected def applyPasses(cpg: Cpg): Unit = {
+    // These are separated as we may want to insert our own custom, framework-specific passes
+    // in between these at some point in the future. For now, these resemble the default Joern
+    // pass ordering and strategy minus CFG.
+    (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg)).foreach(_.createAndApply())
   }
+
+  private def basePasses(cpg: Cpg): Iterator[CpgPassBase] = {
+    Iterator(
+      new FileCreationPass(cpg),
+      new NamespaceCreator(cpg),
+      new TypeDeclStubCreator(cpg),
+      new MethodStubCreator(cpg),
+      new ParameterIndexCompatPass(cpg),
+      new MethodDecoratorPass(cpg),
+      new AstLinkerPass(cpg),
+      new ContainsEdgePass(cpg),
+      new TypeRefPass(cpg),
+      new TypeEvalPass(cpg),
+    )
+  }
+
+  private def typeRelationsPasses(cpg: Cpg): Iterator[CpgPassBase] = {
+    Iterator(
+      new TypeHierarchyPass(cpg),
+      new AliasLinkerPass(cpg),
+      new FieldAccessLinkerPass(cpg),
+    )
+  }
+
+  private def callGraphPasses(cpg: Cpg): Iterator[CpgPassBase] = {
+    Iterator(
+      new MethodRefLinker(cpg),
+      new StaticCallLinker(cpg),
+      new DynamicCallLinker(cpg)
+    )
+  }
+
 }

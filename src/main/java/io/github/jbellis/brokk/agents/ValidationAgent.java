@@ -1,18 +1,15 @@
 package io.github.jbellis.brokk.agents;
 
-// Added import for Coder
-
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.Llm;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,12 +21,6 @@ public class ValidationAgent {
     private static final long MAX_FILES_TO_CONSIDER = 20;
 
     private final ContextManager contextManager;
-
-    // Constants for relevance markers
-    private static final String RELEVANT_MARKER = "BRK_RELEVANT";
-    private static final String IRRELEVANT_MARKER = "BRK_IRRELEVANT";
-    // attempts for relevance check if LLM response is unclear
-    private static final int MAX_RELEVANCE_TRIES = 3;
 
     public ValidationAgent(ContextManager contextManager) {
         this.contextManager = contextManager;
@@ -49,7 +40,7 @@ public class ValidationAgent {
         }
 
         // Step 1: Initial filtering to get potentially relevant files
-        var llm = contextManager.getLlm(contextManager.getModels().quickModel(), "TestAgent: " + instructions);
+        var llm = contextManager.getLlm(contextManager.getService().quickModel(), "TestAgent: " + instructions);
         var potentiallyRelevantFiles = getPotentiallyRelevantFiles(allTestFiles, instructions, llm);
         if (potentiallyRelevantFiles.isEmpty()) {
             logger.debug("Initial filtering found no potentially relevant test files.");
@@ -102,12 +93,12 @@ public class ValidationAgent {
         logger.trace("Invoking quickModel via Coder for initial test file filtering. Prompt:\n{}", userMessage);
         var result = llm.sendRequest(messages);
 
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
-            logger.warn("Error during initial test file filtering call: {}", result.error() != null ? result.error().getMessage() : "Empty response");
+        if (result.error() != null || result.isEmpty()) {
+            logger.warn("Error or empty response during initial test file filtering call: {}", result);
             return List.of();
         }
 
-        var llmResponse = result.chatResponse().aiMessage().text();
+        var llmResponse = result.text();
         logger.trace("Coder response for initial filtering:\n{}", llmResponse);
 
         return parseSuggestedFiles(llmResponse, allTestFiles);
@@ -168,59 +159,23 @@ public class ValidationAgent {
             fileContent = file.read();
         } catch (IOException e) {
             logger.warn("Could not read content of test file: {}", file, e);
-            return new RelevanceResult(file, false); // Assume irrelevant if unreadable
+            return new RelevanceResult(file, false);
         }
 
-        var systemMessage = """
-                You are an assistant that determines if a test file is relevant to specific coding instructions.
-                Evaluate the provided test file content as to its relevance to testing the changes made to satisfy the instructions.
-                Think carefully about the code involved, and conclude with the marker '%s' if the file is relevant, or '%s' if it is not.
-                You MUST include exactly one of these markers at the end of your response.
-                """.formatted(RELEVANT_MARKER, IRRELEVANT_MARKER).stripIndent();
-        var userMessage = """
-                Instructions:
-                %s
-                
-                Test File Path: %s
-                
-                Test File Content:
-                ```
-                %s
-                ```
-                
-                Is this test file relevant to the instructions? Conclude your explanation with %s or %s.
-                """.formatted(instructions, file, fileContent, RELEVANT_MARKER, IRRELEVANT_MARKER).stripIndent();
-        var messages = List.of(new SystemMessage(systemMessage), new UserMessage(userMessage));
+        var criteria = """
+                       Determine whether the following test file is useful for verifying code
+                       changes required by these instructions:
 
-        for (int attempt = 1; attempt <= MAX_RELEVANCE_TRIES; attempt++) {
-            logger.trace("Invoking quickModel via Coder for relevance check of file: {} (Attempt {}/{})", file, attempt, MAX_RELEVANCE_TRIES);
-            // Use Coder to send the request
-            Llm.StreamingResult result = llm.sendRequest(messages);
+                       %s
+                       """.formatted(instructions).stripIndent();
 
-            if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
-                logger.debug("Error during relevance check call for {} (Attempt {}): {}", file, attempt, result.error() != null ? result.error().getMessage() : "Empty response");
-                continue;
-            }
+        var candidate = """
+                        Test file path: %s
 
-            var llmResponse = result.chatResponse().aiMessage().text().strip();
-            logger.trace("Coder response for relevance check of {} (Attempt {}): {}", file, attempt, llmResponse);
+                        %s
+                        """.formatted(file, fileContent).stripIndent();
 
-            // Check if the response contains exactly one of the markers
-            boolean containsRelevant = llmResponse.contains(RELEVANT_MARKER);
-            boolean containsIrrelevant = llmResponse.contains(IRRELEVANT_MARKER);
-
-            if (containsRelevant && !containsIrrelevant) {
-                return new RelevanceResult(file, true);
-            } else if (!containsRelevant && containsIrrelevant) {
-                return new RelevanceResult(file, false);
-            }
-
-            logger.debug("Ambiguous response for relevance check of {} (Attempt {}): {}", file, attempt, llmResponse);
-            messages.add(result.chatResponse().aiMessage());
-            messages.add(new UserMessage("You must respond with exactly one of the markers {%s, %s}".formatted(RELEVANT_MARKER, IRRELEVANT_MARKER)));
-        }
-
-        logger.debug("Still no answer after {} tries; assuming {} is not relevant", MAX_RELEVANCE_TRIES, file);
-        return new RelevanceResult(file, false);
+        boolean relevant = RelevanceClassifier.isRelevant(llm, criteria, candidate);
+        return new RelevanceResult(file, relevant);
     }
 }

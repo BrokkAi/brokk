@@ -1,10 +1,10 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.Project;
+import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
@@ -20,10 +20,22 @@ public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
     List<String> getExtensions();
-    String name();
-    IAnalyzer createAnalyzer(Project project);
-    IAnalyzer loadAnalyzer(Project project);
-    default List<Path> getDependencyCandidates(Project project) {
+    String name(); // Human-friendly
+    String internalName(); // Filesystem-safe
+    IAnalyzer createAnalyzer(IProject project);
+    IAnalyzer loadAnalyzer(IProject project);
+
+    /**
+     * Get the path where the CPG for this language in the given project should be stored.
+     * @param project The project.
+     * @return The path to the CPG file.
+     */
+    default Path getCpgPath(IProject project) {
+        // Use oldName for CPG path to ensure stable and filesystem-safe names
+        return project.getRoot().resolve(".brokk").resolve(internalName().toLowerCase(Locale.ROOT) + ".cpg");
+    }
+
+    default List<Path> getDependencyCandidates(IProject project) {
         return List.of();
     }
 
@@ -36,7 +48,7 @@ public interface Language {
      * @param path The absolute path to check.
      * @return {@code true} if the path is considered part of the project's analyzed sources, {@code false} otherwise.
      */
-    default boolean isAnalyzed(Project project, Path path) {
+    default boolean isAnalyzed(IProject project, Path path) {
         assert path.isAbsolute() : "Path must be absolute for isAnalyzed check: " + path;
         return path.normalize().startsWith(project.getRoot());
     }
@@ -50,35 +62,34 @@ public interface Language {
     Language C_SHARP = new Language() {
         private final List<String> extensions = List.of("cs");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "C_SHARP"; }
+        @Override public String name() { return "C#"; }
+        @Override public String internalName() { return "C_SHARP"; }
         @Override public String toString() { return name(); } // For compatibility
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new CSharpAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
     };
 
     Language JAVA = new Language() {
         private final List<String> extensions = List.of("java");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "JAVA"; }
+        @Override public String name() { return "Java"; }
+        @Override public String internalName() { return "JAVA"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            var analyzer = new JavaAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getAnalyzerPath(project));
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            var analyzer = new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
+            analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        private static @NotNull Path getAnalyzerPath(Project project) {
-            return project.getRoot().resolve(".brokk").resolve("joern.cpg");
-        }
-
-        @Override public JavaAnalyzer loadAnalyzer(Project project) {
-            return new JavaAnalyzer(project.getRoot(), getAnalyzerPath(project));
+        @Override public JavaAnalyzer loadAnalyzer(IProject project) {
+            return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
         }
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             long startTime = System.currentTimeMillis();
 
             String userHome = System.getProperty("user.home");
@@ -153,7 +164,7 @@ public interface Language {
                     })
                     .filter(Files::isRegularFile)
                     .filter(path -> {
-                        String name = path.getFileName().toString().toLowerCase(Locale.ENGLISH);
+                        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
                         return name.endsWith(".jar")
                                 && !name.endsWith("-sources.jar")
                                 && !name.endsWith("-javadoc.jar");
@@ -176,15 +187,16 @@ public interface Language {
     Language JAVASCRIPT = new Language() {
         private final List<String> extensions = List.of("js", "mjs", "cjs", "jsx");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "JAVASCRIPT"; }
+        @Override public String name() { return "JavaScript"; }
+        @Override public String internalName() { return "JAVASCRIPT"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new JavascriptAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             logger.debug("Scanning for JavaScript dependency candidates in project: {}", project.getRoot());
             var results = new ArrayList<Path>();
             Path nodeModules = project.getRoot().resolve("node_modules");
@@ -222,7 +234,7 @@ public interface Language {
         }
 
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -240,14 +252,16 @@ public interface Language {
     Language PYTHON = new Language() {
         private final List<String> extensions = List.of("py");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "PYTHON"; }
+        @Override public String name() { return "Python"; }
+        @Override public String internalName() { return "PYTHON"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new PythonAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
-        private List<Path> findVirtualEnvs(Path root) {
+        private List<Path> findVirtualEnvs(@Nullable Path root) {
+            if (root == null) return List.of();
             List<Path> envs = new ArrayList<>();
             for (String candidate : List.of(".venv", "venv", "env")) {
                 Path p = root.resolve(candidate);
@@ -313,7 +327,7 @@ public interface Language {
         }
 
         @Override
-        public List<Path> getDependencyCandidates(Project project) {
+        public List<Path> getDependencyCandidates(IProject project) {
             logger.debug("Scanning for Python dependency candidates in project: {}", project.getRoot());
             List<Path> results = new ArrayList<>();
             List<Path> venvs = findVirtualEnvs(project.getRoot());
@@ -346,7 +360,7 @@ public interface Language {
         }
 
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -373,51 +387,52 @@ public interface Language {
     Language C_CPP = new Language() {
         private final List<String> extensions = List.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "C_CPP"; }
+        @Override public String name() { return "C/C++"; }
+        @Override public String internalName() { return "C_CPP"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            var analyzer = new CppAnalyzer(project.getRoot(), project.getBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getAnalyzerPath(project));
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            var analyzer = new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
+            analyzer.writeCpg(getCpgPath(project));
             return analyzer;
         }
 
-        private static @NotNull Path getAnalyzerPath(Project project) {
-            return project.getRoot().resolve(".brokk").resolve("joern.cpg");
-        }
-
-        @Override public CppAnalyzer loadAnalyzer(Project project) {
-            return new CppAnalyzer(project.getRoot(), getAnalyzerPath(project));
+        @Override public CppAnalyzer loadAnalyzer(IProject project) {
+            return new CppAnalyzer(project.getRoot(), getCpgPath(project));
         }
         @Override
         public boolean isCpg() { return true; }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
     };
 
     Language GO = new Language() {
         private final List<String> extensions = List.of("go");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "GO"; }
+        @Override public String name() { return "Go"; }
+        @Override public String internalName() { return "GO"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new GoAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+        // TODO
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
     };
 
     Language RUST = new Language() {
         private final List<String> extensions = List.of("rs");
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "RUST"; }
+        @Override public String name() { return "Rust"; }
+        @Override public String internalName() { return "RUST"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new RustAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
         // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -442,12 +457,13 @@ public interface Language {
     Language NONE = new Language() {
         private final List<String> extensions = Collections.emptyList();
         @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "NONE"; }
+        @Override public String name() { return "None"; }
+        @Override public String internalName() { return "NONE"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
+        @Override public IAnalyzer createAnalyzer(IProject project) {
             return new DisabledAnalyzer();
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
     };
 
     // --- Infrastructure for fromExtension and enum-like static methods ---
@@ -456,16 +472,17 @@ public interface Language {
         private final List<String> extensions = List.of("php", "phtml", "php3", "php4", "php5", "phps");
         @Override public List<String> getExtensions() { return extensions; }
         @Override public String name() { return "PHP"; }
+        @Override public String internalName() { return "PHP"; }
         @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new PhpAnalyzer(project, project.getBuildDetails().excludedDirectories());
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) { return createAnalyzer(project); }
+        @Override public IAnalyzer loadAnalyzer(IProject project) { return createAnalyzer(project); }
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
-        @Override public List<Path> getDependencyCandidates(Project project) { return List.of(); }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -483,6 +500,26 @@ public interface Language {
     };
 
     // --- Infrastructure for fromExtension and enum-like static methods ---
+    // The ALL_LANGUAGES list is defined after all Language instances (including SQL) are defined.
+
+    Language SQL = new Language() {
+        private final List<String> extensions = List.of("sql");
+        @Override public List<String> getExtensions() { return extensions; }
+        @Override public String name() { return "SQL"; }
+        @Override public String internalName() { return "SQL"; }
+        @Override public String toString() { return name(); }
+        @Override public IAnalyzer createAnalyzer(IProject project) {
+            var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
+            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
+            return new SqlAnalyzer(project, excludedPaths);
+        }
+        @Override public IAnalyzer loadAnalyzer(IProject project) {
+            // SQLAnalyzer does not save/load state from disk beyond re-parsing
+            return createAnalyzer(project);
+        }
+        @Override public boolean isCpg() { return false; }
+        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
+    };
 
     Language TYPESCRIPT = new Language() {
         private final List<String> extensions = List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
@@ -515,6 +552,7 @@ public interface Language {
                                            RUST,
                                            PHP,
                                            TYPESCRIPT, // Now TYPESCRIPT is declared before this list
+                                           SQL, // SQL is now defined and can be included
                                            NONE);
 
     /**
@@ -525,10 +563,10 @@ public interface Language {
      * @return The matching Language, or NONE if no match is found or the extension is null/empty.
      */
     static Language fromExtension(String extension) {
-        if (extension == null || extension.isEmpty()) {
+        if (extension.isEmpty()) {
             return NONE;
         }
-        String lowerExt = extension.toLowerCase();
+        String lowerExt = extension.toLowerCase(Locale.ROOT);
         // Ensure the extension does not start with a dot for consistent matching.
         String normalizedExt = lowerExt.startsWith(".") ? lowerExt.substring(1) : lowerExt;
 
@@ -566,7 +604,8 @@ public interface Language {
     static Language valueOf(String name) {
         Objects.requireNonNull(name, "Name is null");
         for (Language lang : ALL_LANGUAGES) {
-            if (lang.name().equals(name)) {
+            // Check current human-friendly name first, then old programmatic name for backward compatibility.
+            if (lang.name().equals(name) || lang.internalName().equals(name)) {
                 return lang;
             }
         }

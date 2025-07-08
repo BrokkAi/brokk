@@ -1,9 +1,12 @@
 package io.github.jbellis.brokk.gui;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.ContextManager;
+import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import javax.sound.sampled.AudioFileFormat;
 import javax.sound.sampled.AudioFormat;
@@ -16,14 +19,16 @@ import java.awt.*;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * A button that captures voice input from the microphone and transcribes it to a text area.
@@ -35,14 +40,14 @@ public class VoiceInputButton extends JButton {
     private final ContextManager contextManager;
     private final Consumer<String> onError;
     private final Runnable onRecordingStart;
-    private final Future<Set<String>> customSymbolsFuture;
+    private final @Nullable Future<Set<String>> customSymbolsFuture;
 
     // For STT (mic) usage
-    private volatile TargetDataLine micLine = null;
-    private volatile ByteArrayOutputStream micBuffer = null;
-    private volatile Thread micCaptureThread = null;
-    private ImageIcon micOnIcon;
-    private ImageIcon micOffIcon;
+    private volatile @Nullable TargetDataLine micLine = null;
+    private final ByteArrayOutputStream micBuffer = new ByteArrayOutputStream();
+    @Nullable private volatile Thread micCaptureThread = null;
+    private @Nullable ImageIcon micOnIcon;
+    private @Nullable ImageIcon micOffIcon;
 
     /**
      * Creates a new voice input button.
@@ -56,13 +61,9 @@ public class VoiceInputButton extends JButton {
     public VoiceInputButton(JTextArea targetTextArea,
                             ContextManager contextManager,
                             Runnable onRecordingStart,
-                            Future<Set<String>> customSymbolsFuture,
+                            @Nullable Future<Set<String>> customSymbolsFuture,
                             Consumer<String> onError)
     {
-        assert targetTextArea != null;
-        assert onRecordingStart != null;
-        assert onError != null;
-
         this.targetTextArea = targetTextArea;
         this.contextManager = contextManager;
         this.onRecordingStart = onRecordingStart;
@@ -70,7 +71,7 @@ public class VoiceInputButton extends JButton {
         this.customSymbolsFuture = customSymbolsFuture;
 
         // Determine standard button height to make this button square
-        var referenceButton = new JButton(" "); // Use a single space or "Hg" for height calculation
+        var referenceButton = new JButton(" ");
         int normalButtonHeight = referenceButton.getPreferredSize().height;
 
         // Determine appropriate icon size, leaving some padding similar to default button margins
@@ -86,8 +87,8 @@ public class VoiceInputButton extends JButton {
 
         // Load mic icons
         try {
-            micOnIcon = new ImageIcon(getClass().getResource("/mic-on.png"));
-            micOffIcon = new ImageIcon(getClass().getResource("/mic-off.png"));
+            micOnIcon = new ImageIcon(requireNonNull(getClass().getResource("/mic-on.png")));
+            micOffIcon = new ImageIcon(requireNonNull(getClass().getResource("/mic-off.png")));
             // Scale icons to fit the dynamic button size
             micOnIcon = new ImageIcon(micOnIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
             micOffIcon = new ImageIcon(micOffIcon.getImage().getScaledInstance(iconDisplaySize, iconDisplaySize, Image.SCALE_SMOOTH));
@@ -100,20 +101,23 @@ public class VoiceInputButton extends JButton {
         }
 
         // Set default appearance
-        if (micOffIcon != null) {
-            setIcon(micOffIcon);
+        if (micOffIcon == null) {
+            setText("Mic");
         } else {
-            setText("Mic"); // Fallback text if icons fail to load
+            setIcon(micOffIcon);
         }
 
         Dimension buttonSize = new Dimension(normalButtonHeight, normalButtonHeight);
         setPreferredSize(buttonSize);
         setMinimumSize(buttonSize);
         setMaximumSize(buttonSize);
-        setMargin(new Insets(0, 0, 0, 0)); // Remove default margins to center icon better if it's the only content
+        setMargin(new Insets(0, 0, 0, 0));
 
         // Track recording state
         putClientProperty("isRecording", false);
+
+        // Set tooltip for keyboard shortcut discoverability
+        setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
 
         // Configure the toggle behavior
         addActionListener(e -> {
@@ -130,7 +134,7 @@ public class VoiceInputButton extends JButton {
         });
 
         // Enable the button only if a context manager is available (needed for transcription)
-        model.setEnabled(contextManager != null);
+        model.setEnabled(true);
     }
 
     /**
@@ -164,11 +168,14 @@ public class VoiceInputButton extends JButton {
 
             AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
             DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-            micLine = (TargetDataLine) AudioSystem.getLine(info);
+            micLine = (TargetDataLine) requireNonNull(AudioSystem.getLine(info));
             micLine.open(format);
             micLine.start();
 
-            micBuffer = new ByteArrayOutputStream();
+            // micBuffer is now final and initialized in constructor, reset it here
+            synchronized (micBuffer) {
+                micBuffer.reset();
+            }
             micCaptureThread = new Thread(() -> {
                 var data = new byte[4096];
                 while (micLine != null && micLine.isOpen()) {
@@ -194,8 +201,6 @@ public class VoiceInputButton extends JButton {
      * Stops capturing and sends to STT on a background thread.
      */
     private void stopMicCaptureAndTranscribe() {
-        assert contextManager != null;
-
         // stop capturing
         if (micLine != null) {
             micLine.stop();
@@ -254,37 +259,38 @@ public class VoiceInputButton extends JButton {
                         logger.debug("Falling back to context symbols for transcription.");
                         var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                         if (analyzer != null) {
-                            var sources = contextManager.topContext().allFragments()
-                                    .flatMap(f -> f.sources(analyzer).stream())
+                            var sources = contextManager.liveContext().allFragments()
+                                    .flatMap(f -> f.sources().stream())
                                     .collect(Collectors.toSet());
 
                             // Get full symbols first
                             var fullSymbols = analyzer.getSymbols(sources);
 
                             // Extract short names from sources and returned symbols
-                            symbolsForTranscription = sources.stream()
+                            final Set<String> tempSymbols = new HashSet<>(sources.stream()
                                     .map(CodeUnit::shortName)
-                                    .collect(Collectors.toSet());
+                                    .collect(Collectors.toSet()));
                             fullSymbols.stream()
                                     .map(s -> {
-                                        var parts = s.split("\\.");
-                                        // Get last part as short name
-                                        return parts.length > 0 ? parts[parts.length - 1] : null;
+                                        List<String> parts = Splitter.on('.').splitToList(s);
+                                        return !parts.isEmpty() ? parts.getLast() : null;
                                     })
                                     .filter(java.util.Objects::nonNull)
-                                    // Add to the same set
-                                    .forEach(symbolsForTranscription::add);
+                                    .forEach(tempSymbols::add); // Add to the effectively final temporary set
+                            symbolsForTranscription = tempSymbols; // Assign to the field
                             logger.debug("Using context symbols for transcription: {}", symbolsForTranscription.size());
                         }
                     }
 
                     // Perform transcription
                     String result;
-                    var sttModel = contextManager.getModels().sttModel();
+                    var sttModel = contextManager.getService().sttModel();
+                    Set<String> finalSymbolsForTranscription = symbolsForTranscription != null ? symbolsForTranscription : Collections.emptySet();
                     try {
-                        result = sttModel.transcribe(tempFile, symbolsForTranscription);
+                        result = sttModel.transcribe(tempFile, finalSymbolsForTranscription);
                     } catch (Exception e) {
-                        contextManager.getIo().toolError("Error transcribing audio: " + e.getMessage());
+                        IConsoleIO iConsoleIO = contextManager.getIo();
+                        iConsoleIO.toolError("Error transcribing audio: " + e.getMessage(), "Error");
                         result = "";
                     }
                     var transcript = result;
@@ -308,9 +314,9 @@ public class VoiceInputButton extends JButton {
                         logger.trace("Could not delete temp STT file: {}", tempFile);
                     }
                 }
-            } catch (IOException ex) { // Catch specific IO errors from file writing/reading
+            } catch (IOException ex) {
                 onError.accept("Error processing audio file: " + ex.getMessage());
-            } catch (Exception ex) { // Catch broader exceptions during transcription API call etc.
+            } catch (Exception ex) {
                 onError.accept("Error during transcription: " + ex.getMessage());
             } finally {
                 SwingUtilities.invokeLater(() -> targetTextArea.setEnabled(true));

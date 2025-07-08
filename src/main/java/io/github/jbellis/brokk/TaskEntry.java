@@ -1,28 +1,25 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.util.Messages;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-import java.io.Serial;
-import java.io.Serializable;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
+
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Represents a single task interaction for the Task History, including the user request ("description") and the full LLM message log.
  * The log can be compressed to save context space while retaining the most relevant information.
- * This record is serializable, using langchain4j's JSON serialization for ChatMessage lists.
  *
  * @param sequence A unique sequence number for ordering tasks.
  * @param log      The uncompressed list of chat messages for this task. Null if compressed.
  * @param summary  The compressed representation of the chat messages (summary). Null if uncompressed.
  */
-public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String summary) implements Serializable {
-    @Serial
-    private static final long serialVersionUID = 2L;
-
-    private static final System.Logger logger = System.getLogger(TaskEntry.class.getName());
+public record TaskEntry(int sequence, @Nullable ContextFragment.TaskFragment log, @Nullable String summary) {
 
     /** Enforce that exactly one of log or summary is non-null */
     public TaskEntry {
@@ -37,12 +34,13 @@ public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String s
      * The remaining messages (AI responses, tool calls/results) are stored in the `log`.
      * The TaskEntry starts uncompressed.
      */
-    public static TaskEntry fromSession(int sequence, SessionResult result) {
-        assert result != null;
+    // IContextManager is not needed here, TaskFragment itself will get it via SessionResult.output()
+    // which is created with a contextManager in the agents
+    public static TaskEntry fromSession(int sequence, TaskResult result) {
         return new TaskEntry(sequence, result.output(), null);
     }
 
-    public static TaskEntry fromCompressed(int sequence, String compressedLog) {
+    public static TaskEntry fromCompressed(int sequence, String compressedLog) { // IContextManager not needed for compressed
         return new TaskEntry(sequence, null, compressedLog);
     }
 
@@ -64,10 +62,10 @@ public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String s
               <task sequence=%s summarized=true>
               %s
               </task>
-              """.stripIndent().formatted(sequence, summary.indent(2).stripTrailing());
+              """.stripIndent().formatted(sequence, castNonNull(summary).indent(2).stripTrailing());
         }
 
-        var logText = formatMessages(log.messages());
+        var logText = formatMessages(castNonNull(log).messages());
         return """
           <task sequence=%s>
           %s
@@ -75,15 +73,15 @@ public record TaskEntry(int sequence, ContextFragment.TaskFragment log, String s
           """.stripIndent().formatted(sequence, logText.indent(2).stripTrailing());
     }
 
-    public static @NotNull String formatMessages(List<ChatMessage> messages) {
+    public static String formatMessages(List<ChatMessage> messages) {
         return messages.stream()
                   .map(message -> {
                       var text = Messages.getRepr(message);
-                      return """
+                      return (CharSequence) """
                       <message type=%s>
                       %s
                       </message>
-                      """.stripIndent().formatted(message.type().name().toLowerCase(), text.indent(2).stripTrailing());
+                      """.stripIndent().formatted(message.type().name().toLowerCase(Locale.ROOT), text.indent(2).stripTrailing());
                   })
                   .collect(Collectors.joining("\n"));
     }

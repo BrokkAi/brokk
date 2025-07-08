@@ -1,4 +1,3 @@
-
 package io.github.jbellis.brokk.difftool.ui;
 
 import io.github.jbellis.brokk.difftool.utils.Colors;
@@ -6,6 +5,7 @@ import io.github.jbellis.brokk.difftool.utils.Colors;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.JTextComponent;
+import io.github.jbellis.brokk.gui.SwingUtil;
 import java.awt.*;
 
 /**
@@ -50,8 +50,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
     public void paint(Graphics g, int p0, int p1, Shape shape, JTextComponent comp) {
         Rectangle bounds = shape.getBounds();
         try {
-            Rectangle r1 = comp.modelToView(p0);
-            Rectangle r2 = comp.modelToView(p1);
+            Rectangle r1 = SwingUtil.modelToView(comp, p0);
+            Rectangle r2 = SwingUtil.modelToView(comp, p1);
             if (r1 == null || r2 == null) {
                 return; // Avoid NPE if modelToView returns null
             }
@@ -122,8 +122,8 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
         public void paint(Graphics g, int p0, int p1, Shape shape, JTextComponent comp) {
             Rectangle bounds = shape.getBounds();
             try {
-                Rectangle r1 = comp.modelToView(p0);
-                Rectangle r2 = comp.modelToView(p1);
+                Rectangle r1 = SwingUtil.modelToView(comp, p0);
+                Rectangle r2 = SwingUtil.modelToView(comp, p1);
                 if (r1 == null || r2 == null) return;
 
                 g.setColor(this.color);
@@ -159,7 +159,7 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
         public void paint(Graphics g, int p0, int p1, Shape shape, JTextComponent comp) {
             Rectangle bounds = shape.getBounds();
             try {
-                Rectangle r1 = comp.modelToView(p0);
+                Rectangle r1 = SwingUtil.modelToView(comp, p0);
                  if (r1 == null) return;
 
                 g.setColor(this.color);

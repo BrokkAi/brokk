@@ -63,6 +63,8 @@
           (member_expression)
           (subscript_expression)
           (call_expression)
+          (jsx_element)
+          (jsx_self_closing_element)
         ]
       ) @field.definition
     )
@@ -86,6 +88,8 @@
           (member_expression)
           (subscript_expression)
           (call_expression)
+          (jsx_element)
+          (jsx_self_closing_element)
         ]
       ) @field.definition
     )
@@ -117,6 +121,8 @@
             (member_expression)
             (subscript_expression)
             (call_expression)
+            (jsx_element)
+            (jsx_self_closing_element)
           ]
         ) @field.definition
       )
@@ -140,6 +146,8 @@
             (member_expression)
             (subscript_expression)
             (call_expression)
+            (jsx_element)
+            (jsx_self_closing_element)
           ]
         ) @field.definition
       )
@@ -172,5 +180,8 @@
     )
   )
 )
+
+; Capture import statements to be part of the module preamble
+(import_statement) @module.import_statement
 
 ; Ignore decorators / modifiers for now

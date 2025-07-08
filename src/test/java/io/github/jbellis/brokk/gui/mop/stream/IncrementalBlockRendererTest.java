@@ -32,7 +32,9 @@ public class IncrementalBlockRendererTest {
                  }
                  ```
                  """;
-        var cds = TestUtil.parseMarkdown(md);
+        var renderer = new IncrementalBlockRenderer(false);
+        var html = renderer.createHtml(md);
+        var cds = renderer.buildComponentData(html);
 
         // Should produce one component that is a CodeBlockComponentData
         assertEquals(1, cds.size());
@@ -42,7 +44,9 @@ public class IncrementalBlockRendererTest {
     @Test
     void nestedCodeFenceIsRecognized() {
         String md = "- item\n  ```java\n  int x=1;\n  ```";
-        var cds = TestUtil.parseMarkdown(md);
+        var renderer = new IncrementalBlockRenderer(false);
+        var html = renderer.createHtml(md);
+        var cds = renderer.buildComponentData(html);
 
         // After implementing MiniParser, we should now detect the nested code fence
         assertTrue(
@@ -145,8 +149,13 @@ public class IncrementalBlockRendererTest {
         var md2 = "- a\n  ```java\n  y();\n  ```";  // code content changed
 
         // Parse both markdown snippets
-        var components1 = TestUtil.parseMarkdown(md1);
-        var components2 = TestUtil.parseMarkdown(md2);
+        var renderer1 = new IncrementalBlockRenderer(false);
+        var html1 = renderer1.createHtml(md1);
+        var components1 = renderer1.buildComponentData(html1);
+
+        var renderer2 = new IncrementalBlockRenderer(false);
+        var html2 = renderer2.createHtml(md2);
+        var components2 = renderer2.buildComponentData(html2);
 
         // Both should produce a CompositeComponentData
         assertEquals(1, components1.size());
@@ -163,29 +172,32 @@ public class IncrementalBlockRendererTest {
     }
 
     @Test
-    void incrementalRendererDetectsNestedContentChange() {
-        var md1 = "- a\n  ```java\n  x();\n  ```";
-        var md2 = "- a\n  ```java\n  y();\n  ```";  // child changed
+    void incrementalRendererDetectsNestedContentChange() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var md1 = "- a\n  ```java\n  x();\n  ```";
+            var md2 = "- a\n  ```java\n  y();\n  ```";  // child changed
 
-        // Create a renderer and update with first markdown
-        var renderer = new IncrementalBlockRenderer(false);
-        renderer.update(md1);
+            // Create a renderer and update with first markdown
+            var renderer = new IncrementalBlockRenderer(false);
+            renderer.update(md1);
 
-        // Get the first component to check later
-        var rootPanel = renderer.getRoot();
-        var firstComponent = rootPanel.getComponent(0);
+            // Get the first component to check later
+            var rootPanel = renderer.getRoot();
+            assertTrue(rootPanel.getComponentCount() > 0, "Root panel should have at least one component after first update.");
+            var firstComponent = rootPanel.getComponent(0);
 
-        // Update with second markdown
-        renderer.update(md2);
+            // Update with second markdown
+            renderer.update(md2);
 
-        // The component should have been updated, not recreated
-        // So it should be the same component instance
-        assertEquals(firstComponent, rootPanel.getComponent(0),
-                     "Component instance should be reused even when nested content changes");
+            // The component should have been updated, not recreated
+            // So it should be the same component instance
+            assertEquals(firstComponent, rootPanel.getComponent(0),
+                         "Component instance should be reused even when nested content changes");
 
-        // But the content should have been updated
-        var panel = (JPanel) rootPanel.getComponent(0);
-        assertTrue(panel.getComponentCount() > 0, "Panel should contain components");
+            // But the content should have been updated
+            var panel = (JPanel) rootPanel.getComponent(0);
+            assertTrue(panel.getComponentCount() > 0, "Panel should contain components");
+        });
     }
 
     @Test
@@ -206,7 +218,9 @@ public class IncrementalBlockRendererTest {
                       >>>>>>> REPLACE Test.java
                     """;
 
-        var cds = TestUtil.parseMarkdown(md);
+        var renderer = new IncrementalBlockRenderer(false);
+        var html = renderer.createHtml(md);
+        var cds = renderer.buildComponentData(html);
 
         // Should produce at least one composite
         assertTrue(
@@ -252,7 +266,9 @@ public class IncrementalBlockRendererTest {
                       ```
                     """;
 
-        var cds = TestUtil.parseMarkdown(md);
+        var renderer = new IncrementalBlockRenderer(false);
+        var html = renderer.createHtml(md);
+        var cds = renderer.buildComponentData(html);
 
         // Should produce at least one composite
         assertTrue(
@@ -299,55 +315,58 @@ public class IncrementalBlockRendererTest {
     }
 
     @Test
-    void streamingSessionKeepsComponentInstances() {
-        var renderer = new IncrementalBlockRenderer(false);
-        var root = renderer.getRoot();
+    void streamingSessionKeepsComponentInstances() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            var renderer = new IncrementalBlockRenderer(false);
+            var root = renderer.getRoot();
 
-        // 1st chunk - initial content (heading + paragraph)
-        renderer.update("## Title\nThis is an example ");
+            // 1st chunk - initial content (heading + paragraph)
+            renderer.update("## Title\nThis is an example ");
 
-        // Store all components for reuse verification
-        var components = new Component[root.getComponentCount()];
-        for (int i = 0; i < root.getComponentCount(); i++) {
-            components[i] = root.getComponent(i);
-            // Component might be a JEditorPane directly or wrapped in a JPanel
-            var editorPane = (JEditorPane) components[i];
-            System.out.println("Component " + i + " content: " + editorPane.getText());
-        }
+            // Store all components for reuse verification
+            assertTrue(root.getComponentCount() > 0, "Root panel should have components after first chunk.");
+            var components = new Component[root.getComponentCount()];
+            for (int i = 0; i < root.getComponentCount(); i++) {
+                components[i] = root.getComponent(i);
+                // Component might be a JEditorPane directly or wrapped in a JPanel
+                var editorPane = (JEditorPane) components[i];
+                System.out.println("Component " + i + " content: " + editorPane.getText());
+            }
 
-        // 2nd chunk - completes paragraph and adds a code block
-        renderer.update("## Title\nThis is an example of streaming.\n```java\nSystem.out");
+            // 2nd chunk - completes paragraph and adds a code block
+            renderer.update("## Title\nThis is an example of streaming.\n```java\nSystem.out");
 
-        // Components should be reused
-        assertSame(components[0], root.getComponent(0), "## Title should be reused");
-        assertSame(components[1], root.getComponent(1), "This is an example... should be reused");
+            // Components should be reused
+            assertSame(components[0], root.getComponent(0), "## Title should be reused");
+            assertSame(components[1], root.getComponent(1), "This is an example... should be reused");
 
-        // Verify content through the component hierarchy
-        var lastComponent = (JPanel) root.getComponent(root.getComponentCount() - 1);
-        var codeEditor = ComponentUtils.findComponentsOfType(lastComponent, RSyntaxTextArea.class).getFirst();
-        assertTrue(codeEditor.getText().contains("System.out"), "Content should contain code block");
+            // Verify content through the component hierarchy
+            var lastComponent = (JPanel) root.getComponent(root.getComponentCount() - 1);
+            var codeEditor = ComponentUtils.findComponentsOfType(lastComponent, RSyntaxTextArea.class).getFirst();
+            assertTrue(codeEditor.getText().contains("System.out"), "Content should contain code block");
 
-        // 3rd chunk - adds a second paragraph
-        renderer.update("""
-                        ## Title
-                        This is an example of streaming.
-                        ```java
-                        System.out.println("hi");
-                        ```
-                        Let's add a second paragraph.
-                        """);
+            // 3rd chunk - adds a second paragraph
+            renderer.update("""
+                            ## Title
+                            This is an example of streaming.
+                            ```java
+                            System.out.println("hi");
+                            ```
+                            Let's add a second paragraph.
+                            """);
 
-        // Message bubbles should still be reused
-        assertSame(components[0], root.getComponent(0), "## Title should be reused");
-        assertSame(components[1], root.getComponent(1), "This is an example... should be reused");
-        assertTrue(codeEditor.getText().contains("System.out.println"), "Content should contain code block");
+            // Message bubbles should still be reused
+            assertSame(components[0], root.getComponent(0), "## Title should be reused");
+            assertSame(components[1], root.getComponent(1), "This is an example... should be reused");
+            assertTrue(codeEditor.getText().contains("System.out.println"), "Content should contain code block");
 
-        // Verify final content
-        assertTrue(((JEditorPane) root.getComponent(3)).getText().contains("Let's add a second paragraph."), "Content should contain second paragraph");
+            // Verify final content
+            assertTrue(((JEditorPane) root.getComponent(3)).getText().contains("Let's add a second paragraph."), "Content should contain second paragraph");
+        });
     }
 
     @Test
-    void consecutiveMarkdownBlocksAreMerged() {
+    void consecutiveMarkdownBlocksAreMerged() throws Exception {
         // Two prose paragraphs -> should become one block after compaction
         String md = """
                     First paragraph
@@ -356,21 +375,22 @@ public class IncrementalBlockRendererTest {
                     """;
 
         var renderer = new IncrementalBlockRenderer(false);
-        renderer.update(md); // streaming finished
-        var componentsBefore = renderer.buildComponentData(renderer.createHtml(md));
+        renderer.update(md); // streaming finished, lastMarkdown is set
+        var componentsBefore = renderer.buildComponentData(renderer.createHtml(md)); // uses lastMarkdown
         var preMergeCount = componentsBefore.size();
 
-        renderer.compactMarkdown();
-        // Instead of rebuilding, check the current state of the renderer's root components
-        // Since compactMarkdown updates the UI, we should see fewer components in the registry
+        var compactedSnapshot = renderer.buildCompactedSnapshot(1L);
+        SwingUtilities.invokeAndWait(() -> renderer.applyCompactedSnapshot(compactedSnapshot, 1L));
+        
         var postMergeCount = renderer.getRoot().getComponentCount();
 
-        assertTrue(preMergeCount > postMergeCount, "Markdown blocks must be merged after compaction");
+        assertTrue(preMergeCount > postMergeCount,
+                   "Markdown blocks must be merged after compaction. Pre-compaction count: " + preMergeCount + ", Post-compaction count: " + postMergeCount);
         assertEquals(1, postMergeCount, "All markdown blocks should be merged into one");
     }
 
     @Test
-    void specialBlocksBreakMarkdownSequence() {
+    void specialBlocksBreakMarkdownSequence() throws Exception {
         // prose - code - prose  =>  must stay 3 blocks (2 markdown, 1 code)
         String md = """
                     Intro text
@@ -385,43 +405,55 @@ public class IncrementalBlockRendererTest {
         var renderer = new IncrementalBlockRenderer(false);
         renderer.update(md);
 
-        // apply compaction
-        renderer.compactMarkdown();
+        // Get the compacted form
+        var compactedSnapshot = renderer.buildCompactedSnapshot(1L);
+        // Apply to UI
+        SwingUtilities.invokeAndWait(() -> renderer.applyCompactedSnapshot(compactedSnapshot, 1L));
 
-        // get model after merge
-        var components = renderer.buildComponentData(renderer.createHtml(md));
-
-        long mdCount = components.stream()
+        assertNotNull(compactedSnapshot);
+        long mdCount = compactedSnapshot.stream()
                 .filter(c -> c instanceof MarkdownComponentData)
                 .count();
-        long codeCount = components.stream()
+        long codeCount = compactedSnapshot.stream()
                 .filter(c -> c instanceof CodeBlockComponentData)
                 .count();
 
-        assertEquals(2, mdCount, "Markdown before and after code must not merge");
-        assertEquals(1, codeCount, "Code block must remain intact");
+        assertEquals(2, mdCount, "Markdown before and after code must not merge in snapshot");
+        assertEquals(1, codeCount, "Code block must remain intact in snapshot");
+        
+        // Check UI component count
+        assertEquals(3, renderer.getRoot().getComponentCount(), "UI should have 3 components after compaction");
     }
 
     @Test
-    void idOfFirstMarkdownBlockIsPreserved() {
+    void idOfFirstMarkdownBlockIsPreserved() throws Exception {
         String md = "A\n\nB"; // paragraphs A and B
         var renderer = new IncrementalBlockRenderer(false);
         renderer.update(md);
 
-        // capture the first markdown id before merging
+        // capture the first markdown id before merging from original parsing
         var componentsBefore = renderer.buildComponentData(renderer.createHtml(md));
-        var firstIdBefore = ((MarkdownComponentData) componentsBefore.getFirst()).id();
+        var firstIdBefore = ((MarkdownComponentData) componentsBefore.stream()
+                                .filter(c -> c instanceof MarkdownComponentData)
+                                .findFirst().orElseThrow()).id();
 
-        renderer.compactMarkdown();
+        // Get the compacted form
+        var compactedSnapshot = renderer.buildCompactedSnapshot(1L);
+        SwingUtilities.invokeAndWait(() -> renderer.applyCompactedSnapshot(compactedSnapshot, 1L));
 
-        var componentsAfter = renderer.buildComponentData(renderer.createHtml(md));
-        var firstMarkdownAfter = (MarkdownComponentData) componentsAfter.getFirst();
+        // Assert on the compacted snapshot
+        assertNotNull(compactedSnapshot);
+        assertFalse(compactedSnapshot.isEmpty());
+        var firstMarkdownAfterCompaction = (MarkdownComponentData) compactedSnapshot.stream()
+                                               .filter(c -> c instanceof MarkdownComponentData)
+                                               .findFirst().orElseThrow();
 
-        assertEquals(firstIdBefore, firstMarkdownAfter.id(), "Merged markdown must keep the id of the first block");
+        assertEquals(firstIdBefore, firstMarkdownAfterCompaction.id(), "Merged markdown must keep the id of the first block");
+        assertEquals(1, renderer.getRoot().getComponentCount(), "UI should have one component after compaction");
     }
 
     @Test
-    void compactMarkdownIsIdempotent() {
+    void compactMarkdownIsIdempotent() throws Exception {
         String md = """
                     First paragraph
                     
@@ -430,16 +462,22 @@ public class IncrementalBlockRendererTest {
 
         var renderer = new IncrementalBlockRenderer(false);
         renderer.update(md);
-        var componentsBefore = renderer.buildComponentData(renderer.createHtml(md));
+        var html = renderer.createHtml(md); 
+        var componentsBefore = renderer.buildComponentData(html); 
         var preMergeCount = componentsBefore.size();
 
-        renderer.compactMarkdown();
+        // First compaction
+        var compactedSnapshot1 = renderer.buildCompactedSnapshot(1L);
+        SwingUtilities.invokeAndWait(() -> renderer.applyCompactedSnapshot(compactedSnapshot1, 1L));
         var postMergeCountFirst = renderer.getRoot().getComponentCount();
 
-        renderer.compactMarkdown(); // Call again to check idempotence
+        // Second compaction attempt
+        var compactedSnapshot2 = renderer.buildCompactedSnapshot(2L); 
+        SwingUtilities.invokeAndWait(() -> renderer.applyCompactedSnapshot(compactedSnapshot2, 2L));
         var postMergeCountSecond = renderer.getRoot().getComponentCount();
 
-        assertTrue(preMergeCount > postMergeCountFirst, "Markdown blocks must be merged after first compaction");
+        assertTrue(preMergeCount > postMergeCountFirst,
+                   "Markdown blocks must be merged after first compaction. Pre: " + preMergeCount + ", Post1: " + postMergeCountFirst);
         assertEquals(postMergeCountFirst, postMergeCountSecond, "Second compaction should not change component count");
     }
 
@@ -547,7 +585,8 @@ public class IncrementalBlockRendererTest {
             var firstCompBefore = root.getComponent(0);
 
             /* ---------- compaction ---------- */
-            renderer.compactMarkdown();
+            var compactedSnapshot = renderer.buildCompactedSnapshot(1L);
+            renderer.applyCompactedSnapshot(compactedSnapshot, 1L); // Already on EDT
 
             // Layout the container again so preferred sizes are up-to-date
             scrollPane.revalidate();

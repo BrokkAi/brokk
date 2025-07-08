@@ -1,6 +1,8 @@
 
 package io.github.jbellis.brokk.difftool.search;
 
+import java.util.Objects;
+
 public class SearchHit {
     int line;
     int fromOffset;
@@ -30,15 +32,17 @@ public class SearchHit {
         return toOffset;
     }
 
+    @Override
     public boolean equals(Object o) {
-        SearchHit sh;
-
-        if (!(o instanceof SearchHit)) {
+        if (this == o) return true;
+        if (!(o instanceof SearchHit sh)) {
             return false;
         }
+        return fromOffset == sh.fromOffset && toOffset == sh.toOffset;
+    }
 
-        sh = (SearchHit) o;
-
-        return (sh.getFromOffset() == getFromOffset() && sh.getToOffset() == getToOffset());
+    @Override
+    public int hashCode() {
+        return Objects.hash(fromOffset, toOffset);
     }
 }

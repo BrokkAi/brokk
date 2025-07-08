@@ -5,15 +5,12 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import dev.langchain4j.model.output.FinishReason;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
-import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
-import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
-import io.github.jbellis.brokk.git.GitStatus;
-import io.github.jbellis.brokk.gui.mop.stream.blocks.EditBlockHtml;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.prompts.EditBlockConflictsParser;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.QuickEditPrompts;
 import io.github.jbellis.brokk.util.Environment;
@@ -27,8 +24,8 @@ import org.jetbrains.annotations.VisibleForTesting;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.*;
+import static java.util.Objects.requireNonNull;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -37,280 +34,361 @@ import java.util.stream.Stream;
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications
  * based on user instructions. It handles parsing LLM responses, applying edits to files,
  * verifying changes through build/test commands, and managing the conversation history.
- * It supports both iterative coding sessions (potentially involving multiple LLM interactions
+ * It supports both iterative coding tasks (potentially involving multiple LLM interactions
  * and build attempts) and quick, single-shot edits.
  */
 public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
     private static final int MAX_PARSE_ATTEMPTS = 3;
-    private final IContextManager contextManager;
+    @VisibleForTesting
+    static final int MAX_APPLY_FAILURES_BEFORE_FALLBACK = 3;
+
+    final IContextManager contextManager;
     private final StreamingChatLanguageModel model;
     private final IConsoleIO io;
 
     public CodeAgent(IContextManager contextManager, StreamingChatLanguageModel model) {
+        this(contextManager, model, contextManager.getIo());
+    }
+
+    public CodeAgent(IContextManager contextManager, StreamingChatLanguageModel model, IConsoleIO io) {
         this.contextManager = contextManager;
         this.model = model;
-        this.io = contextManager.getIo();
+        this.io = io;
     }
 
     /**
-     * Implementation of the LLM session that runs in a separate thread.
+     * Implementation of the LLM task that runs in a separate thread.
      * Uses the provided model for the initial request and potentially switches for fixes.
      *
      * @param userInput The user's goal/instructions.
-     * @return A SessionResult containing the conversation history and original file contents
+     * @return A TaskResult containing the conversation history and original file contents
      */
-    public SessionResult runSession(String userInput, boolean forArchitect) {
+    public TaskResult runTask(String userInput, boolean forArchitect) {
         var io = contextManager.getIo();
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(model, "Code: " + userInput, true);
+        coder.setOutput(io);
 
-        // Track original contents of files before any changes
-        var originalContents = new HashMap<ProjectFile, String>();
+        // Track changed files
+        var changedFiles = new HashSet<ProjectFile>();
 
-        // Start verification command inference concurrently
-        var verificationCommandFuture = BuildAgent.determineVerificationCommandAsync(contextManager);
+        // Keep original workspace editable messages at the start of the task
+        var originalWorkspaceEditableMessages = CodePrompts.instance.getOriginalWorkspaceEditableMessages(contextManager);
 
         // Retry-loop state tracking
-        int parseFailures = 0;
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
 
         String buildError = "";
-        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>();
+        var blocks = new ArrayList<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
+        Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         var msg = "Code Agent engaged: `%s...`".formatted(LogDescription.getShortDescription(userInput));
         io.systemOutput(msg);
-        SessionResult.StopDetails stopDetails;
+        TaskResult.StopDetails stopDetails = null;
 
         var parser = contextManager.getParserForWorkspace();
         // We'll collect the conversation as ChatMessages to store in context history.
-        var sessionMessages = new ArrayList<ChatMessage>();
+        var taskMessages = new ArrayList<ChatMessage>();
         UserMessage nextRequest = CodePrompts.instance.codeRequest(userInput.trim(),
-                                                                   CodePrompts.reminderForModel(contextManager.getModels(), model),
-                                                                   parser);
+                                                                   CodePrompts.reminderForModel(contextManager.getService(), model),
+                                                                   parser,
+                                                                   null);
+
+        var conversationState = new ConversationState(taskMessages, nextRequest, originalWorkspaceEditableMessages);
+        var workspaceState = new EditState(blocks, 0, applyFailures, blocksAppliedWithoutBuild, buildError, changedFiles, originalFileContents);
+        var loopContext = new LoopContext(conversationState, workspaceState, userInput);
 
         while (true) {
-            // Prepare and send request to LLM
-            StreamingResult streamingResult;
+            if (Thread.interrupted()) {
+                logger.debug("CodeAgent interrupted");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
+            // Variables needed across phase calls if not passed via Step results
+            StreamingResult streamingResult; // Will be set before requestPhase
+
+            // Make the LLM request
             try {
-                var allMessages = CodePrompts.instance.collectCodeMessages(contextManager,
-                                                                           model,
-                                                                           parser,
-                                                                           sessionMessages,
-                                                                           nextRequest);
-                streamingResult = coder.sendRequest(allMessages, true);
+                var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(contextManager,
+                                                                                 model,
+                                                                                 parser,
+                                                                                 loopContext.conversationState().taskMessages(),
+                                                                                 loopContext.conversationState().nextRequest(),
+                                                                                 loopContext.editState().changedFiles(),
+                                                                                 loopContext.conversationState().originalWorkspaceEditableMessages());
+                streamingResult = coder.sendRequest(allMessagesForLlm, true);
             } catch (InterruptedException e) {
-                logger.debug("CodeAgent interrupted during sendRequest");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
-                break;
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
             }
 
-            var llmResponse = streamingResult.chatResponse();
-            var llmError = streamingResult.error();
+            // REQUEST PHASE handles the result of sendLlmRequest
+            var requestOutcome = requestPhase(loopContext, streamingResult);
+            switch (requestOutcome) {
+                case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
+                case Step.Fatal(var details) -> stopDetails = details;
+                default -> throw new IllegalStateException("requestPhase returned unexpected Step type: " + requestOutcome.getClass());
+            }
+            if (stopDetails != null) break; // If requestPhase was Fatal
 
-            boolean hasUsableContent = llmResponse != null && !Messages.getText(llmResponse.aiMessage()).isBlank();
-            if (!hasUsableContent) {
-                String message;
-                if (llmError != null) {
-                    message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending session";
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, llmError.getMessage());
-                } else {
-                    message = "Empty LLM response even after retries. Ending session";
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.EMPTY_RESPONSE, message);
+            // PARSE PHASE parses edit blocks
+            var parseOutcome = parsePhase(loopContext, streamingResult.text(), streamingResult.isPartial(), parser); // Ensure parser is available
+            switch (parseOutcome) {
+                case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
+                case Step.Retry(var newLoopContext) -> {
+                    loopContext = newLoopContext;
+                    continue; // Restart main loop
                 }
-                io.toolErrorRaw(message);
-                break;
+                case Step.Fatal(var details) -> stopDetails = details;
             }
+            if (stopDetails != null) break;
 
-            // Append request/response to session history
-            sessionMessages.add(nextRequest);
-            sessionMessages.add(llmResponse.aiMessage());
-
-            String llmText = llmResponse.aiMessage().text();
-            logger.debug("Got response (potentially partial if LLM connection was cut off)");
-
-            // Parse any edit blocks from LLM response
-            var parseResult = parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
-            var newlyParsedBlocks = parseResult.blocks();
-            blocks.addAll(newlyParsedBlocks);
-
-            var isPartialResponse = llmError != null || streamingResult.chatResponse().finishReason() == FinishReason.LENGTH;
-            UserMessage messageForRetry = null;
-            String consoleLogForRetry = null;
-
-            // handle parse errors and incomplete responses
-            if (parseResult.parseError() != null) {
-                if (newlyParsedBlocks.isEmpty()) {
-                    // Pure parse failure (no blocks parsed from this segment)
-                    parseFailures++;
-                    if (parseFailures > MAX_PARSE_ATTEMPTS) {
-                        stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.PARSE_ERROR);
-                        io.systemOutput("Parse error limit reached; ending session");
-                        break; // Exit main loop
-                    }
-                    messageForRetry = new UserMessage(parseResult.parseError());
-                    consoleLogForRetry = "Failed to parse LLM response; retrying";
-                } else {
-                    // Some blocks parsed, then a parse error (partial parse)
-                    parseFailures = 0; // Reset, as we got some good blocks.
-                    messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                    consoleLogForRetry = "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix".formatted(newlyParsedBlocks.size());
+            // APPLY PHASE applies blocks
+            var applyOutcome = applyPhase(loopContext, parser);
+            switch (applyOutcome) {
+                case Step.Continue(var newLoopContext) -> loopContext = newLoopContext;
+                case Step.Retry(var newLoopContext) -> {
+                    loopContext = newLoopContext;
+                    continue; // Restart main loop
                 }
-            } else {
-                parseFailures = 0; // Current segment is clean.
+                case Step.Fatal(var details) -> stopDetails = details;
+            }
+            if (stopDetails != null) break;
 
-                if (isPartialResponse) {
-                    // LLM indicated its response was cut short (e.g., length limit),
-                    // BUT the part received so far is syntactically valid.
-                    if (newlyParsedBlocks.isEmpty()) {
-                        // No blocks parsed yet from this segment (e.g., LLM sent introductory text and then got cut off)
-                        messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                        consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
-                    } else {
-                        // We have valid blocks from the partial response.
-                        messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                        consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
-                    }
+            // VERIFY PHASE runs the build
+            // since this is the last phase, it does not use Continue
+            assert loopContext.editState().pendingBlocks().isEmpty() : loopContext;
+            var verifyOutcome = verifyPhase(loopContext);
+            switch (verifyOutcome) {
+                case Step.Retry(var newLoopContext) -> {
+                    loopContext = newLoopContext;
+                    continue;
                 }
+                case Step.Fatal(var details) -> stopDetails = details;
+                default -> throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
             }
-            if (messageForRetry != null) {
-                nextRequest = messageForRetry;
-                logger.debug(consoleLogForRetry);
-                io.llmOutput(consoleLogForRetry, ChatMessageType.CUSTOM);
-                continue;
-            }
-
-            // If we reach here, it means the LLM segment was considered complete and correct for now.
-            // Proceed to apply accumulated `blocks`.
-            logger.debug("{} total unapplied blocks", blocks.size());
-
-            // If no blocks are pending and we haven't applied anything yet, we're done
-            if (blocks.isEmpty() && blocksAppliedWithoutBuild == 0) {
-                io.systemOutput("No edits found in response, and no changes since last build; ending session");
-                if (!buildError.isEmpty()) {
-                    // Previous build failed and LLM provided no fixes
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.BUILD_ERROR, buildError);
-                } else {
-                    stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS, llmText);
-                }
-                break;
-            }
-
-            // Abort if LLM tried to edit read-only files
-            var readOnlyFiles = findConflicts(blocks, contextManager);
-            if (!readOnlyFiles.isEmpty()) {
-                var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.READ_ONLY_EDIT, filenames);
-                break;
-            }
-
-            // Pre-create empty files for any new files (and add to git + workspace)
-            // This prevents UI race conditions with file existence checks
-            var createdFiles = preCreateNewFiles(newlyParsedBlocks);
-            if (createdFiles.stream().anyMatch(ContextManager::isTestFile)) {
-                logger.debug("New test files created, re-determining verification command.");
-                verificationCommandFuture = BuildAgent.determineVerificationCommandAsync(contextManager);
-            }
-
-            // Apply all accumulated blocks
-            EditBlock.EditResult editResult;
-            try {
-                editResult = EditBlock.applyEditBlocks(contextManager, io, blocks);
-            } catch (IOException e) {
-                io.toolErrorRaw(e.getMessage());
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.IO_ERROR, e.getMessage());
-                break;
-            }
-            if (editResult.hadSuccessfulEdits()) {
-                int succeeded = blocks.size() - editResult.failedBlocks().size();
-                io.llmOutput("\n" + succeeded + " SEARCH/REPLACE blocks applied.", ChatMessageType.CUSTOM);
-            }
-            editResult.originalContents().forEach(originalContents::putIfAbsent);
-            int succeededCount = (blocks.size() - editResult.failedBlocks().size());
-            blocksAppliedWithoutBuild += succeededCount;
-            blocks.clear(); // Clear them out: either successful or moved to editResult.failed
-
-            // Check for interruption before potentially blocking build verification
-            if (Thread.currentThread().isInterrupted()) {
-                logger.debug("CodeAgent interrupted after applying edits.");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
-                break;
-            }
-
-            // Handle any failed blocks
-            if (!editResult.failedBlocks().isEmpty()) {
-                // If all blocks failed => increment applyErrors
-                if (editResult.hadSuccessfulEdits()) {
-                    applyFailures = 0;
-                } else {
-                    applyFailures++;
-                }
-
-                var parseRetryPrompt = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(),
-                                                                          parser,
-                                                                          succeededCount,
-                                                                          io,
-                                                                          contextManager);
-                if (!parseRetryPrompt.isEmpty()) {
-                    if (applyFailures >= MAX_PARSE_ATTEMPTS) {
-                        logger.debug("Apply failure limit reached ({}), attempting full file replacement fallback.", applyFailures);
-                        stopDetails = attemptFullFileReplacements(editResult.failedBlocks(), originalContents, userInput, sessionMessages);
-                        if (stopDetails != null) {
-                            // Full replacement also failed or was interrupted
-                            io.systemOutput("Code Agent stopping after failing to apply edits to " + stopDetails.explanation());
-                            break;
-                        } else {
-                            // Full replacement succeeded, reset failures and continue loop (will likely rebuild)
-                            logger.debug("Full file replacement fallback successful.");
-                            applyFailures = 0; // Reset since we made progress via fallback
-                            // fall past else blocks to build check
-                        }
-                    } else {
-                        // Normal retry with corrected blocks
-                        io.llmOutput("\nFailed to apply %s block(s), asking LLM to retry".formatted(editResult.failedBlocks().size()), ChatMessageType.CUSTOM);
-                        nextRequest = new UserMessage(parseRetryPrompt);
-                        continue;
-                    }
-                }
-            } else {
-                // If we had successful apply, reset applyErrors
-                applyFailures = 0;
-            }
-
-            // Attempt build/verification
-            try {
-                buildError = attemptBuildVerification(verificationCommandFuture, contextManager, io);
-                blocksAppliedWithoutBuild = 0; // reset after each build attempt
-            } catch (InterruptedException e) {
-                logger.debug("CodeAgent interrupted during build verification.");
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
-                break;
-            }
-
-            if (buildError.isEmpty()) {
-                stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS);
-                break;
-            }
-
-            // If the build failed after applying edits, create the next request for the LLM
-            // (formatBuildErrorsForLLM includes instructions to stop if not progressing)
-            nextRequest = new UserMessage(formatBuildErrorsForLLM(buildError));
+            // awkward construction but maintains symmetry
+            if (stopDetails != null) break;
         }
 
-        // Conclude session
-        assert stopDetails != null; // Ensure a stop reason was set before exiting the loop
+        // everyone reports their own reasons for stopping, except for interruptions
+        if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
+            reportComplete("Cancelled by user.");
+        }
         // create the Result for history
-        String finalActionDescription = (stopDetails.reason() == SessionResult.StopReason.SUCCESS)
-                                        ? userInput
-                                        : userInput + " [" + stopDetails.reason().name() + "]";
+        String finalActionDescription = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
+                                        ? loopContext.userGoal()
+                                        : loopContext.userGoal() + " [" + stopDetails.reason().name() + "]";
         // architect auto-compresses the task entry so let's give it the full history to work with, quickModel is cheap
         // Prepare messages for TaskEntry log: filter raw messages and keep S/R blocks verbatim
-        var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog();
-        return new SessionResult("Code: " + finalActionDescription,
-                                 new ContextFragment.TaskFragment(finalMessages, userInput),
-                                 originalContents,
-                                 stopDetails);
+        var finalMessages = forArchitect ? List.copyOf(io.getLlmRawMessages()) : prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
+        return new TaskResult("Code: " + finalActionDescription,
+                              new ContextFragment.TaskFragment(contextManager, finalMessages, loopContext.userGoal()),
+                              loopContext.editState().changedFiles(),
+                              stopDetails);
+    }
+
+    /**
+     * Runs a “single-file edit” session in which the LLM is asked to modify exactly
+     * {@code file}.  The method drives the same request / parse / apply FSM that
+     * {@link #runTask(String, boolean)} uses, but it stops after all SEARCH/REPLACE
+     * blocks have been applied (no build verification is performed).
+     *
+     * @param file            the file to edit
+     * @param instructions    user instructions describing the desired change
+     * @param readOnlyMessages conversation context that should be provided
+     *                         to the LLM as read-only (e.g., other related
+     *                         files, build output, etc.)
+     *
+     * @return a {@link TaskResult} recording the conversation and the original
+     *         contents of all files that were changed
+     */
+    public TaskResult runSingleFileEdit(ProjectFile file,
+                                        String instructions,
+                                        List<ChatMessage> readOnlyMessages) throws IOException
+    {
+        // 0.  Setup: coder, parser, initial messages, and initial LoopContext
+        var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
+        coder.setOutput(io);
+
+        // TODO smart parser selection -- tricky because we need the redaction in UAPD to work
+        var parser = EditBlockConflictsParser.instance;
+        var editableMsg = CodePrompts.instance.getSingleFileEditableMessage(file);
+
+        UserMessage initialRequest = CodePrompts.instance.codeRequest(instructions,
+                                                                      CodePrompts.reminderForModel(contextManager.getService(), model),
+                                                                      parser,
+                                                                      file);
+
+        var conversationState = new ConversationState(new ArrayList<>(), initialRequest, editableMsg);
+        var editState = new EditState(new ArrayList<>(), 0, 0, 0, "", new HashSet<>(), new HashMap<>());
+        var loopContext = new LoopContext(conversationState, editState, instructions);
+
+        logger.debug("Code Agent engaged in single-file mode for %s: `%s…`"
+                                .formatted(file.getFileName(), LogDescription.getShortDescription(instructions)));
+
+        TaskResult.StopDetails stopDetails;
+
+        // 1.  Main FSM loop (request → parse → apply)
+        while (true) {
+            // ----- 1-a.  Construct messages for this turn --------------------
+            List<ChatMessage> llmMessages;
+            llmMessages = CodePrompts.instance.getSingleFileMessages(contextManager.getProject().getStyleGuide(),
+                                                                     parser,
+                                                                     readOnlyMessages,
+                                                                     loopContext.conversationState().taskMessages(),
+                                                                     loopContext.conversationState().nextRequest(),
+                                                                     loopContext.editState().originalFileContents().keySet(),
+                                                                     editableMsg);
+
+            // ----- 1-b.  Send to LLM -----------------------------------------
+            StreamingResult streamingResult;
+            try {
+                streamingResult = coder.sendRequest(llmMessages, true);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+
+            // ----- 1-c.  REQUEST PHASE ---------------------------------------
+            var step = requestPhase(loopContext, streamingResult);
+            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
+                stopDetails = details;
+                break;
+            }
+            loopContext = step.loopContext();           // Step.Continue
+
+            // ----- 1-d.  PARSE PHASE -----------------------------------------
+            step = parsePhase(loopContext,
+                              streamingResult.text(),
+                              streamingResult.isPartial(),
+                              parser);
+            if (step instanceof Step.Retry retry) {
+                loopContext = retry.loopContext();
+                continue;                               // back to while-loop top
+            }
+            if (step instanceof Step.Fatal(TaskResult.StopDetails details)) {
+                stopDetails = details;
+                break;
+            }
+            loopContext = step.loopContext();
+
+            // ----- 1-e.  APPLY PHASE -----------------------------------------
+            step = applyPhase(loopContext, parser);
+            if (step instanceof Step.Retry retry2) {
+                loopContext = retry2.loopContext();
+                continue;
+            }
+            if (step instanceof Step.Fatal fatal3) {
+                stopDetails = fatal3.stopDetails();
+                break;
+            }
+            loopContext = step.loopContext();
+
+            // ----- 1-f.  Termination checks ----------------------------------
+            if (loopContext.editState().pendingBlocks().isEmpty()) {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                break;
+            }
+
+            if (Thread.currentThread().isInterrupted()) {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+                break;
+            }
+        }
+
+        // 2.  Produce TaskResult
+        assert stopDetails != null;
+        var finalMessages = prepareMessagesForTaskEntryLog(io.getLlmRawMessages());
+
+        String finalAction = (stopDetails.reason() == TaskResult.StopReason.SUCCESS)
+                             ? instructions
+                             : instructions + " [" + stopDetails.reason().name() + "]";
+
+        return new TaskResult("Code: " + finalAction,
+                              new ContextFragment.TaskFragment(contextManager, finalMessages, instructions),
+                              loopContext.editState().changedFiles(),
+                              stopDetails);
+    }
+    
+    void report(String message) {
+        logger.debug(message);
+        io.llmOutput("\n" + message, ChatMessageType.CUSTOM);
+    }
+
+    void reportComplete(String message) {
+        logger.debug(message);
+        io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM);
+    }
+
+    Step parsePhase(LoopContext currentLoopContext, String llmText, boolean isPartialResponse, EditBlockParser parser) {
+        var cs = currentLoopContext.conversationState();
+        var ws = currentLoopContext.editState();
+
+        logger.debug("Got response (potentially partial if LLM connection was cut off)");
+        var parseResult = parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
+        var newlyParsedBlocks = parseResult.blocks();
+
+        // Handle explicit parse errors from the parser
+        if (parseResult.parseError() != null) {
+            int updatedConsecutiveParseFailures = ws.consecutiveParseFailures();
+            UserMessage messageForRetry;
+            String consoleLogForRetry;
+            if (newlyParsedBlocks.isEmpty()) { 
+                // Pure parse failure
+                updatedConsecutiveParseFailures++;
+                messageForRetry = new UserMessage(parseResult.parseError());
+                consoleLogForRetry = "Failed to parse LLM response; retrying";
+            } else { 
+                // Partial parse, then an error
+                updatedConsecutiveParseFailures = 0; // Reset, as we got some good blocks.
+                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                consoleLogForRetry = "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix".formatted(newlyParsedBlocks.size());
+            }
+
+            if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                reportComplete("Parse error limit reached; ending task.");
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR));
+            }
+
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.originalWorkspaceEditableMessages());
+            // Add any newly parsed blocks before the error to the pending list for the next apply phase
+            var nextPending = new ArrayList<>(ws.pendingBlocks());
+            nextPending.addAll(newlyParsedBlocks);
+            var nextWs = ws.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
+            report(consoleLogForRetry);
+            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+        }
+
+        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending list.
+        var updatedConsecutiveParseFailures = 0;
+        var mutablePendingBlocks = new ArrayList<>(ws.pendingBlocks());
+        mutablePendingBlocks.addAll(newlyParsedBlocks);
+
+        // Handle case where LLM response was cut short, even if syntactically valid so far.
+        if (isPartialResponse) {
+            UserMessage messageForRetry;
+            String consoleLogForRetry;
+            if (newlyParsedBlocks.isEmpty()) {
+                messageForRetry = new UserMessage("It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                consoleLogForRetry = "LLM indicated response was partial before any blocks (no parse error); asking to continue";
+            } else {
+                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
+                consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue".formatted(newlyParsedBlocks.size());
+            }
+            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.originalWorkspaceEditableMessages());
+            var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+            report(consoleLogForRetry);
+            return new Step.Retry(new LoopContext(nextCs, nextWs, currentLoopContext.userGoal()));
+        }
+
+        // No parse error, not a partial response. This is a successful, complete segment.
+        var nextWs = ws.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
+        return new Step.Continue(new LoopContext(cs, nextWs, currentLoopContext.userGoal()));
     }
 
     /**
@@ -322,7 +400,6 @@ public class CodeAgent {
      */
     @VisibleForTesting
     public List<ProjectFile> preCreateNewFiles(Collection<EditBlock.SearchReplaceBlock> blocks) {
-        var io = contextManager.getIo();
         List<ProjectFile> newFiles = new ArrayList<>();
         for (EditBlock.SearchReplaceBlock block : blocks) {
             // Skip blocks that aren't for new files (new files have empty beforeText)
@@ -340,7 +417,7 @@ public class CodeAgent {
                     file.write(""); // Using ProjectFile.write handles directory creation internally
                     logger.debug("Pre-created empty file: {}", file);
                 } catch (IOException e) {
-                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage());
+                    io.toolError("Failed to create empty file " + file + ": " + e.getMessage(), "Error");
                 }
             }
         }
@@ -350,7 +427,7 @@ public class CodeAgent {
             try {
                 contextManager.getRepo().add(newFiles);
             } catch (GitAPIException e) {
-                io.toolError("Failed to add %s to git".formatted(newFiles));
+                io.toolError("Failed to add %s to git".formatted(newFiles), "Error");
             }
             contextManager.editFiles(newFiles);
         }
@@ -363,144 +440,120 @@ public class CodeAgent {
      * Runs replacements in parallel.
      *
      * @param failedBlocks      The list of blocks that failed to apply.
-     * @param originalContents  Map to record original content before replacement.
      * @param originalUserInput The initial user goal for context.
-     * @param sessionMessages
-     * @return StopDetails if the fallback fails or is interrupted, null otherwise.
+     * @param taskMessages      The list of task messages for context.
+     * @throws EditStopException if the fallback fails or is interrupted.
      */
-    private SessionResult.StopDetails attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
-                                                                  Map<ProjectFile, String> originalContents,
-                                                                  String originalUserInput,
-                                                                  ArrayList<ChatMessage> sessionMessages)
+    private void attemptFullFileReplacements(List<EditBlock.FailedBlock> failedBlocks,
+                                             String originalUserInput,
+                                             List<ChatMessage> taskMessages) throws EditStopException
     {
         var failuresByFile = failedBlocks.stream()
-                .map(fb -> fb.block().filename())
-                .filter(Objects::nonNull)
-                .distinct()
-                .map(contextManager::toFile)
-                .toList();
+                .filter(fb -> fb.block().filename() != null)
+                .collect(Collectors.groupingBy(fb -> contextManager.toFile(fb.block().filename())));
 
         if (failuresByFile.isEmpty()) {
             logger.debug("Fatal: no filenames present in failed blocks");
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks");
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "No filenames present in failed blocks"));
         }
 
-        io.systemOutput("Attempting full file replacement for: " + failuresByFile.stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
-
-        // Ensure original content is available for all files before parallel processing
-        var filesToProcess = new ArrayList<ProjectFile>();
-        for (var file : failuresByFile) {
-            if (originalContents.containsKey(file)) {
-                filesToProcess.add(file);
-                continue;
-            }
-
+        report("Attempting full file replacement for: " + failuresByFile.keySet().stream().map(ProjectFile::toString).collect(Collectors.joining(", ")));
+        
+        // Prepare tasks for parallel execution
+        var tasks = failuresByFile.entrySet().stream().map(entry -> (Callable<Optional<String>>) () -> {
+            var file = entry.getKey();
+            var failuresForFile = entry.getValue();
             try {
-                originalContents.put(file, file.read());
-                filesToProcess.add(file);
+                // Prepare request
+                var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
+                var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, failuresForFile, goal, taskMessages);
+                var model = requireNonNull(contextManager.getService().getModel(Service.GROK_3_MINI, Service.ReasoningLevel.DEFAULT));
+                var coder = contextManager.getLlm(model, "Full File Replacement: " + file.getFileName());
+                coder.setOutput(io);
+                return executeReplace(file, coder, messages);
             } catch (IOException e) {
-                logger.error("Failed to read content of {} for full replacement fallback", file, e);
-                // Skip this file if we can't read its content
+                throw new UncheckedIOException(e);
             }
-        }
+        }).toList();
 
-        if (filesToProcess.isEmpty()) {
-            logger.debug("No files eligible for full file replacement after checking/reading content.");
-            // Return error indicating failure, as the initial failures couldn't be addressed by fallback
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "Could not read content for any files needing full replacement.");
-        }
-
-        var succeededCount = new AtomicInteger(0);
-
-        // Process files in parallel using streams
-        var futures = filesToProcess.stream().parallel().map(file -> CompletableFuture.supplyAsync(() -> {
-             try {
-                 assert originalContents.containsKey(file); // Should now always be true for files in filesToProcess
-
-                 // Prepare request
-                 var goal = "The previous attempt to modify this file using SEARCH/REPLACE failed repeatedly. Original goal: " + originalUserInput;
-                 var messages = CodePrompts.instance.collectFullFileReplacementMessages(contextManager, file, goal, sessionMessages);
-                 var coder = contextManager.getLlm(contextManager.getModels().quickModel(), "Full File Replacement: " + file.getFileName());
-
-                 // Send request
-                 StreamingResult result = coder.sendRequest(messages, false);
-
-                 // Process response
-                 if (result.error() != null) {
-                     return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
-                 }
-                 var response = result.chatResponse();
-                 if (response == null || response.aiMessage() == null || response.aiMessage().text() == null || response.aiMessage().text().isBlank()) {
-                     return Optional.of("Empty LLM response for %s".formatted(file));
-                 }
-
-                 // Extract and apply
-                 var newContent = EditBlock.extractCodeFromTripleBackticks(response.aiMessage().text());
-                 if (newContent == null || newContent.isBlank()) {
-                     // Allow empty if response wasn't just ``` ```
-                     if (response.aiMessage().text().strip().equals("```\n```") || response.aiMessage().text().strip().equals("``` ```")) {
-                         // Treat explicitly empty fenced block as success
-                         newContent = "";
-                     } else {
-                         return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
-                     }
-                 }
-
-                 file.write(newContent);
-                 logger.debug("Successfully applied full file replacement for {}", file);
-                 succeededCount.incrementAndGet();
-                 return Optional.<String>empty(); // Success
-             } catch (InterruptedException e) {
-                 throw new CancellationException();
-             } catch (IOException e) {
-                 throw new UncheckedIOException(e);
-             }
-         }, contextManager.getBackgroundTasks())
-        ).toList();
-
-        // Wait for all parallel tasks submitted via supplyAsync; if any is cancelled, cancel the others immediately
+        // Execute tasks with ExecutorService.invokeAll for interrupt handling
+        var executor = Executors.newFixedThreadPool(10);
+        List<Future<Optional<String>>> futures;
         try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        } catch (CancellationException e) {
+            futures = executor.invokeAll(tasks);
+        } catch (InterruptedException e) {
+            logger.debug("Interrupted during full file replacement tasks execution.");
             Thread.currentThread().interrupt();
-        } catch (CompletionException e) {
-            // log this later
-        }
-        if (Thread.currentThread().isInterrupted()) {
-            logger.debug("Interrupted during or after waiting for full file replacement tasks. Cancelling pending tasks.");
-            futures.forEach(f -> f.cancel(true)); // Attempt to cancel ongoing tasks
-            return new SessionResult.StopDetails(SessionResult.StopReason.INTERRUPTED);
+            throw new EditStopException(TaskResult.StopReason.INTERRUPTED);
+        } finally {
+            executor.shutdownNow();
         }
 
-        // Not cancelled -- collect results
+        // Collect results
         var actualFailureMessages = futures.stream()
-                .map(f -> {
-                    assert f.isDone();
+                .map(future -> {
                     try {
-                        return f.getNow(Optional.of("Should never happen"));
-                    } catch (CancellationException ce) {
-                        // we already caught cancellations above
-                        throw new AssertionError();
-                    } catch (CompletionException ce) {
-                        logger.error("Unexpected error applying change", ce);
-                        return Optional.of("Unexpected error : " + ce.getCause().getMessage());
+                        return future.get(); // This should not block long since invokeAll already waited
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.debug("Interrupted while collecting results for full file replacement.");
+                        return Optional.of("Interrupted during result collection.");
+                    } catch (ExecutionException e) {
+                        logger.error("Error during full file replacement task", e.getCause());
+                        return Optional.of("Error: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
                     }
                 })
                 .flatMap(Optional::stream)
                 .toList();
 
-        if (succeededCount.get() == failuresByFile.size()) {
-            assert actualFailureMessages.isEmpty() : actualFailureMessages;
-            return null;
-        } else {
-            // Report combined errors
-            var combinedError = String.join("\n", actualFailureMessages);
-            if (succeededCount.get() < failuresByFile.size()) {
-                combinedError = "%d/%d files succeeded.\n".formatted(succeededCount.get(), failuresByFile.size()) + combinedError;
-            }
-            logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
-            return new SessionResult.StopDetails(SessionResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s).".formatted(failuresByFile.size() - succeededCount.get()));
+        if (actualFailureMessages.isEmpty()) {
+            // All replacements succeeded
+            return;
         }
+
+        // Report combined errors
+        var combinedError = String.join("\n", actualFailureMessages);
+        if (actualFailureMessages.size() < failuresByFile.size()) {
+            int succeeded = failuresByFile.size() - actualFailureMessages.size();
+            combinedError = "%d/%d files succeeded.\n".formatted(succeeded, failuresByFile.size()) + combinedError;
+        }
+        logger.debug("Full file replacement fallback finished with issues for {} file(s): {}", actualFailureMessages.size(), combinedError);
+        throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Full replacement failed or was cancelled for %d file(s). Details:\n%s".formatted(actualFailureMessages.size(), combinedError)));
+    }
+
+    /**
+     * @return an error message, or empty if successful
+     */
+    public static Optional<String> executeReplace(ProjectFile file, Llm coder, List<ChatMessage> messages)
+    throws InterruptedException, IOException
+    {
+        // Send request
+        StreamingResult result = coder.sendRequest(messages, false);
+
+        // Process response
+        if (result.error() != null) {
+            return Optional.of("LLM error for %s: %s".formatted(file, result.error().getMessage()));
+        }
+        // If no error, result.text() is available.
+        if (result.text().isBlank()) {
+            return Optional.of("Empty LLM response for %s".formatted(file));
+        }
+
+        // Extract and apply
+        var newContent = EditBlock.extractCodeFromTripleBackticks(result.text());
+        if (newContent.isBlank()) {
+            // Allow empty if response wasn't just ``` ```
+            if (result.text().strip().equals("```\n```") || result.text().strip().equals("``` ```")) {
+                // Treat explicitly empty fenced block as success
+                newContent = "";
+            } else {
+                return Optional.of("Could not extract fenced code block from response for %s".formatted(file));
+            }
+        }
+
+        file.write(newContent);
+        logger.debug("Successfully applied full file replacement for {}", file);
+        return Optional.empty();
     }
 
     /**
@@ -509,96 +562,43 @@ public class CodeAgent {
      * AI messages containing SEARCH/REPLACE blocks will have their raw text preserved,
      * rather than converting blocks to HTML placeholders or summarizing block-only messages.
      */
-    private List<ChatMessage> prepareMessagesForTaskEntryLog() {
-        var rawMessages = io.getLlmRawMessages();
-
+    private static List<ChatMessage> prepareMessagesForTaskEntryLog(List<ChatMessage> rawMessages) {
         return rawMessages.stream()
                 .flatMap(message -> {
-                    switch (message.type()) {
-                        case USER, CUSTOM:
-                            return Stream.of(message);
-                        case AI:
+                    return switch (message.type()) {
+                        case USER, CUSTOM -> Stream.of(message);
+                        case AI -> {
                             var aiMessage = (AiMessage) message;
                             // Pass through AI messages with their original text.
                             // Raw S/R blocks are preserved.
                             // If the text is blank, effectively filter out the message.
-                            return aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                            yield aiMessage.text().isBlank() ? Stream.empty() : Stream.of(aiMessage);
+                        }
                         // Ignore SYSTEM/TOOL messages for TaskEntry log purposes
-                        case SYSTEM, TOOL_EXECUTION_RESULT:
-                        default:
-                            return Stream.empty();
-                    }
+                        default -> Stream.empty();
+                    };
                 })
                 .toList();
     }
 
     /**
-     * @return A list of ProjectFile objects representing read-only files the LLM attempted to edit,
-     * or an empty list if no read-only files were targeted.
-     */
-    private static List<ProjectFile> findConflicts(List<EditBlock.SearchReplaceBlock> blocks,
-                                                   IContextManager cm)
-    {
-        // Identify files referenced by blocks that are not already editable
-        var filesToAdd = blocks.stream()
-                .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
-                .distinct()
-                .map(cm::toFile) // Convert filename string to ProjectFile
-                .filter(file -> !cm.getEditableFiles().contains(file))
-                .toList();
-
-        // Check for conflicts with read-only files
-        var readOnlyFiles = filesToAdd.stream()
-                .filter(file -> cm.getReadonlyFiles().contains(file))
-                .toList();
-        if (!readOnlyFiles.isEmpty()) {
-            cm.getIo().systemOutput(
-                    "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
-                            .formatted(readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","))));
-        }
-        return readOnlyFiles;
-    }
-
-    /**
-     * Runs the build verification command (once available) and appends any build error text to buildErrors list.
-     * Returns empty string if build is successful, error message otherwise.
-     */
-    private static String attemptBuildVerification(CompletableFuture<String> verificationCommandFuture,
-                                                   IContextManager contextManager,
-                                                   IConsoleIO io) throws InterruptedException
-    {
-        String verificationCommand;
-        try {
-            verificationCommand = verificationCommandFuture.get(5, TimeUnit.SECONDS);
-        } catch (InterruptedException | ExecutionException | TimeoutException e) {
-            logger.warn("Failed to get verification command", e);
-            var bd = contextManager.getProject().getBuildDetails();
-            verificationCommand = (bd.equals(BuildDetails.EMPTY) ? null : bd.buildLintCommand());
-        }
-
-        return checkBuild(verificationCommand, contextManager, io);
-    }
-
-    /**
-     * Runs a quick-edit session where we:
+     * Runs a quick-edit task where we:
      * 1) Gather the entire file content plus related context (buildAutoContext)
      * 2) Use QuickEditPrompts to ask for a single fenced code snippet
      * 3) Replace the old text with the new snippet in the file
      *
-     * @return A SessionResult containing the conversation and original content.
+     * @return A TaskResult containing the conversation and original content.
      */
-    public SessionResult runQuickSession(ProjectFile file,
-                                         String oldText,
-                                         String instructions) throws InterruptedException
+    public TaskResult runQuickTask(ProjectFile file,
+                                   String oldText,
+                                   String instructions) throws InterruptedException
     {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
-        var analyzer = contextManager.getAnalyzer();
+        coder.setOutput(io);
 
         // Use up to 5 related classes as context
-        var seeds = analyzer.getDeclarationsInFile(file).stream()
-                .collect(Collectors.toMap(CodeUnit::fqName, cls -> 1.0));
-        var relatedCode = Context.buildAutoContext(analyzer, seeds, Set.of(), 5);
+        // buildAutoContext is an instance method on Context, or a static helper on ContextFragment for SkeletonFragment directly
+        var relatedCode = contextManager.liveContext().buildAutoContext(5);
 
         String fileContents;
         try {
@@ -616,9 +616,6 @@ public class CodeAgent {
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
-        // Record the original content so we can undo if necessary
-        var originalContents = Map.of(file, fileContents);
-
         // Initialize pending history with the instruction
         var pendingHistory = new ArrayList<ChatMessage>();
         pendingHistory.add(new UserMessage(instructionsMsg));
@@ -627,25 +624,25 @@ public class CodeAgent {
         var result = coder.sendRequest(messages, false);
 
         // Determine stop reason based on LLM response
-        SessionResult.StopDetails stopDetails;
+        TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.LLM_ERROR, result.error().getMessage());
-            io.toolErrorRaw("Quick edit failed: " + result.error().getMessage());
-        } else if (result.chatResponse() == null || result.chatResponse().aiMessage() == null || result.chatResponse().aiMessage().text() == null || result.chatResponse().aiMessage().text().isBlank()) {
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.EMPTY_RESPONSE);
-            io.toolErrorRaw("LLM returned empty response for quick edit.");
+            String errorMessage = Objects.toString(result.error().getMessage(), "Unknown LLM error during quick edit");
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, errorMessage);
+            io.toolError("Quick edit failed: " + errorMessage);
+        } else if (result.text().isBlank()) {
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE);
+            io.toolError("LLM returned empty response for quick edit.");
         } else {
-            // Success from LLM perspective
-            String responseText = result.chatResponse().aiMessage().text();
-            pendingHistory.add(new AiMessage(responseText));
-            stopDetails = new SessionResult.StopDetails(SessionResult.StopReason.SUCCESS);
+            // Success from LLM perspective (no error, text is not blank)
+            pendingHistory.add(result.aiMessage());
+            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         }
 
-        // Return SessionResult containing conversation and original content
-        return new SessionResult("Quick Edit: " + file.getFileName(),
-                                 pendingHistory,
-                                 originalContents,
-                                 stopDetails);
+        // Return TaskResult containing conversation and original content
+        return new TaskResult("Quick Edit: " + file.getFileName(),
+                              new ContextFragment.TaskFragment(contextManager, pendingHistory, "Quick Edit: " + file.getFileName()),
+                              Set.of(file),
+                              stopDetails);
     }
 
     /**
@@ -666,37 +663,6 @@ public class CodeAgent {
     }
 
     /**
-     * Executes the verification command and updates build error history.
-     *
-     * @return empty string if the build was successful or skipped, error message otherwise.
-     */
-    private static String checkBuild(String verificationCommand, IContextManager cm, IConsoleIO io) throws InterruptedException {
-        if (verificationCommand == null || verificationCommand.isBlank()) {
-            io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
-            return "";
-        }
-
-        io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-        var result = Environment.instance.captureShellCommand(verificationCommand, cm.getProject().getRoot());
-        logger.debug("Verification command result: {}", result);
-
-        if (result.error() == null) {
-            io.llmOutput("\n## Verification successful", ChatMessageType.CUSTOM);
-            return "";
-        }
-
-        // Build failed
-        io.llmOutput("""
-                     \n**Verification Failed:** %s
-                     ```bash
-                     %s
-                     ```
-                     """.stripIndent().formatted(result.error(), result.output()), ChatMessageType.CUSTOM);
-        // Add the combined error and output to the history for the next request
-        return result.error() + "\n\n" + result.output();
-    }
-
-    /**
      * Generates a user message to ask the LLM to continue when a response appears to be cut off.
      * @param lastBlock The last successfully parsed block from the incomplete response.
      * @return A formatted string to be used as a UserMessage.
@@ -711,5 +677,322 @@ public class CodeAgent {
                
                Please continue from there (WITHOUT repeating that one).
                """.stripIndent().formatted(lastBlock);
+    }
+
+    static class EditStopException extends RuntimeException {
+        final TaskResult.StopDetails stopDetails;
+
+        public EditStopException(TaskResult.StopDetails stopDetails) {
+            super(stopDetails.reason().name() + ": " + stopDetails.explanation());
+            this.stopDetails = stopDetails;
+        }
+
+        public EditStopException(TaskResult.StopReason stopReason) {
+            this(new TaskResult.StopDetails(stopReason));
+        }
+    }
+
+    Step requestPhase(LoopContext currentLoopContext, StreamingResult streamingResultFromLlm) {
+        var cs = currentLoopContext.conversationState();
+
+        var llmError = streamingResultFromLlm.error();
+        if (streamingResultFromLlm.isEmpty()) {
+            String message;
+            TaskResult.StopDetails fatalDetails;
+            if (llmError != null) {
+                message = "LLM returned an error even after retries: " + llmError.getMessage() + ". Ending task";
+                fatalDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, requireNonNull(llmError.getMessage()));
+            } else {
+                message = "Empty LLM response even after retries. Ending task";
+                fatalDetails = new TaskResult.StopDetails(TaskResult.StopReason.EMPTY_RESPONSE, message);
+            }
+            io.toolError(message);
+            return new Step.Fatal(fatalDetails);
+        }
+
+        // Append request and AI message to taskMessages
+        cs.taskMessages().add(cs.nextRequest());
+        cs.taskMessages().add(streamingResultFromLlm.aiMessage());
+
+        return new Step.Continue(currentLoopContext);
+    }
+
+    private EditBlock.EditResult applyBlocksAndHandleErrors(List<EditBlock.SearchReplaceBlock> blocksToApply,
+                                                            Set<ProjectFile> changedFilesCollector)
+            throws EditStopException, InterruptedException
+    {
+        // Identify files referenced by blocks that are not already editable
+        var filesToAdd = blocksToApply.stream()
+                .map(EditBlock.SearchReplaceBlock::filename)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(contextManager::toFile) // Convert filename string to ProjectFile
+                .filter(file -> !contextManager.getEditableFiles().contains(file))
+                .toList();
+        // Check for conflicts with read-only files
+        var readOnlyFiles = filesToAdd.stream()
+                .filter(file -> contextManager.getReadonlyProjectFiles().contains(file))
+                .toList();
+        if (!readOnlyFiles.isEmpty()) {
+            var msg = "LLM attempted to edit read-only file(s): %s.\nNo edits applied. Mark the file(s) editable or clarify the approach."
+                    .formatted(readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(",")));
+            reportComplete(msg);
+            var filenames = readOnlyFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(","));
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, filenames));
+        }
+
+        // Pre-create empty files for any new files from the current LLM response segment
+        // (and add to git + workspace). This prevents UI race conditions.
+        preCreateNewFiles(blocksToApply);
+
+        EditBlock.EditResult editResult;
+        try {
+            editResult = EditBlock.applyEditBlocks(contextManager, io, blocksToApply);
+        } catch (IOException e) {
+            var eMessage = requireNonNull(e.getMessage());
+            // io.toolError is handled by caller if this exception propagates
+            throw new EditStopException(new TaskResult.StopDetails(TaskResult.StopReason.IO_ERROR, eMessage));
+        }
+
+        changedFilesCollector.addAll(editResult.originalContents().keySet());
+        return editResult;
+    }
+
+    Step verifyPhase(LoopContext loopContext) {
+        var cs = loopContext.conversationState();
+        var ws = loopContext.editState();
+
+        // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
+        if (ws.blocksAppliedWithoutBuild() == 0) {
+            reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
+            TaskResult.StopDetails stopDetails;
+            if (loopContext.editState().lastBuildError().isEmpty()) {
+                var text = Messages.getText(loopContext.conversationState().taskMessages.getLast());
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, text);
+            } else {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, loopContext.editState().lastBuildError());
+            }
+            return new Step.Fatal(stopDetails);
+        }
+
+        String latestBuildError;
+        try {
+            latestBuildError = performBuildVerification();
+        } catch (InterruptedException e) {
+            logger.debug("CodeAgent interrupted during build verification.");
+            Thread.currentThread().interrupt();
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+
+        if (latestBuildError.isEmpty()) {
+            // Build succeeded or was skipped by performBuildVerification
+            reportComplete("Success!");
+            return new Step.Fatal(TaskResult.StopReason.SUCCESS);
+        } else { 
+            // Build failed
+            UserMessage nextRequestForBuildFailure = new UserMessage(formatBuildErrorsForLLM(latestBuildError));
+            var newCs = new ConversationState(
+                cs.taskMessages(),
+                nextRequestForBuildFailure,
+                cs.originalWorkspaceEditableMessages()
+            );
+            var newWs = ws.afterBuildFailure(latestBuildError);
+            report("Asking LLM to fix build/lint failures");
+            return new Step.Retry(new LoopContext(newCs, newWs, loopContext.userGoal()));
+        }
+    }
+
+    Step applyPhase(LoopContext currentLoopContext, EditBlockParser parser) {
+        var cs = currentLoopContext.conversationState();
+        var ws = currentLoopContext.editState();
+
+        if (ws.pendingBlocks().isEmpty()) {
+            logger.debug("nothing to apply, continuing to next phase");
+            return new Step.Continue(currentLoopContext);
+        }
+
+        EditBlock.EditResult editResult;
+        int updatedConsecutiveApplyFailures = ws.consecutiveApplyFailures();
+        EditState wsForStep = ws; // Will be updated
+        ConversationState csForStep = cs; // Will be updated
+
+        try {
+            editResult = applyBlocksAndHandleErrors(ws.pendingBlocks(),
+                                                    ws.changedFiles() /* Helper mutates this set */);
+
+            int attemptedBlockCount = ws.pendingBlocks().size();
+            int succeededCount = attemptedBlockCount - editResult.failedBlocks().size();
+            int newBlocksAppliedWithoutBuild = ws.blocksAppliedWithoutBuild() + succeededCount;
+
+            // Update originalFileContents in the workspace state being built for the next step
+            Map<ProjectFile, String> nextOriginalFileContents = new HashMap<>(ws.originalFileContents());
+            editResult.originalContents().forEach(nextOriginalFileContents::putIfAbsent);
+
+            List<EditBlock.SearchReplaceBlock> nextPendingBlocks = new ArrayList<>(); // Blocks are processed, so clear for next step's ws
+
+            if (!editResult.failedBlocks().isEmpty()) { // Some blocks failed the direct apply
+                if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
+                    updatedConsecutiveApplyFailures++;
+                } else { // Partial success
+                    updatedConsecutiveApplyFailures = 0;
+                }
+
+                if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES_BEFORE_FALLBACK) {
+                    report("Apply failure limit reached (%d), attempting full file replacement fallback.".formatted(updatedConsecutiveApplyFailures));
+                    List<EditBlock.FailedBlock> blocksForFallback = List.copyOf(editResult.failedBlocks());
+                    attemptFullFileReplacements(blocksForFallback, currentLoopContext.userGoal(), cs.taskMessages());
+                    // If attemptFullFileReplacements succeeds, it doesn't throw. If it fails, it throws EditStopException caught below.
+                    report("Full file replacement fallback successful.");
+
+                    // Update changedFiles with files modified by fallback
+                    Set<ProjectFile> updatedChangedFiles = new HashSet<>(ws.changedFiles());
+                    blocksForFallback.stream()
+                        .filter(fb -> fb.block().filename() != null) // Ensure filename is not null
+                        .map(fb -> contextManager.toFile(requireNonNull(fb.block().filename()))) // Now safe to call requireNonNull
+                        .forEach(updatedChangedFiles::add);
+                    
+                    UserMessage placeholderPrompt = new UserMessage("[Placeholder: Build errors will be inserted here by verifyPhase if build fails after this full file replacement]");
+                    csForStep = new ConversationState(cs.taskMessages(), placeholderPrompt, cs.originalWorkspaceEditableMessages());
+                    
+                    wsForStep = ws.afterFallbackSuccess(nextPendingBlocks, updatedChangedFiles, nextOriginalFileContents);
+                    return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
+                } else { // Apply failed, but not yet time for full fallback -> ask LLM to retry
+                    String retryPromptText = CodePrompts.getApplyFailureMessage(editResult.failedBlocks(), parser, succeededCount, contextManager);
+                    UserMessage retryRequest = new UserMessage(retryPromptText);
+                    csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.originalWorkspaceEditableMessages());
+                    wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
+                    report("Failed to apply %s block(s), asking LLM to retry".formatted(editResult.failedBlocks().size()));
+                    return new Step.Retry(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
+                }
+            } else { // All blocks from ws.pendingBlocks() applied successfully
+                if (succeededCount > 0) {
+                    report(succeededCount + " SEARCH/REPLACE blocks applied.");
+                }
+                updatedConsecutiveApplyFailures = 0; // Reset on success
+                wsForStep = ws.afterApply(nextPendingBlocks, updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, nextOriginalFileContents);
+                return new Step.Continue(new LoopContext(csForStep, wsForStep, currentLoopContext.userGoal()));
+            }
+
+        } catch (EditStopException e) {
+            // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), applyEditBlocks (IO), or attemptFullFileReplacements failure
+            // Log appropriate messages based on e.stopDetails.reason()
+            if (e.stopDetails.reason() == TaskResult.StopReason.READ_ONLY_EDIT) {
+                // already reported by applyBlocksAndHandleErrors
+            } else if (e.stopDetails.reason() == TaskResult.StopReason.IO_ERROR) {
+                io.toolError(requireNonNull(e.stopDetails.explanation()));
+            } else if (e.stopDetails.reason() == TaskResult.StopReason.APPLY_ERROR) {
+                reportComplete(e.stopDetails.explanation());
+            }
+            return new Step.Fatal(e.stopDetails);
+        } catch (InterruptedException e) {
+            logger.debug("CodeAgent interrupted during applyPhase");
+            Thread.currentThread().interrupt(); // Preserve interrupt status
+            return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        }
+    }
+
+    private String performBuildVerification() throws InterruptedException {
+        var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
+        if (verificationCommand == null || verificationCommand.isBlank()) {
+            report("No verification command specified, skipping build/check.");
+            return "";
+        }
+
+        io.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+        io.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+        try {
+            var output = Environment.instance.runShellCommand(verificationCommand,
+                                                              contextManager.getProject().getRoot(),
+                                                              line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+            logger.debug("Verification command successful. Output: {}", output);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+            return "";
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+            // Add the combined error and output to the history for the next request
+            return e.getMessage() + "\n\n" + e.getOutput();
+        }
+    }
+
+    record LoopContext(
+            ConversationState conversationState,
+            EditState editState,
+            String userGoal
+    ) {}
+
+    sealed interface Step permits Step.Continue, Step.Retry, Step.Fatal {
+        LoopContext loopContext();
+
+        /** continue to the next phase */
+        record Continue(LoopContext loopContext) implements Step {}
+        /** this phase found a problem that it wants to send back to the llm */
+        record Retry(LoopContext loopContext) implements Step {}
+        /** fatal error, stop the task */
+        record Fatal(TaskResult.StopDetails stopDetails) implements Step {
+            public Fatal(TaskResult.StopReason stopReason) {
+                this(new TaskResult.StopDetails(stopReason));
+            }
+
+            @Override
+            public LoopContext loopContext() {
+                throw new UnsupportedOperationException("Fatal step does not have a loop context.");
+            }
+        }
+    }
+
+    record ConversationState(
+            List<ChatMessage> taskMessages,
+            UserMessage nextRequest,
+            List<ChatMessage> originalWorkspaceEditableMessages
+    ) {}
+
+    record EditState(
+            // parsed but not yet applied
+            List<EditBlock.SearchReplaceBlock> pendingBlocks,
+            int consecutiveParseFailures,
+            int consecutiveApplyFailures,
+            int blocksAppliedWithoutBuild,
+            String lastBuildError,
+            Set<ProjectFile> changedFiles,
+            Map<ProjectFile, String> originalFileContents
+    ) {
+        /**
+         * Returns a new WorkspaceState with updated pending blocks and parse failures.
+         */
+        EditState withPendingBlocks(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures)
+        {
+            return new EditState(newPendingBlocks, newParseFailures, consecutiveApplyFailures,
+                                 blocksAppliedWithoutBuild, lastBuildError, changedFiles, originalFileContents);
+        }
+        
+        /**
+         * Returns a new WorkspaceState after a build failure, updating the error message.
+         */
+        EditState afterBuildFailure(String newBuildError)
+        {
+            return new EditState(pendingBlocks, consecutiveParseFailures, consecutiveApplyFailures,
+                                 0, newBuildError, changedFiles, originalFileContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after applying blocks, updating relevant fields.
+         */
+        EditState afterApply(List<EditBlock.SearchReplaceBlock> newPendingBlocks, int newApplyFailures,
+                             int newBlocksApplied, Map<ProjectFile, String> newOriginalContents)
+        {
+            return new EditState(newPendingBlocks, consecutiveParseFailures, newApplyFailures,
+                                 newBlocksApplied, lastBuildError, changedFiles, newOriginalContents);
+        }
+
+        /**
+         * Returns a new WorkspaceState after a successful full-file replacement fallback.
+         */
+        EditState afterFallbackSuccess(List<EditBlock.SearchReplaceBlock> newPendingBlocks,
+                                       Set<ProjectFile> updatedChangedFiles,
+                                       Map<ProjectFile, String> newOriginalContents)
+        {
+            return new EditState(newPendingBlocks, consecutiveParseFailures, 0,
+                                 1, lastBuildError, updatedChangedFiles, newOriginalContents);
+        }
     }
 }

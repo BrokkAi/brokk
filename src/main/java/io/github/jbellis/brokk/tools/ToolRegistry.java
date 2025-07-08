@@ -8,7 +8,6 @@ import dev.langchain4j.data.message.AiMessage;
 import io.github.jbellis.brokk.ContextManager;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -28,7 +27,7 @@ public class ToolRegistry {
 
     // Maps tool name to its invocation target (method + instance)
     private final Map<String, ToolInvocationTarget> toolMap = new ConcurrentHashMap<>();
-    private final ContextManager contextManager;
+    // private final ContextManager contextManager; // Unused field removed
 
     // Internal record to hold method and the instance it belongs to
     private record ToolInvocationTarget(Method method, Object instance) {}
@@ -36,8 +35,8 @@ public class ToolRegistry {
     /**
      * Creates a new ToolRegistry and self-registers internal tools.
      */
-    public ToolRegistry(ContextManager contextManager) {
-        this.contextManager = contextManager;
+    public ToolRegistry(ContextManager contextManagerIgnored) {
+        // this.contextManager = contextManager; // contextManager field removed
         register(this);
     }
 
@@ -134,7 +133,6 @@ public class ToolRegistry {
      * @return A ToolExecutionResult indicating success or failure.
      */
     public ToolExecutionResult executeTool(Object instance, ToolExecutionRequest request) throws InterruptedException {
-        assert instance != null;
         Class<?> cls = instance.getClass();
         String toolName = request.name();
 
@@ -172,7 +170,7 @@ public class ToolRegistry {
      * @param target The resolved method and instance.
      * @return The execution result.
      */
-    private static @NotNull ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target) throws InterruptedException {
+    private static ToolExecutionResult executeTool(ToolExecutionRequest request, ToolInvocationTarget target) throws InterruptedException {
         Method method = target.method();
         Object instance = target.instance();
 

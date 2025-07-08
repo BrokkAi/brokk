@@ -5,10 +5,10 @@ import dev.langchain4j.model.chat.StreamingChatLanguageModel;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
+import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.git.IGitRepo;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.tools.ToolRegistry;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 import java.util.List;
@@ -31,10 +31,6 @@ public interface IContextManager {
         return List.of();
     }
 
-    default Collection<? extends ChatMessage> getWorkspaceContentsMessages() throws InterruptedException {
-        return List.of();
-    }
-
     default String getEditableSummary() {
         return "";
     }
@@ -43,6 +39,18 @@ public interface IContextManager {
         return "";
     }
 
+    /**
+     * Returns the live, unfrozen context that we can edit.
+     * @return the live, unfrozen context that we can edit
+     */
+    default Context liveContext() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * Returns the frozen counterpart of liveContext.
+     * @return the frozen counterpart of liveContext
+     */
     default Context topContext() {
         throw new UnsupportedOperationException();
     }
@@ -55,7 +63,6 @@ public interface IContextManager {
          * Called when the context has changed.
          *
          * @param newCtx The new context state.
-         * @param source The object that initiated the context change. Can be null.
          */
         void contextChanged(Context newCtx);
     }
@@ -65,10 +72,10 @@ public interface IContextManager {
      *
      * @param listener The listener to add. Must not be null.
      */
-    default void addContextListener(@NotNull ContextListener listener) {
+    default void addContextListener(ContextListener listener) {
     }
 
-    default void removeContextListener(@NotNull ContextListener listener) {
+    default void removeContextListener(ContextListener listener) {
     }
 
     default ProjectFile toFile(String relName) {
@@ -79,7 +86,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Set<BrokkFile> getReadonlyFiles() {
+    default Set<BrokkFile> getReadonlyProjectFiles() {
         throw new UnsupportedOperationException();
     }
 
@@ -97,11 +104,7 @@ public interface IContextManager {
                 .filter(ContextManager::isTestFile)
                 .toList();
     }
-
-    default void replaceContext(Context newContext, Context replacement) {
-        // no-op
-    }
-
+    
     default AnalyzerWrapper getAnalyzerWrapper() {
         throw new UnsupportedOperationException();
     }
@@ -120,7 +123,7 @@ public interface IContextManager {
         return getProject().getRepo();
     }
 
-    default Service getModels() {
+    default Service getService() {
         throw new UnsupportedOperationException();
     }
 
@@ -139,11 +142,17 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Create a new LLM instance for the given model and description
+     */
     default Llm getLlm(StreamingChatLanguageModel model, String taskDescription) {
         return getLlm(model, taskDescription, false);
     }
 
+    /**
+     * Create a new LLM instance for the given model and description
+     */
     default Llm getLlm(StreamingChatLanguageModel model, String taskDescription, boolean allowPartialResponses) {
-        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == Project.DataRetentionPolicy.IMPROVE_BROKK);
+        return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 }

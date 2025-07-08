@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui.dialogs;
 
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -18,17 +19,13 @@ public class SymbolSelectionDialog extends JDialog {
     private final JButton cancelButton;
 
     // The selected symbol
-    private String selectedSymbol = null;
+    private @Nullable String selectedSymbol = null;
 
     // Indicates if the user confirmed the selection
     private boolean confirmed = false;
 
     public SymbolSelectionDialog(Frame parent, IAnalyzer analyzer, String title, Set<CodeUnitType> typeFilter) {
         super(parent, title, true); // modal dialog
-        assert parent != null;
-        assert title != null;
-        assert typeFilter != null;
-        assert analyzer != null;
 
         JPanel mainPanel = new JPanel(new BorderLayout(8, 8));
         mainPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -93,7 +90,7 @@ public class SymbolSelectionDialog extends JDialog {
     /**
      * Return the selected symbol or null if none.
      */
-    public String getSelectedSymbol() {
+    public @Nullable String getSelectedSymbol() {
         return selectedSymbol;
     }
 }

@@ -1,24 +1,30 @@
 package io.github.jbellis.brokk;
 
-import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatLanguageModel;
-import io.github.jbellis.brokk.ContextFragment.PathFragment;
-import io.github.jbellis.brokk.ContextFragment.VirtualFragment;
-import io.github.jbellis.brokk.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
+import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
+import io.github.jbellis.brokk.context.ContextHistory;
+import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
+import io.github.jbellis.brokk.context.FrozenFragment;
 import io.github.jbellis.brokk.gui.Chrome;
+import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.prompts.EditBlockParser;
 import io.github.jbellis.brokk.prompts.SummarizerPrompts;
+import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import static io.github.jbellis.brokk.SessionManager.SessionInfo;
 import io.github.jbellis.brokk.tools.SearchTools;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.io.IOException;
@@ -31,10 +37,15 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
+import static java.lang.Math.max;
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 /**
  * Manages the current and previous context, along with other state like prompts and message history.
@@ -46,31 +57,31 @@ import java.util.stream.IntStream;
  * - Provide separate async methods for “Go”, “Ask”, “Search”, context additions, etc.
  */
 public class ContextManager implements IContextManager, AutoCloseable {
-    private final Logger logger = LogManager.getLogger(ContextManager.class);
+    private static final Logger logger = LogManager.getLogger(ContextManager.class);
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
     private AnalyzerWrapper analyzerWrapper;
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
     // Only one of these can run at a time
-    private final ExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
-    private final AtomicReference<Thread> userActionThread = new AtomicReference<>();
+    private final LoggingExecutorService userActionExecutor = createLoggingExecutorService(Executors.newSingleThreadExecutor());
+    private final AtomicReference<Thread> userActionThread = new AtomicReference<>(); //_FIX_
 
     // Regex to identify test files. Looks for "test" or "tests" surrounded by separators or camelCase boundaries.
-    private static final Pattern TEST_FILE_PATTERN = Pattern.compile(
-            "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
+    private static final Pattern TEST_FILE_PATTERN = Pattern.compile( // Javadoc for TEST_FILE_PATTERN not needed here
+                                                                      "(?i).*(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z]))tests?(?:[/\\\\.]|\\b|_|(?=[A-Z][a-z])|$).*"
     );
-    
+
+    public static final String DEFAULT_SESSION_NAME = "New Session";
+
     public static boolean isTestFile(ProjectFile file) {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    @NotNull
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return createLoggingExecutorService(toWrap, Set.of());
     }
 
-    @NotNull
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap, Set<Class<? extends Throwable>> ignoredExceptions) {
         return new LoggingExecutorService(toWrap, th -> {
             var thread = Thread.currentThread();
@@ -80,17 +91,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             logger.error("Uncaught exception in executor", th);
-            if (io != null) {
-                io.systemOutput("Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
-                                        .formatted(thread.getName(), getStackTraceAsString(th)));
-            }
+            io.systemOutput("Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
+                                    .formatted(thread.getName(), getStackTraceAsString(th)));
         });
     }
 
     // Context modification tasks (Edit/Read/Summarize/Drop/etc)
     // Multiple of these can run concurrently
-    private final ExecutorService contextActionExecutor = createLoggingExecutorService(
-            new ThreadPoolExecutor(2, 2,
+    private final LoggingExecutorService contextActionExecutor = createLoggingExecutorService(
+            new ThreadPoolExecutor(4, 4, // Core and Max are same due to unbounded queue behavior
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue
                                    Executors.defaultThreadFactory()));
@@ -98,44 +107,61 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Internal background tasks (unrelated to user actions)
     // Lots of threads allowed since AutoContext updates get dropped here
     // Use unbounded queue to prevent task rejection
-    private final ExecutorService backgroundTasks = createLoggingExecutorService(
-            new ThreadPoolExecutor(3, 12,
+    private final LoggingExecutorService backgroundTasks = createLoggingExecutorService(
+            new ThreadPoolExecutor(max(8, Runtime.getRuntime().availableProcessors()), // Core and Max are same
+                                   max(8, Runtime.getRuntime().availableProcessors()),
                                    60L, TimeUnit.SECONDS,
                                    new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
                                    Executors.defaultThreadFactory()),
             Set.of(InterruptedException.class));
 
-    private final ModelsWrapper models;
-    private final Project project;
+    private final ServiceWrapper service;
+    @SuppressWarnings(" vaikka project on final, sen sisältö voi muuttua ") 
+    private final AbstractProject project;
     private final ToolRegistry toolRegistry;
 
-    // Context history for undo/redo functionality
-    private final ContextHistory contextHistory;
-    private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    // Current session tracking
+    private UUID currentSessionId;
 
+    // Context history for undo/redo functionality (stores frozen contexts)
+    private ContextHistory contextHistory;
+    // The current, mutable, live context that the user interacts with
+    private volatile Context liveContext = Context.EMPTY; // Initialize to a non-null default
+    private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
+    private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+
+    @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
     }
 
     @Override
-    public void addContextListener(@NotNull ContextListener listener) {
+    public void addContextListener(ContextListener listener) {
         contextListeners.add(listener);
     }
 
     @Override
-    public void removeContextListener(@NotNull ContextListener listener) {
+    public void removeContextListener(ContextListener listener) {
         contextListeners.remove(listener);
+    }
+
+    public void addFileSystemEventListener(FileSystemEventListener listener) {
+        fileSystemEventListeners.add(listener);
+    }
+
+    public void removeFileSystemEventListener(FileSystemEventListener listener) {
+        fileSystemEventListeners.remove(listener);
     }
 
     /**
      * Minimal constructor called from Brokk
      */
-    public ContextManager(Project project)
-    {
+    public ContextManager(AbstractProject project) {
         this.project = project;
-        this.contextHistory = new ContextHistory();
-        this.models = new ModelsWrapper();
-        this.models.reinit(project);
+
+        this.contextHistory = new ContextHistory(Context.EMPTY);
+        this.service = new ServiceWrapper();
+        this.service.reinit(project);
 
         // set up global tools
         this.toolRegistry = new ToolRegistry(this);
@@ -156,26 +182,70 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void toolErrorRaw(String msg) {
+            public void toolError(String msg, String title) {
                 logger.info(msg);
             }
 
             @Override
-            public void showMessageDialog(String message, String title, int messageType) {
-                logger.info(message);
-            }
-
-            @Override
-            public void llmOutput(String token, ChatMessageType type) {
+            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
                 // pass
             }
         };
+        this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, null); // Initialize analyzerWrapper
+        this.currentSessionId = UUID.randomUUID(); // Initialize currentSessionId
+    }
+
+    /**
+     * Initializes the current session by loading its history or creating a new one.
+     * This is typically called for standard project openings.
+     * This method is synchronous but intended to be called from a background task.
+     */
+    private void initializeCurrentSessionAndHistory() {
+        // load last active session, if present
+        var lastActiveSessionId = project.getLastActiveSession();
+        var sessionManager = project.getSessionManager();
+        var sessions = sessionManager.listSessions();
+        UUID sessionIdToLoad;
+        if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
+            // Try to resume the last active session for this worktree
+            sessionIdToLoad = lastActiveSessionId.get();
+            logger.info("Resuming last active session {}", sessionIdToLoad);
+        } else {
+            var newSessionInfo = sessionManager.newSession(DEFAULT_SESSION_NAME);
+            sessionIdToLoad = newSessionInfo.id();
+            logger.info("Created and loaded new session: {}", newSessionInfo.id());
+        }
+        this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
+
+        // load session contents
+        var loadedCH = sessionManager.loadHistory(currentSessionId, this);
+        if (loadedCH == null) {
+            liveContext = new Context(this, buildWelcomeMessage());
+            contextHistory = new ContextHistory(liveContext);
+        } else {
+            contextHistory = loadedCH;
+            liveContext = Context.unfreeze(contextHistory.topContext());
+        }
+
+        // make it official
+        updateActiveSession(currentSessionId);
+
+        // Notify listeners and UI on EDT
+        SwingUtilities.invokeLater(() -> {
+            var tc = topContext();
+            notifyContextListeners(tc);
+            if (io instanceof Chrome) { // Check if UI is ready
+                io.enableActionButtons();
+            }
+        });
     }
 
     /**
      * Called from Brokk to finish wiring up references to Chrome and Coder
+     * <p>
+     * Returns the future doing off-EDT context loading
      */
-    public Chrome createGui() {
+    public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
         this.io = new Chrome(this);
@@ -185,19 +255,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onBlocked() {
                 if (Thread.currentThread() == userActionThread.get()) {
-                    io.actionOutput("Waiting for Code Intelligence");
+                    io.systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
+                                    AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                    JOptionPane.INFORMATION_MESSAGE);
                 }
             }
 
             @Override
             public void afterFirstBuild(String msg) {
+                if (io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer build completed");
+                }
                 if (msg.isEmpty()) {
                     SwingUtilities.invokeLater(() -> {
-                        io.showMessageDialog(
-                                "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
-                                "Code Intelligence Warning",
-                                JOptionPane.WARNING_MESSAGE
-                        );
+                        io.systemNotify("Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.", "Code Intelligence Warning", JOptionPane.WARNING_MESSAGE);
                     });
                 } else {
                     io.systemOutput(msg);
@@ -212,34 +283,65 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onTrackedFileChange() {
+                project.getRepo().refresh();
+                var fr = liveContext.freezeAndCleanup();
+                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
+                }
+                // analyzer refresh will call this too, but it will be delayed
+                io.updateWorkspace();
                 io.updateCommitPanel();
+                for (var fsListener : fileSystemEventListeners) {
+                    fsListener.onTrackedFilesChanged();
+                }
+            }
+
+            @Override
+            public void beforeEachBuild() {
+                if (io instanceof Chrome chrome) {
+                    chrome.getContextPanel().showAnalyzerRebuildSpinner();
+                }
+            }
+
+            @Override
+            public void afterEachBuild(boolean successful, boolean externalRebuildRequested) {
+                if (io instanceof Chrome chrome) {
+                    chrome.getContextPanel().hideAnalyzerRebuildSpinner();
+                }
+                if (successful) {
+                    // possible for analyzer build to finish before context load does
+                    var fr = liveContext.freezeAndCleanup();
+                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                    if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                        processExternalFileChanges(fr);
+                    }
+                    io.updateWorkspace();
+                }
+                if (externalRebuildRequested && io instanceof Chrome chrome) {
+                    if (successful) {
+                        chrome.notifyActionComplete("Analyzer rebuild completed");
+                    } else {
+                        chrome.notifyActionComplete("Analyzer rebuild failed");
+                    }
+                }
             }
         };
 
         this.analyzerWrapper = new AnalyzerWrapper(project, this::submitBackgroundTask, analyzerListener);
 
-        // Load saved context or create a new one
-        submitBackgroundTask("Loading saved context", () -> {
-            var welcomeMessage = buildWelcomeMessage(); // welcome message might change if git status changed
-            var initialContext = project.loadContext(this, welcomeMessage);
-            if (initialContext == null) {
-                initialContext = new Context(this, welcomeMessage);
-            }
-            contextHistory.setInitialContext(initialContext);
-            // If git was just initialized, Chrome components like GitPanel will be updated
-            // by their own construction logic based on the new project.hasGit() state.
-            // Explicit io.updateGitRepo() might not be needed here if Chrome rebuilds relevant parts.
-            io.updateContextHistoryTable(initialContext); // Update UI with loaded/new context
-        });
+        // Load saved context history or create a new one
+        var contextTask = submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
+        ensureReviewGuide();
         ensureBuildDetailsAsync(); // Changed from ensureBuildCommand
         cleanupOldHistoryAsync(); // Clean up old LLM history logs
 
         io.getInstructionsPanel().checkBalanceAndNotify();
 
-        return (Chrome) this.io;
+        return contextTask;
     }
 
     /**
@@ -250,14 +352,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Scans the LLM history directory and deletes subdirectories whose last modified time
+     * Scans the LLM history directory (located within the master project's .brokk/sessions)
+     * and deletes subdirectories (individual session zips) whose last modified time
      * is older than one week. This method runs synchronously but is intended to be
      * called from a background task.
+     * Note: This currently cleans up based on Llm.getHistoryBaseDir which might point to a different location
+     * than the new Project.sessionsDir. This should be unified. For now, using Llm.getHistoryBaseDir.
+     * If Llm.getHistoryBaseDir needs project.getMasterRootPathForConfig(), it should be updated there.
+     * Assuming Llm.getHistoryBaseDir correctly points to the shared LLM log location.
      */
     private void cleanupOldHistory() {
-        var historyBaseDir = Llm.getHistoryBaseDir(project.getRoot());
+        var historyBaseDir = Llm.getHistoryBaseDir(project.getMasterRootPathForConfig());
         if (!Files.isDirectory(historyBaseDir)) {
-            logger.debug("LLM history directory {} does not exist, skipping cleanup.", historyBaseDir);
+            logger.debug("LLM history log directory {} does not exist, skipping cleanup.", historyBaseDir);
             return;
         }
 
@@ -324,15 +431,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
-
     @Override
-    public void replaceContext(Context context, Context replacement) {
-        contextHistory.replaceContext(context, replacement);
-        io.updateContextHistoryTable();
-        io.updateContextTable();
-    }
-
-    public Project getProject() {
+    public AbstractProject getProject() {
         return project;
     }
 
@@ -357,25 +457,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try {
             return analyzerWrapper.get();
         } catch (InterruptedException e) {
-            throw new RuntimeException(e);
+            throw new CancellationException(e.getMessage());
         }
     }
 
-    /**
-     * Return the top, active context in the history stack
-     */
     @Override
-    public Context topContext()
-    {
+    public Context topContext() {
         return contextHistory.topContext();
     }
 
     /**
-     * Return the currently selected context in the UI. *Usually* you should call topContext() instead.
+     * Return the currently selected FROZEN context from history in the UI.
+     * For operations, use topContext() to get the live context.
      */
-    public Context selectedContext()
-    {
+    public @Nullable Context selectedContext() {
         return contextHistory.getSelectedContext();
+    }
+
+    /**
+     * Returns the current live, dynamic Context. Besides being dynamic (they load their
+     * text() content on demand, based on the current files and Analyzer),
+     * live Fragments have a working sources() implementation.
+     */
+    @Override
+    public Context liveContext() {
+        return liveContext;
     }
 
     public Path getRoot()
@@ -387,61 +493,77 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns the Models instance associated with this context manager.
      */
     @Override
-    public Service getModels() {
-        return models.get();
+    public Service getService() {
+        return service.get();
     }
 
     /**
      * Returns the configured Architect model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getArchitectModel() {
-        var modelName = project.getArchitectModelName();
-        var reasoning = project.getArchitectReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getArchitectModelConfig();
+        return getModelOrDefault(config, "Architect");
     }
 
     /**
      * Returns the configured Code model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getCodeModel() {
-        var modelName = project.getCodeModelName();
-        var reasoning = project.getCodeReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getCodeModelConfig();
+        return getModelOrDefault(config, "Code");
     }
 
     /**
      * Returns the configured Ask model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getAskModel() {
-        var modelName = project.getAskModelName();
-        var reasoning = project.getAskReasoningLevel();
-        return models.get(modelName, reasoning);
-    }
-
-
-    /**
-     * Returns the configured Edit model, falling back to the system model if unavailable.
-     */
-    public StreamingChatLanguageModel getEditModel() {
-        var modelName = project.getEditModelName();
-        var reasoning = project.getEditReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getAskModelConfig();
+        return getModelOrDefault(config, "Ask");
     }
 
     /**
      * Returns the configured Search model, falling back to the system model if unavailable.
      */
     public StreamingChatLanguageModel getSearchModel() {
-        var modelName = project.getSearchModelName();
-        var reasoning = project.getSearchReasoningLevel();
-        return models.get(modelName, reasoning);
+        var config = project.getSearchModelConfig();
+        return getModelOrDefault(config, "Search");
     }
 
-    public Future<?> submitUserTask(String description, Runnable task) {
+    private StreamingChatLanguageModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+        StreamingChatLanguageModel model = service.getModel(config.name(), config.reasoning());
+        if (model != null) {
+            return model;
+        }
+
+        // Configured model is not available. Attempt fallbacks.
+        String chosenFallbackName = Service.GEMINI_2_5_PRO; // For the io.toolError message
+        model = service.getModel(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT);
+        if (model != null) {
+            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                                          config.name(), modelTypeName, chosenFallbackName));
+            return model;
+        }
+
+        chosenFallbackName = Service.GROK_3_MINI;
+        model = service.getModel(Service.GROK_3_MINI, Service.ReasoningLevel.HIGH);
+        if (model != null) {
+            io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Using fallback '%s'.",
+                                          config.name(), modelTypeName, chosenFallbackName));
+            return model;
+        }
+
+        var quickModel = service.get().quickModel();
+        String quickModelName = service.get().nameOf(quickModel);
+        io.systemOutput(String.format("Configured model '%s' for %s tasks is unavailable. Preferred fallbacks also failed. Using system model '%s'.",
+                                      config.name(), modelTypeName, quickModelName));
+        return quickModel;
+    }
+
+    public CompletableFuture<Void> submitUserTask(String description, Runnable task) {
         return submitUserTask(description, false, task);
     }
 
-    public Future<?> submitUserTask(String description, boolean isLlmTask, Runnable task) {
+    public CompletableFuture<Void> submitUserTask(String description, boolean isLlmTask, Runnable task) {
         return userActionExecutor.submit(() -> {
             userActionThread.set(Thread.currentThread());
             io.disableActionButtons();
@@ -452,9 +574,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
                 task.run();
             } catch (CancellationException cex) {
-                io.systemOutput(description + " canceled.");
+                if (isLlmTask) {
+                    io.llmOutput(description + " canceled", ChatMessageType.CUSTOM);
+                } else {
+                    io.systemOutput(description + " canceled");
+                }
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                logger.error("Error while executing {}", description, e);
+                io.toolError("Error while executing " + description + ": " + e.getMessage());
             } finally {
                 io.actionComplete();
                 io.enableActionButtons();
@@ -477,7 +604,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.systemOutput(description + " canceled.");
                 throw cex;
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                logger.error("Error while executing {}", description, e);
+                io.toolError("Error while " + description + ": " + e.getMessage());
                 throw e;
             } finally {
                 io.actionComplete();
@@ -493,7 +621,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } catch (CancellationException cex) {
                 io.systemOutput(description + " canceled.");
             } catch (Exception e) {
-                io.toolErrorRaw("Error while " + description + ": " + e.getMessage());
+                io.toolError("Error while " + description + ": " + e.getMessage());
             }
         });
     }
@@ -503,18 +631,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * task.  Safe to call repeatedly.
      */
     public void interruptUserActionThread() {
-        var runner = userActionThread.get();
-        if (runner != null && runner.isAlive()) {
+        var runner = requireNonNull(userActionThread.get());
+        if (runner.isAlive()) {
             logger.debug("Interrupting user action thread " + runner.getName());
             runner.interrupt();
         }
     }
-
-    // ------------------------------------------------------------------
-    // Asynchronous context actions: add/read/copy/edit/summarize/drop
-    // ------------------------------------------------------------------
-    // Core context manipulation logic called by ContextPanel / Chrome
-    // ------------------------------------------------------------------
 
     /**
      * Add the given files to editable.
@@ -522,31 +644,80 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void editFiles(Collection<ProjectFile> files)
     {
-        var proposedEditableFragments = files.stream().map(ContextFragment.ProjectPathFragment::new).toList();
-        editFiles(proposedEditableFragments);
+        var filesByType = files.stream()
+                .collect(Collectors.partitioningBy(BrokkFile::isText));
+
+        var textFiles = castNonNull(filesByType.get(true));
+        var binaryFiles = castNonNull(filesByType.get(false));
+
+        if (!textFiles.isEmpty()) {
+            var proposedEditableFragments = textFiles.stream()
+                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, this))
+                    .toList();
+            this.editFiles(proposedEditableFragments);
+        }
+
+        if (!binaryFiles.isEmpty()) {
+            addReadOnlyFiles(binaryFiles);
+        }
+    }
+
+    private Context applyEditableFileChanges(Context currentLiveCtx, List<ContextFragment.ProjectPathFragment> fragmentsToAdd) {
+        var filesToEditSet = fragmentsToAdd.stream()
+                .map(ContextFragment.ProjectPathFragment::file)
+                .collect(Collectors.toSet());
+
+        var existingReadOnlyFragmentsToRemove = currentLiveCtx.readonlyFiles()
+                .filter(pf -> pf instanceof PathFragment pathFrag && filesToEditSet.contains(pathFrag.file()))
+                .toList();
+
+        var currentEditableFileSet = currentLiveCtx.editableFiles()
+                .filter(PathFragment.class::isInstance).map(PathFragment.class::cast)
+                .map(PathFragment::file).collect(Collectors.toSet());
+        var uniqueNewEditableFragments = fragmentsToAdd.stream()
+                .filter(frag -> !currentEditableFileSet.contains(frag.file()))
+                .toList();
+
+        return currentLiveCtx.removeReadonlyFiles(existingReadOnlyFragmentsToRemove)
+                .addEditableFiles(uniqueNewEditableFragments);
     }
 
     /**
      * Add the given files to editable.
      */
     public void editFiles(List<ContextFragment.ProjectPathFragment> fragments) {
-        // Find existing read-only fragments that correspond to these files
-        var currentReadOnlyFiles = topContext().readonlyFiles().collect(Collectors.toSet());
-        var filesToEditSet = fragments.stream().map(ContextFragment.ProjectPathFragment::file).collect(Collectors.toSet());
-        var existingReadOnlyFragmentsToRemove = currentReadOnlyFiles.stream()
-                .filter(pf -> filesToEditSet.contains(pf.file()))
-                .toList();
-        // Find existing editable fragments that correspond to these files to avoid duplicates
-        var currentEditableFileSet = topContext().editableFiles().map(PathFragment::file).collect(Collectors.toSet());
-        var uniqueNewEditableFragments = fragments.stream()
-                .filter(frag -> !currentEditableFileSet.contains(frag.file()))
-                .toList();
-
-        // Push the context update: remove the *existing* read-only fragments and add the *new, unique* editable ones
-        pushContext(ctx -> ctx.removeReadonlyFiles(existingReadOnlyFragmentsToRemove)
-                .addEditableFiles(uniqueNewEditableFragments));
-
+        assert fragments.stream().allMatch(ContextFragment.PathFragment::isText) : "Only text files can be made editable";
+        pushContext(currentLiveCtx -> applyEditableFileChanges(currentLiveCtx, fragments));
         io.systemOutput("Edited " + joinForOutput(fragments));
+    }
+
+    private Context applyReadOnlyPathFragmentChanges(Context currentLiveCtx, List<PathFragment> fragmentsToAdd) {
+        var filesToMakeReadOnlySet = fragmentsToAdd.stream()
+                .map(PathFragment::file)
+                .collect(Collectors.toSet());
+
+        var existingEditableFragmentsToRemove = currentLiveCtx.editableFiles()
+                .filter(pf -> pf instanceof PathFragment pathFrag && filesToMakeReadOnlySet.contains(pathFrag.file()))
+                .map(PathFragment.class::cast) // Ensure they are PathFragments to be removed
+                .toList();
+
+        var currentReadOnlyFileSet = currentLiveCtx.readonlyFiles()
+                .filter(PathFragment.class::isInstance).map(PathFragment.class::cast)
+                .map(PathFragment::file).collect(Collectors.toSet());
+        var uniqueNewReadOnlyFragments = fragmentsToAdd.stream()
+                .filter(frag -> !currentReadOnlyFileSet.contains(frag.file()))
+                .toList();
+
+        return currentLiveCtx.removeEditableFiles(existingEditableFragmentsToRemove)
+                .addReadonlyFiles(uniqueNewReadOnlyFragments);
+    }
+
+    /**
+     * Add read-only path fragments.
+     */
+    public void addReadOnlyFragments(List<PathFragment> fragments) {
+        pushContext(currentLiveCtx -> applyReadOnlyPathFragmentChanges(currentLiveCtx, fragments));
+        io.systemOutput("Read " + joinForOutput(fragments));
     }
 
     /**
@@ -554,26 +725,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void addReadOnlyFiles(Collection<? extends BrokkFile> files)
     {
-        // Create the new fragments to be added as read-only
-        var proposedReadOnlyFragments = files.stream().map(ContextFragment::toPathFragment).toList();
-        // Find existing editable fragments that correspond to these files
-        var currentEditableFiles = topContext().editableFiles().collect(Collectors.toSet());
-        var filesToReadSet = files.stream().map(ContextFragment::toPathFragment).map(PathFragment::file).collect(Collectors.toSet());
-        var existingEditableFragmentsToRemove = currentEditableFiles.stream()
-                .filter(pf -> filesToReadSet.contains(pf.file()))
-                .map(PathFragment.class::cast) // Cast to the required supertype
+        var proposedReadOnlyFragments = files.stream()
+                .map(bf -> ContextFragment.toPathFragment(bf, this))
                 .toList();
-        // Find existing read-only fragments that correspond to these files to avoid duplicates
-        var currentReadOnlyFileSet = topContext().readonlyFiles().map(PathFragment::file).collect(Collectors.toSet());
-        var uniqueNewReadOnlyFragments = proposedReadOnlyFragments.stream()
-                .filter(frag -> !currentReadOnlyFileSet.contains(frag.file()))
-                .toList();
-
-        // Push the context update: remove the *existing* editable fragments and add the *new, unique* read-only ones
-        pushContext(ctx -> ctx.removeEditableFiles(existingEditableFragmentsToRemove)
-                .addReadonlyFiles(uniqueNewReadOnlyFragments));
-
-        io.systemOutput("Read " + joinFilesForOutput(files));
+        addReadOnlyFragments(proposedReadOnlyFragments);
+        // io.systemOutput is handled by addReadOnlyFragments
     }
 
     /**
@@ -585,14 +741,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Drop the given fragments.
+     * Drop fragments by their IDs.
      */
-    public void drop(List<PathFragment> pathFragsToRemove, List<VirtualFragment> virtualToRemove)
-    {
-        pushContext(ctx -> ctx
-                .removeEditableFiles(pathFragsToRemove)
-                .removeReadonlyFiles(pathFragsToRemove)
-                .removeVirtualFragments(virtualToRemove));
+    public void drop(Collection<? extends ContextFragment> fragments) {
+        // The pushContext method now returns the new liveContext
+        var ids = fragments.stream().map(f -> mapToLiveFragment(f).id()).toList();
+        pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
+        // Check if a change actually occurred
+        io.systemOutput("Dropped " + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
+    }
+
+    /**
+     * Occasionally you will need to determine which live fragment a frozen fragment came from.
+     * This does that by assuming that the live and frozen Contexts have their fragments in the same order.
+     */
+    private ContextFragment mapToLiveFragment(ContextFragment f) {
+        if (!(f instanceof FrozenFragment)) {
+            return f;
+        }
+
+        int idx = topContext().getAllFragmentsInDisplayOrder().indexOf(f);
+        return liveContext.getAllFragmentsInDisplayOrder().get(idx);
     }
 
     /**
@@ -616,35 +785,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * undo last context change
      */
-    public Future<?> undoContextAsync()
-    {
+    public Future<?> undoContextAsync() {
         return submitUserTask("Undo", () -> {
-            UndoResult result = contextHistory.undo(1, io);
-            if (result.wasUndone()) {
-                var currentContext = contextHistory.topContext();
-                notifyContextListeners(currentContext);
-                project.saveContext(currentContext);
-                io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
+            if (undoContext()) {
+                io.systemOutput("Undid most recent step");
             } else {
-                io.toolErrorRaw("no undo state available");
+                io.systemOutput("Nothing to undo");
             }
         });
     }
 
+    public boolean undoContext() {
+        UndoResult result = contextHistory.undo(1, io);
+        if (result.wasUndone()) {
+            liveContext = Context.unfreeze(topContext());
+            notifyContextListeners(topContext());
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
+            return true;
+        }
+
+        return false;
+    }
+
     /**
-     * undo changes until we reach the target context
+     * undo changes until we reach the target FROZEN context
      */
-    public Future<?> undoContextUntilAsync(Context targetContext)
-    {
+    public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitUserTask("Undoing", () -> {
-            UndoResult result = contextHistory.undoUntil(targetContext, io);
+            UndoResult result = contextHistory.undoUntil(targetFrozenContext, io);
             if (result.wasUndone()) {
-                var currentContext = contextHistory.topContext();
-                notifyContextListeners(currentContext);
-                project.saveContext(currentContext);
+                liveContext = Context.unfreeze(topContext());
+                notifyContextListeners(topContext());
+                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!");
             } else {
-                io.toolErrorRaw("Context not found or already at that point");
+                io.systemOutput("Context not found or already at that point");
             }
         });
     }
@@ -656,23 +831,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitUserTask("Redoing", () -> {
             boolean wasRedone = contextHistory.redo(io);
             if (wasRedone) {
-                var currentContext = contextHistory.topContext();
-                notifyContextListeners(currentContext);
-                project.saveContext(currentContext);
+                liveContext = Context.unfreeze(topContext());
+                notifyContextListeners(topContext());
+                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Redo!");
             } else {
-                io.toolErrorRaw("no redo state available");
+                io.systemOutput("no redo state available");
             }
         });
     }
 
     /**
-     * Reset the context to match the files and fragments from a historical context
+     * Reset the live context to match the files and fragments from a historical (frozen) context.
+     * A new state representing this reset is pushed to history.
      */
-    public Future<?> resetContextToAsync(Context targetContext) {
+    public Future<?> resetContextToAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context", () -> {
             try {
-                pushContext(ctx -> Context.createFrom(targetContext, ctx));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, liveContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace canceled.");
@@ -681,12 +864,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Reset the context and history to match the files, fragments, and history from a historical context
+     * Reset the live context and its history to match a historical (frozen) context.
+     * A new state representing this reset is pushed to history.
      */
-    public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
+    public Future<?> resetContextToIncludingHistoryAsync(Context targetFrozenContext) {
         return submitUserTask("Resetting context and history", () -> {
             try {
-                pushContext(ctx -> Context.createFromIncludingHistory(targetContext, ctx));
+                var newLive = Context.createFrom(targetFrozenContext, liveContext, targetFrozenContext.getTaskHistory());
+                var fr = newLive.freezeAndCleanup();
+                liveContext = fr.liveContext();
+                var frozen = fr.frozenContext();
+                contextHistory.addFrozenContextAndClearRedo(frozen);
+                contextHistory.addResetEdge(targetFrozenContext, frozen);
+                SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+                project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.systemOutput("Reset workspace and history to historical state");
             } catch (CancellationException cex) {
                 io.systemOutput("Reset workspace and history canceled.");
@@ -694,13 +885,101 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    /**
+     * Appends selected fragments from a historical (frozen) context to the current live context.
+     * If a {@link ContextFragment.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also
+     * appended to the current live context's history. A new state representing this action is pushed to the context history.
+     *
+     * @param sourceFrozenContext The historical context to source fragments and history from.
+     * @param fragmentsToKeep     A list of fragments from {@code sourceFrozenContext} to append. These are matched by ID.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> addFilteredToContextAsync(Context sourceFrozenContext, List<ContextFragment> fragmentsToKeep) {
+        return submitUserTask("Copying workspace items from historical state", () -> {
+            try {
+                String actionMessage = "Copied workspace items from historical state";
+
+                // Calculate new history
+                List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());
+                Set<TaskEntry> existingEntries = new HashSet<>(finalHistory);
+
+                Optional<ContextFragment.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
+                        .filter(ContextFragment.HistoryFragment.class::isInstance)
+                        .map(ContextFragment.HistoryFragment.class::cast)
+                        .findFirst();
+
+                if (selectedHistoryFragmentOpt.isPresent()) {
+                    List<TaskEntry> entriesToAppend = selectedHistoryFragmentOpt.get().entries();
+                    for (TaskEntry entry : entriesToAppend) {
+                        if (existingEntries.add(entry)) {
+                            finalHistory.add(entry);
+                        }
+                    }
+                    finalHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
+                }
+                List<TaskEntry> newHistory = List.copyOf(finalHistory);
+
+                // Categorize fragments to add after unfreezing
+                List<ContextFragment.ProjectPathFragment> editablePathsToAdd = new ArrayList<>();
+                List<PathFragment> readonlyPathsToAdd = new ArrayList<>();
+                List<VirtualFragment> virtualFragmentsToAdd = new ArrayList<>();
+
+                Set<String> sourceEditableIds = sourceFrozenContext.editableFiles().map(ContextFragment::id).collect(Collectors.toSet());
+                Set<String> sourceReadonlyIds = sourceFrozenContext.readonlyFiles().map(ContextFragment::id).collect(Collectors.toSet());
+                Set<String> sourceVirtualIds = sourceFrozenContext.virtualFragments().map(ContextFragment::id).collect(Collectors.toSet());
+
+                for (ContextFragment fragmentFromKeeperList : fragmentsToKeep) {
+                    ContextFragment unfrozen = Context.unfreezeFragmentIfNeeded(fragmentFromKeeperList, this);
+
+                    if (sourceEditableIds.contains(fragmentFromKeeperList.id()) && unfrozen instanceof ContextFragment.ProjectPathFragment ppf) {
+                        editablePathsToAdd.add(ppf);
+                    } else if (sourceReadonlyIds.contains(fragmentFromKeeperList.id()) && unfrozen instanceof PathFragment pf) {
+                        readonlyPathsToAdd.add(pf);
+                    } else if (sourceVirtualIds.contains(fragmentFromKeeperList.id()) && unfrozen instanceof VirtualFragment vf) {
+                        if (!(vf instanceof ContextFragment.HistoryFragment)) {
+                            virtualFragmentsToAdd.add(vf);
+                        }
+                    } else if (unfrozen instanceof ContextFragment.HistoryFragment) {
+                        // Handled by selectedHistoryFragmentOpt
+                    } else {
+                        logger.warn("Fragment '{}' (ID: {}) from fragmentsToKeep could not be categorized. Original type: {}, Unfrozen type: {}",
+                                    fragmentFromKeeperList.description(), fragmentFromKeeperList.id(),
+                                    fragmentFromKeeperList.getClass().getSimpleName(), unfrozen.getClass().getSimpleName());
+                    }
+                }
+
+                pushContext(currentLiveCtx -> {
+                    Context modifiedCtx = currentLiveCtx;
+                    if (!readonlyPathsToAdd.isEmpty()) {
+                        modifiedCtx = applyReadOnlyPathFragmentChanges(modifiedCtx, readonlyPathsToAdd);
+                    }
+                    if (!editablePathsToAdd.isEmpty()) {
+                        modifiedCtx = applyEditableFileChanges(modifiedCtx, editablePathsToAdd);
+                    }
+                    for (VirtualFragment vfToAdd : virtualFragmentsToAdd) {
+                        modifiedCtx = modifiedCtx.addVirtualFragment(vfToAdd);
+                    }
+                    return new Context(this,
+                                       modifiedCtx.editableFiles().toList(),
+                                       modifiedCtx.readonlyFiles().toList(),
+                                       modifiedCtx.virtualFragments().toList(),
+                                       newHistory,
+                                       null,
+                                       CompletableFuture.completedFuture(actionMessage));
+                });
+
+                io.systemOutput(actionMessage);
+            } catch (CancellationException cex) {
+                io.systemOutput("Copying context items from historical state canceled.");
+            }
+        });
+    }
 
     /**
-     * Adds any virtual fragment directly
+     * Adds any virtual fragment directly to the live context.
      */
-    public void addVirtualFragment(VirtualFragment fragment)
-    {
-        pushContext(ctx -> ctx.addVirtualFragment(fragment));
+    public void addVirtualFragment(VirtualFragment fragment) {
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
     }
 
     /**
@@ -709,49 +988,55 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * @param image The java.awt.Image pasted from the clipboard.
      */
-    public void addPastedImageFragment(java.awt.Image image) {
-        // Submit task to get image description asynchronously
-        Future<String> descriptionFuture = submitSummarizePastedImage(image); // Note: submitSummarizePastedImage needs to be defined
+    public ContextFragment.AnonymousImageFragment addPastedImageFragment(java.awt.Image image, @Nullable String descriptionOverride) {
+        Future<String> descriptionFuture;
+        if (descriptionOverride != null && !descriptionOverride.isBlank()) {
+            descriptionFuture = CompletableFuture.completedFuture(descriptionOverride);
+        } else {
+            descriptionFuture = submitSummarizePastedImage(image);
+        }
 
-        // Add the PasteImageFragment immediately, the description will update when the future completes
-        pushContext(ctx -> {
-            var fragment = new ContextFragment.PasteImageFragment(image, descriptionFuture);
-            // While PasteImageFragment itself inherits from VirtualFragment, let's use the specific addVirtualFragment
-            // method for consistency, as it handles adding to the correct internal list.
-            return ctx.addVirtualFragment(fragment);
-        });
-        // User feedback is handled in the calling method (ContextPanel.doPasteAction)
+        // Must be final for lambda capture in pushContext
+        final var fragment = new ContextFragment.AnonymousImageFragment(this, image, descriptionFuture);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        return fragment;
     }
 
     /**
-     * Adds a specific PathFragment (like GitHistoryFragment) to the read-only context.
+     * Handles pasting an image from the clipboard without a predefined description.
+     * This will trigger asynchronous summarization of the image.
+     *
+     * @param image The java.awt.Image pasted from the clipboard.
+     */
+    public void addPastedImageFragment(java.awt.Image image) {
+        addPastedImageFragment(image, null);
+    }
+
+    /**
+     * Adds a specific PathFragment (like GitHistoryFragment) to the read-only part of the live context.
      *
      * @param fragment The PathFragment to add.
      */
-    public void addReadOnlyFragment(PathFragment fragment)
-    {
-        // Use the existing addReadonlyFiles method in Context, which takes a collection
-        pushContext(ctx -> ctx.addReadonlyFiles(List.of(fragment)));
+    public void addReadOnlyFragmentAsync(PathFragment fragment) {
+        submitContextTask("Capture file revision", () -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.addReadonlyFiles(List.of(fragment)));
+        });
     }
-
 
     /**
      * Captures text from the LLM output area and adds it to the context.
      * Called from Chrome's capture button.
      */
-    public void captureTextFromContextAsync()
-    {
-        contextActionExecutor.submit(() -> {
-            try {
-                var selectedCtx = selectedContext();
-                if (selectedCtx != null && selectedCtx.getParsedOutput() != null) {
-                    addVirtualFragment(selectedCtx.getParsedOutput());
-                    io.systemOutput("Content captured from output");
-                } else {
-                    io.toolErrorRaw("No content to capture");
-                }
-            } catch (CancellationException cex) {
-                io.systemOutput("Capture canceled.");
+    public void captureTextFromContextAsync() {
+        submitContextTask("Capture output", () -> {
+            // Capture from the selected *frozen* context in history view
+            var selectedFrozenCtx = requireNonNull(selectedContext()); // This is from history, frozen
+            if (selectedFrozenCtx.getParsedOutput() != null) {
+                // Add the captured (TaskFragment, which is Virtual) to the *live* context
+                addVirtualFragment(selectedFrozenCtx.getParsedOutput());
+                io.systemOutput("Content captured from output");
+            } else {
+                io.systemOutput("No content to capture");
             }
         });
     }
@@ -759,124 +1044,63 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * usage for identifier
      */
-    public void usageForIdentifier(String identifier)
-    {
-        IAnalyzer analyzer;
-        analyzer = getAnalyzerUninterrupted();
-        var uses = analyzer.getUses(identifier);
-        if (uses.isEmpty()) {
-            io.systemOutput("No uses found for " + identifier);
-            return;
-        }
-        var result = AnalyzerUtil.processUsages(analyzer, uses);
-        if (result.code().isEmpty()) {
-            io.systemOutput("No relevant uses found for " + identifier);
-            return;
-        }
-        var combined = result.code();
-        var fragment = new ContextFragment.UsageFragment(identifier, result.sources(), combined);
-        pushContext(ctx -> ctx.addVirtualFragment(fragment));
+    public void usageForIdentifier(String identifier) {
+        var fragment = new ContextFragment.UsageFragment(this, identifier);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        io.systemOutput("Added uses of " + identifier);
     }
 
-    /**
-     * callers for method
-     */
-    public void callersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph)
-    {
-        if (callgraph == null || callgraph.isEmpty()) {
-            io.systemOutput("No callers found for " + methodName);
+    public void addCallersForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
+        if (callgraph.isEmpty()) {
+            io.systemOutput("No callers found for " + methodName + " (pre-check).");
             return;
         }
-
-        String formattedCallGraph = AnalyzerUtil.formatCallGraph(callgraph, methodName, true);
-        if (formattedCallGraph.isEmpty()) {
-            io.systemOutput("No callers found for " + methodName);
-            return;
-        }
-
-        // Extract the class from the method name for sources
-        Set<CodeUnit> sources = new HashSet<>();
-        String className = ContextFragment.toClassname(methodName);
-        // Use getDefinition to find the class CodeUnit and add it to sources
-        getAnalyzerUninterrupted().getDefinition(className)
-                .filter(CodeUnit::isClass)
-                .ifPresent(sources::add);
-
-        var fragment = new ContextFragment.CallGraphFragment("Callers (depth " + depth + ")", methodName, sources, formattedCallGraph);
-        pushContext(ctx -> ctx.addVirtualFragment(fragment));
-
-        int totalCallSites = callgraph.values().stream().mapToInt(List::size).sum();
-        io.systemOutput("Added call graph with " + totalCallSites + " call sites for callers of " + methodName + " with depth " + depth);
+        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, false);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        io.systemOutput("Added call graph for callers of " + methodName + " with depth " + depth);
     }
 
     /**
      * callees for method
      */
-    public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph)
-    {
-        if (callgraph == null || callgraph.isEmpty()) {
-            io.systemOutput("No callees found for " + methodName);
+    public void calleesForMethod(String methodName, int depth, Map<String, List<CallSite>> callgraph) {
+        if (callgraph.isEmpty()) {
+            io.systemOutput("No callees found for " + methodName + " (pre-check).");
             return;
         }
-
-        String formattedCallGraph = AnalyzerUtil.formatCallGraph(callgraph, methodName, false);
-        if (formattedCallGraph.isEmpty()) {
-            io.systemOutput("No callees found for " + methodName);
-            return;
-        }
-
-        // Extract the class from the method name for sources
-        Set<CodeUnit> sources = new HashSet<>();
-        String className = ContextFragment.toClassname(methodName);
-        // Use getDefinition to find the class CodeUnit and add it to sources
-        getAnalyzerUninterrupted().getDefinition(className)
-                .filter(CodeUnit::isClass)
-                .ifPresent(sources::add);
-
-        // The output is similar to UsageFragment, so we'll use that
-        var fragment = new ContextFragment.CallGraphFragment("Callees (depth " + depth + ")", methodName, sources, formattedCallGraph);
-        pushContext(ctx -> ctx.addVirtualFragment(fragment));
-
-        int totalCallSites = callgraph.values().stream().mapToInt(List::size).sum();
-        io.systemOutput("Added call graph with " + totalCallSites + " call sites for methods called by " + methodName + " with depth " + depth);
+        var fragment = new ContextFragment.CallGraphFragment(this, methodName, depth, true);
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
+        io.systemOutput("Added call graph for methods called by " + methodName + " with depth " + depth);
     }
 
     /**
      * parse stacktrace
      */
-    public boolean addStacktraceFragment(StackTrace stacktrace)
-    {
-        assert stacktrace != null;
-
-        var exception = stacktrace.getExceptionType();
-        var content = new StringBuilder();
+    public boolean addStacktraceFragment(StackTrace stacktrace) {
+        var exception = requireNonNull(stacktrace.getExceptionType());
         var sources = new HashSet<CodeUnit>();
-
-        IAnalyzer analyzer;
-        analyzer = getAnalyzerUninterrupted();
+        var content = new StringBuilder();
+        IAnalyzer localAnalyzer = getAnalyzerUninterrupted();
 
         for (var element : stacktrace.getFrames()) {
             var methodFullName = element.getClassName() + "." + element.getMethodName();
-            var methodSource = analyzer.getMethodSource(methodFullName);
+            var methodSource = localAnalyzer.getMethodSource(methodFullName);
             if (methodSource.isPresent()) {
                 String className = ContextFragment.toClassname(methodFullName);
-                // Use getDefinition to find the class CodeUnit and add it to sources
-                analyzer.getDefinition(className)
-                        .filter(CodeUnit::isClass) // Ensure it's a class
-                        .ifPresent(sources::add); // Add the CodeUnit directly
-
+                localAnalyzer.getDefinition(className)
+                        .filter(CodeUnit::isClass)
+                        .ifPresent(sources::add);
                 content.append(methodFullName).append(":\n");
                 content.append(methodSource.get()).append("\n\n");
             }
         }
+
         if (content.isEmpty()) {
-            io.toolErrorRaw("No relevant methods found in stacktrace -- adding as text");
+            logger.debug("No relevant methods found in stacktrace -- adding as text");
             return false;
         }
-        pushContext(ctx -> {
-            var fragment = new ContextFragment.StacktraceFragment(sources, stacktrace.getOriginalText(), exception, content.toString());
-            return ctx.addVirtualFragment(fragment);
-        });
+        var fragment = new ContextFragment.StacktraceFragment(this, sources, stacktrace.getOriginalText(), exception, content.toString());
+        pushContext(currentLiveCtx -> currentLiveCtx.addVirtualFragment(fragment));
         return true;
     }
 
@@ -891,51 +1115,42 @@ public class ContextManager implements IContextManager, AutoCloseable {
         IAnalyzer analyzer;
         analyzer = getAnalyzerUninterrupted();
         if (analyzer.isEmpty()) {
-            io.toolErrorRaw("Code Intelligence is empty; nothing to add");
+            io.toolError("Code Intelligence is empty; nothing to add");
             return false;
         }
 
-        // Combine skeletons from both files and specific classes
+        // Create SkeletonFragments based on input type (files or classes)
+        // The fragments will dynamically fetch content.
 
-        // Process files: get skeletons for all classes within each file in parallel
-        Map<CodeUnit, String> skeletonsFromFiles = files.parallelStream()
-            .map(file -> {
-                try {
-                    return analyzer.getSkeletons(file);
-                } catch (Exception e) {
-                    logger.warn("Failed to get skeletons for file {}: {}", file, e.getMessage());
-                    return Collections.<CodeUnit, String>emptyMap();
-                }
-            })
-            .flatMap(map -> map.entrySet().stream())
-            .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    Map.Entry::getValue,
-                    (v1, v2) -> v1 // In case of duplicate keys (shouldn't happen)
-            ));
-        var allSkeletons = new HashMap<>(skeletonsFromFiles);
+        boolean summariesAdded = false;
+        if (!files.isEmpty()) {
+            List<String> filePaths = files.stream()
+                    .map(ProjectFile::toString)
+                    .collect(Collectors.toList());
+            var fileSummaryFragment = new ContextFragment.SkeletonFragment(this, filePaths, ContextFragment.SummaryType.FILE_SKELETONS); // Pass IContextManager
+            addVirtualFragment(fileSummaryFragment);
+            io.systemOutput("Summarized " + joinFilesForOutput(files));
+            summariesAdded = true;
+        }
 
-        // Process specific classes/symbols
         if (!classes.isEmpty()) {
-            var classSkeletons = AnalyzerUtil.getSkeletonStrings(analyzer, classes);
-            allSkeletons.putAll(classSkeletons);
+            List<String> classFqns = classes.stream()
+                    .map(CodeUnit::fqName)
+                    .collect(Collectors.toList());
+            var classSummaryFragment = new ContextFragment.SkeletonFragment(this, classFqns, ContextFragment.SummaryType.CLASS_SKELETON); // Pass IContextManager
+            addVirtualFragment(classSummaryFragment);
+            io.systemOutput("Summarized " + String.join(", ", classFqns));
+            summariesAdded = true;
         }
-
-        if (allSkeletons.isEmpty()) {
-            // No skeletons could be generated from the provided files or classes
+        if (!summariesAdded) {
+            io.toolError("No files or classes provided to summarize.");
             return false;
         }
-
-        // Create and add the fragment
-        var skeletonFragment = new ContextFragment.SkeletonFragment(allSkeletons);
-        addVirtualFragment(skeletonFragment);
-
-        io.systemOutput("Summarized " + joinForOutput(List.of(skeletonFragment)));
         return true;
     }
 
     private String joinForOutput(Collection<? extends ContextFragment> fragments) {
-        return joinFilesForOutput(fragments.stream().flatMap(f -> f.files(project).stream()).collect(Collectors.toSet()));
+        return joinFilesForOutput(fragments.stream().flatMap(f -> f.files().stream()).collect(Collectors.toSet()));
     }
 
     private static String joinFilesForOutput(Collection<? extends BrokkFile> files) {
@@ -953,88 +1168,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A list containing two messages: a UserMessage with the string representation of the task history,
      * and an AiMessage acknowledging it. Returns an empty list if there is no history.
      */
-    public List<ChatMessage> getHistoryMessages()
-    {
-        var taskHistory = topContext().getTaskHistory();
-        var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = getParserForWorkspace(); // Parser for redacting S/R blocks
-
-        // Merge compressed messages into a single taskhistory message
-        var compressed = taskHistory.stream()
-                .filter(TaskEntry::isCompressed)
-                .map(TaskEntry::toString) // This will use raw messages if TaskEntry was created with them
-                .collect(Collectors.joining("\n\n"));
-        if (!compressed.isEmpty()) {
-            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
-            messages.add(new AiMessage("Ok, I see the history."));
-        }
-
-        // Uncompressed messages: process for S/R block redaction
-        taskHistory.stream()
-                .filter(e -> !e.isCompressed())
-                .forEach(e -> {
-                    var entryRawMessages = e.log().messages();
-                    // Determine the messages to include from the entry
-                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                                           ? entryRawMessages
-                                           : entryRawMessages.subList(0, entryRawMessages.size() - 1);
-
-                    List<ChatMessage> processedMessages = new ArrayList<>();
-                    for (var chatMessage : relevantEntryMessages) {
-                        if (chatMessage instanceof AiMessage aiMessage) {
-                            redactAiMessage(aiMessage, parser).ifPresent(processedMessages::add);
-                        } else {
-                            // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
-                            processedMessages.add(chatMessage);
-                        }
-                    }
-                    messages.addAll(processedMessages);
-                });
-
-        return messages;
+    @Override
+    public List<ChatMessage> getHistoryMessages() {
+        return CodePrompts.instance.getHistoryMessages(topContext());
     }
 
-    /**
-     * Redacts SEARCH/REPLACE blocks from an AiMessage.
-     * If the message contains S/R blocks, they are replaced with "[elided SEARCH/REPLACE block]".
-     * If the message does not contain S/R blocks, or if the redacted text is blank, Optional.empty() is returned.
-     *
-     * @param aiMessage The AiMessage to process.
-     * @param parser    The EditBlockParser to use for parsing.
-     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
-     */
-    static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
-        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
-        boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
-
-        if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
-            return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
-        } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
-                }
-            }
-            String redactedText = sb.toString();
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
-        }
-    }
-
-    public List<ChatMessage> getHistoryMessagesForCopy()
-    {
+    public List<ChatMessage> getHistoryMessagesForCopy() {
         var taskHistory = topContext().getTaskHistory();
 
         var messages = new ArrayList<ChatMessage>();
@@ -1081,12 +1220,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                            project.getRoot().getFileName(), // Show just the folder name
                                            project.getRepo().getTrackedFiles().size(),
                                            project.getAllFiles().size(),
-                                           project.getAnalyzerLanguage());
+                                           project.getAnalyzerLanguages());
     }
 
     /**
      * Shutdown all executors
      */
+    @Override
     public void close() {
         userActionExecutor.shutdown();
         contextActionExecutor.shutdown();
@@ -1096,283 +1236,194 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable files/fragments).
-     * Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or empty if no content.
-     */
-    public Collection<ChatMessage> getWorkspaceContentsMessages(boolean includeRelatedClasses) throws InterruptedException {
-        var c = topContext();
-        var allContents = new ArrayList<Content>(); // Will hold TextContent and ImageContent
-
-        // --- Process Read-Only Fragments (Files, Virtual, AutoContext) ---
-        var readOnlyTextFragments = new StringBuilder();
-        var readOnlyImageFragments = new ArrayList<ImageContent>();
-        c.getReadOnlyFragments()
-                .forEach(fragment -> {
-                    try {
-                        if (fragment.isText()) {
-                            // Handle text-based fragments
-                            String formatted = fragment.format();
-                            if (formatted != null && !formatted.isBlank()) {
-                                readOnlyTextFragments.append(formatted).append("\n\n");
-                            }
-                        } else if (fragment instanceof ContextFragment.ImageFileFragment ||
-                                fragment instanceof ContextFragment.PasteImageFragment) {
-                            // Handle image fragments - explicitly check for known image fragment types
-                            try {
-                                // Convert AWT Image to LangChain4j ImageContent
-                                var l4jImage = ImageUtil.toL4JImage(fragment.image()); // Assumes ImageUtil helper
-                                readOnlyImageFragments.add(ImageContent.from(l4jImage));
-                                // Add a placeholder in the text part for reference
-                                readOnlyTextFragments.append(fragment.format()).append("\n\n");
-                            } catch (IOException e) {
-                                logger.error("Failed to process image fragment for LLM message", e);
-                                removeBadFragment(fragment, e); // Remove problematic fragment
-                            }
-                        } else {
-                            // Handle non-text, non-image fragments (e.g., HistoryFragment, TaskFragment)
-                            // Just add their formatted representation as text
-                            String formatted = fragment.format();
-                            if (formatted != null && !formatted.isBlank()) {
-                                readOnlyTextFragments.append(formatted).append("\n\n");
-                            }
-                        }
-                    } catch (IOException e) {
-                        // General formatting error for non-image fragments
-                        removeBadFragment(fragment, e);
-                    }
-                });
-
-        // Add the combined text content for read-only items if any exists
-        String readOnlyText = readOnlyTextFragments.isEmpty() ? "" : """
-                                                                     <readonly>
-                                                                     Here are some READ ONLY files and code fragments, provided for your reference.
-                                                                     Do not edit this code! Images may be included separately if present.
-                                                                     
-                                                                     %s
-                                                                     </readonly>
-                                                                     """.stripIndent().formatted(readOnlyTextFragments.toString().trim());
-
-        // --- Process Editable Fragments (Assumed Text-Only for now) ---
-        var editableTextFragments = new StringBuilder();
-        c.getEditableFragments().forEach(fragment -> {
-            try {
-                String formatted = fragment.format();
-                if (formatted != null && !formatted.isBlank()) {
-                    editableTextFragments.append(formatted).append("\n\n");
-                }
-            } catch (IOException e) {
-                removeBadFragment(fragment, e);
-            }
-        });
-        String editableText = editableTextFragments.isEmpty() ? "" : """
-                                                                     <editable>
-                                                                     Here are EDITABLE files and code fragments.
-                                                                     This is *the only context in the Workspace to which you should make changes*.
-                                                                     
-                                                                     *Trust this message as the true contents of these files!*
-                                                                     Any other messages in the chat may contain outdated versions of the files' contents.
-                                                                     
-                                                                     %s
-                                                                     </editable>
-                                                                     """.stripIndent().formatted(editableTextFragments.toString().trim());
-
-        // optional: related classes
-        String topClassesText = "";
-        if (includeRelatedClasses && getAnalyzerWrapper().isCpg()) {
-            var ac = topContext().buildAutoContext(10);
-            String topClassesRaw = ac.text();
-            if (!topClassesRaw.isBlank()) {
-                topClassesText = topClassesRaw.isBlank() ? "" : """
-                                                                <related_classes>
-                                                                Here are some classes that may be related to what is in your Workspace. They are not yet part of the Workspace!
-                                                                If relevant, you should explicitly add them with addClassSummariesToWorkspace or addClassesToWorkspace so they are
-                                                                visible to Code Agent. If they are not relevant, just ignore them.
-                                                                
-                                                                %s
-                                                                </related_classes>
-                                                                """.stripIndent().formatted(topClassesRaw);
-            }
-        }
-
-        // add the Workspace text
-        var workspaceText = """
-                            <workspace>
-                            %s
-                            %s
-                            </workspace>
-                            %s
-                            """.stripIndent().formatted(readOnlyText, editableText, topClassesText);
-
-        // text and image content must be distinct
-        allContents.add(new TextContent(workspaceText));
-        allContents.addAll(readOnlyImageFragments);
-
-        // Create the main UserMessage
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing the Workspace contents."));
-    }
-
-    @Override
-    public Collection<ChatMessage> getWorkspaceContentsMessages() throws InterruptedException {
-        return getWorkspaceContentsMessages(false);
-    }
-
-    /**
      * @return a summary of each fragment in the workspace; for most fragment types this is just the description,
      * but for some (SearchFragment) it's the full text and for others (files, skeletons) it's the class summaries.
      */
-    public Collection<ChatMessage> getWorkspaceSummaryMessages() {
-        var c = topContext();
-        IAnalyzer analyzer = getAnalyzerUninterrupted(); // Might block
-
-        // --- Process Read-Only Fragments ---
-        var summaries = Streams.concat(c.getReadOnlyFragments(), c.getEditableFragments())
-                .map(fragment -> fragment.formatSummary(analyzer))
-                .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
-
-        if (summaries.isEmpty()) {
-            return List.of();
-        }
-
-        String summaryText = """
-                             <workspace-summary>
-                             %s
-                             </workspace-summary>
-                             """.stripIndent().formatted(summaries).trim();
-
-        var summaryUserMessage = new UserMessage(summaryText);
-        return List.of(summaryUserMessage, new AiMessage("Okay, I have the workspace summary."));
-    }
-
     private String readOnlySummaryDescription(ContextFragment cf) {
-        if (cf instanceof PathFragment pf) {
-            return pf.file().toString();
+        if (cf.getType().isPathFragment()) {
+            return cf.files().stream().findFirst().map(BrokkFile::toString).orElseGet(() -> {
+                logger.warn("PathFragment type {} with no files: {}", cf.getType(), cf.description());
+                return "Error: PathFragment with no file";
+            });
         }
-
+        // If not a PathFragment, it's a VirtualFragment
         return "\"%s\"".formatted(cf.description());
     }
 
     private String editableSummaryDescription(ContextFragment cf) {
-        if (cf instanceof PathFragment pf) {
-            return pf.file().toString();
+        if (cf.getType().isPathFragment()) {
+            // This PathFragment is editable.
+            return cf.files().stream().findFirst().map(BrokkFile::toString).orElseGet(() -> {
+                logger.warn("Editable PathFragment type {} with no files: {}", cf.getType(), cf.description());
+                return "Error: Editable PathFragment with no file";
+            });
         }
 
-        ContextFragment.UsageFragment uf = (ContextFragment.UsageFragment) cf;
-        var files = uf.files(project).stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-        return "[%s] (%s)".formatted(files, uf.description());
+        // Handle UsageFragment specially.
+        if (cf.getType() == ContextFragment.FragmentType.USAGE) {
+            var files = cf.files().stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+            return "[%s] (%s)".formatted(files, cf.description());
+        }
+
+        // Default for other editable VirtualFragments
+        return "\"%s\"".formatted(cf.description());
     }
 
-    public String getReadOnlySummary()
-    {
-        var c = topContext();
-        return c.getReadOnlyFragments()
+    @Override
+    public String getReadOnlySummary() {
+        return topContext().getReadOnlyFragments()
                 .map(this::readOnlySummaryDescription)
                 .filter(st -> !st.isBlank())
                 .collect(Collectors.joining(", "));
     }
 
-    public String getEditableSummary()
-    {
+    @Override
+    public String getEditableSummary() {
         return topContext().getEditableFragments()
                 .map(this::editableSummaryDescription)
                 .collect(Collectors.joining(", "));
     }
 
-    public Set<ProjectFile> getEditableFiles()
-    {
+    @Override
+    public Set<ProjectFile> getEditableFiles() {
         return topContext().editableFiles()
+                .filter(ContextFragment.ProjectPathFragment.class::isInstance)
+                .map(ContextFragment.ProjectPathFragment.class::cast)
                 .map(ContextFragment.ProjectPathFragment::file)
                 .collect(Collectors.toSet());
     }
 
     @Override
-    public Set<BrokkFile> getReadonlyFiles() {
+    public Set<BrokkFile> getReadonlyProjectFiles() {
         return topContext().readonlyFiles()
-                .map(ContextFragment.PathFragment::file)
+                .filter(pf -> pf instanceof ContextFragment.ProjectPathFragment)
+                .map(pf -> ((ContextFragment.ProjectPathFragment) pf).file())
                 .collect(Collectors.toSet());
     }
 
     /**
-     * Push context changes with a function that modifies the current context.
-     * Returns the new context, or null if no changes were made by the generator.
+     * Processes external file changes by deciding whether to replace the top context or push a new one.
+     * If the current top context's action starts with "Loaded external changes", it updates the count and replaces it.
+     * Otherwise, it pushes a new context entry.
+     *
+     * @param fr The FreezeResult containing the updated live and frozen contexts reflecting the external changes.
      */
-    public Context pushContext(Function<Context, Context> contextGenerator) {
-        Context newContext = contextHistory.pushContext(contextGenerator);
-        if (newContext == null) {
-            return null;
+    private void processExternalFileChanges(Context.FreezeResult fr) {
+        var topCtx = topContext();
+        var previousAction = topCtx.getAction();
+        if (!previousAction.startsWith("Loaded external changes")) {
+            // If the previous action is not about external changes, push a new context
+            pushContext(currentLiveCtx -> fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture("Loaded external changes")));
+            return;
         }
 
-        notifyContextListeners(newContext);
-        project.saveContext(newContext);
-        if (newContext.getTaskHistory().isEmpty()) {
-            return newContext;
+        // Parse the existing action to extract the count if present
+        var pattern = Pattern.compile("Loaded external changes(?: \\((\\d+)\\))?");
+        var matcher = pattern.matcher(previousAction);
+        int newCount;
+        if (matcher.matches() && matcher.group(1) != null) {
+            var countGroup = matcher.group(1);
+            try {
+                newCount = Integer.parseInt(countGroup) + 1;
+            } catch (NumberFormatException e) {
+                newCount = 2;
+            }
+        } else {
+            newCount = 2;
         }
 
-        var cf = new ContextFragment.HistoryFragment(newContext.getTaskHistory());
-        int tokenCount = Messages.getApproximateTokens(cf.format());
-        if (tokenCount > 32 * 1024) {
-            // Show a dialog asking if we should compress the history
-            SwingUtilities.invokeLater(() -> {
-                int choice = io.showConfirmDialog("""
-                                                  The conversation history is getting long (%,d lines or about %,d tokens).
-                                                  Compressing it can improve performance and reduce cost.
-                                                  
-                                                  Compress history now?
-                                                  """.formatted(cf.format().split("\n").length, tokenCount),
-                                                  "Compress History?",
-                                                  JOptionPane.YES_NO_OPTION,
-                                                  JOptionPane.QUESTION_MESSAGE);
-
-                if (choice == JOptionPane.YES_OPTION) {
-                    // Call the async compression method if user agrees
-                    compressHistoryAsync();
-                }
-            });
-        }
-
-        return newContext;
+        // Form the new action string with the updated count
+        var newAction = newCount > 1 ? "Loaded external changes (%d)".formatted(newCount) : "Loaded external changes";
+        var newLiveContext = fr.liveContext().withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+        var cleaned = newLiveContext.freezeAndCleanup();
+        liveContext = cleaned.liveContext();
+        contextHistory.replaceTopContext(cleaned.frozenContext());
+        SwingUtilities.invokeLater(() -> notifyContextListeners(cleaned.frozenContext()));
+        project.getSessionManager().saveHistory(contextHistory, currentSessionId);
     }
 
     /**
-     * Updates the selected context in history from the UI
-     * Called by Chrome when the user selects a row in the history table
+     * Pushes context changes using a generator function.
+     * The generator is applied to the current `liveContext`.
+     * The resulting context becomes the new `liveContext`.
+     * A frozen snapshot of this new `liveContext` is added to `ContextHistory`.
+     *
+     * @param contextGenerator A function that takes the current live context and returns an updated context.
+     * @return The new `liveContext`, or the existing `liveContext` if no changes were made by the generator.
      */
-    public void setSelectedContext(Context context) {
-        contextHistory.setSelectedContext(context);
+    public Context pushContext(Function<Context, Context> contextGenerator) {
+        var updatedLiveContext = contextGenerator.apply(liveContext);
+        assert !updatedLiveContext.containsFrozenFragments() : updatedLiveContext;
+        if (liveContext.workspaceContentEquals(updatedLiveContext)) {
+            // No change occurred
+            return liveContext;
+        }
+
+        liveContext = updatedLiveContext; // Update to the new live state
+
+        var fr = liveContext.freezeAndCleanup();
+        liveContext = fr.liveContext();
+        var frozen = fr.frozenContext();
+        contextHistory.addFrozenContextAndClearRedo(frozen); // Add frozen version to history
+
+        // Ensure listeners are notified on the EDT
+        SwingUtilities.invokeLater(() -> notifyContextListeners(frozen));
+
+        project.getSessionManager().saveHistory(contextHistory, currentSessionId);    // Persist the history of frozen contexts
+
+        // Check conversation history length on the new live context
+        if (!liveContext.getTaskHistory().isEmpty()) {
+            var cf = new ContextFragment.HistoryFragment(this, liveContext.getTaskHistory());
+            int tokenCount = Messages.getApproximateTokens(cf.format());
+            if (tokenCount > 32 * 1024) {
+                SwingUtilities.invokeLater(() -> {
+                    int choice = io.showConfirmDialog("""
+                                                      The conversation history is getting long (%,d lines or about %,d tokens).
+                                                      Compressing it can improve performance and reduce cost.
+                                                      
+                                                      Compress history now?
+                                                      """.formatted(cf.format().split("\n").length, tokenCount),
+                                                      "Compress History?",
+                                                      JOptionPane.YES_NO_OPTION,
+                                                      JOptionPane.QUESTION_MESSAGE);
+
+                    if (choice == JOptionPane.YES_OPTION) {
+                        compressHistoryAsync();
+                    }
+                });
+            }
+        }
+        return liveContext;
     }
 
-    private void notifyContextListeners(Context context) {
+    /**
+     * Updates the selected FROZEN context in history from the UI.
+     * Called by Chrome when the user selects a row in the history table.
+     *
+     * @param frozenContextFromHistory The FROZEN context selected in the UI.
+     */
+    public void setSelectedContext(Context frozenContextFromHistory) {
+        contextHistory.setSelectedContext(frozenContextFromHistory);
+    }
+
+    /**
+     * should only be called with Frozen contexts, so that calling its methods doesn't cause an expensive Analyzer operation on the EDT
+     */
+    private void notifyContextListeners(@Nullable Context ctx) {
+        if (ctx == null) {
+            logger.warn("notifyContextListeners called with null context");
+            return;
+        }
+        assert !ctx.containsDynamicFragments();
         for (var listener : contextListeners) {
-            listener.contextChanged(context);
+            listener.contextChanged(ctx);
         }
-    }
-
-    private String formattedOrNull(ContextFragment fragment)
-    {
-        try {
-            return fragment.format();
-        } catch (IOException e) {
-            removeBadFragment(fragment, e);
-            return null;
-        }
-    }
-
-    public void removeBadFragment(ContextFragment f, IOException th)
-    {
-        io.toolErrorRaw("Removing unreadable fragment " + f.description());
-        // removeBadFragment takes IOException, but we caught Exception. Wrap it.
-        // Ideally removeBadFragment would take Exception or Throwable.
-        IOException wrapper = (th instanceof IOException ioe) ? ioe : new IOException("Error processing fragment: " + th.getMessage(), th);
-        pushContext(c -> c.removeBadFragment(f));
     }
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
     public SummarizeWorker submitSummarizePastedText(String pastedContent) {
-        var worker = new SummarizeWorker(pastedContent, 12) {
+        var worker = new SummarizeWorker(this, pastedContent, 12) {
             @Override
             protected void done() {
                 io.postSummarize();
@@ -1384,7 +1435,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public SummarizeWorker submitSummarizeTaskForConversation(String input) {
-        var worker = new SummarizeWorker(input, 5) {
+        var worker = new SummarizeWorker(this, input, 5) {
             @Override
             protected void done() {
                 io.postSummarize();
@@ -1417,16 +1468,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     List<ChatMessage> messages = List.of(userMessage);
                     Llm.StreamingResult result;
                     try {
-                        result = getLlm(models.quickModel(), "Summarize pasted image").sendRequest(messages);
+                        result = getLlm(service.quickModel(), "Summarize pasted image").sendRequest(messages);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
-                    if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+                    if (result.error() != null || result.originalResponse() == null) {
                         logger.warn("Image summarization failed or was cancelled.");
                         return "(Image summarization failed)";
                     }
-                    var description = result.chatResponse().aiMessage().text();
-                    return (description == null || description.isBlank()) ? "(Image description empty)" : description.trim();
+                    var description = result.text();
+                    return description.isBlank() ? "(Image description empty)" : description.trim();
                 } catch (IOException e) {
                     logger.error("Failed to convert pasted image for summarization", e);
                     return "(Error processing image)";
@@ -1444,16 +1495,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Asynchronously determines the best verification command based on the user goal,
-     * workspace summary, and stored BuildDetails. Uses the quickest model.
-     * <p>
-     * /**
      * Submits a background task to the internal background executor (non-user actions).
      */
     @Override
-    public <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
-        assert taskDescription != null;
-        Future<T> future = backgroundTasks.submit(() -> {
+    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+        var future = backgroundTasks.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1487,7 +1533,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param task            the task to execute
      * @return a {@link Future} representing pending completion of the task
      */
-    public Future<?> submitBackgroundTask(String taskDescription, Runnable task) {
+    public CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
         return submitBackgroundTask(taskDescription, () -> {
             task.run();
             return null;
@@ -1507,40 +1553,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // No details found, run the BuildAgent asynchronously
         submitBackgroundTask("Inferring build details", () -> {
             io.systemOutput("Inferring project build details");
-            var model = getSearchModel();
-            BuildAgent agent = new BuildAgent(project, getLlm(model, "Infer build details"), toolRegistry);
+            BuildAgent agent = new BuildAgent(project, getLlm(getSearchModel(), "Infer build details"), toolRegistry);
             BuildDetails inferredDetails;
             try {
                 inferredDetails = agent.execute();
             } catch (Exception e) {
-                logger.error("BuildAgent did not complete successfully (aborted or errored). Build details not saved.", e);
-                io.toolError("Build Information Agent failed: " + e.getMessage());
+                var msg = "Build Information Agent did not complete successfully (aborted or errored). Build details not saved. Error: " + e.getMessage();
+                logger.error(msg, e);
+                io.toolError(msg, "Build Information Agent failed");
                 inferredDetails = BuildDetails.EMPTY;
             }
 
             project.saveBuildDetails(inferredDetails);
+
+            SwingUtilities.invokeLater(() -> {
+                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
+                dlg.getProjectPanel().showBuildBanner();
+            });
+
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
         });
     }
 
+    @Override
     public EditBlockParser getParserForWorkspace() {
-        var allText = topContext().allFragments()
-                .filter(ContextFragment::isText)
-                .map(f -> {
-                    try {
-                        return f.text();
-                    } catch (IOException e) {
-                        return "";
-                    }
-                })
-                .collect(Collectors.joining("\n"));
-        return EditBlockParser.getParserFor(allText);
+        return CodePrompts.instance.getParser(topContext());
     }
 
-    public Service reloadModels() {
-        models.reinit(project);
-        return models.get();
+    public void reloadModelsAsync() {
+        service.reinit(project);
     }
 
     @FunctionalInterface
@@ -1563,9 +1605,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private void ensureStyleGuide()
     {
-        if (project.getStyleGuide() != null) {
+        if (!project.getStyleGuide().isEmpty()) {
             return;
         }
+
         submitBackgroundTask("Generating style guide", () -> {
             try {
                 io.systemOutput("Generating project style guide...");
@@ -1608,7 +1651,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     } catch (IOException e) {
                         logger.error("Failed to read {}: {}", relativePath, e.getMessage());
                         // Skip this file on error
-                        continue; // Ensure we continue to the next file even on error
+                        // continue; // This continue is redundant
                     }
                 }
 
@@ -1629,13 +1672,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 );
 
                 var result = getLlm(getAskModel(), "Generate style guide").sendRequest(messages);
-                if (result.error() != null || result.chatResponse() == null) {
+                if (result.error() != null || result.originalResponse() == null) {
                     io.systemOutput("Failed to generate style guide: " + (result.error() != null ? result.error().getMessage() : "LLM unavailable or cancelled"));
                     project.saveStyleGuide("# Style Guide\n\n(Generation failed)\n");
                     return null;
                 }
-                var styleGuide = result.chatResponse().aiMessage().text();
-                if (styleGuide == null || styleGuide.isBlank()) {
+                var styleGuide = result.text();
+                if (styleGuide.isBlank()) {
                     io.systemOutput("LLM returned empty style guide.");
                     project.saveStyleGuide("# Style Guide\n\n(LLM returned empty result)\n");
                     return null;
@@ -1647,6 +1690,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
             return null;
         });
+    }
+
+    /**
+     * Ensure review guide exists, generating if needed
+     */
+    private void ensureReviewGuide() {
+        if (!project.getReviewGuide().isEmpty()) {
+            return;
+        }
+        
+        project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
+        io.systemOutput("Review guide created at .brokk/review.md");
     }
 
     /**
@@ -1666,20 +1721,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var msgs = SummarizerPrompts.instance.compressHistory(historyString);
         Llm.StreamingResult result;
         try {
-            result = getLlm(models.quickModel(), "Compress history entry").sendRequest(msgs);
+            result = getLlm(service.quickModel(), "Compress history entry").sendRequest(msgs);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
 
-        if (result.error() != null || result.chatResponse() == null || result.chatResponse().aiMessage() == null) {
+        if (result.error() != null || result.originalResponse() == null) {
             logger.warn("History compression failed ({}) for entry: {}",
                         result.error() != null ? result.error().getMessage() : "LLM unavailable or cancelled",
                         entry);
             return entry;
         }
 
-        String summary = result.chatResponse().aiMessage().text();
-        if (summary == null || summary.isBlank()) {
+        String summary = result.text();
+        if (summary.isBlank()) {
             logger.warn("History compression resulted in empty summary for entry: {}", entry);
             return entry;
         }
@@ -1694,24 +1749,41 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * <p>
      * returns null if the session is empty, otherwise returns the new TaskEntry
      */
-    public TaskEntry addToHistory(SessionResult result, boolean compress) {
-        assert result != null;
-        if (result.output().messages().isEmpty() && result.originalContents().isEmpty()) {
-            logger.warn("Skipping adding empty session result to history");
-            return null;
+    public TaskEntry addToHistory(TaskResult result, boolean compress) {
+        if (result.output().messages().isEmpty() && result.changedFiles().isEmpty()) {
+            throw new IllegalStateException();
         }
 
-        var originalContents = result.originalContents();
-        var action = result.actionDescription(); // This already includes the stop reason if not SUCCESS
+        var action = result.actionDescription();
+        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, result.changedFiles(), result.stopDetails());
 
-        logger.debug("Adding session result to history. Action: '{}', Changed files: {}, Reason: {}", action, originalContents.size(), result.stopDetails());
-
-        // Push the new context state with the added history entry
-        TaskEntry newEntry = topContext().createTaskEntry(result);
+        // Create TaskEntry based on the current liveContext
+        TaskEntry newEntry = liveContext.createTaskEntry(result);
         var finalEntry = compress ? compressHistory(newEntry) : newEntry;
         Future<String> actionFuture = submitSummarizeTaskForConversation(action);
-        var newContext = pushContext(ctx -> ctx.addHistoryEntry(finalEntry, result.output(), actionFuture, originalContents));
-        return newContext.getTaskHistory().getLast();
+
+        // pushContext will apply addHistoryEntry to the current liveContext,
+        // then liveContext will be updated, and a frozen version added to history.
+        var newLiveContext = pushContext(currentLiveCtx -> currentLiveCtx.addHistoryEntry(finalEntry, result.output(), actionFuture));
+
+        // Auto-rename session if session has default name
+        var sessionManager = project.getSessionManager();
+        var sessions = sessionManager.listSessions();
+        var currentSession = sessions.stream()
+                .filter(s -> s.id().equals(currentSessionId))
+                .findFirst();
+
+        if (currentSession.isPresent() && DEFAULT_SESSION_NAME.equals(currentSession.get().name())) {
+            renameSessionAsync(currentSessionId, actionFuture).thenRun(() -> {
+                SwingUtilities.invokeLater(() -> {
+                    if (io instanceof Chrome chrome) {
+                        chrome.getHistoryOutputPanel().updateSessionComboBox();
+                    }
+                });
+            });
+        }
+
+        return castNonNull(newLiveContext.getTaskHistory().getLast());
     }
 
     public List<Context> getContextHistoryList() {
@@ -1720,6 +1792,318 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public ContextHistory getContextHistory() {
         return contextHistory;
+    }
+
+    public UUID getCurrentSessionId() {
+        return currentSessionId;
+    }
+
+    /**
+     * Loads the ContextHistory for a specific session without switching to it.
+     * This allows viewing/inspecting session history without changing the current session.
+     *
+     * @param sessionId The UUID of the session whose history to load
+     * @return A CompletableFuture that resolves to the ContextHistory for the specified session
+     */
+    public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
+        return CompletableFuture.supplyAsync(() -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
+    }
+
+    /**
+     * Creates a new session with the given name and switches to it asynchronously.
+     * First attempts to reuse an existing empty session before creating a new one.
+     *
+     * @param name The name for the new session
+     * @return A CompletableFuture representing the completion of the session creation task
+     */
+    public CompletableFuture<Void> createSessionAsync(String name) {
+        // No explicit exclusivity check for new session, as it gets a new unique ID.
+        return submitUserTask("Creating new session: " + name, () -> {
+            createOrReuseSession(name);
+        });
+    }
+
+    private void createOrReuseSession(String name) {
+        Optional<SessionInfo> existingSessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
+        if (existingSessionInfo.isPresent()) {
+            SessionInfo sessionInfo = existingSessionInfo.get();
+            logger.info("Reused existing empty session {} with name '{}'", sessionInfo.id(), name);
+            switchToSession(sessionInfo.id());
+        } else {
+            // No empty session found, create a new one
+            SessionInfo sessionInfo = project.getSessionManager().newSession(name);
+            logger.info("Created new session: {} ({})", sessionInfo.name(), sessionInfo.id());
+
+            updateActiveSession(sessionInfo.id()); // Mark as active for this project
+
+            // initialize history for the session
+            liveContext = new Context(this, "Welcome to the new session!");
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId); // Save the initial empty/welcome state
+
+            // notifications
+            notifyContextListeners(topContext());
+            io.updateContextHistoryTable(topContext());
+        }
+    }
+
+    private Optional<SessionInfo> getEmptySessionToReuseInsteadOfCreatingNew(String name) {
+        var potentialEmptySessions = project.getSessionManager().listSessions().stream()
+                .filter(session -> session.name().equals(name))
+                .filter(session -> !session.isSessionModified())
+                .filter(session -> !SessionRegistry.isSessionActiveElsewhere(project.getRoot(), session.id()))
+                .sorted(Comparator.comparingLong(SessionInfo::created).reversed()) // Newest first
+                .toList();
+
+        return potentialEmptySessions.stream()
+                .filter(session -> {
+                    try {
+                        var history = project.getSessionManager().loadHistory(session.id(), this);
+                        return SessionManager.isSessionEmpty(session, history);
+                    } catch (Exception e) {
+                        logger.warn("Error checking if session {} is empty, skipping: {}", session.id(), e.getMessage());
+                        return false;
+                    }
+                })
+                .findFirst();
+    }
+
+    public void updateActiveSession(UUID sessionId) {
+        currentSessionId = sessionId;
+        SessionRegistry.update(project.getRoot(), sessionId);
+        project.setLastActiveSession(sessionId);
+    }
+
+    public void createSessionWithoutGui(Context sourceFrozenContext, String newSessionName) {
+        var sessionManager = project.getSessionManager();
+        var newSessionInfo = sessionManager.newSession(newSessionName);
+        updateActiveSession(newSessionInfo.id());
+        var ctx = newContextFrom(sourceFrozenContext);
+        // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in later
+        var ch = new ContextHistory(ctx);
+        sessionManager.saveHistory(ch, newSessionInfo.id());
+    }
+
+    /**
+     * Creates a new session with the given name, copies the workspace from the sourceFrozenContext,
+     * and switches to it asynchronously.
+     *
+     * @param sourceFrozenContext The context whose workspace items will be copied.
+     * @param newSessionName      The name for the new session.
+     * @return A CompletableFuture representing the completion of the session creation task.
+     */
+    public CompletableFuture<Void> createSessionFromContextAsync(Context sourceFrozenContext, String newSessionName) {
+        var future = submitUserTask("Creating new session '" + newSessionName + "' from workspace", () -> {
+            logger.debug("Attempting to create and switch to new session '{}' from workspace of context '{}'",
+                         newSessionName, sourceFrozenContext.getAction());
+
+            var sessionManager = project.getSessionManager();
+            // 1. Create new session info
+            var newSessionInfo = sessionManager.newSession(newSessionName);
+            updateActiveSession(newSessionInfo.id());
+            logger.debug("Switched to new session: {} ({})", newSessionInfo.name(), newSessionInfo.id());
+
+            // 2. Create the initial context for the new session.
+            // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
+            var initialContextForNewSession = newContextFrom(sourceFrozenContext);
+
+            // 3. Initialize the ContextManager's history for the new session with this single context.
+            this.contextHistory.setInitialContext(initialContextForNewSession);
+            contextHistory.addResetEdge(sourceFrozenContext, initialContextForNewSession);
+
+            // 4. Update the ContextManager's liveContext by unfreezing this initial context.
+            this.liveContext = Context.unfreeze(initialContextForNewSession);
+
+            // 5. Save the new session's history (which now contains one entry).
+            sessionManager.saveHistory(this.contextHistory, this.currentSessionId);
+
+            // 6. Notify UI about the context change.
+            notifyContextListeners(topContext());
+        });
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                logger.error("Failed to create new session from workspace", e);
+                throw new RuntimeException("Failed to create new session from workspace", e);
+            }
+        });
+    }
+
+    /**
+     * returns a frozen Context based on the source one
+     */
+    private Context newContextFrom(Context sourceFrozenContext) {
+        var newActionDescription = "New session (from: " + sourceFrozenContext.getAction() + ")";
+        var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
+        var newParsedOutputFragment = new ContextFragment.TaskFragment(this,
+                                                                       List.of(SystemMessage.from(newActionDescription)),
+                                                                       newActionDescription);
+        return sourceFrozenContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+    }
+
+    /**
+     * Switches to an existing session asynchronously.
+     * Checks if the session is active elsewhere before switching.
+     *
+     * @param sessionId The UUID of the session to switch to
+     * @return A CompletableFuture representing the completion of the session switch task
+     */
+    public CompletableFuture<Void> switchSessionAsync(UUID sessionId) {
+        var sessionManager = project.getSessionManager();
+        if (SessionRegistry.isSessionActiveElsewhere(project.getRoot(), sessionId)) {
+            String sessionName = sessionManager.listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst()
+                    .map(SessionInfo::name).orElse("Unknown session");
+            io.systemNotify("Session '" + sessionName + "' (" + sessionId.toString().substring(0, 8) + ")" +
+                                    " is currently active in another Brokk window.\n" +
+                                    "Please close it there or choose a different session.", "Session In Use", JOptionPane.WARNING_MESSAGE);
+            return CompletableFuture.failedFuture(new IllegalStateException("Session is active elsewhere."));
+        }
+
+        var future = submitUserTask("Switching session", () -> {
+            switchToSession(sessionId);
+        });
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to switch session", e);
+            }
+        });
+    }
+
+    private void switchToSession(UUID sessionId) {
+        var sessionManager = project.getSessionManager();
+        updateActiveSession(sessionId); // Mark as active
+
+        String sessionName = sessionManager.listSessions().stream()
+                .filter(s -> s.id().equals(sessionId))
+                .findFirst()
+                .map(SessionInfo::name)
+                .orElse("(Unknown Name)");
+        logger.debug("Switched to session: {} ({})", sessionName, sessionId);
+
+        ContextHistory loadedCh = sessionManager.loadHistory(currentSessionId, this);
+
+        if (loadedCh != null) {
+            final ContextHistory nnLoadedCh = loadedCh; // Introduce nnLoadedCh for the non-null scope
+            if (nnLoadedCh.getHistory().isEmpty()) {
+                // Case: loadedCh exists but its history is empty
+                liveContext = new Context(this, "Welcome to session: " + sessionName);
+                contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+                sessionManager.saveHistory(contextHistory, currentSessionId);
+            } else {
+                // Case: loadedCh exists and has history
+                contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
+                for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
+                    contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
+                }
+                liveContext = Context.unfreeze(topContext());
+            }
+        } else {
+            // Case: loadedCh is null
+            liveContext = new Context(this, "Welcome to session: " + sessionName);
+            contextHistory.setInitialContext(liveContext.freezeAndCleanup().frozenContext());
+            sessionManager.saveHistory(contextHistory, currentSessionId);
+        }
+        notifyContextListeners(topContext());
+        io.updateContextHistoryTable(topContext());
+    }
+
+    /**
+     * Renames an existing session asynchronously.
+     *
+     * @param sessionId The UUID of the session to rename
+     * @param newNameFuture A Future that will provide the new name for the session
+     * @return A CompletableFuture representing the completion of the session rename task
+     */
+    public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
+        var future = submitBackgroundTask("Renaming session", () -> {
+            try {
+                String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                project.getSessionManager().renameSession(sessionId, newName);
+                logger.debug("Renamed session {} to {}", sessionId, newName);
+            } catch (Exception e) {
+                logger.warn("Error renaming Session", e);
+                throw new RuntimeException(e);
+            }
+        });
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
+     * Deletes an existing session asynchronously.
+     *
+     * @param sessionIdToDelete The UUID of the session to delete
+     * @return A CompletableFuture representing the completion of the session delete task
+     */
+    public CompletableFuture<Void> deleteSessionAsync(UUID sessionIdToDelete) {
+        var future = submitUserTask("Deleting session " + sessionIdToDelete, () -> {
+            project.getSessionManager().deleteSession(sessionIdToDelete);
+            logger.info("Deleted session {}", sessionIdToDelete);
+            if (sessionIdToDelete.equals(currentSessionId)) {
+                createOrReuseSession(DEFAULT_SESSION_NAME);
+            }
+        });
+
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
+     * Copies an existing session with a new name and switches to it asynchronously.
+     *
+     * @param originalSessionId   The UUID of the session to copy
+     * @param originalSessionName The name of the session to copy
+     * @return A CompletableFuture representing the completion of the session copy task
+     */
+    public CompletableFuture<Void> copySessionAsync(UUID originalSessionId, String originalSessionName) {
+        var future = submitUserTask("Copying session " + originalSessionName, () -> {
+            var sessionManager = project.getSessionManager();
+            String newSessionName = "Copy of " + originalSessionName;
+            SessionInfo copiedSessionInfo;
+            try {
+                copiedSessionInfo = sessionManager.copySession(originalSessionId, newSessionName);
+            } catch (Exception e) {
+                logger.error(e);
+                io.toolError("Failed to copy session " + originalSessionName);
+                return;
+            }
+
+            logger.info("Copied session {} ({}) to {} ({})", originalSessionName, originalSessionId, copiedSessionInfo.name(), copiedSessionInfo.id());
+            var loadedCh = sessionManager.loadHistory(copiedSessionInfo.id(), this);
+            assert loadedCh != null && !loadedCh.getHistory().isEmpty() : "Copied session history should not be null or empty";
+            final ContextHistory nnLoadedCh = requireNonNull(loadedCh, "Copied session history (loadedCh) should not be null after assertion");
+            contextHistory.setInitialContext(nnLoadedCh.getHistory().getFirst());
+                    for (int i = 1; i < nnLoadedCh.getHistory().size(); i++) {
+                        contextHistory.addFrozenContextAndClearRedo(nnLoadedCh.getHistory().get(i));
+                    }
+                    liveContext = Context.unfreeze(topContext());
+            updateActiveSession(copiedSessionInfo.id());
+
+            notifyContextListeners(topContext());
+            io.updateContextHistoryTable(topContext());
+        });
+        return CompletableFuture.runAsync(() -> {
+            try {
+                future.get();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     // Convert a throwable to a string with full stack trace
@@ -1737,7 +2121,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public ToolRegistry getToolRegistry() {
-        assert toolRegistry != null : "ToolRegistry accessed before initialization";
         return toolRegistry;
     }
 
@@ -1748,42 +2131,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public Future<?> compressHistoryAsync() {
         return submitUserTask("Compressing History", () -> {
-            // Disable history navigation during compression
             io.disableHistoryPanel();
             try {
-                var currentContext = topContext();
-                var history = currentContext.getTaskHistory();
-
-                io.systemOutput("Compressing conversation history...");
-
-                List<TaskEntry> compressedHistory = history
-                        .parallelStream()                       // run each compression in parallel
-                        .map(this::compressHistory)             // same logic, now concurrent
-                        .collect(Collectors                      // keep original order & capacity
-                                         .toCollection(() -> new ArrayList<>(history.size())));
-
-                boolean changed = IntStream.range(0, history.size())
-                        .anyMatch(i -> !history.get(i).equals(compressedHistory.get(i)));
-                if (!changed) {
-                    io.systemOutput("History is already compressed");
+                // Operate on the task history
+                var taskHistoryToCompress = topContext().getTaskHistory();
+                if (taskHistoryToCompress.isEmpty()) {
+                    io.systemOutput("No history to compress.");
                     return;
                 }
 
-                // Push new context containing the compressed history
-                pushContext(ctx -> ctx.withCompressedHistory(List.copyOf(compressedHistory)));
+                io.systemOutput("Compressing conversation history...");
+
+                List<TaskEntry> compressedTaskEntries = taskHistoryToCompress
+                        .parallelStream()
+                        .map(this::compressHistory)
+                        .collect(Collectors.toCollection(() -> new ArrayList<>(taskHistoryToCompress.size())));
+
+                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                        .anyMatch(i -> !taskHistoryToCompress.get(i).equals(compressedTaskEntries.get(i)));
+
+                if (!changed) {
+                    io.systemOutput("History is already compressed.");
+                    return;
+                }
+
+                // pushContext will update liveContext with the compressed history
+                // and add a frozen version to contextHistory.
+                pushContext(currentLiveCtx -> currentLiveCtx.withCompressedHistory(List.copyOf(compressedTaskEntries)));
                 io.systemOutput("Task history compressed successfully.");
             } finally {
-                // Re-enable history navigation *after* the UI context is updated
                 SwingUtilities.invokeLater(io::enableHistoryPanel);
             }
         });
     }
 
-    public class SummarizeWorker extends SwingWorker<String, String> {
+    public static class SummarizeWorker extends SwingWorker<String, String> {
+        private final ContextManager cm;
         private final String content;
         private final int words;
 
-        public SummarizeWorker(String content, int words) {
+        public SummarizeWorker(ContextManager cm, String content, int words) {
+            this.cm = cm;
             this.content = content;
             this.words = words;
         }
@@ -1794,15 +2182,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use quickModel for summarization
             Llm.StreamingResult result;
             try {
-                result = getLlm(models.quickestModel(), "Summarize: " + content).sendRequest(msgs);
+                result = cm.getLlm(cm.getService().quickestModel(), "Summarize: " + content).sendRequest(msgs);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-            if (result.error() != null || result.chatResponse() == null) {
+            if (result.error() != null || result.originalResponse() == null) {
                 logger.warn("Summarization failed or was cancelled.");
                 return "Summarization failed.";
             }
-            return result.chatResponse().aiMessage().text().trim();
+            var summary = result.text().trim();
+            if (summary.endsWith(".")) {
+                return summary.substring(0, summary.length() - 1);
+            }
+            return summary;
         }
     }
 }

@@ -1,8 +1,7 @@
 package io.github.jbellis.brokk.analyzer;
 
 import io.github.jbellis.brokk.IProject;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterCSharp;
@@ -11,32 +10,30 @@ import java.util.Collections;
 import java.util.Set;
 
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
-    protected static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
+    static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(CSharpAnalyzer.class);
 
-    private static final TSLanguage CS_LANGUAGE = new TreeSitterCSharp();
     private static final LanguageSyntaxProfile CS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of("class_declaration", "interface_declaration", "struct_declaration", "record_declaration", "record_struct_declaration"),
             Set.of("method_declaration", "constructor_declaration", "local_function_statement"),
             Set.of("field_declaration", "property_declaration", "event_field_declaration"),
             Set.of("attribute_list"),
-            "name",         // identifierFieldName
-            "body",         // bodyFieldName
-            "parameters",   // parametersFieldName
-            "type",         // returnTypeFieldName (used by method_declaration for its return type node)
+            "name",
+            "body",
+            "parameters",
+            "type",
             "type_parameter_list", // typeParametersFieldName (C# generics)
-            java.util.Map.of( // captureConfiguration
+            java.util.Map.of(
                 "class.definition", SkeletonType.CLASS_LIKE,
                 "function.definition", SkeletonType.FUNCTION_LIKE,
                 "constructor.definition", SkeletonType.FUNCTION_LIKE,
                 "field.definition", SkeletonType.FIELD_LIKE
             ),
-            "", // asyncKeywordNodeType (C# async is a modifier, handled by textSlice not as a distinct first child type)
-            Set.of() // modifierNodeTypes
+            "",
+            Set.of()
     );
 
-
     public CSharpAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.C_SHARP, excludedFiles);
         log.debug("CSharpAnalyzer: Constructor called for project: {} with {} excluded files", project, excludedFiles.size());
     }
 
@@ -46,9 +43,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected TSLanguage getTSLanguage() {
-        log.trace("CSharpAnalyzer: getTSLanguage() returning cached: {}", CS_LANGUAGE.getClass().getName());
-        return CS_LANGUAGE;
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterCSharp();
     }
 
     @Override
@@ -59,31 +55,27 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected CodeUnit createCodeUnit(ProjectFile file,
-                                      String captureName,
-                                      String simpleName,
-                                      String packageName, // Changed from namespaceName
-                                      String classChain) {
-        // The packageName parameter is now supplied by determinePackageName.
-        // The classChain parameter is used for Joern-style short name generation.
-        // Captures for class-like (class, struct, interface) constructs are unified to "class.definition".
-
+    protected @Nullable CodeUnit createCodeUnit(ProjectFile file,
+                                                String captureName,
+                                                String simpleName,
+                                                String packageName,
+                                                String classChain) {
         CodeUnit result;
         try {
             result = switch (captureName) {
-                case "class.definition" -> { // Covers class, interface, struct
+                case "class.definition" -> {
                     String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                     yield CodeUnit.cls(file, packageName, finalShortName);
                 }
-                case "function.definition" -> { // simpleName is method name, classChain is FQ short name of owning class
+                case "function.definition" -> {
                     String finalShortName = classChain + "." + simpleName;
                     yield CodeUnit.fn(file, packageName, finalShortName);
                 }
-                case "constructor.definition" -> { // simpleName is class name, classChain is FQ short name of owning class
+                case "constructor.definition" -> {
                     String finalShortName = classChain + ".<init>";
                     yield CodeUnit.fn(file, packageName, finalShortName);
                 }
-                case "field.definition" -> { // simpleName is field name, classChain is FQ short name of owning class
+                case "field.definition" -> {
                     String finalShortName = classChain + "." + simpleName;
                     yield CodeUnit.field(file, packageName, finalShortName);
                 }
@@ -117,8 +109,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return placeholder;
     }
 
-    // getTopLevelBlockerNodeTypes is removed as the base method in TreeSitterAnalyzer is removed.
-
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
@@ -136,20 +126,17 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                  log.trace("renderFunctionDeclaration for C# (node type {}): body and params not found, using fallback signature '{}'", funcNode.getType(), signature);
             }
         }
-        return signature + " " + bodyPlaceholder(); // Do not prepend indent here
+        return signature + " " + bodyPlaceholder();
     }
 
     @Override
     protected String renderClassHeader(TSNode classNode, String src, String exportPrefix, String signatureText, String baseIndent) {
-        // The 'baseIndent' parameter is now "" when called from buildSignatureString.
-        // Stored signature should be unindented.
-        return signatureText + " {"; // Do not prepend baseIndent here
+        return signatureText + " {";
     }
 
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
-        // C# classes, interfaces, structs, enums, namespaces use { }
-        return cu.isClass() ? "}" : ""; // Simplified: assuming only classes need closers for now
+        return cu.isClass() ? "}" : "";
     }
 
     @Override
@@ -158,25 +145,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         // to find enclosing namespace_declaration nodes.
         // The 'file' parameter is not used here as namespace is derived from AST content.
         java.util.List<String> namespaceParts = new java.util.ArrayList<>();
-        TSNode current = definitionNode.getParent(); // Start from the parent of the definition node
+        TSNode current = definitionNode.getParent();
 
         while (current != null && !current.isNull() && !current.equals(rootNode)) {
             if ("namespace_declaration".equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
                     String nsPart = textSlice(nameNode, src);
-                    namespaceParts.add(nsPart); // Added from innermost to outermost
+                    namespaceParts.add(nsPart);
                 }
             }
             current = current.getParent();
         }
-        Collections.reverse(namespaceParts); // Reverse to get outermost.innermost
+        Collections.reverse(namespaceParts);
         return String.join(".", namespaceParts);
     }
-
-    // isClassLike is now implemented in the base class using LanguageSyntaxProfile
-
-    // buildClassMemberSkeletons is no longer directly called for parent skeleton string generation.
 
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {

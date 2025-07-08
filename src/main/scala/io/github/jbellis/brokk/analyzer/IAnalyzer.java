@@ -1,8 +1,11 @@
 package io.github.jbellis.brokk.analyzer;
 
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import scala.Tuple2;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public interface IAnalyzer {
     // Basics
@@ -62,7 +65,7 @@ public interface IAnalyzer {
      * Gets the source code for the entire given class.
      * If the class is partial or has multiple definitions, this typically returns the primary definition.
      */
-    default String getClassSource(String fqcn) {
+    default @Nullable String getClassSource(String fqcn) {
         throw new UnsupportedOperationException();
     }
 
@@ -112,6 +115,53 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
+     * 
+     * <p>This method is used by the default {@link #getSymbols(Set)} implementation to traverse
+     * the code unit hierarchy and collect symbols from nested declarations. The specific parent-child
+     * relationships depend on the target language:
+     * 
+     * <ul>
+     *   <li><strong>Classes:</strong> Return methods, fields, and nested classes</li>
+     *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file</li>
+     *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)</li>
+     *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)</li>
+     * </ul>
+     * 
+     * <p><strong>Implementation Notes:</strong>
+     * <ul>
+     *   <li>This method should be efficient as it may be called frequently during symbol resolution</li>
+     *   <li>Return an empty list rather than null for CodeUnits with no children</li>
+     *   <li>The returned list should contain only immediate children, not recursive descendants</li>
+     *   <li>Implementations should handle null input gracefully by returning an empty list</li>
+     * </ul>
+     * 
+     * @see #getSymbols(Set) for how this method is used in symbol collection
+     */
+    @NotNull
+    default List<CodeUnit> directChildren(CodeUnit cu) { return List.of(); }
+
+    /**
+     * Extracts the unqualified symbol name from a fully-qualified name and adds it to the output set.
+     */
+    private static void addShort(String full, Set<String> out) {
+        if (full.isEmpty()) return;
+        
+        // Optimized: scan from the end to find the last separator (faster than two indexOf calls)
+        int idx = -1;
+        for (int i = full.length() - 1; i >= 0; i--) {
+            char c = full.charAt(i);
+            if (c == '.' || c == '$') {
+                idx = i;
+                break;
+            }
+        }
+        
+        var shortName = idx >= 0 ? full.substring(idx + 1) : full;
+        if (!shortName.isEmpty()) out.add(shortName);
+    }
+
+    /**
      * Gets a set of relevant symbol names (classes, methods, fields) defined within the given source CodeUnits.
      *
      * Almost all String representations in the Analyzer are fully-qualified, but these are not! In CodeUnit
@@ -121,7 +171,21 @@ public interface IAnalyzer {
      * @return unqualified symbol names found within the sources
      */
     default Set<String> getSymbols(Set<CodeUnit> sources) {
-        throw new UnsupportedOperationException();
+        var visited = new HashSet<CodeUnit>();
+        var work    = new ArrayDeque<>(sources);
+        var symbols = new HashSet<String>(); // Use regular HashSet for better performance
+
+        while (!work.isEmpty()) {
+            var cu = work.poll();
+            if (!visited.add(cu)) continue;
+
+            // 1) add the unit’s own short name
+            addShort(cu.shortName(), symbols);
+
+            // 2) recurse
+            work.addAll(directChildren(cu));
+        }
+        return symbols;
     }
 
     /**
@@ -129,6 +193,8 @@ public interface IAnalyzer {
      * The {@code paramNames} list contains the *parameter variable names* (not types).
      * If there is only a single match, or exactly one match with matching param names, return it.
      * Otherwise throw {@code SymbolNotFoundException} or {@code SymbolAmbiguousException}.
+     *
+     * TODO this should return an Optional
      */
     default FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         throw new UnsupportedOperationException();

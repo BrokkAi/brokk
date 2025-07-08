@@ -4,8 +4,15 @@ import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Chunk;
 import io.github.jbellis.brokk.difftool.ui.BufferDiffPanel;
 import io.github.jbellis.brokk.difftool.ui.FilePanel;
+import io.github.jbellis.brokk.gui.SwingUtil;
+import io.github.jbellis.brokk.difftool.performance.PerformanceConstants;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import javax.swing.text.BadLocationException;
+import java.awt.Point;
 import java.awt.event.AdjustmentEvent;
 import java.awt.event.AdjustmentListener;
 
@@ -15,19 +22,50 @@ import java.awt.event.AdjustmentListener;
  */
 public class ScrollSynchronizer
 {
+    private static final Logger logger = LogManager.getLogger(ScrollSynchronizer.class);
+
     private final BufferDiffPanel diffPanel;
     private final FilePanel filePanelLeft;
     private final FilePanel filePanelRight;
 
-    private AdjustmentListener horizontalAdjustmentListener;
-    private AdjustmentListener verticalAdjustmentListener;
+    private @Nullable AdjustmentListener horizontalAdjustmentListener;
+    private @Nullable AdjustmentListener verticalAdjustmentListener;
+
+    // State management and debouncing utilities
+    private final ScrollSyncState syncState;
+    private final ScrollDebouncer debouncer;
 
     public ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight)
     {
         this.diffPanel = diffPanel;
         this.filePanelLeft = filePanelLeft;
         this.filePanelRight = filePanelRight;
+
+        // Initialize state management utilities
+        this.syncState = new ScrollSyncState();
+        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
+
         init();
+    }
+
+    /**
+     * Constructor for testing that skips initialization requiring real UI components.
+     * Package-private visibility for test access only.
+     */
+    ScrollSynchronizer(BufferDiffPanel diffPanel, FilePanel filePanelLeft, FilePanel filePanelRight, boolean skipInit)
+    {
+        this.diffPanel = diffPanel;
+        this.filePanelLeft = filePanelLeft;
+        this.filePanelRight = filePanelRight;
+
+        // Initialize state management utilities
+        this.syncState = new ScrollSyncState();
+        this.debouncer = new ScrollDebouncer(PerformanceConstants.SCROLL_SYNC_DEBOUNCE_MS);
+
+        // Skip init() if requested (for testing line mapping algorithm only)
+        if (!skipInit) {
+            init();
+        }
     }
 
     private void init()
@@ -83,9 +121,27 @@ public class ScrollSynchronizer
 
                     var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
                     boolean leftScrolled = (e.getSource() == leftV);
-                    insideScroll = true;
-                    scroll(leftScrolled);
-                    insideScroll = false;
+
+                    // Skip if this is a programmatic scroll we initiated
+                    if (syncState.isProgrammaticScroll()) {
+                        return;
+                    }
+
+                    // Suppress scroll sync if either panel is actively typing to prevent flickering
+                    if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+                        return;
+                    }
+
+                    // Track user scrolling to prevent conflicts
+                    syncState.recordUserScroll();
+
+                    // Submit debounced scroll request
+                    var request = new ScrollDebouncer.DebounceRequest<>(
+                        leftScrolled,
+                        scrollDirection -> scroll(scrollDirection),
+                        syncState::clearUserScrolling
+                    );
+                    debouncer.submit(request);
                 }
             };
         }
@@ -98,6 +154,29 @@ public class ScrollSynchronizer
      */
     private void scroll(boolean leftScrolled)
     {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> scroll(leftScrolled));
+            return;
+        }
+
+        // Use programmatic scroll flag to prevent infinite recursion
+        // No need to remove/re-add listeners since isProgrammaticScroll flag handles this
+        performScroll(leftScrolled);
+    }
+
+    private void performScroll(boolean leftScrolled)
+    {
+        // Additional check: don't scroll if either panel is typing
+        if (filePanelLeft.isActivelyTyping() || filePanelRight.isActivelyTyping()) {
+            return;
+        }
+
+        // Check if sync should be suppressed using the state utility
+        var suppressionResult = syncState.shouldSuppressSync(200);
+        if (suppressionResult.shouldSuppress()) {
+            return;
+        }
+
         var patch = diffPanel.getPatch();
         if (patch == null) {
             return;
@@ -114,7 +193,16 @@ public class ScrollSynchronizer
         // (In Phase 1, we had some old “DiffUtil.getRevisedLine()” logic. If you want that back, adapt it with patch.)
         int mappedLine = approximateLineMapping(patch, line, leftScrolled);
 
-        scrollToLine(fp2, mappedLine);
+        // Mark as programmatic scroll to prevent feedback loop
+        syncState.setProgrammaticScroll(true);
+        try {
+            scrollToLine(fp2, mappedLine);
+        } finally {
+            // Reset flag after a short delay to allow scroll to complete
+            Timer resetTimer = new Timer(50, e -> syncState.setProgrammaticScroll(false));
+            resetTimer.setRepeats(false);
+            resetTimer.start();
+        }
     }
 
     /**
@@ -127,8 +215,8 @@ public class ScrollSynchronizer
     {
         int offset = 0;
         for (AbstractDelta<String> delta : patch.getDeltas()) {
-            Chunk<String> source = delta.getSource(); // original
-            Chunk<String> target = delta.getTarget(); // revised
+            var source = delta.getSource(); // original
+            var target = delta.getTarget(); // revised
             int srcPos = source.getPosition();
             int tgtPos = target.getPosition();
             // The chunk ends at pos+size-1
@@ -168,10 +256,9 @@ public class ScrollSynchronizer
         // We shift p.y by half the viewport height to approximate center
         p.y += (viewport.getSize().height / 2);
 
-        int offset = editor.viewToModel(p);
+        int offset = editor.viewToModel2D(p);
         var bd = fp.getBufferDocument();
-        if (bd == null) return 0;
-        return bd.getLineForOffset(offset);
+        return bd == null ? 0 : bd.getLineForOffset(offset);
     }
 
     public void scrollToLine(FilePanel fp, int line)
@@ -184,22 +271,62 @@ public class ScrollSynchronizer
         if (offset < 0) {
             return;
         }
-        var viewport = fp.getScrollPane().getViewport();
-        var editor = fp.getEditor();
-        try {
-            var rect = editor.modelToView(offset);
-            if (rect == null) return;
 
-            // We want to place the line near the center
-            rect.y -= (viewport.getSize().height / 2);
-            if (rect.y < 0) rect.y = 0;
+        // Mark that we're navigating to ensure highlights appear
+        fp.setNavigatingToDiff(true);
 
-            var p = rect.getLocation();
-            viewport.setViewPosition(p);
-        } catch (BadLocationException ex) {
-            // This usually means the offset is invalid for the document model
-            throw new RuntimeException(ex);
-        }
+        // Use invokeLater to ensure we're on EDT and that any pending layout is complete
+        SwingUtilities.invokeLater(() -> {
+            try {
+                var viewport = fp.getScrollPane().getViewport();
+                var editor = fp.getEditor();
+                var rect = SwingUtil.modelToView(editor, offset);
+                if (rect == null) {
+                    return;
+                }
+
+                // Try to center the line, but with better handling for early lines
+                int originalY = rect.y;
+                int viewportHeight = viewport.getSize().height;
+                int padding = Math.min(100, viewportHeight / 8); // 100px padding or 1/8 viewport
+                
+                // Try to center, but if that would go negative, just use padding from top
+                int centeredY = originalY - (viewportHeight / 2);
+                int finalY = Math.max(padding, centeredY);
+                
+                // Make sure we don't scroll past the document end
+                var scrollPane = fp.getScrollPane();
+                var maxY = scrollPane.getVerticalScrollBar().getMaximum() - viewportHeight;
+                finalY = Math.min(finalY, maxY);
+                
+                var p = new Point(rect.x, finalY);
+                
+                // Set viewport position
+                viewport.setViewPosition(p);
+                
+                // Force a repaint to ensure the scroll is visible
+                viewport.repaint();
+
+                // Only invalidate viewport cache if not actively typing to prevent flicker
+                if (!fp.isActivelyTyping()) {
+                    fp.invalidateViewportCache();
+                }
+
+                // Trigger immediate redisplay to show highlights
+                fp.reDisplay();
+
+                // Reset navigation flag after a minimal delay to allow highlighting to complete
+                Timer resetNavTimer = new Timer(PerformanceConstants.NAVIGATION_RESET_DELAY_MS, e -> {
+                    fp.setNavigatingToDiff(false);
+                });
+                resetNavTimer.setRepeats(false);
+                resetNavTimer.start();
+
+            } catch (BadLocationException ex) {
+                logger.error("scrollToLine error for line {}: {}", line, ex.getMessage());
+                fp.setNavigatingToDiff(false); // Reset flag on error
+            }
+        });
     }
 
     /**
@@ -208,14 +335,82 @@ public class ScrollSynchronizer
      */
     public void showDelta(AbstractDelta<String> delta)
     {
-        // We assume we want to scroll the left side. The 'source' chunk is the original side.
-        var source = delta.getSource();
-        scrollToLine(filePanelLeft, source.getPosition());
-        // That triggers the verticalAdjustmentListener to sync the right side.
+        logger.debug("showDelta called for delta at position {}", delta.getSource().getPosition());
+        
+        // Mark both panels as navigating to ensure highlights appear on both sides
+        filePanelLeft.setNavigatingToDiff(true);
+        filePanelRight.setNavigatingToDiff(true);
+
+        // Disable scroll sync during navigation to prevent feedback loops
+        syncState.setProgrammaticScroll(true);
+        
+        try {
+            // Get the source line from the delta
+            var source = delta.getSource();
+            int sourceLine = source.getPosition();
+            
+            logger.debug("Navigation: scrolling to source line {}", sourceLine);
+            
+            // Scroll left panel to source line
+            scrollToLine(filePanelLeft, sourceLine);
+            
+            // For navigation, we want to scroll to the corresponding target of this specific delta
+            var target = delta.getTarget();
+            int targetLine;
+            
+            if (target != null && target.size() > 0) {
+                // Normal case: target chunk exists, scroll to its position
+                targetLine = target.getPosition();
+                logger.debug("Navigation: delta has target at line {}, scrolling right panel", targetLine);
+            } else {
+                // DELETE case: target is empty, scroll to where the deletion would be
+                // Use the target position (where the deletion happened in revised file)
+                targetLine = target != null ? target.getPosition() : sourceLine;
+                logger.debug("Navigation: DELETE delta, scrolling right panel to target position {}", targetLine);
+            }
+            
+            scrollToLine(filePanelRight, targetLine);
+        } finally {
+            // Re-enable scroll sync after a short delay to allow navigation to complete
+            Timer enableSyncTimer = new Timer(100, e -> {
+                logger.debug("Re-enabling scroll sync after navigation");
+                syncState.setProgrammaticScroll(false);
+            });
+            enableSyncTimer.setRepeats(false);
+            enableSyncTimer.start();
+        }
+
+        // Trigger immediate redisplay on both panels to ensure highlights appear
+        filePanelLeft.reDisplay();
+        filePanelRight.reDisplay();
+        
+        logger.debug("showDelta completed - both panels scrolled");
     }
 
-    public void toNextDelta(boolean next)
-    {
-        // Moved to BufferDiffPanel. This is not used here any more.
+
+    /**
+     * Cleanup method to properly dispose of resources when the synchronizer is no longer needed.
+     * Should be called when the BufferDiffPanel is being disposed to prevent memory leaks.
+     */
+    public void dispose() {
+        // Dispose debouncer to stop any pending timers
+        debouncer.dispose();
+
+        // Remove adjustment listeners
+        if (horizontalAdjustmentListener != null) {
+            var leftH = filePanelLeft.getScrollPane().getHorizontalScrollBar();
+            var rightH = filePanelRight.getScrollPane().getHorizontalScrollBar();
+            leftH.removeAdjustmentListener(horizontalAdjustmentListener);
+            rightH.removeAdjustmentListener(horizontalAdjustmentListener);
+            horizontalAdjustmentListener = null;
+        }
+
+        if (verticalAdjustmentListener != null) {
+            var leftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
+            var rightV = filePanelRight.getScrollPane().getVerticalScrollBar();
+            leftV.removeAdjustmentListener(verticalAdjustmentListener);
+            rightV.removeAdjustmentListener(verticalAdjustmentListener);
+            verticalAdjustmentListener = null;
+        }
     }
 }

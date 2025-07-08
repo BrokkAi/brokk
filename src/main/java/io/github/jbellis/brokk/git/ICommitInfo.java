@@ -2,8 +2,9 @@ package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
-import java.util.Date;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,7 +17,8 @@ public interface ICommitInfo {
 
     String author();
 
-    Date date();
+    @Nullable
+    Instant date();
 
     /**
      * Returns the stash index if this commit represents a stash entry.
@@ -52,7 +54,7 @@ public interface ICommitInfo {
         }
 
         @Override
-        public Date date() {
+        public @Nullable Instant date() {
             return null;
         }
 

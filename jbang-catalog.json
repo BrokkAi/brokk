@@ -2,7 +2,31 @@
   "catalogs": {},
   "aliases": {
     "brokk": {
-      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.9.10/brokk-assembly-0.9.10.jar",
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.11.1/brokk-assembly-0.11.1.jar",
+      "java": "21",
+      "java-options": [
+        "--add-modules=jdk.incubator.vector"
+      ]
+    },
+
+    "brokk-0.10.0": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.10.0/brokk-assembly-0.10.0.jar",
+      "java": "21",
+      "java-options": [
+        "--add-modules=jdk.incubator.vector"
+      ]
+    },
+
+    "brokk-0.9.14": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.9.14/brokk-assembly-0.9.14.jar",
+      "java": "21",
+      "java-options": [
+        "--add-modules=jdk.incubator.vector"
+      ]
+    },
+
+    "brokk-0.12-0-preview-2": {
+      "script-ref": "https://github.com/BrokkAi/brokk/releases/download/0.12.0-preview-2/brokk-assembly-0.12.0-preview-2.jar",
       "java": "21",
       "java-options": [
         "--add-modules=jdk.incubator.vector"

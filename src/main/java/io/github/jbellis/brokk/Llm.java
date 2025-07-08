@@ -3,6 +3,8 @@ package io.github.jbellis.brokk;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonAutoDetect.Visibility;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
@@ -30,7 +32,8 @@ import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -45,6 +48,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -52,19 +56,23 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 /**
  * The main orchestrator for sending requests to an LLM, possibly with tools, collecting
  * streaming responses, etc.
  */
 public class Llm {
     private static final Logger logger = LogManager.getLogger(Llm.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper()
+            .setVisibility(PropertyAccessor.FIELD, Visibility.ANY);
 
     /** Base directory where LLM interaction history logs are stored. */
     public static final String HISTORY_DIR_NAME = "llm-history";
 
-    private final IConsoleIO io;
-    private final Path sessionHistoryDir; // Directory for this specific LLM session's history files
+    private IConsoleIO io;
+    private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
     private final StreamingChatLanguageModel model;
@@ -79,23 +87,33 @@ public class Llm {
         this.tagRetain = tagRetain;
         var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
-        // Create session directory name for this specific LLM interaction
-        var timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
-        var sessionDesc = LogDescription.getShortDescription(taskDescription);
-        var sessionDirName = String.format("%s %s", timestamp, sessionDesc);
-        this.sessionHistoryDir = historyBaseDir.resolve(sessionDirName);
+        // Create task directory name for this specific LLM interaction
+        var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
+        var taskDesc = LogDescription.getShortDescription(taskDescription);
 
-        // Create the specific directory for this session
-        try {
-            Files.createDirectories(this.sessionHistoryDir);
-        } catch (IOException e) {
-            logger.error("Failed to create session history directory {}", this.sessionHistoryDir, e);
-            // sessionHistoryDir might be null or unusable, logRequest checks for null
+        // Create the specific directory for this task with uniqueness check
+        var baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
+        synchronized (Llm.class) {
+            int suffix = 1;
+            var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
+            while (Files.exists(mutableDirName)) {
+                var newDirName = baseTaskDirName + "-" + suffix;
+                mutableDirName = historyBaseDir.resolve(newDirName);
+                suffix++;
+            }
+
+            this.taskHistoryDir = mutableDirName;
+            try {
+                Files.createDirectories(this.taskHistoryDir);
+            } catch (IOException e) {
+                logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
+                // taskHistoryDir might be null or unusable, logRequest checks for null
+            }
         }
     }
 
     /**
-     * Returns the base directory where all LLM session histories are stored for a project.
+     * Returns the base directory where all LLM task histories are stored for a project.
      * @param projectRoot The root path of the project.
      * @return The Path object representing the base history directory.
      */
@@ -131,8 +149,8 @@ public class Llm {
 
         // Variables to store results from callbacks
         var accumulatedTextBuilder = new StringBuilder();
-        var completedChatResponse = new AtomicReference<ChatResponse>();
-        var errorRef = new AtomicReference<Throwable>();
+        var completedChatResponse = new AtomicReference<@Nullable ChatResponse>();
+        var errorRef = new AtomicReference<@Nullable Throwable>();
 
         Consumer<Runnable> ifNotCancelled = (r) -> {
             lock.lock();
@@ -140,6 +158,11 @@ public class Llm {
                 if (!cancelled.get()) {
                     r.run();
                 }
+            } catch (RuntimeException e) {
+                // litellm is fucking us over again, try to recover
+                logger.error(e);
+                errorRef.set(e);
+                latch.countDown(); // Ensure we release the lock if an exception occurs
             } finally {
                 lock.unlock();
             }
@@ -152,15 +175,13 @@ public class Llm {
                     accumulatedTextBuilder.append(token);
                     if (echo) {
                         io.llmOutput(token, ChatMessageType.AI);
-                        io.hideOutputSpinner();
                     }
                 });
             }
 
             @Override
-            public void onCompleteResponse(ChatResponse response) {
+            public void onCompleteResponse(@Nullable ChatResponse response) {
                 ifNotCancelled.accept(() -> {
-                    io.hideOutputSpinner();
                     if (response == null) {
                         if (completedChatResponse.get() != null) {
                             logger.debug("Got a null response from LC4J after a successful one!?");
@@ -169,7 +190,9 @@ public class Llm {
                         }
                         // I think this isn't supposed to happen, but seeing it when litellm throws back a 400.
                         // Fake an exception so the caller can treat it like other errors
-                        errorRef.set(new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)"));
+                        var ex = new HttpException(400, "BadRequestError (no further information, the response was null; check litellm logs)");
+                        logger.debug(ex);
+                        errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
                         String tokens = response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
@@ -182,8 +205,8 @@ public class Llm {
             @Override
             public void onError(Throwable th) {
                 ifNotCancelled.accept(() -> {
-                    io.hideOutputSpinner();
-                    io.toolErrorRaw("LLM error: " + th.getMessage()); // Immediate feedback for user
+                    logger.debug(th);
+                    io.systemOutput("LLM Error: " + th.getMessage() + " (retry-able)"); // Immediate feedback for user
                     errorRef.set(th);
                     latch.countDown();
                 });
@@ -191,11 +214,22 @@ public class Llm {
         });
 
         try {
-            latch.await();
+            if (!latch.await(Service.LLM_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                lock.lock(); // LockNotBeforeTry
+                try {
+                    cancelled.set(true); // Ensure callback stops echoing
+                } finally {
+                    lock.unlock();
+                }
+                errorRef.set(new HttpException(500, "LLM timed out"));
+            }
         } catch (InterruptedException e) {
-            lock.lock();
-            cancelled.set(true); // Ensure callback stops echoing
-            lock.unlock();
+            lock.lock(); // LockNotBeforeTry
+            try {
+                cancelled.set(true); // Ensure callback stops echoing
+            } finally {
+                lock.unlock();
+            }
             throw e; // Propagate interruption
         }
 
@@ -210,14 +244,9 @@ public class Llm {
             }
 
             // Construct a ChatResponse from accumulated partial text
-            var aiMessage = AiMessage.from(partialText);
-            var responseFromPartialData = ChatResponse.builder()
-                    .aiMessage(aiMessage)
-                    .finishReason(FinishReason.OTHER)
-                    .build();
-
+            var partialResponse = new NullSafeResponse(partialText, List.of(), null);
             logger.debug("LLM call resulted in error: {}. Partial text captured: {} chars", error.getMessage(), partialText.length());
-            return new StreamingResult(responseFromPartialData, null, error);
+            return new StreamingResult(partialResponse, error);
         }
 
         // Happy path: successful completion, no errors
@@ -226,16 +255,18 @@ public class Llm {
         if (echo) {
             io.llmOutput("\n", ChatMessageType.AI);
         }
-        return new StreamingResult(response, null);
+        return StreamingResult.fromResponse(response, null);
     }
 
-    private static @NotNull String formatTokensUsage(ChatResponse response) {
+    private static String formatTokensUsage(ChatResponse response) {
         var tu = (OpenAiTokenUsage) response.tokenUsage();
         var template = "token usage: %,d input (%s cached), %,d output (%s reasoning)";
+        var inputDetails = tu.inputTokensDetails();
+        var outputDetails = tu.outputTokensDetails();
         return template.formatted(tu.inputTokenCount(),
-                                  (tu.inputTokensDetails() == null) ? "?" : "%,d".formatted(tu.inputTokensDetails().cachedTokens()),
+                                  (inputDetails == null || inputDetails.cachedTokens() == null) ? "?" : "%,d".formatted(inputDetails.cachedTokens()),
                                   tu.outputTokenCount(),
-                                  (tu.outputTokensDetails() == null) ? "?" : "%,d".formatted(tu.outputTokensDetails().reasoningTokens()));
+                                  (outputDetails == null || outputDetails.reasoningTokens() == null) ? "?" : "%,d".formatted(outputDetails.reasoningTokens()));
     }
 
     /**
@@ -272,13 +303,13 @@ public class Llm {
         // Also needed for our emulation if it returns a response without a tool call
         while (result.error == null
                 && !tools.isEmpty()
-                && !cr.aiMessage().hasToolExecutionRequests()
+                && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED)
         {
             io.systemOutput("Enforcing tool selection");
 
             var extraMessages = new ArrayList<>(messages);
-            extraMessages.add(cr.aiMessage());
+            extraMessages.add(requireNonNull(cr.originalResponse).aiMessage());
             extraMessages.add(new UserMessage("At least one tool execution request is REQUIRED. Please call a tool."));
 
             result = sendMessageWithRetry(extraMessages, tools, toolChoice, echo, MAX_ATTEMPTS);
@@ -302,32 +333,26 @@ public class Llm {
         int attempt = 0;
         var messages = Messages.forLlm(rawMessages);
 
-        StreamingResult response = null;
+        StreamingResult response;
         while (attempt++ < maxAttempts) {
             String description = Messages.getText(messages.getLast());
             logger.debug("Sending request to {} attempt {}: {}",
-                         contextManager.getModels().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
-
-            if (echo) {
-                io.showOutputSpinner("Thinking...");
-            }
+                         contextManager.getService().nameOf(model), attempt, LogDescription.getShortDescription(description, 12));
 
             response = doSingleSendMessage(model, messages, tools, toolChoice, echo);
-            var cr = response.chatResponse;
-            boolean isEmpty = cr == null || (Messages.getText(cr.aiMessage()).isEmpty()) && !cr.aiMessage().hasToolExecutionRequests();
             lastError = response.error;
-            if (!isEmpty && (lastError == null || allowPartialResponses)) {
+            if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
                 return response;
             }
 
             // don't retry on bad request errors
-            if (lastError != null && lastError.getMessage().contains("BadRequestError")) {
-                logger.debug("Stopping on BadRequestError", lastError);
+            if (lastError != null && requireNonNull(lastError.getMessage()).contains("BadRequestError")) {
+                // logged by doSingleStreamingCallInternal, don't be redundant
                 break;
             }
 
-            logger.debug("LLM error == {}, isEmpty == {}. Will retry. Attempt={}", lastError, isEmpty, attempt);
+            logger.debug("LLM error == {}, isEmpty == {}. Attempt={}", lastError, response.isEmpty(), attempt);
             if (attempt == maxAttempts) {
                 break; // done
             }
@@ -339,7 +364,7 @@ public class Llm {
             if (backoffSeconds > 1) {
                 io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying in %d seconds).", attempt, maxAttempts, backoffSeconds));
             } else {
-                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts, backoffSeconds));
+                io.systemOutput(String.format("LLM issue on attempt %d/%d (retrying).", attempt, maxAttempts));
             }
             long endTime = System.currentTimeMillis() + backoffSeconds * 1000;
             while (System.currentTimeMillis() < endTime) {
@@ -352,13 +377,9 @@ public class Llm {
 
         // If we get here, we failed all attempts
         if (lastError == null) {
-            // LLM returned empty or null - log error to the current request's file
-            var dummy = ChatResponse.builder().aiMessage(new AiMessage("Empty response after max retries")).build();
-            return new StreamingResult(dummy, new IllegalStateException("Empty response after max retries"));
+            return new StreamingResult(null, new IllegalStateException("Empty response after max retries"));
         }
-        // Return last error - log error to the current request's file
-        var cr = ChatResponse.builder().aiMessage(new AiMessage("Error: " + lastError.getMessage())).build();
-        return new StreamingResult(cr, response.originalResponse(), lastError);
+        return new StreamingResult(null, lastError);
     }
 
     /**
@@ -383,7 +404,7 @@ public class Llm {
             messagesToSend = Llm.emulateToolExecutionResults(messages);
         }
 
-        if (!tools.isEmpty() && contextManager.getModels().requiresEmulatedTools(model)) {
+        if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing
             return emulateTools(model, messagesToSend, tools, toolChoice, echo);
         }
@@ -394,7 +415,7 @@ public class Llm {
             logger.debug("Performing native tool calls");
             var paramsBuilder = getParamsBuilder()
                     .toolSpecifications(tools);
-            if (contextManager.getModels().supportsParallelCalls(model)) {
+            if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
                 paramsBuilder = paramsBuilder
                         .parallelToolCalls(true);
@@ -440,7 +461,7 @@ public class Llm {
                                          boolean echo) throws InterruptedException
     {
         var enhancedTools = ensureThinkToolPresent(tools);
-        if (contextManager.getModels().supportsJsonSchema(model)) {
+        if (contextManager.getService().supportsJsonSchema(model)) {
             return emulateToolsUsingJsonSchema(messages, enhancedTools, toolChoice, echo);
         } else {
             return emulateToolsUsingJsonObject(messages, enhancedTools, toolChoice, echo);
@@ -482,28 +503,29 @@ public class Llm {
 
             // Now parse the JSON
             try {
-                StreamingResult parseResult = parseJsonToToolRequests(rawResult, objectMapper);
-                if (!parseResult.chatResponse().aiMessage().hasToolExecutionRequests()
-                    && toolChoice == ToolChoice.REQUIRED)
-                {
+                var parseResult = parseJsonToToolRequests(rawResult, objectMapper);
+
+                if (toolChoice == ToolChoice.REQUIRED && parseResult.toolRequests().isEmpty()) {
                     // REQUIRED but none produced – force retry
                     throw new IllegalArgumentException("No 'tool_calls' found in JSON");
                 }
 
                 if (echo) {
-                    // output the thinking tool's contents
-                    contextManager.getIo().llmOutput(parseResult.chatResponse.aiMessage().text(), ChatMessageType.AI);
+                    // output the LLM's thinking
+                    String textToOutput = parseResult.text();
+                    if (!textToOutput.isBlank()) {
+                        io.llmOutput(textToOutput, ChatMessageType.AI);
+                    }
                 }
 
                 // we got tool calls, or they're optional -- we're done
-                finalResult = parseResult;
+                finalResult = new StreamingResult(parseResult, null);
                 break;
             } catch (IllegalArgumentException parseError) {
                 // JSON invalid or lacked tool_calls
                 if (attempt == maxTries) {
                     // create dummy result for failure
-                    var cr = ChatResponse.builder().aiMessage(new AiMessage("Error: " + parseError.getMessage()));
-                    finalResult = new StreamingResult(cr.build(), parseError);
+                    finalResult = new StreamingResult(null, parseError);
                     break; // out of retry loop
                 }
 
@@ -511,13 +533,13 @@ public class Llm {
                 io.llmOutput("\nRetry " + attempt + "/" + (maxTries - 1)
                                      + ": invalid JSON response; requesting proper format.",
                              ChatMessageType.CUSTOM);
-                attemptMessages.add(new AiMessage(rawResult.chatResponse().aiMessage().text()));
+                var txt = rawResult.text();
+                attemptMessages.add(new AiMessage(txt));
                 attemptMessages.add(new UserMessage(retryInstructionsProvider.apply(parseError)));
             }
         }
 
         // All retries exhausted OR fatal error occurred
-        assert finalResult != null;
         logRequest(this.model, lastRequest, finalResult);
         return finalResult;
     }
@@ -539,7 +561,7 @@ public class Llm {
      */
     static List<ChatMessage> emulateToolExecutionResults(List<ChatMessage> originalMessages) {
         var processedMessages = new ArrayList<ChatMessage>();
-        var pendingTerms = new ArrayList<ToolExecutionResultMessage>();
+        var pendingTerms = new ArrayList<ToolExecutionResultMessage>(); // Keep as ArrayList for internal modification
         for (var msg : originalMessages) {
             if (msg instanceof ToolExecutionResultMessage term) {
                 // Collect consecutive tool results to group together
@@ -586,7 +608,7 @@ public class Llm {
         return processedMessages;
     }
 
-    private static @NotNull String formatToolResults(ArrayList<ToolExecutionResultMessage> pendingTerms) {
+    private static String formatToolResults(List<ToolExecutionResultMessage> pendingTerms) { // Changed parameter to List
         return pendingTerms.stream()
                 .map(tr -> """
                         <toolcall id="%s" name="%s">
@@ -616,7 +638,7 @@ public class Llm {
                 .responseFormat(responseFormat)
                 .build();
 
-        Function<Throwable, String> retryInstructionsProvider = e -> """
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
                 %s
                 Please ensure you only return a JSON object matching the schema:
                   {
@@ -658,7 +680,7 @@ public class Llm {
                                                         ToolChoice toolChoice,
                                                         boolean echo) throws InterruptedException
     {
-        Function<Throwable, String> retryInstructionsProvider = e -> """
+        Function<Throwable, String> retryInstructionsProvider = (@Nullable Throwable e) -> """
                 %s
                 Respond with a single JSON object containing a `tool_calls` array. Each entry in the array represents one invocation of a tool.
                 No additional keys or text are allowed outside of that JSON object.
@@ -773,8 +795,12 @@ public class Llm {
      * Parse the model's JSON response into a ChatResponse that includes ToolExecutionRequests.
      * Expects the top-level to have a "tool_calls" array (or the root might be that array).
      */
-    private static StreamingResult parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
-        String rawText = result.chatResponse.aiMessage().text();
+    private static NullSafeResponse parseJsonToToolRequests(StreamingResult result, ObjectMapper mapper) {
+        // In the primary call path (emulateToolsCommon), if result.error() is null,
+        // then result.chatResponse() is guaranteed to be non-null by StreamingResult's invariant.
+        // This method is called in that context.
+        NullSafeResponse cResponse = castNonNull(result.chatResponse());
+        String rawText = cResponse.text();
         logger.trace("parseJsonToToolRequests: rawText={}", rawText);
 
         JsonNode root;
@@ -793,7 +819,7 @@ public class Llm {
             // Extract text between fences, removing potential language identifier and trimming whitespace
             String fencedText = rawText.substring(firstFence + 3, lastFence).strip();
             // Handle optional language identifier like "json"
-            if (fencedText.toLowerCase().startsWith("json")) {
+            if (com.google.common.base.Ascii.toLowerCase(fencedText).startsWith("json")) {
                 fencedText = fencedText.substring(4).stripLeading();
             }
 
@@ -859,17 +885,11 @@ public class Llm {
             aiMessageText = String.join("\n\n", thinkReasoning); // Merged reasoning becomes the message text
         }
 
-        // Create a properly formatted AiMessage
-        var aiMessage = toolExecutionRequests.isEmpty()
-                ? AiMessage.from(aiMessageText)
-                : new AiMessage(aiMessageText, toolExecutionRequests);
-
-        var cr = ChatResponse.builder().aiMessage(aiMessage).build();
         // Pass the original raw response alongside the parsed one
-        return new StreamingResult(cr, result.originalResponse, null);
+        return new NullSafeResponse(aiMessageText, toolExecutionRequests, result.originalResponse());
     }
 
-    private static String getInstructions(List<ToolSpecification> tools, Function<Throwable, String> retryInstructionsProvider) {
+    private static String getInstructions(List<ToolSpecification> tools, Function<@Nullable Throwable, String> retryInstructionsProvider) {
         String toolsDescription = tools.stream()
                 .map(tool -> {
                     var parametersInfo = tool.parameters().properties().entrySet().stream()
@@ -965,28 +985,24 @@ public class Llm {
         }
 
         // Add the think tool only if the model is not a reasoning model
-        if (!contextManager.getModels().isReasoning(this.model)) {
-            logger.debug("Adding 'think' tool for non-reasoning model {}", contextManager.getModels().nameOf(this.model));
+        if (!contextManager.getService().isReasoning(this.model)) {
+            logger.debug("Adding 'think' tool for non-reasoning model {}", contextManager.getService().nameOf(this.model));
             var enhancedTools = new ArrayList<>(originalTools);
             enhancedTools.addAll(contextManager.getToolRegistry().getRegisteredTools(List.of("think")));
             return enhancedTools;
         }
-        logger.debug("Skipping 'think' tool for reasoning model {}", contextManager.getModels().nameOf(this.model));
+        logger.debug("Skipping 'think' tool for reasoning model {}", contextManager.getService().nameOf(this.model));
         return originalTools;
     }
 
     /**
-     * Writes history information to session-specific files.
+     * Writes history information to task-specific files.
      */
-    private synchronized void logRequest(StreamingChatLanguageModel model, ChatRequest request, StreamingResult result) {
-        if (sessionHistoryDir == null) {
-            // History directory creation failed in constructor, do nothing.
-            return;
-        }
+    private synchronized void logRequest(StreamingChatLanguageModel model, ChatRequest request, @Nullable StreamingResult result) {
         try {
-            var timestamp = LocalDateTime.now(); // timestamp finished, not started
+            var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
 
-            var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getModels().nameOf(model),
+            var formattedRequest = "# Request to %s:\n\n%s\n".formatted(contextManager.getService().nameOf(model),
                                                                         TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null ? "" : "# Tools:\n\n" + request.toolSpecifications().stream().map(ToolSpecification::name).collect(Collectors.joining("\n"));
             var formattedResponse = result == null
@@ -994,7 +1010,7 @@ public class Llm {
                                     : "# Response:\n\n%s".formatted(result.formatted());
             String fileTimestamp = timestamp.format(DateTimeFormatter.ofPattern("HH-mm-ss"));
             String shortDesc = result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath = sessionHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
+            var filePath = taskHistoryDir.resolve(String.format("%s %s.log", fileTimestamp, shortDesc));
             var options = new StandardOpenOption[]{StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE};
             logger.trace("Writing history to file {}", filePath);
             // Ensure the filename is unique before writing
@@ -1013,43 +1029,134 @@ public class Llm {
             }
             logger.trace("Writing history to file {}", uniqueFilePath);
             Files.writeString(uniqueFilePath, formattedRequest + formattedTools + formattedResponse, options);
+
+            // Also persist the raw ChatRequest in a matching -request.json file
+            var requestFileName = uniqueFilePath.getFileName()
+                                                .toString()
+                                                .replaceFirst("\\.log$", "-request.json");
+            var requestPath     = uniqueFilePath.resolveSibling(requestFileName);
+
+            var requestOptions  = new StandardOpenOption[]{
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.CREATE_NEW,
+                    StandardOpenOption.WRITE
+            };
+            var requestJson = objectMapper.writerWithDefaultPrettyPrinter()
+                                          .writeValueAsString(request);
+            Files.writeString(requestPath, requestJson, requestOptions);
         } catch (IOException e) {
             logger.error("Failed to write LLM history file", e);
         }
     }
 
-    /**
-     * The result of a streaming call:
-     * - chatResponse: processed response with tool emulation
-     * - originalResponse: exactly what we got back from the LLM
-     * - error: like it says
-     *
-     * Generally, only one of (chatResponse, error) is not null, but there is one edge case:
-     * if the LLM hangs up abruptly after starting its response, we'll forge a chatResponse with the partial result
-     * and also include the error that we got from the HTTP layer. In this case originalResponse will be null
-     */
-    public record StreamingResult(ChatResponse chatResponse,
-                                  ChatResponse originalResponse,
-                                  Throwable error)
+
+    public record NullSafeResponse(String text,
+                                   List<ToolExecutionRequest> toolRequests,
+                                   @Nullable ChatResponse originalResponse)
     {
-        public StreamingResult(ChatResponse chatResponse, Throwable error) {
-            this(chatResponse, chatResponse, error);
+        public NullSafeResponse(@Nullable ChatResponse cr) {
+            this(cr == null || cr.aiMessage() == null || cr.aiMessage().text() == null ? "" : cr.aiMessage().text(),
+                 cr == null || cr.aiMessage() == null || !cr.aiMessage().hasToolExecutionRequests() ? List.of() : cr.aiMessage().toolExecutionRequests(),
+                 cr);
+        }
+
+        public boolean isEmpty() {
+            return text.isEmpty() && toolRequests.isEmpty();
+        }
+
+        public AiMessage aiMessage() {
+            return toolRequests.isEmpty() ? new AiMessage(text) : new AiMessage(text, toolRequests);
+        }
+    }
+
+    public void setOutput(IConsoleIO io) {
+        // TODO this should be final but disentanglihg from ContextManager is difficult
+        this.io = io;
+    }
+
+    /**
+     * The result of a streaming cal. Exactly one of (chatResponse, error) is not null UNLESS
+     * if the LLM hangs up abruptly after starting its response. In that case we'll forge a NullSafeResponse with the partial result
+     * and also include the error that we got from the HTTP layer. In this case chatResponse and error will both be non-null,
+     * but chatResponse.originalResponse will be null.
+     *
+     * Generally, callers should use the helper methods isEmpty, isPartial, etc. instead of manually
+     * inspecting the contents of chatResponse.
+     */
+    public record StreamingResult(@Nullable NullSafeResponse chatResponse,
+                                  @Nullable Throwable error)
+    {
+        public static StreamingResult fromResponse(@Nullable ChatResponse originalResponse, @Nullable Throwable error) {
+            return new StreamingResult(new NullSafeResponse(originalResponse), error);
         }
 
         public StreamingResult {
-            // Must have either a chatResponse or an error
-            assert error != null || chatResponse != null;
+            if (error == null) {
+                // If there's no error, we must have a chatResponse.
+                assert chatResponse != null;
+            } else {
+                // If there is an error, chatResponse may or may not be present.
+                // If chatResponse IS present, its originalResponse MUST be null,
+                // indicating it's a partial/synthetic response accompanying an error.
+                assert chatResponse == null || chatResponse.originalResponse == null;
+            }
+        }
+
+        public String text() {
+            return chatResponse == null ? "" : chatResponse.text();
+        }
+
+        public boolean isEmpty() {
+            return chatResponse == null || chatResponse.isEmpty();
+        }
+
+        public @Nullable ChatResponse originalResponse() {
+            return chatResponse == null ? null :  chatResponse.originalResponse;
+        }
+
+        public List<ToolExecutionRequest> toolRequests() {
+            return chatResponse == null ? List.of() : chatResponse.toolRequests;
+        }
+
+        /**
+         * Package-private since unless you are test code you should almost always call aiMessage() instead
+         */
+        @VisibleForTesting
+        AiMessage originalMessage() {
+            return requireNonNull(requireNonNull(chatResponse).originalResponse).aiMessage();
+        }
+
+        public boolean isPartial() {
+            if (error == null) {
+                return castNonNull(originalResponse()).finishReason() == FinishReason.LENGTH;
+            }
+            return chatResponse != null;
+        }
+
+        /**
+         * @return the response text if a response is present; else throws
+         */
+        public AiMessage aiMessage() {
+            requireNonNull(chatResponse);
+            return chatResponse.aiMessage();
         }
 
         public String formatted() {
             if (error != null) {
+                String contentToShow;
+                // text() helper method returns chatResponse.text() or "" if chatResponse is null.
+                if (!text().isEmpty()) {
+                    contentToShow = "[Partial response text]\n" + text();
+                } else {
+                    contentToShow = "[No response content available]";
+                }
                 return """
                        [Error: %s]
                        %s
-                       """.formatted(formatThrowable(error), originalResponse == null ? "[Null response]" : originalResponse.toString());
+                       """.stripIndent().formatted(formatThrowable(error), contentToShow);
             }
-
-            return originalResponse.toString();
+            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
+            return castNonNull(originalResponse()).toString();
         }
 
         private String formatThrowable(Throwable th) {
@@ -1065,23 +1172,23 @@ public class Llm {
          *
          * @return A short description string.
          */
-        private String getDescription() {
+        public String getDescription() {
             if (error != null) {
-                return error.getMessage();
+                return requireNonNull(error.getMessage());
             }
 
-            assert chatResponse != null;
-            var aiMessage = chatResponse.aiMessage();
-            if (aiMessage.hasToolExecutionRequests()) {
-                return aiMessage.toolExecutionRequests().stream()
+            var cr = castNonNull(chatResponse);
+            if (!cr.toolRequests().isEmpty()) {
+                return cr.toolRequests().stream()
                         .map(ToolExecutionRequest::name)
                         .collect(Collectors.joining(", "));
             }
-            var text = aiMessage.text();
-            if (text != null && !text.isBlank()) {
-                return text;
+            var text = cr.text();
+            if (text.isBlank()) {
+                return "[empty response]";
             }
-            return "empty response";
+
+            return text;
         }
     }
 }

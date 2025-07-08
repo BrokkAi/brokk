@@ -1,12 +1,13 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonGetter;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Abstraction for a filename relative to the repo.  This exists to make it less difficult to ensure
@@ -14,34 +15,44 @@ import java.util.Optional;
  * or may not be absolute, or may be relative to the jvm root rather than the repo root.
  */
 public class ProjectFile implements BrokkFile {
-    private static final long serialVersionUID = 1L;
     private transient Path root;
     private transient Path relPath;
 
     /**
      * root must be pre-normalized; we will normalize relPath if it is not already
      */
-    public ProjectFile(Path root, Path relPath) {
-        // We can't rely on these being set until after deserialization
-        if (root != null && relPath != null) {
-            if (!root.isAbsolute()) {
-                throw new IllegalArgumentException("Root must be absolute, got " + root);
-            }
-            if (!root.equals(root.normalize())) {
-                throw new IllegalArgumentException("Root must be normalized, got " + root);
-            }
-            if (relPath.isAbsolute()) {
-                throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
-            }
-            relPath = relPath.normalize();
+    @JsonCreator
+    public ProjectFile(@JsonProperty("root") Path root, @JsonProperty("relPath") Path relPath) {
+        // Validation and normalization
+        if (!root.isAbsolute()) {
+            throw new IllegalArgumentException("Root must be absolute, got " + root);
         }
+        if (!root.equals(root.normalize())) {
+            throw new IllegalArgumentException("Root must be normalized, got " + root);
+        }
+        if (relPath.isAbsolute()) {
+            throw new IllegalArgumentException("RelPath must be relative, got " + relPath);
+        }
+        
         this.root = root;
-        this.relPath = relPath;
+        this.relPath = relPath.normalize();
     }
 
     public ProjectFile(Path root, String relName) {
         this(root, Path.of(relName));
     }
+
+    // JsonGetter methods for Jackson serialization since fields are transient
+    @JsonGetter("root")
+    public Path getRoot() {
+        return root;
+    }
+
+    @JsonGetter("relPath") 
+    public Path getRelPath() {
+        return relPath;
+    }
+
 
     @Override
     public Path absPath() {
@@ -61,6 +72,7 @@ public class ProjectFile implements BrokkFile {
     /**
      * Also relative (but unlike raw Path.getParent, ours returns empty path instead of null)
      */
+    @JsonIgnore
     public Path getParent() {
         // since this is the *relative* path component I think it's more correct to return empty than null;
         // the other alternative is to wrap in Optional, but then comparing with an empty path is messier
@@ -76,8 +88,7 @@ public class ProjectFile implements BrokkFile {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (!(o instanceof ProjectFile)) return false;
-        ProjectFile projectFile = (ProjectFile) o;
+        if (!(o instanceof ProjectFile projectFile)) return false;
         return Objects.equals(root, projectFile.root) &&
                Objects.equals(relPath, projectFile.relPath);
     }
@@ -87,28 +98,7 @@ public class ProjectFile implements BrokkFile {
         return relPath.hashCode();
     }
 
-    private void writeObject(ObjectOutputStream oos) throws IOException {
-        oos.defaultWriteObject();
-        // store the string forms of root/relPath
-        oos.writeUTF(root.toString());
-        oos.writeUTF(relPath.toString());
-    }
-
-    private void readObject(ObjectInputStream ois) throws IOException, ClassNotFoundException {
-        // read all non-transient fields
-        ois.defaultReadObject();
-        // reconstitute root/relPath from the strings
-        String rootString = ois.readUTF();
-        String relString = ois.readUTF();
-        // both must be absolute/relative as before
-        root = Path.of(rootString);
-        if (!root.isAbsolute()) {
-            throw new IllegalArgumentException("Root must be absolute");
-        }
-
-        relPath = Path.of(relString);
-        if (relPath.isAbsolute()) {
-            throw new IllegalArgumentException("RelPath must be relative");
-        }
+    public Language getLanguage() {
+        return Language.fromExtension(extension());
     }
 }
