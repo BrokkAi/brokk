@@ -88,7 +88,7 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
     }
   }
 
-  "an incremental build with file inheritance across files" in {
+  "an incremental build with file inheritance and calls across files" in {
     withIncrementalTestConfig { (configA, configB) =>
       val projectA = project(configA,
         """
@@ -111,7 +111,14 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |   System.out.println("Hello, super B!");
           | }
           |}
-          |""".stripMargin, "SuperB.java")
+          |""".stripMargin, "SuperB.java").moreCode(
+        """
+          |public class Driver {
+          | public void drive(Base b) {
+          |   b.foo();
+          | }
+          |}
+          |""".stripMargin, "Driver.java")
       val projectB = project(configB,
         """
           |public class Base {
@@ -133,7 +140,14 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |   System.out.println("Hello, super B (but different)!");
           | }
           |}
-          |""".stripMargin, "SuperB.java")
+          |""".stripMargin, "SuperB.java").moreCode(
+        """
+          |public class Driver {
+          | public void drive(Base b) {
+          |   b.foo();
+          | }
+          |}
+          |""".stripMargin, "Driver.java")
 
       testIncremental(projectA, projectB)
     }
