@@ -1,17 +1,20 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.joern.javasrc2cpg.{Config, JavaSrc2Cpg}
+import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
+import io.joern.javasrc2cpg.Config
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.LoggerFactory
 
-import java.io.IOException
-import java.nio.file.Path
+import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
-import scala.util.{Try, boundary}
+import scala.io.Source
 import scala.util.boundary.break
-import scala.util.matching.Regex // Added for modern early exit
+import scala.util.matching.Regex
+import scala.util.{Try, Using, boundary}
 
 /**
  * A concrete analyzer for Java source code, extending AbstractAnalyzer
@@ -24,7 +27,10 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
 
   def this(sourcePath: Path, excludedFiles: java.util.Set[String]) =
-    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles))
+    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin")))
+
+  def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
+    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
 
   def this(sourcePath: Path) =
     this(sourcePath, java.util.Collections.emptySet[String]())
@@ -192,22 +198,14 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     val start = chosen.lineNumber.get
     val end = chosen.lineNumberEnd.get
 
-    val maybeCode = try {
-      val lines = scala.io.Source
-        .fromFile(file.absPath().toFile)
-        .getLines()
+    Try(Using.resource(Source.fromFile(file.absPath().toFile))
+      (_.getLines()
         .slice(start - 1, end) // Use slice for safer indexing
-        .mkString("\n")
-      Some(lines)
-    } catch {
-      case _: Throwable => None
+        .mkString("\n")))
+      .toOption match {
+      case Some(code) => IAnalyzer.FunctionLocation(file, start, end, code)
+      case None => throw new SymbolNotFoundException("Could not read code for chosen method.")
     }
-
-    if (maybeCode.isEmpty) {
-      throw new SymbolNotFoundException("Could not read code for chosen method.")
-    }
-
-    IAnalyzer.FunctionLocation(file, start, end, maybeCode.get)
   }
 
   /**
@@ -342,26 +340,30 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
 }
 
-object JavaAnalyzer extends GraphPassApplier {
+object JavaAnalyzer {
+
+  private val logger = LoggerFactory.getLogger(getClass)
 
   import scala.jdk.CollectionConverters.*
 
-  private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String]): Cpg = {
+  private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
+    if Files.exists(cpgPath) then
+      logger.info(s"Updating Java CPG at '$cpgPath'")
+    else
+      logger.info(s"Creating Java CPG at '$cpgPath'")
+
     // Build the CPG
-    val config = Config()
+    Config()
       .withInputPath(absPath.toString)
+      .withOutputPath(cpgPath.toString)
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-
-    val newCpg = JavaSrc2Cpg().createCpg(config).getOrElse {
-      throw new IOException("Failed to create Java CPG")
-    }
-    applyPasses(newCpg)
-    newCpg
+      .buildAndThrow
+      .open
   }
 
 }

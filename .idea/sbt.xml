@@ -1,18 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="ScalaSbtSettings">
-    <option name="linkedExternalProjectsSettings">
-      <SbtProjectSettings>
-        <option name="converterVersion" value="2" />
-        <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="modules">
-          <set>
-            <option value="$PROJECT_DIR$" />
-            <option value="$PROJECT_DIR$/project" />
-          </set>
-        </option>
-        <option name="sbtVersion" value="1.10.7" />
-      </SbtProjectSettings>
-    </option>
-  </component>
+    <component name="Encoding">
+        <file url="file://$PROJECT_DIR$/src/main/java/io/github/jbellis/brokk/dialogs/src/main/java" charset="UTF-8" />
+        <file url="file://$PROJECT_DIR$/src/main/java/io/github/jbellis/brokk/dialogs/src/main/resources" charset="UTF-8" />
+    </component>
 </project>

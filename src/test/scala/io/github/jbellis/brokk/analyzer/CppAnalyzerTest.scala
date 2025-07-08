@@ -1,11 +1,10 @@
 package io.github.jbellis.brokk.analyzer
 
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Assumptions.assumeTrue
-import org.junit.jupiter.api.BeforeAll
+import org.junit.jupiter.api.{BeforeAll, Test}
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 // For @JvmStatic, if required by JUnit setup for companion objects in Scala 3.
@@ -22,13 +21,16 @@ object CppAnalyzerTest {
   // @JvmStatic // Usually not needed in Scala 3 with JUnit 5 for companion objects.
   // If build still complains about JvmStatic, ensure JUnit Jupiter is correctly configured for Scala.
   def setup(): Unit = {
-    analyzer = new CppAnalyzer(testProjectPath)
+    val tempFile = Files.createTempFile("brokk-cpp-cpg-", ".bin")
+    tempFile.toFile.deleteOnExit()
+    analyzer = new CppAnalyzer(testProjectPath, java.util.Collections.emptySet[String](), tempFile)
   }
 }
 
 class CppAnalyzerTest {
   // Use the analyzer from the companion object
   private def an: CppAnalyzer = CppAnalyzerTest.analyzer
+
   private val testProjectPath = Path.of("src/test/resources/testcode-cpp").toAbsolutePath() // Keep for ProjectFile creation
 
   @Test
@@ -205,7 +207,7 @@ class CppAnalyzerTest {
     assertTrue(declsInCpp.contains("geometry_cpp.global_func"), "Missing global_func from geometry.cpp")
     assertTrue(declsInCpp.contains("geometry_cpp.uses_global_func"), "Missing uses_global_func from geometry.cpp")
     assertTrue(declsInCpp.contains("shapes.another_in_shapes"), "Missing shapes.another_in_shapes from geometry.cpp")
-     // Ensure class/method definitions from cpp file are also found if they are primarily there
+    // Ensure class/method definitions from cpp file are also found if they are primarily there
     assertTrue(declsInCpp.contains("shapes.Circle.getArea"), "Missing definition of shapes.Circle.getArea from geometry.cpp")
   }
 
@@ -273,48 +275,48 @@ class CppAnalyzerTest {
     assertFalse(nonExistentOpt.isPresent)
   }
 
-    @Test
-    def getFunctionLocationTest(): Unit = {
-        // Global function in geometry.cpp
-        val globalFuncLoc = an.getFunctionLocation("geometry_cpp.global_func", java.util.List.of("val"))
-        assertTrue(globalFuncLoc.code.contains("global_var = val;"))
-        assertEquals(ProjectFile(testProjectPath, "geometry.cpp"), globalFuncLoc.file)
+  @Test
+  def getFunctionLocationTest(): Unit = {
+    // Global function in geometry.cpp
+    val globalFuncLoc = an.getFunctionLocation("geometry_cpp.global_func", java.util.List.of("val"))
+    assertTrue(globalFuncLoc.code.contains("global_var = val;"))
+    assertEquals(ProjectFile(testProjectPath, "geometry.cpp"), globalFuncLoc.file)
 
-        // Method in class
-        val getAreaLoc = an.getFunctionLocation("shapes.Circle.getArea", java.util.Collections.emptyList())
-        assertTrue(getAreaLoc.code.contains("return M_PI * radius * radius;"))
-        assertEquals(ProjectFile(testProjectPath, "geometry.cpp"), getAreaLoc.file) // Definition in .cpp
-    }
+    // Method in class
+    val getAreaLoc = an.getFunctionLocation("shapes.Circle.getArea", java.util.Collections.emptyList())
+    assertTrue(getAreaLoc.code.contains("return M_PI * radius * radius;"))
+    assertEquals(ProjectFile(testProjectPath, "geometry.cpp"), getAreaLoc.file) // Definition in .cpp
+  }
 
-    @Test
-    def getMethodSourceFromPytorchTest(): Unit = {
-        // Test retrieving source for a function in pytorch.cpp
-        val funcFqn = "pytorch_cpp.start_index"
-        val sourceOpt = an.getMethodSource(funcFqn)
-        assertTrue(sourceOpt.isPresent, s"Could not find source for FQN: $funcFqn")
+  @Test
+  def getMethodSourceFromPytorchTest(): Unit = {
+    // Test retrieving source for a function in pytorch.cpp
+    val funcFqn = "pytorch_cpp.start_index"
+    val sourceOpt = an.getMethodSource(funcFqn)
+    assertTrue(sourceOpt.isPresent, s"Could not find source for FQN: $funcFqn")
 
-        val source = sourceOpt.get()
-        // Check for the signature (first line of the function definition)
-        val expectedSignaturePrefix = "inline int start_index(int out_idx, int out_len, int in_len) {"
-        assertTrue(source.startsWith(expectedSignaturePrefix),
-            s"Source for $funcFqn did not start with expected signature.\nExpected prefix: '$expectedSignaturePrefix'\nActual source:\n$source")
+    val source = sourceOpt.get()
+    // Check for the signature (first line of the function definition)
+    val expectedSignaturePrefix = "inline int start_index(int out_idx, int out_len, int in_len) {"
+    assertTrue(source.startsWith(expectedSignaturePrefix),
+      s"Source for $funcFqn did not start with expected signature.\nExpected prefix: '$expectedSignaturePrefix'\nActual source:\n$source")
 
-        // Check for a specific line in the body
-        val expectedBodyContent = "std::floor((float)(out_idx * in_len) / out_len)"
-        assertTrue(source.contains(expectedBodyContent),
-            s"Source for $funcFqn did not contain expected content '$expectedBodyContent'.\nActual source:\n$source")
-    }
+    // Check for a specific line in the body
+    val expectedBodyContent = "std::floor((float)(out_idx * in_len) / out_len)"
+    assertTrue(source.contains(expectedBodyContent),
+      s"Source for $funcFqn did not contain expected content '$expectedBodyContent'.\nActual source:\n$source")
+  }
 
-    @Test
-    def getSkeletonsPytorchTest(): Unit = {
-      val file = ProjectFile(testProjectPath, "pytorch.cpp")
-      val skeletons = an.getSkeletons(file)
+  @Test
+  def getSkeletonsPytorchTest(): Unit = {
+    val file = ProjectFile(testProjectPath, "pytorch.cpp")
+    val skeletons = an.getSkeletons(file)
 
-      val expectedKey = CodeUnit.fn(file, "at.native", "start_index")
-      val expectedSkeleton = "int start_index(int out_idx, int out_len, int in_len) {...}"
+    val expectedKey = CodeUnit.fn(file, "at.native", "start_index")
+    val expectedSkeleton = "int start_index(int out_idx, int out_len, int in_len) {...}"
 
-      assertEquals(1, skeletons.size(), s"Expected 1 skeleton, got ${skeletons.size()}. Skeletons: $skeletons")
-      assertTrue(skeletons.containsKey(expectedKey), s"Skeletons map does not contain expected key '$expectedKey'. Actual keys: ${skeletons.keySet().asScala.mkString(", ")}")
-      assertEquals(expectedSkeleton, skeletons.get(expectedKey), "Skeleton content mismatch.")
-    }
+    assertEquals(1, skeletons.size(), s"Expected 1 skeleton, got ${skeletons.size()}. Skeletons: $skeletons")
+    assertTrue(skeletons.containsKey(expectedKey), s"Skeletons map does not contain expected key '$expectedKey'. Actual keys: ${skeletons.keySet().asScala.mkString(", ")}")
+    assertEquals(expectedSkeleton, skeletons.get(expectedKey), "Skeleton content mismatch.")
+  }
 }

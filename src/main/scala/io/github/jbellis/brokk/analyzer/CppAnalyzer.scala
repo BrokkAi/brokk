@@ -1,17 +1,20 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.joern.c2cpg.{C2Cpg, Config as CConfig}
+import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
+import io.joern.c2cpg.Config as CConfig
 import io.joern.x2cpg.Defines as X2CpgDefines
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.LoggerFactory
 
-import java.io.IOException
-import java.nio.file.Path
+import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
 import scala.collection.mutable
-import scala.util.Try
-import scala.util.matching.Regex // Added for mutable.ListBuffer
+import scala.io.Source
+import scala.util.matching.Regex
+import scala.util.{Try, Using} // Added for mutable.ListBuffer
 
 /** Analyzer for C and C++ source files (leveraging joern c2cpg). */
 class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
@@ -21,7 +24,10 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     this(sourcePath, io.joern.joerncli.CpgBasedTool.loadFromFile(preloadedPath.toString))
 
   def this(sourcePath: Path, excludedFiles: java.util.Set[String]) =
-    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles))
+    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin")))
+
+  def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
+    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
 
   def this(sourcePath: Path) = this(sourcePath, java.util.Collections.emptySet[String]())
 
@@ -718,9 +724,8 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     val endLine = chosenMethod.lineNumberEnd.get
 
     val maybeCode = Try {
-      val lines = scala.io.Source.fromFile(file.absPath().toFile).getLines().slice(startLine - 1, endLine).mkString("\n")
-      Some(lines)
-    }.getOrElse(None)
+      Using.resource(Source.fromFile(file.absPath().toFile))(_.getLines().slice(startLine - 1, endLine).mkString("\n"))
+    }.toOption
 
     if (maybeCode.isEmpty) {
       throw new SymbolNotFoundException(s"Could not read source code for method: ${chosenMethod.fullName}")
@@ -729,27 +734,29 @@ class CppAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   }
 }
 
-object CppAnalyzer extends GraphPassApplier {
+object CppAnalyzer {
+
+  private val logger = LoggerFactory.getLogger(getClass)
 
   import scala.jdk.CollectionConverters.*
 
-  def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String]): Cpg = {
+  def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    val cfg = CConfig()
+    if Files.exists(cpgPath) then
+      logger.info(s"Updating C/C++ CPG at '$cpgPath'")
+    else
+      logger.info(s"Creating C/C++ CPG at '$cpgPath'")
+
+    CConfig()
       .withInputPath(absPath.toString)
+      .withOutputPath(cpgPath.toString)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
-    // Other CConfig options can be set here by chaining .withXyz methods, e.g.
-    // .withIncludePathsAutoDiscovery(true)
-    // .withDefines(Set("MY_DEFINE"))
-
-    val newCpg = new C2Cpg().createCpg(cfg).getOrElse {
-      throw new IOException(s"Failed to create C/C++ CPG for $absPath")
-    }
-    applyPasses(newCpg)
-    newCpg
+      .buildAndThrow
+      .open
   }
+
 }

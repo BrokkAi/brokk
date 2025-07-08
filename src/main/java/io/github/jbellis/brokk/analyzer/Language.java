@@ -1,18 +1,18 @@
 package io.github.jbellis.brokk.analyzer;
 
-import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
-import java.util.regex.Pattern;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 
@@ -79,9 +79,8 @@ public interface Language {
         @Override public String internalName() { return "JAVA"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(IProject project) {
-            var analyzer = new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getCpgPath(project));
-            return analyzer;
+            var cpgPath = getCpgPath(project);
+            return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
         @Override public JavaAnalyzer loadAnalyzer(IProject project) {
@@ -391,9 +390,8 @@ public interface Language {
         @Override public String internalName() { return "C_CPP"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(IProject project) {
-            var analyzer = new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories());
-            analyzer.writeCpg(getCpgPath(project));
-            return analyzer;
+            var cpgPath = getCpgPath(project);
+            return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
         @Override public CppAnalyzer loadAnalyzer(IProject project) {
