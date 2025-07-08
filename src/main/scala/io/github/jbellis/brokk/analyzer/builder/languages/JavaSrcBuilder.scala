@@ -2,8 +2,8 @@ package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.builder.passes.idempotent
-import io.joern.javasrc2cpg.Config as JavaSrcConfig
 import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
+import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.passes.frontend.JavaConfigFileCreationPass
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
@@ -15,6 +15,8 @@ object JavaSrcBuilder {
   given javaBuilder: CpgBuilder[JavaSrcConfig] with {
 
     override protected val language: String = "Java"
+
+    override def sourceFileExtensions: Set[String] = JavaSrc2Cpg.sourceFileExtensions
 
     override def createAst(cpg: Cpg, config: JavaSrcConfig): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.JAVASRC, config.inputPath)

@@ -45,7 +45,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!")
-      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, Paths.get(config.inputPath))
+      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, config, sourceFileExtensions)
       debugChanges(fileChanges)
 
       cpg.removeStaleFiles(fileChanges)
@@ -54,6 +54,11 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
       runPasses(cpg, config)
     }
   }
+
+  /**
+   * @return the source file extensions supported by the language frontend
+   */
+  def sourceFileExtensions: Set[String]
 
   private def debugChanges(fileChanges: Seq[FileChange]): Unit = {
     val extensionGroups = fileChanges.map { p =>

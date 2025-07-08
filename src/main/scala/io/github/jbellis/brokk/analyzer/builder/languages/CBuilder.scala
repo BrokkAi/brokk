@@ -18,6 +18,9 @@ object CBuilder {
 
     override protected val language: String = "C/C++"
 
+    override def sourceFileExtensions: Set[String] =
+      FileDefaults.SourceFileExtensions ++ FileDefaults.HeaderFileExtensions + FileDefaults.PreprocessedExt
+
     override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
       val report = new Report()
