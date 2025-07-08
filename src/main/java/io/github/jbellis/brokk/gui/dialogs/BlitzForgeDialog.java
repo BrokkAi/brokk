@@ -150,7 +150,7 @@ public class BlitzForgeDialog extends JDialog {
 
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new GridBagLayout());
-// Initialize early so it is non-null when updateCostEstimate() is triggered during UI construction
+        // Initialize early so it is non-null when updateCostEstimate() is triggered during UI construction
         selectedFilesCountLabel = new JLabel("0 files selected");
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         GridBagConstraints gbc = new GridBagConstraints();
@@ -321,7 +321,7 @@ public class BlitzForgeDialog extends JDialog {
         JPanel listFilesCardPanel = new JPanel(new BorderLayout(5, 5));
         listFilesCardPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        // --- Left: raw-text area and its instructions ---
+        // Left: raw-text area and its instructions
         JPanel rawTextPanel = new JPanel(new BorderLayout(0, 5));
         JLabel listFilesInstructions = new JLabel("Raw text containing filenames");
 
@@ -356,7 +356,7 @@ public class BlitzForgeDialog extends JDialog {
         rawTextPanel.add(rawTextScroll, BorderLayout.CENTER);
 
 
-        // --- Right: parsed-file table with language filter ---
+        // Right: parsed-file table with language filter
         parsedTableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -366,7 +366,7 @@ public class BlitzForgeDialog extends JDialog {
         parsedFilesTable = new JTable(parsedTableModel);
         JScrollPane parsedScroll = new JScrollPane(parsedFilesTable);
 
-        /* top-right panel: language combo */
+        // top-right panel: language combo
         JPanel rightTopPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
         rightTopPanel.add(new JLabel("Restrict to Language"));
         listLanguageCombo = new JComboBox<>();
@@ -382,7 +382,7 @@ public class BlitzForgeDialog extends JDialog {
         });
         rightTopPanel.add(listLanguageCombo);
 
-        /* bottom-right: file count */
+        // bottom-right: file count
         parsedFilesCountLabel = new JLabel("0 files");
         parsedFilesCountLabel.setVisible(false);
         parsedFilesCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
@@ -403,9 +403,7 @@ public class BlitzForgeDialog extends JDialog {
         scopeCardsPanel.add(listFilesCardPanel, "LIST");
 
 
-        // ----------------------------------------------------
         // Context + Post-processing option panels
-        // ----------------------------------------------------
         gbc.gridy++;
         gbc.gridx = 0;
         gbc.gridwidth = 3;
@@ -467,7 +465,6 @@ public class BlitzForgeDialog extends JDialog {
         parallelProcessingPanel.add(instructionsPanel, paraGBC);
 
 
-
         // Instructions TextArea
         paraGBC.gridy = 1;
         paraGBC.gridx = 0;
@@ -482,7 +479,6 @@ public class BlitzForgeDialog extends JDialog {
         parallelProcessingPanel.add(instructionsScrollPane, paraGBC);
 
 
-        /* -------------------------------------------------------------- */
         // Action Row
         paraGBC.gridy++;
         paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
@@ -658,7 +654,7 @@ public class BlitzForgeDialog extends JDialog {
         includeWorkspaceCheckbox = new JCheckBox();
         parallelProcessingPanel.add(includeWorkspaceCheckbox, paraGBC);
 
-        // ---- post-processing panel ------------------------
+        // Post-processing panel
         JPanel ppPanel = new JPanel(new GridBagLayout());
         var postTitleBorder = BorderFactory.createTitledBorder("Post-processing");
         ppPanel.setBorder(BorderFactory.createCompoundBorder(postTitleBorder,
@@ -668,7 +664,7 @@ public class BlitzForgeDialog extends JDialog {
         ppGBC.fill = GridBagConstraints.HORIZONTAL;
         ppGBC.anchor = GridBagConstraints.WEST;
 
-        // --- Instructions area at top ---
+        // Instructions area at top
         ppGBC.gridx = 0;
         ppGBC.gridy = 0;
         ppGBC.gridwidth = 3;
@@ -688,10 +684,7 @@ public class BlitzForgeDialog extends JDialog {
         ppGBC.fill = GridBagConstraints.HORIZONTAL;
         ppGBC.gridwidth = 1;
 
-        // --- run-choice ---
-        // ------------------------------------------------------------------
-        //  Action panel (runPostProcessCombo, model label, build checkbox)
-        // ------------------------------------------------------------------
+        // Action panel (runPostProcessCombo, model label, build checkbox)
         ppGBC.gridy++;
         ppGBC.gridx = 0;
         ppGBC.gridwidth = 3;
@@ -716,7 +709,7 @@ public class BlitzForgeDialog extends JDialog {
         iconGbc.weightx = 0.0;
         actionPanel.add(noneInfoIcon, iconGbc);
 
-        /* Combo box and Model label row */
+        // Combo box and Model label row
         runPostProcessCombo = new JComboBox<>(new String[]{"None", "Architect", "Ask"});
         postProcessingModelLabel = new JLabel(" ");
 
@@ -762,7 +755,7 @@ public class BlitzForgeDialog extends JDialog {
         comboModelGbc.weightx = 1.0; // Allow this panel to take horizontal space
         actionPanel.add(comboAndModelPanel, comboModelGbc);
 
-        /* build-first checkbox on its own row, aligned with column 1 */
+        // build-first checkbox on its own row, aligned with column 1
         GridBagConstraints buildCheckboxGbc = new GridBagConstraints();
         buildCheckboxGbc.insets = new Insets(5, 5, 5, 5);
         buildCheckboxGbc.anchor = GridBagConstraints.WEST;
@@ -778,9 +771,7 @@ public class BlitzForgeDialog extends JDialog {
         ppPanel.add(actionPanel, ppGBC);
         ppGBC.gridwidth = 1;
 
-        // ------------------------------------------------------------------
-        //  Parallel-processing output panel (include radios + filter)
-        // ------------------------------------------------------------------
+        // Parallel-processing output panel (include radios + filter)
         ppGBC.gridy++;
         ppGBC.gridx = 0;
         ppGBC.gridwidth = 3;
@@ -800,13 +791,13 @@ public class BlitzForgeDialog extends JDialog {
 
         int opRow = 0;
 
-        /* Combo */
+        // Combo
         opGBC.gridx = 0;
         opGBC.gridy = opRow++;
         opGBC.gridwidth = 3;
         outputPanel.add(parallelOutputCombo, opGBC);
 
-        /* Filter row – label */
+        // Filter row – label
         GridBagConstraints filterLabelGbc = new GridBagConstraints();
         filterLabelGbc.insets = new Insets(5, 5, 5, 5);
         filterLabelGbc.gridx = 0;
@@ -814,7 +805,7 @@ public class BlitzForgeDialog extends JDialog {
         filterLabelGbc.anchor = GridBagConstraints.EAST;
         outputPanel.add(new JLabel("Filter"), filterLabelGbc);
 
-        /* Filter row – info bubble */
+        // Filter row – info bubble
         GridBagConstraints filterInfoGbc = new GridBagConstraints();
         filterInfoGbc.insets = new Insets(5, H_GLUE, 5, 5);
         filterInfoGbc.gridx = 1;
@@ -824,7 +815,7 @@ public class BlitzForgeDialog extends JDialog {
         filterInfo.setToolTipText("Only include parallel processing for files whose output passes this natural language classifier");
         outputPanel.add(filterInfo, filterInfoGbc);
 
-        /* Filter row – input field */
+        // Filter row – input field
         GridBagConstraints filterFieldGbc = new GridBagConstraints();
         filterFieldGbc.insets = new Insets(5, H_GLUE, 5, 5);
         filterFieldGbc.gridx = 2;
@@ -847,35 +838,47 @@ public class BlitzForgeDialog extends JDialog {
             postProcessingInstructionsArea.setEnabled(!none);
             postProcessingScrollPane.setEnabled(!none);
 
-            if (ask) {
-                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                        .determineVerificationCommand(chrome.getContextManager());
-                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
-                buildFirstCheckbox.setEnabled(hasVerification);
-                buildFirstCheckbox.setSelected(false); // default off for Ask
-                if (!hasVerification) {
-                    buildFirstCheckbox.setToolTipText("No build/verification command available");
+            // Build-first checkbox handling
+            var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
+                    .determineVerificationCommand(chrome.getContextManager());
+            boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+
+            if (!hasVerification) {
+                // No verify command -> always disabled & unselected
+                buildFirstCheckbox.setEnabled(false);
+                buildFirstCheckbox.setSelected(false);
+                buildFirstCheckbox.setToolTipText("No build/verification command available");
+            } else {
+                buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+                switch (selectedOption) {
+                    case "Architect" -> {
+                        buildFirstCheckbox.setEnabled(true);
+                        buildFirstCheckbox.setSelected(true);
+                    }
+                    case "Ask" -> {
+                        buildFirstCheckbox.setEnabled(true);
+                        buildFirstCheckbox.setSelected(false);
+                    }
+                    default -> { // None
+                        buildFirstCheckbox.setEnabled(false);
+                        buildFirstCheckbox.setSelected(false);
+                    }
                 }
+            }
+
+            //Parallel-output combo defaults
+            if (ask) {
                 parallelOutputCombo.setSelectedItem("Include all");
             } else if (architect) {
-                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                        .determineVerificationCommand(chrome.getContextManager());
-                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
-                buildFirstCheckbox.setEnabled(hasVerification);
-                buildFirstCheckbox.setSelected(hasVerification);
-                if (!hasVerification) {
-                    buildFirstCheckbox.setToolTipText("No build/verification command available");
-                }
                 parallelOutputCombo.setSelectedItem("Include changed files");
                 if (postProcessingInstructionsArea.getText().trim().isEmpty()) {
                     postProcessingInstructionsArea.setText("Fix any build errors");
                 }
             } else { // None
-                buildFirstCheckbox.setEnabled(false);
-                buildFirstCheckbox.setSelected(false);
                 parallelOutputCombo.setSelectedItem("Include none");
             }
 
+            // Model label
             if (architect) {
                 String modelName = cm.getService().nameOf(cm.getArchitectModel());
                 postProcessingModelLabel.setText("Model: " + modelName);
@@ -890,7 +893,7 @@ public class BlitzForgeDialog extends JDialog {
         postProcessListener.actionPerformed(new java.awt.event.ActionEvent(runPostProcessCombo, java.awt.event.ActionEvent.ACTION_PERFORMED, ""));
 
 
-        // ---- add both panels ------------------------------
+        // Add both panels
         combined.add(parallelProcessingPanel);
         combined.add(ppPanel);
         contentPanel.add(combined, gbc);
