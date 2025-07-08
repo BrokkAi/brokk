@@ -445,17 +445,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                         }
                     }
 
-                    // Wait for any remaining tasks to complete if cancelled
-                    try {
-                        while (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
-                            if (isCancelled()) {
-                                break;
-                            }
-                        }
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-
                     var uiMessageText = results.stream()
                             .filter(r -> !r.llmOutput().isBlank())
                             .map(r -> "## " + r.file() + "\n" + r.llmOutput() + "\n\n")
