@@ -133,7 +133,7 @@ public class LlmTest {
 
         Map<String, Throwable> failures = new ConcurrentHashMap<>();
 
-        List.of("gemini-2.5-pro-exp-03-25").parallelStream()
+        List.of("gemini-2.5-pro").parallelStream()
                 .filter(k -> !k.contains("R1")) // R1 doesn't support tool calling OR json output
                 .forEach(modelName -> {
                     try {

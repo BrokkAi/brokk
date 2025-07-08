@@ -45,7 +45,7 @@ class EditBlockConflictsTest {
     }
 
     @Test
-    void testParseEditBlocksSimple() {
+    void testParseEditBlocksSimple(@TempDir Path tempDir) {
         String edit = """
                 Here's the change:
 
@@ -58,7 +58,7 @@ class EditBlockConflictsTest {
                 Hope you like it!
                 """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(tempDir, edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].filename().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -66,7 +66,7 @@ class EditBlockConflictsTest {
     }
 
     @Test
-    void testParseEditBlocksMultipleSameFile() {
+    void testParseEditBlocksMultipleSameFile(@TempDir Path tempDir) {
         String edit = """
                 Here's the change:
 
@@ -85,7 +85,7 @@ class EditBlockConflictsTest {
                 Hope you like it!
                 """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(tempDir, edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
         assertEquals("foo.txt", blocks[0].filename().toString());
@@ -98,7 +98,7 @@ class EditBlockConflictsTest {
     }
 
     @Test
-    void testParseEditBlocksNoFinalNewline() {
+    void testParseEditBlocksNoFinalNewline(@TempDir Path tempDir) {
         String edit = """
                 <<<<<<< SEARCH foo/coder.py
                 lineA
@@ -112,7 +112,7 @@ class EditBlockConflictsTest {
                 lineD
                 >>>>>>> REPLACE foo/coder.py"""; // no newline at the end
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo/coder.py"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(tempDir, edit, Set.of("foo/coder.py"));
         assertEquals(2, blocks.length);
         assertEquals("lineA\n", blocks[0].beforeText());
         assertEquals("lineB\n", blocks[0].afterText());
@@ -121,7 +121,7 @@ class EditBlockConflictsTest {
     }
 
     @Test
-    void testParseEditBlocksNewFileThenExisting() {
+    void testParseEditBlocksNewFileThenExisting(@TempDir Path tempDir) {
         String edit = """
                 Here's the change:
 
@@ -141,7 +141,7 @@ class EditBlockConflictsTest {
                 Hope you like it!
                 """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
+        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(tempDir, edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
         assertEquals("filename/to/a/file2.txt", blocks[0].filename());
         assertEquals("", blocks[0].beforeText().trim());
@@ -272,15 +272,15 @@ class EditBlockConflictsTest {
 
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt"));
         var blocks = EditBlockConflictsParser.instance.parseEditBlocks(response, ctx.getEditableFiles()).blocks();
-        var result = EditBlock.applyEditBlocks(ctx, io, blocks);
+                var result = EditBlock.applyEditBlocks(ctx, io, blocks);
 
-        // Verify original content is returned
-        var fileA = new ProjectFile(tempDir, Path.of("fileA.txt"));
-        assertEquals(originalContent, result.originalContents().get(fileA));
+                // Verify original content is returned
+                var fileA = new ProjectFile(tempDir, Path.of("fileA.txt"));
+                assertEquals(originalContent, result.originalContents().get(fileA));
 
-        // Verify file was actually changed
-        String actualContent = Files.readString(existingFile);
-        assertEquals("Updated text\n", actualContent);
+                // Verify file was actually changed
+                String actualContent = Files.readString(existingFile);
+                assertEquals("Updated text\n", actualContent);
     }
 
     @Test
@@ -462,10 +462,10 @@ class EditBlockConflictsTest {
         // Assert that the file content remains unchanged
         String finalContent = Files.readString(existingFile);
         assertEquals(fileContent, finalContent, "File content should remain unchanged after the failed edit");
-        }
+    }
 
-        @Test
-        void testNoMatchFailureWithDiffLikeSearchText(@TempDir Path tempDir) throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
+    @Test
+    void testNoMatchFailureWithDiffLikeSearchText(@TempDir Path tempDir) throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
             TestConsoleIO io = new TestConsoleIO();
             Path existingFile = tempDir.resolve("fileB.txt");
             String initialContent = "Line 1\nLine 2\nLine 3\n";
@@ -495,15 +495,15 @@ class EditBlockConflictsTest {
                        "Expected specific commentary about diff-like search text");
 
             // Assert that the file content remains unchanged
-            String finalContent = Files.readString(existingFile);
-            assertEquals(initialContent, finalContent, "File content should remain unchanged after the failed edit");
-        }
+        String finalContent = Files.readString(existingFile);
+        assertEquals(initialContent, finalContent, "File content should remain unchanged after the failed edit");
+    }
 
-        // ----------------------------------------------------
-        // Helper methods
-        // ----------------------------------------------------
-    private EditBlock.SearchReplaceBlock[] parseBlocks(String fullResponse, Set<String> validFilenames) {
-        var files = validFilenames.stream().map(f -> new ProjectFile(Path.of("/"), Path.of(f))).collect(Collectors.toSet());
+    // ----------------------------------------------------
+    // Helper methods
+    // ----------------------------------------------------
+    private EditBlock.SearchReplaceBlock[] parseBlocks(Path root, String fullResponse, Set<String> validFilenames) {
+        var files = validFilenames.stream().map(f -> new ProjectFile(root, Path.of(f))).collect(Collectors.toSet());
         var blocks = EditBlockConflictsParser.instance.parseEditBlocks(fullResponse, files).blocks();
         return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
     }
