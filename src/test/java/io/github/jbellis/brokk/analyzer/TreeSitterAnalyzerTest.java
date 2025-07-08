@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
-import io.github.jbellis.brokk.ContextFragment;
+import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.git.IGitRepo;
 import org.junit.jupiter.api.Test;
@@ -32,8 +32,8 @@ public final class TreeSitterAnalyzerTest {
         }
 
         @Override
-        public io.github.jbellis.brokk.analyzer.Language getAnalyzerLanguage() { // Use Brokk's Language enum
-            return language;
+        public Set<io.github.jbellis.brokk.analyzer.Language> getAnalyzerLanguages() { // Use Brokk's Language enum
+            return Set.of(language);
         }
 
         @Override
@@ -388,14 +388,11 @@ public final class TreeSitterAnalyzerTest {
                      normalizeSource.apply(ifaceSkeletonOpt.get()),
                      "getSkeleton for IAssetRegistrySA FQ name mismatch.");
 
-        // Create SkeletonFragment and assert its properties
-        var skeletonFragment = new ContextFragment.SkeletonFragment(skels);
-        assertTrue(skeletonFragment.skeletons().containsKey(ifaceCU),
-                   "SkeletonFragment should contain the interface CodeUnit as a key.");
-        assertTrue(skeletonFragment.format().contains(ifaceCU.fqName()),
-                   "SkeletonFragment.format() output should contain the FQDN of the interface. Got: " + skeletonFragment.format());
-        assertEquals("Summary of " + ifaceCU.identifier(), skeletonFragment.description(),
-                     "SkeletonFragment.description() mismatch.");
+        // Test skeleton content directly from the map
+        assertTrue(skels.containsKey(ifaceCU),
+                   "Skeleton map should contain the interface CodeUnit as a key.");
+        assertTrue(skels.get(ifaceCU).contains(ifaceCU.fqName()),
+                   "Skeleton content should contain the FQDN of the interface. Got: " + skels.get(ifaceCU));
 
         // Method source extraction for interface methods
         Optional<String> validateSourceOpt = analyzer.getMethodSource(validateCU.fqName());

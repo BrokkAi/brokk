@@ -1,10 +1,13 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.List;
@@ -114,7 +117,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     );
 
     public TypescriptAnalyzer(IProject project, Set<String> excludedFiles) {
-        super(project, excludedFiles);
+        super(project, Language.TYPESCRIPT, excludedFiles);
     }
 
     public TypescriptAnalyzer(IProject project) {
@@ -123,13 +126,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     // Optimized textSlice with caching for frequently accessed slices
     private String cachedTextSlice(TSNode node, String src) {
-        if (node == null || node.isNull()) {
+        if (node.isNull()) {
             return "";
-        }
-
-        // Initialize cache if null (can happen during parent constructor execution)
-        if (textSliceCache == null) {
-            return textSlice(node, src);
         }
 
         // Use more efficient key generation
@@ -170,32 +168,37 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         SkeletonType skeletonType = getSkeletonTypeForCapture(captureName);
 
         switch (skeletonType) {
-            case CLASS_LIKE:
+            case CLASS_LIKE -> {
                 finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                 return CodeUnit.cls(file, packageName, finalShortName);
-            case FUNCTION_LIKE:
-                 if (simpleName.equals("anonymous_arrow_function") || simpleName.isEmpty()) {
+            }
+            case FUNCTION_LIKE -> {
+                if (simpleName.equals("anonymous_arrow_function") || simpleName.isEmpty()) {
                     log.warn("Anonymous or unnamed function found for capture {} in file {}. ClassChain: {}. Will use placeholder or rely on extracted name.", captureName, file, classChain);
                     // simpleName might be "anonymous_arrow_function" if #set! "default_name" was used and no var name found
-                 }
+                }
                 finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 return CodeUnit.fn(file, packageName, finalShortName);
-            case FIELD_LIKE:
+            }
+            case FIELD_LIKE -> {
                 finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
-            case ALIAS_LIKE:
+            }
+            case ALIAS_LIKE -> {
                 // Type aliases are top-level or module-level, treated like fields for FQN and CU type.
                 finalShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 return CodeUnit.field(file, packageName, finalShortName);
-            default: // UNSUPPORTED or other
+            }
+            default -> {
                 log.debug("Ignoring capture in TypescriptAnalyzer: {} (mapped to type {}) with name: {} and classChain: {}",
                           captureName, skeletonType, simpleName, classChain);
-                return null;
+                throw new UnsupportedOperationException("Unsupported skeleton type: " + skeletonType);
+            }
         }
     }
 
     @Override
-    protected String formatReturnType(TSNode returnTypeNode, String src) {
+    protected String formatReturnType(@Nullable TSNode returnTypeNode, String src) {
         if (returnTypeNode == null || returnTypeNode.isNull()) {
             return "";
         }
@@ -234,7 +237,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         // The asyncPrefix parameter is deprecated from the base class and ignored here.
         String combinedPrefix = exportAndModifierPrefix.stripTrailing(); // e.g., "export async", "public static"
 
-        String tsReturnTypeSuffix = (returnTypeText != null && !returnTypeText.isEmpty()) ? ": " + returnTypeText.strip() : "";
+        String tsReturnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
         String signature;
         String bodySuffix;
 
@@ -282,7 +285,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String endMarker = "";
             if (!hasBody && !"arrow_function".equals(nodeType)) {
                 // Interface method signatures, abstract method signatures, non-ambient function signatures, and constructor signatures should not have semicolons per TypeScript conventions
-                boolean isFunctionSignatureInAmbient = "function_signature".equals(nodeType) && isInAmbientContext(funcNode);
                 boolean isNonAmbientFunctionSignature = "function_signature".equals(nodeType) && !isInAmbientContext(funcNode);
 
                 if (!SIGNATURE_NODE_TYPES.contains(nodeType) && !isNonAmbientFunctionSignature) {
@@ -359,7 +361,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             remainingSignature = remainingSignature.substring(strippedPrefix.length()).stripLeading();
         } else {
             // If the full prefix doesn't match, try to strip individual modifiers that might appear in the signature
-            String[] prefixParts = strippedPrefix.split("\\s+");
+            var prefixParts = Splitter.on("\\s+").splitToList(strippedPrefix);
             for (String part : prefixParts) {
                 if (remainingSignature.startsWith(part + " ")) {
                     remainingSignature = remainingSignature.substring((part + " ").length()).stripLeading();
@@ -460,12 +462,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * Checks if a function node is inside an ambient declaration context (declare namespace/module).
      * In ambient contexts, function signatures should not include the "function" keyword.
      */
-    protected boolean isInAmbientContext(TSNode node) {
-        // Handle null cache during parent constructor execution
-        if (ambientContextCache == null) {
-            return checkAmbientContextDirect(node);
-        }
-
+    boolean isInAmbientContext(TSNode node) {
         // Use position-based key instead of TSNode reference to avoid memory leaks
         String nodeKey = node.getStartByte() + ":" + node.getEndByte();
         return ambientContextCache.computeIfAbsent(nodeKey, k -> checkAmbientContextDirect(node));
@@ -539,15 +536,15 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Remove semicolons from type alias lines and filter out nested arrow functions
             skeleton = filterNestedArrowFunctions(skeleton, cu);
 
-            var lines = skeleton.split("\n");
+            var lines = Splitter.on('\n').splitToList(skeleton);
             var skeletonBuilder = new StringBuilder(skeleton.length());
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i];
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
                 if (TYPE_ALIAS_LINE.matcher(line).find()) {
                     line = TRAILING_SEMICOLON.matcher(line).replaceAll("");
                 }
                 skeletonBuilder.append(line);
-                if (i < lines.length - 1) {
+                if (i < lines.size() - 1) {
                     skeletonBuilder.append("\n");
                 }
             }
@@ -563,7 +560,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return cleaned;
     }
 
-    private boolean isTypeAlias(CodeUnit cu) {
+    public boolean isTypeAlias(CodeUnit cu) {
         // Check if this field-type CodeUnit represents a type alias
         // We can identify this by checking if there are signatures that contain "type " and " = "
         List<String> sigList = signatures.get(cu);
@@ -581,9 +578,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * Remove duplicate lines within a skeleton while preserving order and structure.
      */
     private String deduplicateSkeletonLines(String skeleton) {
-        var lines = skeleton.split("\n");
-        var result = new ArrayList<String>(lines.length);
-        var seen = new HashSet<String>(lines.length);
+        var lines = Splitter.on('\n').splitToList(skeleton);
+        var result = new ArrayList<String>(lines.size());
+        var seen = new HashSet<String>(lines.size());
 
         for (String line : lines) {
             String trimmedLine = line.trim();
@@ -598,7 +595,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Handle interface/class/enum header duplication (e.g., "export interface Point {" vs "interface Point {")
             // Also handle function signature variations (skeleton vs full source)
             boolean isDuplicate = false;
-            for (String seenLine : seen) {
+            String lineToRemove = null;
+            
+            // Create a copy of seen to avoid ConcurrentModificationException
+            var seenCopy = new ArrayList<>(seen);
+            
+            for (String seenLine : seenCopy) {
                 // Check if the seen line is an export version of the current line
                 if (seenLine.startsWith("export ") && seenLine.length() > 7 && seenLine.substring(7).equals(trimmedLine)) {
                     isDuplicate = true;
@@ -606,9 +608,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
                 // Check if the current line is an export version of a seen line
                 if (trimmedLine.startsWith("export ") && trimmedLine.length() > 7 && trimmedLine.substring(7).equals(seenLine)) {
-                    // Replace the non-export version with the export version
-                    seen.remove(seenLine);
-                    seen.add(trimmedLine);
+                    // Mark for replacement
+                    lineToRemove = seenLine;
                     // Find and replace the line in result
                     for (int i = 0; i < result.size(); i++) {
                         if (result.get(i).trim().equals(seenLine)) {
@@ -624,9 +625,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (isFunctionSignatureVariation(seenLine, trimmedLine)) {
                     // Prefer the skeleton version (with { ... }) over full implementation
                     if (trimmedLine.contains("{ ... }")) {
-                        // Current line is skeleton, replace the implementation
-                        seen.remove(seenLine);
-                        seen.add(trimmedLine);
+                        // Mark for replacement
+                        lineToRemove = seenLine;
                         for (int i = 0; i < result.size(); i++) {
                             if (result.get(i).trim().equals(seenLine)) {
                                 result.set(i, line);
@@ -639,9 +639,17 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     break;
                 }
             }
+            
+            // Apply the removal after iteration
+            if (lineToRemove != null) {
+                seen.remove(lineToRemove);
+            }
 
-            if (!isDuplicate && seen.add(trimmedLine)) {
+            if (!isDuplicate) {
+                seen.add(trimmedLine);
                 result.add(line);
+            } else if (lineToRemove != null) {
+                seen.add(trimmedLine);
             }
         }
 
@@ -707,7 +715,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private boolean isNestedInFunctionBody(String basename, String skeleton) {
         // For arrow functions, check the skeleton structure
         // Arrow functions that are direct namespace/module declarations should have proper declaration syntax
-        String[] lines = skeleton.split("\n");
+
+        var lines = Splitter.on('\n').splitToList(skeleton);
         for (String line : lines) {
             String trimmed = line.trim();
 
@@ -747,7 +756,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             return skeleton; // If we can't read the source, don't filter
         }
 
-        var lines = skeleton.split("\n");
+        var lines = Splitter.on('\n').splitToList(skeleton);
         var filteredLines = new ArrayList<String>();
 
         for (String line : lines) {
@@ -823,7 +832,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * If skeleton contains both regular and default export lines, keep only the default export.
      */
     private String extractDefaultExportIfPresent(String skeleton) {
-        var lines = skeleton.split("\n");
+        var lines = Splitter.on('\n').splitToList(skeleton);
         boolean hasDefaultExport = false;
 
         // Quick check for default export without creating stream - avoid strip() in loop
@@ -840,7 +849,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // Filter out non-default exports if default exports exist
-        var result = new ArrayList<String>(lines.length);
+        var result = new ArrayList<String>(lines.size());
         for (String line : lines) {
             String trimmed = line.trim();
             if (trimmed.startsWith("export default") || !trimmed.startsWith("export ")) {
@@ -887,7 +896,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
                 // Render the constructor signature manually
                 String signature = renderFunctionDeclaration(funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
-                if (signature != null && !signature.isBlank()) {
+                if (!signature.isBlank()) {
                     lines.add(signature);
                 }
                 return;
@@ -920,7 +929,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Find the declaration keyword (const, let) and variable_declarator
             for (int i = 0; i < lexicalDeclaration.getChildCount(); i++) {
                 TSNode child = lexicalDeclaration.getChild(i);
-                String childText = cachedTextSlice(child, src);
                 if ("variable_declarator".equals(child.getType())) {
                     variableDeclarator = child;
                     // Look for arrow_function in the value
@@ -956,7 +964,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 // Extract type parameters from arrow function
                 String typeParamsText = "";
                 var profile = getLanguageSyntaxProfile();
-                if (profile.typeParametersFieldName() != null && !profile.typeParametersFieldName().isEmpty()) {
+                if (!profile.typeParametersFieldName().isEmpty()) {
                     TSNode typeParamsNode = arrowFunctionNode.getChildByFieldName(profile.typeParametersFieldName());
                     if (typeParamsNode != null && !typeParamsNode.isNull()) {
                         typeParamsText = cachedTextSlice(typeParamsNode, src);
@@ -973,7 +981,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 // Build the abbreviated arrow function skeleton - use existing exportPrefix which already contains the modifiers
                 String asyncPrefix = isAsync ? "async" : "";
                 String signature = renderFunctionDeclaration(arrowFunctionNode, src, exportPrefix, asyncPrefix, functionName, typeParamsText, paramsText, returnTypeText, indent);
-                if (signature != null && !signature.isBlank()) {
+                if (!signature.isBlank()) {
                     lines.add(signature);
                 }
                 return;
@@ -997,11 +1005,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
 
             // Remove semicolons from function overload signatures
-            String[] lines = source.split("\n");
+            List<String> lines = Splitter.on('\n').splitToList(source);
             var cleaned = new StringBuilder(source.length());
 
-            for (int i = 0; i < lines.length; i++) {
-                String line = lines[i];
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
                 String trimmed = line.strip();
 
                 // Remove semicolons from function overload signatures (lines ending with ; that don't have {)
@@ -1010,7 +1018,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 cleaned.append(line);
-                if (i < lines.length - 1) {
+                if (i < lines.size() - 1) {
                     cleaned.append("\n");
                 }
             }
@@ -1019,6 +1027,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         return result;
+    }
+
+    @Override
+    protected TSLanguage createTSLanguage() {
+        return new TreeSitterTypescript();
     }
 
     @Override
@@ -1091,6 +1104,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     /**
      * Find direct parent of a CodeUnit by looking in childrenByParent map
      */
+    @Nullable
     private CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : childrenByParent.entrySet()) {
             CodeUnit parent = entry.getKey();

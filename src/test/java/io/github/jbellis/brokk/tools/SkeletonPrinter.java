@@ -58,8 +58,8 @@ public class SkeletonPrinter {
     private record DirectoryProject(Path root, Language language) implements IProject {
 
         @Override
-        public Language getAnalyzerLanguage() {
-                return language;
+        public Set<Language> getAnalyzerLanguages() {
+                return Set.of(language);
             }
 
         @Override
@@ -85,8 +85,8 @@ public class SkeletonPrinter {
     private record SingleFileProject(Path root, Path filePath, Language language) implements IProject {
 
         @Override
-        public Language getAnalyzerLanguage() {
-            return language;
+        public Set<Language> getAnalyzerLanguages() {
+            return Set.of(language);
         }
 
         @Override

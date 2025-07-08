@@ -525,22 +525,29 @@ public interface Language {
         private final List<String> extensions = List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
         @Override public List<String> getExtensions() { return extensions; }
         @Override public String name() { return "TYPESCRIPT"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(Project project) {
-            return new TypescriptAnalyzer(project, project.getBuildDetails().excludedDirectories());
+
+        @Override
+        public String internalName() {
+            return name();
         }
-        @Override public IAnalyzer loadAnalyzer(Project project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
+            return new TypescriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+        }
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
+        @Override public String toString() { return name(); }
         // TODO: Implement getDependencyCandidates for TypeScript (e.g. node_modules, similar to JAVASCRIPT)
-        @Override public List<Path> getDependencyCandidates(Project project) {
+        /*@Override public List<Path> getDependencyCandidates(Project project) {
             // Leveraging JAVASCRIPT's logic for node_modules as a starting point
             return JAVASCRIPT.getDependencyCandidates(project);
-        }
+        }*/
         // TODO: Refine isAnalyzed for TypeScript
-        @Override
-        public boolean isAnalyzed(Project project, Path pathToImport) {
-            // Leveraging JAVASCRIPT's logic as a starting point
-            return JAVASCRIPT.isAnalyzed(project, pathToImport);
-        }
     };
 
     List<Language> ALL_LANGUAGES = List.of(C_SHARP,

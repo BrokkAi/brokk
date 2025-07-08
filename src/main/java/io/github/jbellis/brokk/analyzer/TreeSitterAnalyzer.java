@@ -992,6 +992,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         var profile = getLanguageSyntaxProfile();
         SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
 
+        System.out.println(decoratorNodes);
+
         TSNode nodeForContent = definitionNode;
 
 /* <<<<<<< HEAD
@@ -1009,19 +1011,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 boolean typeMatch = false;
                 String innerType = declarationInExport.getType();
                 switch (skeletonType) {
-                    case CLASS_LIKE:
-                        typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                        break;
-                    case FUNCTION_LIKE:
-                        typeMatch = profile.functionLikeNodeTypes().contains(innerType);
-                        break;
-                    case FIELD_LIKE:
-                        typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
-                        break;
-                    case ALIAS_LIKE:
-                        typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT) && "type_alias_declaration".equals(innerType));
-                        break;
-                    default: break;
+                    case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
+                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType);
+                    case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
+                    case ALIAS_LIKE ->
+                            typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT) && "type_alias_declaration".equals(innerType));
+                    default -> {
+                    }
                 }
                 if (typeMatch) {
                     nodeForContent = declarationInExport;
@@ -1153,7 +1149,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                         fieldSignatureText = fieldSignatureText.substring(strippedExportPrefix.length()).stripLeading();
                     }
                     String fieldLine = formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
-                    if (fieldLine != null && !fieldLine.isBlank()) signatureLines.add(fieldLine);
+                    if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
                 }
 /* ======= */
                 /*String fieldDeclText = textSlice(nodeForContent, src).stripLeading().strip();
@@ -1166,13 +1162,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 // >>>>>>> master
                 }*/
                 String fieldLine = formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
-                if (fieldLine != null && !fieldLine.isBlank()) signatureLines.add(fieldLine);
+                if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
                 break;
             }
             case ALIAS_LIKE: {
                 // nodeForContent should be the type_alias_declaration node itself
                 String typeParamsText = "";
-                if (profile.typeParametersFieldName() != null && !profile.typeParametersFieldName().isEmpty()) {
+                if (!profile.typeParametersFieldName().isEmpty()) {
                     TSNode typeParamsNode = nodeForContent.getChildByFieldName(profile.typeParametersFieldName());
                     if (typeParamsNode != null && !typeParamsNode.isNull()) {
                         typeParamsText = textSlice(typeParamsNode, src); // Raw text including < >
@@ -1365,7 +1361,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // Extract type parameters if available
         String typeParamsText = "";
-        if (profile.typeParametersFieldName() != null && !profile.typeParametersFieldName().isEmpty()) {
+        if (!profile.typeParametersFieldName().isEmpty()) {
             TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
             if (typeParamsNode != null && !typeParamsNode.isNull()) {
                 typeParamsText = textSlice(typeParamsNode, src); // Raw text including < >
@@ -1374,7 +1370,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 
         // The asyncPrefix parameter is removed from assembleFunctionSignature
         String functionLine = assembleFunctionSignature(funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
-        if (functionLine != null && !functionLine.isBlank()) {
+        if (!functionLine.isBlank()) {
 /* =======
         // Use the passed-in outerExportPrefix. If it's empty, then allow getVisibilityPrefix to check funcNode itself for local modifiers.
         String exportPrefix = !outerExportPrefix.isEmpty() ? outerExportPrefix : getVisibilityPrefix(funcNode, src);
