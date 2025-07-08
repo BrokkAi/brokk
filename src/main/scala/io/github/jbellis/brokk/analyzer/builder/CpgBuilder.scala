@@ -46,12 +46,49 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!")
       val fileChanges = IncrementalUtils.determineChangedFiles(cpg, Paths.get(config.inputPath))
-      logger.debug(s"All file changes ${fileChanges.mkString("\n")}")
+      debugChanges(fileChanges)
+
       cpg.removeStaleFiles(fileChanges)
         .buildAddedAsts(fileChanges, buildDir => runPasses(cpg, config.withInputPath(buildDir.toString)))
     } else {
       runPasses(cpg, config)
     }
+  }
+
+  private def debugChanges(fileChanges: Seq[FileChange]): Unit = {
+    val extensionGroups = fileChanges.map { p =>
+        val maybeExt = p.path.getFileName.toString.split('.').lastOption
+        maybeExt.getOrElse("<N/A>") -> p
+      }.groupBy(_._1)
+      .map { case (ext, groups) => ext -> groups.map(_._2) }
+
+    val topGroups = extensionGroups
+      .sortBy(_._2.size)
+      .takeRight(10)
+      .toMap
+    val otherGroups = extensionGroups.removedAll(topGroups.keySet)
+
+    def changesString(ext: String, changes: Seq[FileChange]): String = {
+      val additions = changes.count(_.isInstanceOf[AddedFile])
+      val removals = changes.count(_.isInstanceOf[RemovedFile])
+      val modifications = changes.count(_.isInstanceOf[ModifiedFile])
+      s" - .$ext: $additions additions, $removals removals, $modifications modifications"
+    }
+
+    val mainChanges = extensionGroups
+      .sortBy(_._2.size)
+      .takeRight(10)
+      .map(changesString)
+      .mkString("\n")
+
+    val finalLine = if otherGroups.nonEmpty then {
+      val otherChanges = changesString("Other", otherGroups.flatMap(_._2).toSeq)
+      s"$mainChanges\n$otherChanges"
+    } else {
+      mainChanges
+    }
+
+    logger.debug(s"All file changes\n$finalLine")
   }
 
   protected def runPasses(cpg: Cpg, config: R): Cpg = {
