@@ -764,9 +764,27 @@ public class BlitzForgeDialog extends JDialog {
         buildCheckboxGbc.gridy = 1; // This is now row 1 as combo/model are on row 0
         buildCheckboxGbc.weightx = 0.0;
         buildFirstCheckbox = new JCheckBox("Build project first");
-        buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+        buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing"); // Kept for when it IS enabled
         buildFirstCheckbox.setEnabled(false);
-        actionPanel.add(buildFirstCheckbox, buildCheckboxGbc);
+
+        // Build first info icon (only visible when no build command)
+        JLabel buildFirstInfoIcon = new JLabel(smallInfoIcon);
+        buildFirstInfoIcon.setToolTipText("No build/verification command available");
+        buildFirstInfoIcon.setVisible(false); // Initially hidden
+
+        JPanel buildFirstPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        buildFirstPanel.add(buildFirstCheckbox);
+
+        // Place the info icon in the first column, aligned under the Action icon
+        GridBagConstraints buildIconGbc = new GridBagConstraints();
+        buildIconGbc.insets = new Insets(5, 5, 5, 5);
+        buildIconGbc.anchor = GridBagConstraints.WEST;
+        buildIconGbc.fill = GridBagConstraints.NONE;
+        buildIconGbc.gridx = 0;
+        buildIconGbc.gridy = 1;
+        actionPanel.add(buildFirstInfoIcon, buildIconGbc);
+
+        actionPanel.add(buildFirstPanel, buildCheckboxGbc);
 
         ppPanel.add(actionPanel, ppGBC);
         ppGBC.gridwidth = 1;
@@ -847,9 +865,12 @@ public class BlitzForgeDialog extends JDialog {
                 // No verify command -> always disabled & unselected
                 buildFirstCheckbox.setEnabled(false);
                 buildFirstCheckbox.setSelected(false);
-                buildFirstCheckbox.setToolTipText("No build/verification command available");
+                // The tooltip is on the info icon, so no need to set it here specifically for the checkbox
+                // buildFirstCheckbox.setToolTipText("No build/verification command available"); // This line can be removed if desired
+                buildFirstInfoIcon.setVisible(true); // show the info icon
             } else {
                 buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+                buildFirstInfoIcon.setVisible(false); // hide the info icon
                 switch (selectedOption) {
                     case "Architect" -> {
                         buildFirstCheckbox.setEnabled(true);
