@@ -46,6 +46,12 @@ public class BlitzForgeProgressDialog extends JDialog {
 
     public enum PostProcessingOption { NONE, ARCHITECT, ASK }
 
+    /**
+     * How much of the parallel-processing output to include when passing the
+     * results to the post-processing phase.
+     */
+    public enum ParallelOutputMode { NONE, ALL, CHANGED }
+
     private static final Logger logger = LogManager.getLogger(BlitzForgeProgressDialog.class);
     private final JProgressBar progressBar;
     private final JTextArea outputTextArea;
@@ -287,7 +293,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                                     boolean includeWorkspace,
                                     PostProcessingOption runOption,
                                     String contextFilter,
-                                    String parallelOutputMode,
+                                    ParallelOutputMode outputMode,
                                     boolean buildFirst,
                                     String postProcessingInstructions)
     {
@@ -450,10 +456,10 @@ public class BlitzForgeProgressDialog extends JDialog {
                             .map(r -> "## " + r.file() + "\n" + r.llmOutput() + "\n\n")
                             .collect(Collectors.joining());
 
-                    var uiMessages = !uiMessageText.isEmpty()
-                                     ? List.of(new UserMessage(instructions),
-                                               CodePrompts.redactAiMessage(new AiMessage(uiMessageText), EditBlockConflictsParser.instance).orElse(new AiMessage("")))
-                                     : List.<ChatMessage>of();
+                    var uiMessages = uiMessageText.isEmpty()
+                            ? List.<ChatMessage>of()
+                            : List.of(new UserMessage(instructions),
+                                      CodePrompts.redactAiMessage(new AiMessage(uiMessageText), EditBlockConflictsParser.instance).orElse(new AiMessage("")));
 
                     List<String> failures = results.stream()
                             .filter(r -> r.errorMessage() != null)
@@ -530,8 +536,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                 progressBar.setString("Completed. " + totalFiles + " of " + totalFiles + " files processed."); // Final progress text
 
                 outputTextArea.append("\nParallel processing complete.\n");
-
-                // If no post-processing option is selected, we are done
                 // If no post-processing option is selected, we are done
                 if (runOption == PostProcessingOption.NONE) {
                     return;
@@ -564,20 +568,17 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
-                var parallelDetails = switch (parallelOutputMode) {
-                    case "none" -> "The task was applied to the following files:\n```\n%s```".formatted(files);
-                    case "changed" -> {
-                        var output = Messages.getText(result.output().messages().getLast());
-                        if (output.isBlank()) {
-                            yield "No changes were made to any files.";
-                        }
+                var messages = result.output().messages();
+                assert messages.isEmpty() || messages.size() == 22; // by construction
+                var effectiveOutputMode = messages.isEmpty() ? ParallelOutputMode.NONE : outputMode;
+                var parallelDetails = switch (effectiveOutputMode) {
+                    case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
+                    case CHANGED -> {
+                        var output = Messages.getText(messages.getLast());
                         yield "The parallel processing made changes to the following files:\n```\n%s```".formatted(output);
                     }
                     default -> { // "all"
-                        var output = Messages.getText(result.output().messages().getLast());
-                        if (output.isBlank()) {
-                            yield "No output was produced from the parallel processing.";
-                        }
+                        var output = Messages.getText(messages.getLast());
                         yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
                     }
                 };

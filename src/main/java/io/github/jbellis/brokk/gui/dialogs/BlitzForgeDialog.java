@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
 import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.util.Messages;
@@ -1415,11 +1416,11 @@ public class BlitzForgeDialog extends JDialog {
             case "Ask" -> PostProcessingOption.ASK;
             default -> PostProcessingOption.NONE;
         };
-        String selectedInclude = (String) parallelOutputCombo.getSelectedItem();
-        String parallelOutputMode = switch (selectedInclude) {
-            case "Include none" -> "none";
-            case "Include changed files" -> "changed";
-            default -> "all";
+        var selectedInclude = (String) parallelOutputCombo.getSelectedItem();
+        var parallelOutputMode = switch (selectedInclude) {
+            case "Include none" -> ParallelOutputMode.NONE;
+            case "Include changed files" -> ParallelOutputMode.CHANGED;
+            default -> ParallelOutputMode.ALL;
         };
         boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();
