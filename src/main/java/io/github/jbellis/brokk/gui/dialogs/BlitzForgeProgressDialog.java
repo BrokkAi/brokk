@@ -335,6 +335,28 @@ public class BlitzForgeProgressDialog extends JDialog {
         buttonPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
         add(buttonPanel, BorderLayout.SOUTH);
 
+        // set up executorService
+        var contextManager = chrome.getContextManager();
+        var service = contextManager.getService();
+        var model = requireNonNull(service.getModel(selectedFavorite.modelName(), selectedFavorite.reasoning()));
+
+        @Nullable Integer maxConcurrentRequests = service.getMaxConcurrentRequests(model);
+        @Nullable Integer tokensPerMinute = service.getTokensPerMinute(model);
+
+        final TokenRateLimiter rateLimiter;
+        int poolSize;
+        if (maxConcurrentRequests != null) {
+            poolSize = Math.min(maxConcurrentRequests, Math.max(1, filesToProcess.size()));
+            rateLimiter = null;
+        } else if (tokensPerMinute != null) {
+            rateLimiter = new TokenRateLimiter(tokensPerMinute);
+            poolSize = 100;
+        } else {
+            throw new IllegalStateException("Neither max_concurrent_requests nor tokens_per_minute defined for model "
+                    + service.nameOf(model));
+        }
+        executorService = Executors.newFixedThreadPool(poolSize);
+
         worker = new SwingWorker<>() {
             @Override
             protected TaskResult doInBackground() {
@@ -370,36 +392,31 @@ public class BlitzForgeProgressDialog extends JDialog {
                             .sorted(Comparator.comparingLong(BlitzForgeProgressDialog::fileSize))
                             .toList();
 
-                    // If there are files to process, start by preloading the prefix cache
-                    if (!sortedFiles.isEmpty()) {
-                        SwingUtilities.invokeLater(() -> progressBar.setString("Preloading prefix cache..."));
+                    SwingUtilities.invokeLater(() -> progressBar.setString("Preloading prefix cache..."));
 
-                        // Process the very first file synchronously to warm up caches
-                        if (!isCancelled()) {
-                            var firstResult = processSingleFile(sortedFiles.getFirst(),
-                                                                contextManager,
-                                                                model,
-                                                                instructions,
-                                                                action,
-                                                                includeWorkspace,
-                                                                relatedK,
-                                                                perFileCommandTemplate,
-                                                                frozenContext,
-                                                                contextFilter,
-                                                                rateLimiter);
-                            processedFileCount.set(1); // Mark the first file as processed
-                            // Publish result for the first file
-                            publish(new ProgressData(processedFileCount.get(), firstResult.file().toString(), firstResult.errorMessage()));
-                            results.add(firstResult);
-                        }
+                    // Process the very first file synchronously to warm up caches
+                    if (!isCancelled()) {
+                        var firstResult = processSingleFile(sortedFiles.getFirst(),
+                                contextManager,
+                                model,
+                                instructions,
+                                action,
+                                includeWorkspace,
+                                relatedK,
+                                perFileCommandTemplate,
+                                frozenContext,
+                                contextFilter,
+                                rateLimiter);
+                        processedFileCount.set(1); // Mark the first file as processed
+                        // Publish result for the first file
+                        publish(new ProgressData(processedFileCount.get(), firstResult.file().toString(), firstResult.errorMessage()));
+                        results.add(firstResult);
+                    }
 
-                        // Early exit if user cancelled during first file processing
-                        if (isCancelled()) {
-                            executorService.shutdownNow();
-                            return new TaskResult(contextManager, instructions,
-                                                  List.of(), new HashSet<>(filesToProcess),
-                                                  new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation."));
-                        }
+                    // Early exit if user cancelled during first file processing
+                    if (isCancelled()) {
+                        var sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
+                        return new TaskResult(contextManager, instructions, List.of(), new HashSet<>(filesToProcess), sd);
                     }
 
                     // Submit the remaining files for concurrent processing
@@ -420,7 +437,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                                              rateLimiter));
                         }
                     });
-                    executorService.shutdown(); // No new tasks will be submitted
 
                     // Collect results for remaining files. Loop totalFiles - 1 times since one file was processed upfront.
                     // If filesToProcess is 0 or 1, this loop won't run.
@@ -448,12 +464,10 @@ public class BlitzForgeProgressDialog extends JDialog {
                     try {
                         while (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
                             if (isCancelled()) {
-                                executorService.shutdownNow();
                                 break;
                             }
                         }
                     } catch (InterruptedException e) {
-                        executorService.shutdownNow();
                         Thread.currentThread().interrupt();
                     }
 
@@ -472,17 +486,18 @@ public class BlitzForgeProgressDialog extends JDialog {
                             .map(r -> r.file() + ": " + r.errorMessage())
                             .toList();
 
-                    TaskResult.StopDetails stopDetails;
+                    TaskResult.StopDetails sd;
                     if (failures.isEmpty() && !isCancelled()) {
-                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                        sd = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
                     } else if (isCancelled()) {
-                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
+                        sd = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED, "User cancelled operation.");
                     } else {
-                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
+                        sd = new TaskResult.StopDetails(TaskResult.StopReason.TOOL_ERROR, String.join("\n", failures));
                     }
 
-                    return new TaskResult(contextManager, instructions, uiMessages, new HashSet<>(filesToProcess), stopDetails);
+                    return new TaskResult(contextManager, instructions, uiMessages, new HashSet<>(filesToProcess), sd);
                 } finally {
+                    executorService.shutdownNow();
                     analyzerWrapper.resume();
                 }
             }
