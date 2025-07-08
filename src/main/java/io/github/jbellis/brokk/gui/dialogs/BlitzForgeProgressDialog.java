@@ -509,10 +509,6 @@ public class BlitzForgeProgressDialog extends JDialog {
             @Override
             protected void done() {
                 chrome.enableActionButtons();
-                // Ensure executor service is shut down if it's still running
-                if (executorService != null && !executorService.isTerminated()) {
-                    executorService.shutdownNow();
-                }
                 llmLineCountTimer.stop(); // Stop the timer for LLM line count updates
                 cancelButton.setText("Close"); // Change button text to "Close"
                 // Remove existing action listener and add one to simply close the dialog
@@ -637,9 +633,6 @@ public class BlitzForgeProgressDialog extends JDialog {
         cancelButton.addActionListener(e -> {
             if (!worker.isDone()) {
                 worker.cancel(true);
-                if (executorService != null) {
-                    executorService.shutdownNow();
-                }
             } else { // Worker is done, button is "Close"
                 setVisible(false);
             }
@@ -656,9 +649,6 @@ public class BlitzForgeProgressDialog extends JDialog {
                                                                JOptionPane.QUESTION_MESSAGE);
                     if (choice == JOptionPane.YES_OPTION) {
                         worker.cancel(true);
-                        if (executorService != null) {
-                            executorService.shutdownNow();
-                        }
                     }
                 } else {
                     setVisible(false);
