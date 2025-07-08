@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder
 
-import io.github.jbellis.brokk.analyzer.builder.passes.RemovedFilePass
+import io.github.jbellis.brokk.analyzer.builder.passes.incremental.RemovedFilePass
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.shiftleft.codepropertygraph.generated.Cpg

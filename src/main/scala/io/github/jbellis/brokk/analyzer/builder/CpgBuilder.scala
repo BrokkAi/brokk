@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
 import io.github.jbellis.brokk.analyzer.builder.passes.idempotent
+import io.github.jbellis.brokk.analyzer.builder.passes.incremental.PruneTypesPass
 import io.joern.x2cpg.X2CpgConfig
 import io.joern.x2cpg.passes.base.*
 import io.joern.x2cpg.passes.callgraph.*
@@ -91,7 +92,8 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     // These are separated as we may want to insert our own custom, framework-specific passes
     // in between these at some point in the future. For now, these resemble the default Joern
     // pass ordering and strategy minus CFG.
-    (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg)).foreach(_.createAndApply())
+    (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg) ++ postProcessingPasses(cpg))
+      .foreach(_.createAndApply())
     cpg
   }
 
@@ -123,9 +125,13 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   protected def callGraphPasses(cpg: Cpg): Iterator[CpgPassBase] = {
     Iterator(
       new MethodRefLinker(cpg),
-      new StaticCallLinker(cpg),
+      new idempotent.callgraph.StaticCallLinker(cpg),
       new DynamicCallLinker(cpg)
     )
+  }
+
+  protected def postProcessingPasses(cpg: Cpg): Iterator[CpgPassBase] = {
+    Iterator(new PruneTypesPass(cpg))
   }
 
 }

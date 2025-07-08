@@ -1,4 +1,4 @@
-package io.github.jbellis.brokk.analyzer.builder.passes
+package io.github.jbellis.brokk.analyzer.builder.passes.incremental
 
 import io.github.jbellis.brokk.analyzer.builder.*
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
@@ -55,12 +55,13 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
     // io.joern.x2cpg.passes.base.FileCreationPass tells us what we need to know about how File nodes interact
     // with other entities. TLDR: (NAMESPACE_BLOCK | TYPE_DECL | METHOD | COMMENT) -[SOURCE_FILE]-> (FILE)
     val fileChildren = fileNode._sourceFileIn
-      .collect {
+      .map {
         // avoid special nodes
         case x: NamespaceBlock if !isSpecialNodeName(x.fullName) => x
         case x: Namespace if !isSpecialNodeName(x.name) => x
         case x: TypeDecl if !isSpecialNodeName(x.fullName) => x
         case x: Type if !isSpecialNodeName(x.fullName) => x
+        case other => other
       }
       .cast[AstNode] // All nodes from here inherit the AstNode abstract type
       .flatMap(_.ast)

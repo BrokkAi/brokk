@@ -63,7 +63,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
      * @param edgeKind the edge kind to verify.
      */
     def assertSingleEdgePairs(edgeKind: String): Unit = {
-      withClue(s"Detected more than one ${edgeKind} edge between the same two nodes.") {
+      withClue(s"Detected more than one $edgeKind edge between the same two nodes.") {
         updated.graph.allEdges
           .collect { case e if e.edgeKind == updated.graph.schema.getEdgeKindByLabel(edgeKind) => e }
           .groupCount { e => (e.src.id(), e.dst.id()) }
@@ -98,6 +98,17 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     }
     withClue("No internal method(s) detected.") {
       updated.method.isExternal(false).size should be > 0
+    }
+
+    // Check for duplicates
+    withClue("Duplicate methods detected.") {
+      updated.method.fullName.dedup.sorted.l shouldBe updated.method.fullName.sorted.l
+    }
+    withClue("Duplicate type declarations detected.") {
+      updated.typeDecl.fullName.dedup.sorted.l shouldBe updated.typeDecl.fullName.sorted.l
+    }
+    withClue("Duplicate namespace blocks detected.") {
+      updated.namespaceBlock.fullName.dedup.sorted.l shouldBe updated.namespaceBlock.fullName.sorted.l
     }
 
     // Assert no common oddities in the CPG, i.e, might result from non-idempotency of base passes
