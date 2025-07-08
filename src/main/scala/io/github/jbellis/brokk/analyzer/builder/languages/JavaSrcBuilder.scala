@@ -2,11 +2,12 @@ package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.builder.passes.idempotent
-import io.joern.javasrc2cpg.Config as JavaSrcConfig
 import io.joern.javasrc2cpg.passes.{AstCreationPass, OuterClassRefPass, TypeInferencePass}
+import io.joern.javasrc2cpg.{JavaSrc2Cpg, Config as JavaSrcConfig}
 import io.joern.x2cpg.passes.frontend.JavaConfigFileCreationPass
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
+import java.nio.file.Path
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -30,6 +31,9 @@ object JavaSrcBuilder {
       }
       cpg
     }
+
+    override def isRelevantFile(f: Path): Boolean =
+      f.getFileName.toString.split('.').lastOption.exists(ext => JavaSrc2Cpg.sourceFileExtensions.contains(s".$ext"))
 
   }
 

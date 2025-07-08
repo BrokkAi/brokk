@@ -26,6 +26,7 @@ class SimpleBuildTest extends CpgTestFixture[Config] {
 
       "create a file node linked to a namespace, type decl, and method node, via SOURCE_FILE" in {
         val file = cpg.file.nameExact("com/world/hello/Foo.java").head
+        file.hash.isDefined shouldBe true
         inside(file._sourceFileIn.toList) { case (comWorldHello: NamespaceBlock) :: (foo: TypeDecl) :: (m1: Method) :: (m2: Method) :: Nil =>
           comWorldHello.name shouldBe "com.world.hello"
           foo.name shouldBe "Foo"

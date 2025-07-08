@@ -2,7 +2,8 @@ package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
 import io.github.jbellis.brokk.analyzer.builder.passes.idempotent
-import io.github.jbellis.brokk.analyzer.builder.passes.incremental.PruneTypesPass
+import io.github.jbellis.brokk.analyzer.builder.passes.incremental.{HashFilesPass, PruneTypesPass}
+import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.joern.x2cpg.passes.base.*
 import io.joern.x2cpg.passes.callgraph.*
@@ -11,9 +12,10 @@ import io.joern.x2cpg.passes.typerelations.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
+import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.IOException
-import java.nio.file.Paths
+import java.nio.file.{Path, Paths}
 import scala.util.{Try, Using}
 
 /**
@@ -22,6 +24,8 @@ import scala.util.{Try, Using}
  * @tparam R the language's configuration object.
  */
 trait CpgBuilder[R <: X2CpgConfig[R]] {
+
+  protected val logger: Logger = LoggerFactory.getLogger(getClass)
 
   /**
    * The user-friendly string for the target language.
@@ -39,13 +43,26 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
    */
   def build(cpg: Cpg, config: R): Cpg = {
     if (cpg.metaData.nonEmpty) {
-      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, Paths.get(config.inputPath))
+      if cpg.projectRoot != Paths.get(config.inputPath) then
+        logger.warn(s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!")
+      val fileChanges = IncrementalUtils
+        .determineChangedFiles(cpg, Paths.get(config.inputPath))
+        .filter(f => isRelevantFile(f.path))
+      logger.debug(s"All file changes ${fileChanges.mkString("\n")}")
       cpg.removeStaleFiles(fileChanges)
         .buildAddedAsts(fileChanges, buildDir => runPasses(cpg, config.withInputPath(buildDir.toString)))
     } else {
       runPasses(cpg, config)
     }
   }
+
+  /**
+   * Used to determine if this file is relevant to the frontend or not.
+   *
+   * @param f the file path.
+   * @return true if this file is intended to be parsed, false if otherwise.
+   */
+  protected def isRelevantFile(f: Path): Boolean
 
   protected def runPasses(cpg: Cpg, config: R): Cpg = {
     Using.resource(createAst(cpg, config).getOrElse {
@@ -131,7 +148,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   }
 
   protected def postProcessingPasses(cpg: Cpg): Iterator[CpgPassBase] = {
-    Iterator(new PruneTypesPass(cpg))
+    Iterator(new PruneTypesPass(cpg), new HashFilesPass(cpg))
   }
 
 }

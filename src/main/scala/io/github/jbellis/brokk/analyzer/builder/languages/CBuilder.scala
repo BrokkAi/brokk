@@ -10,6 +10,7 @@ import io.joern.x2cpg.SourceFiles
 import io.joern.x2cpg.utils.Report
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
 
+import java.nio.file.Path
 import scala.util.Try
 
 object CBuilder {
@@ -17,6 +18,8 @@ object CBuilder {
   given cBuilder: CpgBuilder[CConfig] with {
 
     override protected val language: String = "C/C++"
+    private lazy val relevantFileExtensions =
+      FileDefaults.SourceFileExtensions ++ FileDefaults.CppHeaderFileExtensions ++ FileDefaults.PreprocessedExt
 
     override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
@@ -35,27 +38,30 @@ object CBuilder {
       cpg
     }
 
-    private def gatherFileExtensions(config: CConfig): Set[String] = {
-      FileDefaults.SourceFileExtensions ++
-        FileDefaults.CppHeaderFileExtensions ++
-        Option.when(config.withPreprocessedFiles)(FileDefaults.PreprocessedExt).toList
-    }
+    override protected def isRelevantFile(f: Path): Boolean =
+      f.getFileName.toString.split('.').lastOption.exists(ext => relevantFileExtensions.contains(s".$ext"))
 
-    private def allPreprocessedFiles(config: CConfig): List[String] = {
-      if (config.withPreprocessedFiles) {
-        SourceFiles
-          .determine(
-            config.inputPath,
-            Set(FileDefaults.PreprocessedExt),
-            ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
-            ignoredFilesRegex = Option(config.ignoredFilesRegex),
-            ignoredFilesPath = Option(config.ignoredFiles)
-          )
-      } else {
-        List.empty
-      }
-    }
+  }
 
+  def gatherFileExtensions(config: CConfig): Set[String] = {
+    FileDefaults.SourceFileExtensions ++
+      FileDefaults.CppHeaderFileExtensions ++
+      Option.when(config.withPreprocessedFiles)(FileDefaults.PreprocessedExt).toList
+  }
+
+  def allPreprocessedFiles(config: CConfig): List[String] = {
+    if (config.withPreprocessedFiles) {
+      SourceFiles
+        .determine(
+          config.inputPath,
+          Set(FileDefaults.PreprocessedExt),
+          ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
+          ignoredFilesRegex = Option(config.ignoredFilesRegex),
+          ignoredFilesPath = Option(config.ignoredFiles)
+        )
+    } else {
+      List.empty
+    }
   }
 
 }
