@@ -34,7 +34,7 @@ const languageAttributeTransformer = {
 };
 
 // Singleton promise for the Shiki highlighter
-const highlighterPromise = createHighlighterCore({
+export const highlighterPromise = createHighlighterCore({
   themes: [cssVarsTheme],
   langs: [js, ts, python, java, bash, json, yaml, markdown],
   engine: createJavaScriptRegexEngine({

@@ -17,11 +17,13 @@
     "svelte-check": "^3.6.2",
     "svelte-preprocess": "^5.1.0",
     "typescript": "^5.2.2",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@shikijs/rehype": "^3.7.0",
     "@yrobot/auto-scroll": "^3.0.1",
+    "diff": "^8.0.2",
     "remark-breaks": "^4.0.0",
     "svelte-exmarkdown": "^5.0.1"
   }

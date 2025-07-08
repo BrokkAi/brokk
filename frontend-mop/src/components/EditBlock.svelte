@@ -1,12 +1,15 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
+  import { highlighterPromise, ensureLang } from '../shiki-plugin';
+  import { buildUnifiedDiff, detectLang } from '../lib/diff-utils';
+  import { transformerDiffLines } from '../shiki-diff-transformer';
 
   let {
     filename = '?',
     adds = '0',
     dels = '0',
-    changed = '0',
-    status = 'UNKNOWN',
+    // changed = '0', // prop available if needed
+    // status = 'UNKNOWN', // prop available if needed
     search = '',
     replace = ''
   } = $props();
@@ -15,10 +18,41 @@
   const numDels = +dels;
 
   let showDetails = $state(false);
+  let diffHtml: string | null = $state(null);
+  let isLoading = $state(false);
 
-  const toggleDetails = () => {
-    showDetails = !showDetails;
+  async function generateDiff() {
+    if (diffHtml || isLoading) return; // Execute only once
+
+    isLoading = true;
+    try {
+      const { text, added, removed } = buildUnifiedDiff(search, replace);
+      const lang = detectLang(filename);
+
+      await ensureLang(lang);
+      const highlighter = await highlighterPromise;
+
+      diffHtml = await highlighter.codeToHtml(text, {
+        lang: lang,
+        theme: 'css-vars',
+        transformers: [transformerDiffLines(added, removed)]
+      });
+    } catch (e) {
+      console.error("Failed to generate diff:", e);
+      const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      diffHtml = `<pre>Error generating diff. Raw content:\n${escape(search)}\n========\n${escape(replace)}</pre>`;
+    } finally {
+      isLoading = false;
+    }
   }
+
+  function toggleDetails() {
+    showDetails = !showDetails;
+    if (showDetails) {
+      generateDiff();
+    }
+  }
+
 </script>
 
 <div class="edit-block-wrapper">
@@ -27,10 +61,10 @@
         <span class="filename">{filename}</span>
         <div class="stats">
             {#if numAdds > 0}
-            <span class="adds">+{numAdds}</span>
+                <span class="adds">+{numAdds}</span>
             {/if}
             {#if numDels > 0}
-            <span class="dels">-{numDels}</span>
+                <span class="dels">-{numDels}</span>
             {/if}
         </div>
         <div class="spacer"></div>
@@ -38,21 +72,13 @@
     </header>
 
     {#if showDetails}
-    <div class="edit-block-body">
-        {#if search.trim()}
-        <div class="diff-section">
-            <pre class="search-code">{search.trim()}</pre>
+        <div class="edit-block-body">
+            {#if isLoading}
+                <div class="loading-diff">Loading diff...</div>
+            {:else if diffHtml}
+                {@html diffHtml}
+            {/if}
         </div>
-        {/if}
-        {#if search.trim() && replace.trim()}
-        <div class="diff-separator"></div>
-        {/if}
-        {#if replace.trim()}
-        <div class="diff-section">
-            <pre class="replace-code">{replace.trim()}</pre>
-        </div>
-        {/if}
-    </div>
     {/if}
 </div>
 
@@ -108,42 +134,30 @@
         opacity: 0.7;
     }
     .edit-block-body {
-        padding: 0;
-    }
-    .diff-separator {
-        border-top: 1px dashed var(--message-border-custom);
-        margin: 0 0.8em;
-    }
-    pre {
-        margin: 0;
-        padding: 0.8em;
-        white-space: pre-wrap;
-        word-break: break-all;
-        font-family: monospace;
         font-size: 0.85em;
     }
-    .search-code {
-        background-color: var(--diff-del-bg);
-        color: var(--chat-text);
-        position: relative;
-        padding-left: 2em;
+    .edit-block-body :global(pre) {
+        margin: 0;
+        /* Shiki adds a background color, which is fine. */
+        /* It also adds horizontal padding, which we override on lines. */
+        padding-top: 0.8em;
+        padding-bottom: 0.8em;
+        white-space: pre-wrap;
     }
-    .search-code::before {
-        content: '-';
-        position: absolute;
-        left: 0.8em;
-        color: var(--diff-del);
+    .edit-block-body :global(.diff-line) {
+        display: block;
+        padding-left: 0.8em;
+        padding-right: 0.8em;
     }
-    .replace-code {
+    .edit-block-body :global(.diff-add) {
         background-color: var(--diff-add-bg);
-        color: var(--chat-text);
-        position: relative;
-        padding-left: 2em;
     }
-    .replace-code::before {
-        content: '+';
-        position: absolute;
-        left: 0.8em;
-        color: var(--diff-add);
+    .edit-block-body :global(.diff-del) {
+        background-color: var(--diff-del-bg);
+    }
+    .loading-diff {
+        padding: 1em;
+        color: var(--chat-text);
+        opacity: 0.7;
     }
 </style>

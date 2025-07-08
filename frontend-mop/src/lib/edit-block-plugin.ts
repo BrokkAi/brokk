@@ -7,9 +7,21 @@ import EditBlock from '../components/EditBlock.svelte';
 const HEAD = /^ {0,3}<{5,9}\s+SEARCH(?:\s+(.*))?\s*$/;
 const DIVIDER = /^ {0,3}={5,9}/;
 const UPDATED = /^ {0,3}>{5,9}\s+REPLACE/;
+const FENCE = /^ {0,3}```(?:\s*(\S[^`\s]*))?\s*$/;
 
 function looksLikePath(s: string): boolean {
     return s.includes('.') || s.includes('/');
+}
+
+function stripFilename(line: string): string | null {
+    let s = line.trim();
+    if (s === '...' || s.startsWith('```')) {
+        return null;
+    }
+    s = s.replace(/:$/, '').replace(/^#/, '').trim();
+    s = s.replace(/^`+|`+$/, '');
+    s = s.replace(/^\*+|\*+$/, '');
+    return s || null;
 }
 
 function parseEditBlock(lines: string[], lang: string | null): {
@@ -25,19 +37,41 @@ function parseEditBlock(lines: string[], lang: string | null): {
         filename = lang;
     }
 
-    const headIndex = lines.findIndex(line => HEAD.test(line));
+    let startIndex = 0;
+    if (lines.length > 0 && FENCE.test(lines[0])) {
+        const fenceMatch = lines[0].match(FENCE);
+        if (fenceMatch && fenceMatch[1] && looksLikePath(fenceMatch[1])) {
+            filename = fenceMatch[1].trim();
+        }
+        startIndex = 1;
+    }
+
+    if (startIndex < lines.length) {
+        const possibleFilename = stripFilename(lines[startIndex]);
+        if (possibleFilename && looksLikePath(possibleFilename)) {
+            filename = possibleFilename;
+            startIndex++;
+        }
+    }
+
+    const headIndex = lines.findIndex((line, i) => i >= startIndex && HEAD.test(line));
     if (headIndex === -1) return null;
+
+    const headMatch = lines[headIndex].match(HEAD);
+    if (headMatch && headMatch[1]) {
+        filename = headMatch[1].trim();
+    } else if (headIndex > 0) {
+        const prevLine = stripFilename(lines[headIndex - 1]);
+        if (prevLine && looksLikePath(prevLine)) {
+            filename = prevLine;
+        }
+    }
 
     const dividerIndex = lines.findIndex((line, i) => i > headIndex && DIVIDER.test(line));
     if (dividerIndex === -1) return null;
 
     const updatedIndex = lines.findIndex((line, i) => i > dividerIndex && UPDATED.test(line));
     if (updatedIndex === -1) return null;
-
-    const headMatch = lines[headIndex].match(HEAD);
-    if (headMatch && headMatch[1]) {
-        filename = headMatch[1].trim();
-    }
 
     const searchLines = lines.slice(headIndex + 1, dividerIndex);
     const replaceLines = lines.slice(dividerIndex + 1, updatedIndex);
@@ -60,11 +94,14 @@ function parseEditBlock(lines: string[], lang: string | null): {
 function remarkEditBlock() {
     let id = 0;
     return (tree: Root) => {
-        visit(tree, ['code', 'paragraph', 'html'], (node: Node, index?: number, parent?: Node) => {
+        visit(tree, ['code', 'paragraph'], (node: Node, index?: number, parent?: Node) => {
             if (index === undefined || !parent || !('children' in parent)) return;
 
             const raw = toString(node);
-            if (!raw.includes('<<<<<<< SEARCH')) return;
+            if (!raw.startsWith('<') && !raw.startsWith('```')) return;
+
+            const headMatch = HEAD.exec(raw);
+            if (!headMatch) return;
 
             const lang = node.type === 'code' && 'lang' in node ? (node.lang as string) : null;
             const lines = raw.split('\n');
@@ -96,7 +133,6 @@ function remarkEditBlock() {
         });
     };
 }
-
 
 export const editBlockPlugin = (): Plugin => ({
     remarkPlugin: [remarkEditBlock],
