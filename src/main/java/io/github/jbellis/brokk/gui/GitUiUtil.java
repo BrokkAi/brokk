@@ -334,29 +334,42 @@ public final class GitUiUtil {
      */
     static String formatCommitDate(java.time.Instant commitInstant, java.time.LocalDate today) {
         try {
-            java.time.ZonedDateTime commitZonedDateTime = commitInstant.atZone(java.time.ZoneId.systemDefault());
-            java.time.LocalDate commitDate = commitZonedDateTime.toLocalDate();
-
-            java.time.format.DateTimeFormatter timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss");
-            String timeStr = commitZonedDateTime.format(timeFormatter);
-
-            if (commitDate.equals(today)) {
-                // If it's today's date, just show the time with "today"
-                return "Today " + timeStr;
-            } else if (commitDate.equals(today.minusDays(1))) {
-                // If it's yesterday
-                return "Yesterday " + timeStr;
-            } else if (commitDate.isAfter(today.minusDays(7))) {
-                // If within the last week, show day of week
-                String dayName = commitDate.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, Locale.getDefault());
-                // Ensure proper capitalization (e.g., "Monday" not "MONDAY")
-                dayName = Ascii.toUpperCase(dayName.substring(0, 1)) + Ascii.toLowerCase(dayName.substring(1));
-                return dayName + " " + timeStr;
+            var now = java.time.Instant.now();
+            var duration = java.time.Duration.between(commitInstant, now);
+            // 1) seconds ago
+            long seconds = duration.toSeconds();
+            if (seconds < 60) {
+                return "seconds ago";
             }
 
-            // Otherwise, show the standard date format
-            java.time.format.DateTimeFormatter dateTimeFormatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-            return commitZonedDateTime.format(dateTimeFormatter);
+            // 2) minutes ago
+            long minutes = duration.toMinutes();
+            if (minutes < 60) {
+                long n = Math.max(1, minutes); // avoid "0 minutes ago"
+                return n + " minute" + (n == 1 ? "" : "s") + " ago";
+            }
+
+            // 2) hours ago (same calendar day)
+            long hours = duration.toHours();
+            var commitDate = commitInstant.atZone(java.time.ZoneId.systemDefault()).toLocalDate();
+            if (hours < 24 && commitDate.equals(today)) {
+                long n = Math.max(1, hours);
+                return n + " hour" + (n == 1 ? "" : "s") + " ago";
+            }
+
+            // 3) yesterday
+            if (commitDate.equals(today.minusDays(1))) {
+                return "Yesterday";
+            }
+
+            var zdt = commitInstant.atZone(java.time.ZoneId.systemDefault());
+            if (zdt.getYear() == today.getYear()) {
+                // 4) older, same year: "d MMM" (e.g., 7 Apr)
+                return zdt.format(java.time.format.DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()));
+            }
+
+            // 5) previous years: "MMM yy" (e.g., Apr 23)
+            return zdt.format(java.time.format.DateTimeFormatter.ofPattern("MMM yy", Locale.getDefault()));
         } catch (Exception e) {
             logger.debug("Could not format date: {}", commitInstant, e);
             return commitInstant.toString();

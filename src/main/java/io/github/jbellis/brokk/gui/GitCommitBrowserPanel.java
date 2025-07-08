@@ -93,6 +93,8 @@ public class GitCommitBrowserPanel extends JPanel {
 
     @Nullable
     private String currentBranchOrContextName; // Used by push/pull actions
+    // Timer to refresh relative commit date strings once a minute
+    private javax.swing.Timer relativeTimeRefreshTimer;
 
 
     @SuppressWarnings("NullAway.Init") // Initialization is handled by buildCommitBrowserUI and its helpers
@@ -104,6 +106,11 @@ public class GitCommitBrowserPanel extends JPanel {
         this.options = Objects.requireNonNullElse(options, Options.DEFAULT);
         this.gitWorkflowService = new GitWorkflowService(contextManager);
         buildCommitBrowserUI();
+
+        // Start a repaint timer so the relative date strings stay up-to-date
+        relativeTimeRefreshTimer = new javax.swing.Timer(60_000, e -> commitsTable.repaint());
+        relativeTimeRefreshTimer.setRepeats(true);
+        relativeTimeRefreshTimer.start();
     }
 
     public GitCommitBrowserPanel(Chrome chrome, ContextManager contextManager, CommitContextReloader reloader) {
@@ -267,6 +274,7 @@ public class GitCommitBrowserPanel extends JPanel {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return switch (columnIndex) {
+                    case 2 -> java.time.Instant.class;
                     case 4 -> Boolean.class;
                     case 5 -> ICommitInfo.class;
                     default -> String.class;
@@ -318,7 +326,12 @@ public class GitCommitBrowserPanel extends JPanel {
                     c.setBackground(unpushed ? Colors.getChanged(isDark).darker() : table.getSelectionBackground());
                     c.setForeground(table.getSelectionForeground());
                 }
-                setValue(value);
+                if (column == 2 && value instanceof java.time.Instant instant) {
+                    var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
+                    setText(GitUiUtil.formatCommitDate(instant, today));
+                } else {
+                    setValue(value);
+                }
                 return c;
             }
         });
@@ -1016,12 +1029,10 @@ public class GitCommitBrowserPanel extends JPanel {
 
     private List<Object[]> buildCommitRows(List<? extends ICommitInfo> commits, Set<String> unpushedCommitIds) {
         var commitRows = new ArrayList<Object[]>(commits.size());
-        var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
         for (ICommitInfo commit : commits) {
             var commitDate = commit.date();
-            String formattedDate = (commitDate == null) ? "N/A" : GitUiUtil.formatCommitDate(commitDate, today);
             commitRows.add(new Object[]{
-                    commit.message(), commit.author(), formattedDate,
+                    commit.message(), commit.author(), commitDate,
                     commit.id(), unpushedCommitIds.contains(commit.id()), commit
             });
         }
