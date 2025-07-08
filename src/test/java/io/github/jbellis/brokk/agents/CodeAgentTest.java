@@ -472,4 +472,22 @@ class CodeAgentTest {
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
         assertEquals("goodbye", file.read().strip()); // The edit was made and not reverted
     }
+
+    // CF-1: changedFiles tracking after successful apply
+    @Test
+    void testApplyPhase_updatesChangedFilesSet() throws IOException {
+        var file = contextManager.toFile("file.txt");
+        file.write("old");
+        contextManager.addEditableFile(file);
+
+        var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
+        var loopContext = createLoopContext("goal", List.of(), new UserMessage("req"), List.of(block), 0);
+
+        var result = codeAgent.applyPhase(loopContext, parser);
+
+        assertInstanceOf(CodeAgent.Step.Continue.class, result);
+        var continueStep = (CodeAgent.Step.Continue) result;
+        assertTrue(continueStep.loopContext().editState().changedFiles().contains(file),
+                   "changedFiles should include the edited file");
+    }
 }
