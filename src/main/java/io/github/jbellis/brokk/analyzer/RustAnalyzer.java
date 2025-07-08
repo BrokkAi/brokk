@@ -293,4 +293,14 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return nameFromSuper;
     }
 
+    @Override
+    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        // Rust fields like "pub x: i32," and "const ORIGIN: Point = ..." should not have semicolons added in skeleton format
+        return baseIndent + fullSignature;
+    }
+
+    protected boolean requiresSemicolons() {
+        return false; // Rust fields like "pub x: i32," should not have semicolons added
+    }
 }
