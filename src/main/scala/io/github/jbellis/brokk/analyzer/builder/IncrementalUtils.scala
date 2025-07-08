@@ -8,7 +8,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 import java.io.File
-import java.nio.file.{FileVisitOption, Files, Path, Paths}
+import java.nio.file.*
 import scala.jdk.CollectionConverters.*
 import scala.util.Try
 
@@ -100,8 +100,11 @@ object IncrementalUtils {
       val newPath = tempDir.resolve(relativePath)
       val newParentDir = newPath.getParent
       if (!Files.exists(newParentDir)) Files.createDirectories(newParentDir)
-      Try(Files.copy(path, newPath)).failed.foreach { e =>
-        logger.warn(s"Exception encountered while copying $relativePath to incremental build directory at $tempDir", e)
+      Try(Files.copy(path, newPath)).failed.foreach {
+        case _: NoSuchFileException =>
+          // this is almost certainly an ephemeral file
+          logger.info(s"$relativePath no longer exists at time of CPG update")
+        case e => logger.warn(s"Exception encountered while copying $relativePath to incremental build directory at $tempDir", e)
       }
     }
 
