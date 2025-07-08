@@ -12,11 +12,11 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
+ */
+/*
+ * Modifications copyright 2025 Brokk, Inc. and made available under the GPLv3.
  *
- * Portions Copyright 2025 Brokk, inc.
- *
- * This file has been modified from its original version.
- * The original file can be found at: https://github.com/joernio/joern/blob/3e923e15368e64648e6c5693ac014a2cac83990a/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/callgraph/DynamicCallLinker.scala
+ * The original file can be found at https://github.com/joernio/joern/blob/3e923e15368e64648e6c5693ac014a2cac83990a/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/callgraph/DynamicCallLinker.scala
  */
 package io.github.jbellis.brokk.analyzer.builder.passes.idempotent.callgraph
 
