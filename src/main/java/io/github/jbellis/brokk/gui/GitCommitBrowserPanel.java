@@ -30,6 +30,9 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+ import java.time.ZoneId;
+ import java.time.ZonedDateTime;
+ import java.time.format.DateTimeFormatter;
 import org.jetbrains.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
@@ -185,7 +188,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 chrome.toolError("Select a local branch before creating a PR. Synthetic views are not supported.");
                 return;
             }
-            if (getRepoSafely().map(repo -> repo.isRemoteBranch(branch)).orElse(false)) {
+            if (getRepo().isRemoteBranch(branch)) {
                 chrome.toolError("Select a local branch before creating a PR. Remote branches are not supported.");
                 return;
             }
@@ -274,15 +277,19 @@ public class GitCommitBrowserPanel extends JPanel {
         };
 
         commitsTable = new JTable(commitsTableModel) {
-            @Override
-            public String getToolTipText(MouseEvent e) {
-                int row = rowAtPoint(e.getPoint());
-                if (row >= 0 && columnAtPoint(e.getPoint()) == 0) {
-                    return (String) getValueAt(row, 0);
-                }
-                return super.getToolTipText(e);
-            }
-        };
+             @Override
+             public String getToolTipText(MouseEvent e) {
+                 int row = rowAtPoint(e.getPoint());
+                 if (row < 0) {
+                     return super.getToolTipText(e);
+                 }
+                 var commitObj = (ICommitInfo) getModel().getValueAt(row, COL_COMMIT_OBJ);
+                 if (commitObj == null) {
+                     return super.getToolTipText(e);
+                 }
+                 return GitCommitBrowserPanel.this.buildTooltip(commitObj);
+             }
+         };
         commitsTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
         // Hide ID, Unpushed, CommitObject columns
@@ -973,7 +980,7 @@ public class GitCommitBrowserPanel extends JPanel {
     {
         this.currentBranchOrContextName = activeBranchOrContextName;
 
-        var viewKind = ViewKind.determine(activeBranchOrContextName, getRepoSafely());
+        var viewKind = ViewKind.determine(activeBranchOrContextName, getRepo());
         var commitRows = buildCommitRows(commits, unpushedCommitIds);
         var buttonStates = determineButtonStates(viewKind,
                                                 canPush,
@@ -987,7 +994,7 @@ public class GitCommitBrowserPanel extends JPanel {
     private enum ViewKind {
         STASH, SEARCH, REMOTE, LOCAL;
 
-        static ViewKind determine(@Nullable String activeBranchOrContextName, Optional<GitRepo> maybeRepo) {
+        static ViewKind determine(@Nullable String activeBranchOrContextName, GitRepo repo) {
             if (activeBranchOrContextName == null) {
                 // If no branch/context is active, treat as REMOTE for button enablement (disables most actions).
                 return REMOTE;
@@ -998,11 +1005,9 @@ public class GitCommitBrowserPanel extends JPanel {
             if (activeBranchOrContextName.startsWith("Search:")) { // Safe due to null check above
                 return SEARCH;
             }
-            if (maybeRepo.isPresent()) {
-                // activeBranchOrContextName is non-null here.
-                if (maybeRepo.get().isRemoteBranch(activeBranchOrContextName)) {
-                    return REMOTE;
-                }
+            // activeBranchOrContextName is non-null here.
+            if (repo.isRemoteBranch(activeBranchOrContextName)) {
+                return REMOTE;
             }
             // If not null, not STASH, not SEARCH, not REMOTE -> must be LOCAL
             return LOCAL;
@@ -1061,16 +1066,15 @@ public class GitCommitBrowserPanel extends JPanel {
             return false;
         }
 
-        return getRepoSafely().map(repo -> {
-            try {
-                // A new local branch has commits but no upstream branch set yet.
-                // unpushedCommitIds being empty is a strong indicator if no upstream.
-                return !repo.listCommitsDetailed(branch).isEmpty() && !repo.hasUpstreamBranch(branch);
-            } catch (GitAPIException ex) {
-                logger.warn("Could not determine if branch {} is new local with commits: {}", branch, ex.getMessage());
-                return false; // Fallback on error
-            }
-        }).orElse(false); // If repo is not available, assume not new
+        var repo = getRepo();
+        try {
+            // A new local branch has commits but no upstream branch set yet.
+            // unpushedCommitIds being empty is a strong indicator if no upstream.
+            return !repo.listCommitsDetailed(branch).isEmpty() && !repo.hasUpstreamBranch(branch);
+        } catch (GitAPIException ex) {
+            logger.warn("Could not determine if branch {} is new local with commits: {}", branch, ex.getMessage());
+            return false; // Fallback on error
+        }
     }
 
     private String tooltipForEnabledPush(ViewKind viewKind, String branch, Set<String> unpushedIds) {
@@ -1214,17 +1218,8 @@ public class GitCommitBrowserPanel extends JPanel {
         return commitId.length() >= 7 ? commitId.substring(0, 7) : commitId;
     }
 
-    private GitRepo getRepo() { // Existing method, assumed to be correct for current usage.
+    private GitRepo getRepo() {
         return (GitRepo) contextManager.getProject().getRepo();
-    }
-
-    private Optional<GitRepo> getRepoSafely() {
-        try {
-            return Optional.of(getRepo());
-        } catch (Exception e) { // Catch broad exception if contextManager or project is not set up
-            logger.warn("Could not get GitRepo instance: {}", e.getMessage());
-            return Optional.empty();
-        }
     }
 
     private String getOldHeadId() {
@@ -1301,7 +1296,40 @@ public class GitCommitBrowserPanel extends JPanel {
         return Arrays.stream(selectedRows)
                 .mapToObj(row -> (ICommitInfo) commitsTableModel.getValueAt(row, COL_COMMIT_OBJ))
                 .toList();
-    }
+     }
+ 
+     /**
+      * Builds a git-style tooltip string for a commit.
+      */
+     private String buildTooltip(ICommitInfo commit) {
+         // Author
+         String author = commit.author();
+ 
+         // Date (git log default format)
+         String dateStr = "";
+         if (commit.date() != null) {
+             dateStr = DateTimeFormatter
+                     .ofPattern("EEE MMM d HH:mm:ss yyyy Z", java.util.Locale.US)
+                     .format(ZonedDateTime.ofInstant(commit.date(), ZoneId.systemDefault()));
+         }
+ 
+         // Full commit message (fallback to short message if full unavailable)
+         String fullMessage;
+         try {
+             fullMessage = getRepo().getCommitFullMessage(commit.id());
+         } catch (Exception e) {
+             fullMessage = commit.message();
+         }
+
+         // Indent every message line by four spaces
+         String indentedMsg = java.util.Arrays.stream(fullMessage.split("\\R"))
+                 .map(line -> "    " + line)
+                 .collect(java.util.stream.Collectors.joining("\n"));
+ 
+         return "Author: " + author + "\n"
+                + "Date:   " + dateStr + "\n\n"
+                + indentedMsg;
+     }
 
     private void configureButton(JButton button, boolean enabled, String tooltip, @Nullable ActionListener listener) {
         button.setEnabled(enabled);

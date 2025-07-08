@@ -1844,9 +1844,22 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Get the commit history for a specific file
-     */
-    public List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+      * Returns the full (multi-line) commit message for the given commit id.
+      */
+     public String getCommitFullMessage(String commitId) throws GitAPIException {
+         var objId = resolve(commitId);
+         try (var revWalk = new RevWalk(repository)) {
+             var commit = revWalk.parseCommit(objId);
+             return commit.getFullMessage();
+         } catch (IOException e) {
+             throw new GitWrappedIOException(e);
+         }
+     }
+ 
+     /**
+      * Get the commit history for a specific file
+      */
+     public List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
         for (var commit : git.log().addPath(toRepoRelativePath(file)).call()) {
             // Use factory method
