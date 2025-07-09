@@ -89,17 +89,17 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
   protected def F(path: String, contents: String = "Mock contents"): FileAndContents = FileAndContents(path, contents)
 
   /** Creates a CPG file system given the "existing" paths using some temporary directory as the root directory.
-   *
-   * @param existingFiles
-   * the files that should be associated with File nodes in the CPG. These should be relative.
-   * @param newFiles
-   * the files that are considered "new" files. These will be created as empty files in the root directory. These
-   * should be relative.
-   * @param assertion
-   * the test assertions to perform against a CPG containing existing files and the root directory of new files.
-   * @return
-   * the test assertion.
-   */
+    *
+    * @param existingFiles
+    *   the files that should be associated with File nodes in the CPG. These should be relative.
+    * @param newFiles
+    *   the files that are considered "new" files. These will be created as empty files in the root directory. These
+    *   should be relative.
+    * @param assertion
+    *   the test assertions to perform against a CPG containing existing files and the root directory of new files.
+    * @return
+    *   the test assertion.
+    */
   def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(
     assertion: (Cpg, Path, String => Path) => Assertion
   ): Assertion = {
@@ -119,7 +119,7 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         // Create dummy files
         newFiles.foreach { case FileAndContents(path, contents) =>
           val fullPath = tempDir.resolve(path)
-          val parent = fullPath.getParent
+          val parent   = fullPath.getParent
           if (!Files.exists(parent)) Files.createDirectories(parent)
           Files.createFile(fullPath)
           Files.writeString(fullPath, contents)

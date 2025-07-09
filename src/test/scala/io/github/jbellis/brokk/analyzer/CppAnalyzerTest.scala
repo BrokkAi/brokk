@@ -14,7 +14,7 @@ import scala.util.Try
 
 // Companion object for @BeforeAll, must be top-level or static in Java
 object CppAnalyzerTest {
-  private val testProjectPath = Path.of("src/test/resources/testcode-cpp").toAbsolutePath()
+  private val testProjectPath       = Path.of("src/test/resources/testcode-cpp").toAbsolutePath()
   private var analyzer: CppAnalyzer = scala.compiletime.uninitialized
 
   @BeforeAll
@@ -330,7 +330,7 @@ class CppAnalyzerTest {
   @Test
   def getMethodSourceFromPytorchTest(): Unit = {
     // Test retrieving source for a function in pytorch.cpp
-    val funcFqn = "pytorch_cpp.start_index"
+    val funcFqn   = "pytorch_cpp.start_index"
     val sourceOpt = an.getMethodSource(funcFqn)
     assertTrue(sourceOpt.isPresent, s"Could not find source for FQN: $funcFqn")
 
@@ -352,10 +352,10 @@ class CppAnalyzerTest {
 
   @Test
   def getSkeletonsPytorchTest(): Unit = {
-    val file = ProjectFile(testProjectPath, "pytorch.cpp")
+    val file      = ProjectFile(testProjectPath, "pytorch.cpp")
     val skeletons = an.getSkeletons(file)
 
-    val expectedKey = CodeUnit.fn(file, "at.native", "start_index")
+    val expectedKey      = CodeUnit.fn(file, "at.native", "start_index")
     val expectedSkeleton = "int start_index(int out_idx, int out_len, int in_len) {...}"
 
     assertEquals(1, skeletons.size(), s"Expected 1 skeleton, got ${skeletons.size()}. Skeletons: $skeletons")

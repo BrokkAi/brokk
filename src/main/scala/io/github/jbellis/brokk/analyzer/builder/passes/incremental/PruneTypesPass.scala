@@ -6,7 +6,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 /** There may be unused external types once the update is complete, so we prune these away for consistency.
- */
+  */
 class PruneTypesPass(cpg: Cpg) extends CpgPass(cpg) {
 
   private val logger = LoggerFactory.getLogger(getClass)

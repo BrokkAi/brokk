@@ -23,8 +23,8 @@ object CBuilder {
 
     override def createAst(cpg: Cpg, config: CConfig): Try[Cpg] = Try {
       createOrUpdateMetaData(cpg, Languages.NEWC, config.inputPath)
-      val report = new Report()
-      val global = new CGlobal()
+      val report            = new Report()
+      val global            = new CGlobal()
       val preprocessedFiles = allPreprocessedFiles(config)
       new AstCreationPass(cpg, preprocessedFiles, gatherFileExtensions(config), config, global, report)
         .createAndApply()

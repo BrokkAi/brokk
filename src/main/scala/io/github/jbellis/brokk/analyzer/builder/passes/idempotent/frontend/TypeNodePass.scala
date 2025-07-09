@@ -29,9 +29,9 @@ import io.shiftleft.semanticcpg.language.types.structure.NamespaceTraversal
 import scala.collection.mutable
 
 /** Modified version of TypeNodePass that avoids re-creating type nodes for type nodes already present.
- */
-class TypeNodePass protected(registeredTypes: List[String], cpg: Cpg, getTypesFromCpg: Boolean)
-  extends CpgPass(cpg, "types") {
+  */
+class TypeNodePass protected (registeredTypes: List[String], cpg: Cpg, getTypesFromCpg: Boolean)
+    extends CpgPass(cpg, "types") {
 
   protected def typeDeclTypes: mutable.Set[String] = {
     val typeDeclTypes = mutable.Set[String]()

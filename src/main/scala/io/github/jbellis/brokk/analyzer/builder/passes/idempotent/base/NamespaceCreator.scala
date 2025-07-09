@@ -26,8 +26,8 @@ import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language.*
 
 /** Re-implements [[NamespaceCreator]] and checks if a namespace exists before creating one, and similarly for the `REF`
- * edges.
- */
+  * edges.
+  */
 class NamespaceCreator(cpg: Cpg) extends CpgPass(cpg) {
 
   override def run(dstGraph: DiffGraphBuilder): Unit = {

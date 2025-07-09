@@ -4,7 +4,7 @@ import java.util
 import java.util.{Collections, Optional}
 
 /** An IAnalyzer implementation that does nothing and returns empty results.
- */
+  */
 class DisabledAnalyzer extends IAnalyzer {
   override def isEmpty: Boolean =
     true
@@ -22,10 +22,10 @@ class DisabledAnalyzer extends IAnalyzer {
     Collections.emptySet()
 
   override def getPagerank(
-                            seedClassWeights: java.util.Map[String, java.lang.Double],
-                            k: Int,
-                            reversed: Boolean = false
-                          ): java.util.List[scala.Tuple2[CodeUnit, java.lang.Double]] =
+    seedClassWeights: java.util.Map[String, java.lang.Double],
+    k: Int,
+    reversed: Boolean = false
+  ): java.util.List[scala.Tuple2[CodeUnit, java.lang.Double]] =
     Collections.emptyList()
 
   override def getSkeleton(className: String): Optional[String] =
