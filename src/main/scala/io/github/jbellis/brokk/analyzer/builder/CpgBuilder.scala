@@ -177,11 +177,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   }
 
   protected def callGraphPasses(cpg: Cpg): Iterator[CpgPassBase] = {
-    Iterator(
-      new MethodRefLinker(cpg),
-      new StaticCallLinker(cpg),
-      new DynamicCallLinker(cpg)
-    )
+    Iterator(new MethodRefLinker(cpg), new StaticCallLinker(cpg), new DynamicCallLinker(cpg))
   }
 
   protected def postProcessingPasses(cpg: Cpg): Iterator[CpgPassBase] = {

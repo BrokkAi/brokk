@@ -91,11 +91,11 @@ object Delombok {
   }
 
   def delombokPackageRoot(
-                           projectDir: Path,
-                           relativePackageRoot: Path,
-                           delombokTempDir: Path,
-                           analysisJavaHome: Option[String]
-                         ): Try[String] = {
+    projectDir: Path,
+    relativePackageRoot: Path,
+    delombokTempDir: Path,
+    analysisJavaHome: Option[String]
+  ): Try[String] = {
     val rootIsFile = Files.isRegularFile(projectDir.resolve(relativePackageRoot))
     val relativeOutputPath =
       if (rootIsFile) Option(relativePackageRoot.getParent).map(_.toString).getOrElse(".")
@@ -114,10 +114,10 @@ object Delombok {
   }
 
   def run(
-           inputPath: Path,
-           fileInfo: List[SourceParser.FileInfo],
-           analysisJavaHome: Option[String]
-         ): DelombokRunResult = {
+    inputPath: Path,
+    fileInfo: List[SourceParser.FileInfo],
+    analysisJavaHome: Option[String]
+  ): DelombokRunResult = {
     Try(Files.createTempDirectory("delombok")) match {
       case Failure(_) =>
         logger.warn(s"Could not create temporary directory for delombok output. Scanning original sources instead")
@@ -128,13 +128,15 @@ object Delombok {
 
         // Use a dedicated thread pool with exactly one thread per core to avoid
         // ForkJoinPool compensation threads (which spawn additional workers).
-        val cores    = Runtime.getRuntime.availableProcessors()
-        Using.resource(Executors.newFixedThreadPool(cores)){ executor =>
+        val cores = Runtime.getRuntime.availableProcessors()
+        Using.resource(Executors.newFixedThreadPool(cores)) { executor =>
           val executorService = ExecutionContext.fromExecutorService(executor)
           val parPackageRoots = PackageRootFinder.packageRootsFromFiles(inputPath, fileInfo).par
-          
+
           parPackageRoots.tasksupport = new ExecutionContextTaskSupport(executorService)
-          parPackageRoots.foreach { relativeRoot => delombokPackageRoot(inputPath, relativeRoot, tempDir, analysisJavaHome) }
+          parPackageRoots.foreach { relativeRoot =>
+            delombokPackageRoot(inputPath, relativeRoot, tempDir, analysisJavaHome)
+          }
         }
 
         DelombokRunResult(tempDir, true)
