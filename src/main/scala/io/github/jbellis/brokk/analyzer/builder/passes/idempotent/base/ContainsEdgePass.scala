@@ -27,8 +27,7 @@ import io.shiftleft.semanticcpg.language.*
 
 import scala.collection.mutable
 
-/**
- * Wraps [[ContainsEdgePass]] with a check around the next "part" to see if contains edges are already present.
+/** Wraps [[ContainsEdgePass]] with a check around the next "part" to see if contains edges are already present.
  */
 class ContainsEdgePass(cpg: Cpg) extends ForkJoinParallelCpgPass[AstNode](cpg) {
 

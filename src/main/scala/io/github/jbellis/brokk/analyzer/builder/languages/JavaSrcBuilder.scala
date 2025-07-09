@@ -27,7 +27,9 @@ object JavaSrcBuilder {
       new OuterClassRefPass(cpg).createAndApply()
       JavaConfigFileCreationPass(cpg).createAndApply()
       if (!config.skipTypeInfPass) {
-        idempotent.frontend.TypeNodePass.withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg).createAndApply()
+        idempotent.frontend.TypeNodePass
+          .withRegisteredTypes(astCreationPass.global.usedTypes.keys().asScala.toList, cpg)
+          .createAndApply()
         new TypeInferencePass(cpg).createAndApply()
       }
       cpg

@@ -1,7 +1,4 @@
-import sbt.*
-import sbt.Keys.*
-import sbtbuildinfo.BuildInfoPlugin
-import sbtbuildinfo.BuildInfoPlugin.autoImport.*
+
 
 scalaVersion := "3.6.4"
 version := "0.12.0-preview-2"
@@ -39,8 +36,8 @@ javacOptions := {
   Seq(
     "--release", javaVersion,
     // Reflection-specific flags
-    "-parameters",           // Preserve method parameter names
-    "-g:source,lines,vars",  // Generate full debugging information
+    "-parameters", // Preserve method parameter names
+    "-g:source,lines,vars", // Generate full debugging information
     // Error Prone configuration
     "-Xmaxerrs", "500",
     "-Xplugin:ErrorProne " +
@@ -90,6 +87,8 @@ scalacOptions ++= Seq(
   // Reflection-related compiler options
   "-language:reflectiveCalls",
   "-feature",
+  // Warn if unused imports are present
+  "-Wunused:imports"
 )
 
 val jlamaVersion = "1.0.0-beta3"
@@ -155,8 +154,8 @@ libraryDependencies ++= Seq(
 
   // Testing
   "org.junit.jupiter" % "junit-jupiter" % "5.10.2" % Test,
-  "org.junit.jupiter" % "junit-jupiter-engine"  % "5.10.2" % Test,
-  "com.github.sbt.junit" % "jupiter-interface"  % "0.13.3" % Test,
+  "org.junit.jupiter" % "junit-jupiter-engine" % "5.10.2" % Test,
+  "com.github.sbt.junit" % "jupiter-interface" % "0.13.3" % Test,
   "org.scalatest" %% "scalatest" % "3.2.18" % Test,
 
   // Java Decompiler
@@ -170,7 +169,7 @@ buildInfoPackage := "io.github.jbellis.brokk"
 buildInfoObject := "BuildInfo"
 
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", xs @ _*) =>
+  case PathList("META-INF", xs@_*) =>
     xs.last match {
       case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") => MergeStrategy.discard
       case "MANIFEST.MF" => MergeStrategy.discard

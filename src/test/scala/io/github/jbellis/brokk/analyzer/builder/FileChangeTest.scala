@@ -20,46 +20,46 @@ class FileChangeTest extends FileChangeTestFixture {
   }
 
   "When no files are present, all incoming files should be assumed to be added" in {
-    assertAgainstCpgWithPaths(
-      existingFiles = Nil,
-      newFiles = Seq(F("Foo.txt"), F("foo/Bar.txt"))
-    ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalUtils.determineChangedFiles(cpg, TestConfig().withInputPath(projectRootPath), Set(".txt")) shouldBe List(
-        AddedFile(absFileName("Foo.txt")), AddedFile(absFileName("foo/Bar.txt"))
-      )
+    assertAgainstCpgWithPaths(existingFiles = Nil, newFiles = Seq(F("Foo.txt"), F("foo/Bar.txt"))) {
+      (cpg, projectRootPath, absFileName) =>
+        IncrementalUtils.determineChangedFiles(
+          cpg,
+          TestConfig().withInputPath(projectRootPath),
+          Set(".txt")
+        ) shouldBe List(AddedFile(absFileName("Foo.txt")), AddedFile(absFileName("foo/Bar.txt")))
     }
   }
 
   "Changing a file should result in a modified file" in {
-    assertAgainstCpgWithPaths(
-      existingFiles = Seq(F("Foo.txt")),
-      newFiles = Seq(F("Foo.txt", "changed"))
-    ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalUtils.determineChangedFiles(cpg, TestConfig().withInputPath(projectRootPath), Set(".txt")) shouldBe List(
-        ModifiedFile(absFileName("Foo.txt"))
-      )
+    assertAgainstCpgWithPaths(existingFiles = Seq(F("Foo.txt")), newFiles = Seq(F("Foo.txt", "changed"))) {
+      (cpg, projectRootPath, absFileName) =>
+        IncrementalUtils.determineChangedFiles(
+          cpg,
+          TestConfig().withInputPath(projectRootPath),
+          Set(".txt")
+        ) shouldBe List(ModifiedFile(absFileName("Foo.txt")))
     }
   }
 
   "Removing files should result in removed file changes" in {
-    assertAgainstCpgWithPaths(
-      existingFiles = Seq(F("Foo.txt"), F("foo/Bar.txt")),
-      newFiles = Nil
-    ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalUtils.determineChangedFiles(cpg, TestConfig().withInputPath(projectRootPath), Set(".txt")) shouldBe List(
-        RemovedFile(absFileName("Foo.txt")), RemovedFile(absFileName("foo/Bar.txt"))
-      )
+    assertAgainstCpgWithPaths(existingFiles = Seq(F("Foo.txt"), F("foo/Bar.txt")), newFiles = Nil) {
+      (cpg, projectRootPath, absFileName) =>
+        IncrementalUtils.determineChangedFiles(
+          cpg,
+          TestConfig().withInputPath(projectRootPath),
+          Set(".txt")
+        ) shouldBe List(RemovedFile(absFileName("Foo.txt")), RemovedFile(absFileName("foo/Bar.txt")))
     }
   }
 
   "Moving a file should result in removed and added file change" in {
-    assertAgainstCpgWithPaths(
-      existingFiles = Seq(F("Foo.txt")),
-      newFiles = Seq(F("bar/Foo.txt"))
-    ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalUtils.determineChangedFiles(cpg, TestConfig().withInputPath(projectRootPath), Set(".txt")) shouldBe List(
-        RemovedFile(absFileName("Foo.txt")), AddedFile(absFileName("bar/Foo.txt"))
-      )
+    assertAgainstCpgWithPaths(existingFiles = Seq(F("Foo.txt")), newFiles = Seq(F("bar/Foo.txt"))) {
+      (cpg, projectRootPath, absFileName) =>
+        IncrementalUtils.determineChangedFiles(
+          cpg,
+          TestConfig().withInputPath(projectRootPath),
+          Set(".txt")
+        ) shouldBe List(RemovedFile(absFileName("Foo.txt")), AddedFile(absFileName("bar/Foo.txt")))
     }
   }
 
@@ -68,8 +68,14 @@ class FileChangeTest extends FileChangeTestFixture {
       existingFiles = Seq(F("Foo.txt", "removed"), F("foo/Bar.txt", "changed")),
       newFiles = Seq(F("foo/Bar.txt"), F("foo/Baz.txt", "new"))
     ) { (cpg, projectRootPath, absFileName) =>
-      IncrementalUtils.determineChangedFiles(cpg, TestConfig().withInputPath(projectRootPath), Set(".txt")) shouldBe List(
-        RemovedFile(absFileName("Foo.txt")), ModifiedFile(absFileName("foo/Bar.txt")), AddedFile(absFileName("foo/Baz.txt"))
+      IncrementalUtils.determineChangedFiles(
+        cpg,
+        TestConfig().withInputPath(projectRootPath),
+        Set(".txt")
+      ) shouldBe List(
+        RemovedFile(absFileName("Foo.txt")),
+        ModifiedFile(absFileName("foo/Bar.txt")),
+        AddedFile(absFileName("foo/Baz.txt"))
       )
     }
   }
@@ -82,16 +88,21 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
 
   protected def F(path: String, contents: String = "Mock contents"): FileAndContents = FileAndContents(path, contents)
 
-  /**
-   * Creates a CPG file system given the "existing" paths using some temporary directory as the root directory.
+  /** Creates a CPG file system given the "existing" paths using some temporary directory as the root directory.
    *
-   * @param existingFiles the files that should be associated with File nodes in the CPG. These should be relative.
-   * @param newFiles      the files that are considered "new" files. These will be created as empty files in the root
-   *                      directory. These should be relative.
-   * @param assertion     the test assertions to perform against a CPG containing existing files and the root directory of new files.
-   * @return the test assertion.
+   * @param existingFiles
+   * the files that should be associated with File nodes in the CPG. These should be relative.
+   * @param newFiles
+   * the files that are considered "new" files. These will be created as empty files in the root directory. These
+   * should be relative.
+   * @param assertion
+   * the test assertions to perform against a CPG containing existing files and the root directory of new files.
+   * @return
+   * the test assertion.
    */
-  def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(assertion: (Cpg, Path, String => Path) => Assertion): Assertion = {
+  def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(
+    assertion: (Cpg, Path, String => Path) => Assertion
+  ): Assertion = {
     Using.resource(Cpg.empty) { cpg =>
       val tempDir = Files.createTempDirectory("brokk-file-change-test-")
       try {
@@ -99,7 +110,9 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         // Every CPG has a meta-data node. This contains the root path of the project. File nodes
         // have `name` properties relative to this.
         val metaData = NewMetaData().root(tempDir.toString)
-        val fileNodes = existingFiles.map { case FileAndContents(path, contents) => NewFile().name(path).hash(contents.sha1) }
+        val fileNodes = existingFiles.map { case FileAndContents(path, contents) =>
+          NewFile().name(path).hash(contents.sha1)
+        }
         // Build CPG
         (metaData +: fileNodes).foreach(builder.addNode)
         DiffGraphApplier.applyDiff(cpg.graph, builder)

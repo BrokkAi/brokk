@@ -13,25 +13,28 @@ class SimpleBuildTest extends CpgTestFixture[Config] {
 
   "a basic C program" should {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """#include <stdio.h>
           |
           |int main() {
           |    printf("Hello, World!\n");
           |    return 0;
           |}
-          |""".stripMargin, "Foo.c")
-        .buildAndOpen
+          |""".stripMargin,
+        "Foo.c"
+      ).buildAndOpen
 
       "create a file node linked to a namespace, type decl, and method node, via SOURCE_FILE" in {
         val file = cpg.file.nameExact("Foo.c").head
         file.hash.isDefined shouldBe true
-        inside(file._sourceFileIn.toList) { case (global: NamespaceBlock) :: (main: TypeDecl) :: (globalType: TypeDecl) :: (m1: Method) :: (globalMethod: Method) :: Nil =>
-          global.name shouldBe NamespaceTraversal.globalNamespaceName
-          main.name shouldBe "main"
-          globalType.name shouldBe NamespaceTraversal.globalNamespaceName
-          m1.name shouldBe "main"
-          globalMethod.name shouldBe NamespaceTraversal.globalNamespaceName
+        inside(file._sourceFileIn.toList) {
+          case (global: NamespaceBlock) :: (main: TypeDecl) :: (globalType: TypeDecl) :: (m1: Method) :: (globalMethod: Method) :: Nil =>
+            global.name shouldBe NamespaceTraversal.globalNamespaceName
+            main.name shouldBe "main"
+            globalType.name shouldBe NamespaceTraversal.globalNamespaceName
+            m1.name shouldBe "main"
+            globalMethod.name shouldBe NamespaceTraversal.globalNamespaceName
         }
       }
 
