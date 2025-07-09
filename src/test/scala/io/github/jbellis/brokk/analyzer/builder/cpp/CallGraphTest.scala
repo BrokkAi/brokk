@@ -12,7 +12,8 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
 
   "a simple static call should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |#include <string>
           |
@@ -24,8 +25,9 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
           |  bar();
           |  return 0;
           |}
-          |""".stripMargin, "test.cpp")
-        .buildAndOpen
+          |""".stripMargin,
+        "test.cpp"
+      ).buildAndOpen
 
       inside(cpg.method.nameExact("bar").callIn.l) { case barCall :: Nil =>
         barCall.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
@@ -37,7 +39,8 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
 
   "a simple dynamic dispatch call should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |class Vehicle {
           |public:
@@ -55,8 +58,9 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
           |  delete v;
           |  return 0;
           |}
-          |""".stripMargin, "test.cpp")
-        .buildAndOpen
+          |""".stripMargin,
+        "test.cpp"
+      ).buildAndOpen
 
       inside(cpg.call.nameExact("start").l) { case startCall :: Nil =>
         startCall.method.name shouldBe "main"
@@ -68,7 +72,8 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
 
   "a polymorphic call site should be resolved to multiple targets" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |#pragma once
           |#include <string>
@@ -78,8 +83,10 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
           |  virtual std::string greet() = 0;
           |  virtual ~Greeter() = default;
           |};
-          |""".stripMargin, "Greeter.h").moreCode(
-          """
+          |""".stripMargin,
+        "Greeter.h"
+      ).moreCode(
+        """
             |#pragma once
             |#include "Greeter.h"
             |
@@ -87,8 +94,10 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
             |public:
             |  std::string greet() override { return "Hello"; }
             |};
-            |""".stripMargin, "EnglishGreeter.h").moreCode(
-          """
+            |""".stripMargin,
+        "EnglishGreeter.h"
+      ).moreCode(
+        """
             |#pragma once
             |#include "Greeter.h"
             |
@@ -96,8 +105,10 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
             |public:
             |  std::string greet() override { return "Hola"; }
             |};
-            |""".stripMargin, "SpanishGreeter.h").moreCode(
-          """
+            |""".stripMargin,
+        "SpanishGreeter.h"
+      ).moreCode(
+        """
             |#include "EnglishGreeter.h"
             |#include "SpanishGreeter.h"
             |
@@ -110,25 +121,27 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
             |  doGreet(new SpanishGreeter());
             |  return 0;
             |}
-            |""".stripMargin, "main.cpp")
-        .buildAndOpen
+            |""".stripMargin,
+        "main.cpp"
+      ).buildAndOpen
 
       inside(cpg.call.nameExact("greet").l) { case greetCall :: Nil =>
         greetCall.method.name shouldBe "doGreet"
         greetCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
-        // There is a bug in the frontend caused by `Greeter*` to be interpreted literally with the * resulting in
-        // no matched types
-        //        greetCall.callee.fullName.l should contain theSameElementsAs List(
-        //          "EnglishGreeter.greet:std.string()",
-        //          "SpanishGreeter.greet:std.string()"
-        //        )
+      // There is a bug in the frontend caused by `Greeter*` to be interpreted literally with the * resulting in
+      // no matched types
+      //        greetCall.callee.fullName.l should contain theSameElementsAs List(
+      //          "EnglishGreeter.greet:std.string()",
+      //          "SpanishGreeter.greet:std.string()"
+      //        )
       }
     }
   }
 
   "a call inside a lambda should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |#include <string>
           |#include <functional>
@@ -145,8 +158,9 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
           |  execute([]() { return getGreeting(); });
           |  return 0;
           |}
-          |""".stripMargin, "test.cpp")
-        .buildAndOpen
+          |""".stripMargin,
+        "test.cpp"
+      ).buildAndOpen
 
       val lambdaMethod = cpg.method.isLambda.head
       lambdaMethod.signature shouldBe "ANY()" // should really be "std.string()"
@@ -161,7 +175,9 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
         funcCall.method.name shouldBe "execute"
         // funcCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH (this is being determined to be static)
         // This seems completely unresolved
-        funcCall.callee.fullName.l should contain("<unresolvedNamespace>.func:<unresolvedSignature>(0)") // ,lambdaMethod.fullName)
+        funcCall.callee.fullName.l should contain(
+          "<unresolvedNamespace>.func:<unresolvedSignature>(0)"
+        ) // ,lambdaMethod.fullName)
       }
     }
   }

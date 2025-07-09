@@ -12,22 +12,26 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
 
   "a simple static call should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |public class Foo {
           | public static String bar() {
           |   return "Hello, bar";
           | }
           |}
-          |""".stripMargin, "Foo.java").moreCode(
-          """
+          |""".stripMargin,
+        "Foo.java"
+      ).moreCode(
+        """
             |public class Driver {
             | public static void main(String[] args) {
             |   Foo.bar();
             | }
             |}
-            |""".stripMargin, "Driver.java")
-        .buildAndOpen
+            |""".stripMargin,
+        "Driver.java"
+      ).buildAndOpen
 
       inside(cpg.method.nameExact("bar").callIn.l) { case fooBar :: Nil =>
         fooBar.dispatchType shouldBe DispatchTypes.STATIC_DISPATCH
@@ -39,15 +43,18 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
 
   "a simple dynamic dispatch call should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |public class Vehicle {
           |  public void start() {
           |    System.out.println("Vehicle starting");
           |  }
           |}
-          |""".stripMargin, "Vehicle.java").moreCode(
-          """
+          |""".stripMargin,
+        "Vehicle.java"
+      ).moreCode(
+        """
             |public class Car extends Vehicle {
             |  @Override
             |  public void start() {
@@ -59,8 +66,9 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
             |    v.start();
             |  }
             |}
-            |""".stripMargin, "Car.java")
-        .buildAndOpen
+            |""".stripMargin,
+        "Car.java"
+      ).buildAndOpen
 
       inside(cpg.call.nameExact("start").l) { case startCall :: Nil =>
         startCall.method.fullName shouldBe "Car.main:void(java.lang.String[])"
@@ -73,25 +81,32 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
 
   "a polymorphic call site should be resolved to multiple targets" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |public interface Greeter {
           |  String greet();
           |}
-          |""".stripMargin, "Greeter.java").moreCode(
-          """
+          |""".stripMargin,
+        "Greeter.java"
+      ).moreCode(
+        """
             |public class EnglishGreeter implements Greeter {
             |  @Override
             |  public String greet() { return "Hello"; }
             |}
-            |""".stripMargin, "EnglishGreeter.java").moreCode(
-          """
+            |""".stripMargin,
+        "EnglishGreeter.java"
+      ).moreCode(
+        """
             |public class SpanishGreeter implements Greeter {
             |  @Override
             |  public String greet() { return "Hola"; }
             |}
-            |""".stripMargin, "SpanishGreeter.java").moreCode(
-          """
+            |""".stripMargin,
+        "SpanishGreeter.java"
+      ).moreCode(
+        """
             |public class Driver {
             |  public static void doGreet(Greeter greeter) {
             |    greeter.greet();
@@ -102,8 +117,9 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
             |    doGreet(new SpanishGreeter());
             |  }
             |}
-            |""".stripMargin, "Driver.java")
-        .buildAndOpen
+            |""".stripMargin,
+        "Driver.java"
+      ).buildAndOpen
 
       inside(cpg.call.nameExact("greet").l) { case greetCall :: Nil =>
         greetCall.method.fullName shouldBe "Driver.doGreet:void(Greeter)"
@@ -119,7 +135,8 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
 
   "a call inside a lambda should be resolved" in {
     withTestConfig { config =>
-      val cpg = project(config,
+      val cpg = project(
+        config,
         """
           |import java.util.function.Supplier;
           |
@@ -128,8 +145,10 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
           |    return "Hello from static method";
           |  }
           |}
-          |""".stripMargin, "Greeter.java").moreCode(
-          """
+          |""".stripMargin,
+        "Greeter.java"
+      ).moreCode(
+        """
             |import java.util.function.Supplier;
             |
             |public class LambdaDriver {
@@ -141,8 +160,9 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
             |    execute(() -> Greeter.getGreeting());
             |  }
             |}
-            |""".stripMargin, "LambdaDriver.java")
-        .buildAndOpen
+            |""".stripMargin,
+        "LambdaDriver.java"
+      ).buildAndOpen
 
       val lambdaMethod = cpg.method.isLambda.head
       lambdaMethod.fullName should fullyMatch regex "LambdaDriver.<lambda>\\d:java.lang.String\\(\\)"
