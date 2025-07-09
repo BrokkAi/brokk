@@ -76,6 +76,12 @@ public class ScrollSynchronizer
         barRightH.addAdjustmentListener(getHorizontalAdjustmentListener());
         barLeftH.addAdjustmentListener(getHorizontalAdjustmentListener());
 
+        // Initialize horizontal scroll to show left side (line numbers)
+        SwingUtilities.invokeLater(() -> {
+            barLeftH.setValue(0);
+            barRightH.setValue(0);
+        });
+
         // Sync vertical:
         var barLeftV = filePanelLeft.getScrollPane().getVerticalScrollBar();
         var barRightV = filePanelRight.getScrollPane().getVerticalScrollBar();
@@ -285,19 +291,32 @@ public class ScrollSynchronizer
                     return;
                 }
 
-                // Try to center the line, but with better handling for early lines
+                // Try to center the line, but with better handling for edge lines
                 int originalY = rect.y;
                 int viewportHeight = viewport.getSize().height;
-                int padding = Math.min(100, viewportHeight / 8); // 100px padding or 1/8 viewport
+                int normalPadding = Math.min(100, viewportHeight / 8); // Normal padding
 
-                // Try to center, but if that would go negative, just use padding from top
-                int centeredY = originalY - (viewportHeight / 2);
-                int finalY = Math.max(padding, centeredY);
-
-                // Make sure we don't scroll past the document end
+                // Calculate document bounds
                 var scrollPane = fp.getScrollPane();
                 var maxY = scrollPane.getVerticalScrollBar().getMaximum() - viewportHeight;
-                finalY = Math.min(finalY, maxY);
+
+                // Try to center, but handle edge cases specially
+                int centeredY = originalY - (viewportHeight / 2);
+                int finalY;
+
+                if (centeredY < 0) {
+                    // For lines very close to the top, scroll to the very top
+                    finalY = 0;
+                } else if (centeredY > maxY) {
+                    // For lines very close to the bottom, scroll to the very bottom
+                    finalY = maxY;
+                } else {
+                    // For other lines, use normal centering with padding
+                    finalY = Math.max(normalPadding, centeredY);
+                }
+
+                // Final bounds check (should rarely be needed now)
+                finalY = Math.max(0, Math.min(finalY, maxY));
 
                 var p = new Point(rect.x, finalY);
 
@@ -332,8 +351,6 @@ public class ScrollSynchronizer
     public void scrollToLineAndSync(FilePanel sourcePanel, int line)
     {
         boolean leftSide = sourcePanel == filePanelLeft;
-        System.out.println("Synchronize");
-
         // First, scroll the panel where the search originated
         scrollToLine(sourcePanel, line);
 
