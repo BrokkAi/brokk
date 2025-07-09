@@ -29,8 +29,7 @@ import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
 import scala.collection.mutable
 
-/**
- * Re-implements [[FileCreationPass]] with only feeding source nodes to the linker that don't already have a
+/** Re-implements [[FileCreationPass]] with only feeding source nodes to the linker that don't already have a
  * `SOURCE_FILE` edge.
  */
 class FileCreationPass(cpg: Cpg) extends CpgPass(cpg) with LinkingUtil {

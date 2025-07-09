@@ -5,16 +5,17 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
 import java.security.MessageDigest
 import scala.jdk.CollectionConverters.*
-import scala.util.{Try, Failure, Using}
+import scala.util.{Failure, Try, Using}
 
 object PathExt {
 
   extension (path: Path) {
 
-    /**
-     * Generates a SHA-1 hash of the file at the given path. If a directory is given, the hash is generated recursively.
+    /** Generates a SHA-1 hash of the file at the given path. If a directory is given, the hash is generated
+     * recursively.
      *
-     * @return the SHA-1 hash of the contents within this path.
+     * @return
+     * the SHA-1 hash of the contents within this path.
      */
     def sha1: String = {
       val messageDigest = MessageDigest.getInstance("SHA-1")
@@ -28,7 +29,8 @@ object PathExt {
       } else {
         Using.resource(FileInputStream(pathToDigest.toFile)) { fis =>
           val buffer = new Array[Byte](8192)
-          Iterator.continually(fis.read(buffer))
+          Iterator
+            .continually(fis.read(buffer))
             .takeWhile(_ != -1)
             .foreach(bytesRead => messageDigest.update(buffer, 0, bytesRead))
         }
@@ -36,8 +38,7 @@ object PathExt {
       }
     }
 
-    /**
-     * If the path points to a file, it is deleted. If it points to a directory, it is deleted recursively. Note, this
+    /** If the path points to a file, it is deleted. If it points to a directory, it is deleted recursively. Note, this
      * propagates any exceptions resulting from [[java.nio.file.Files.delete]].
      */
     def deleteRecursively(suppressExceptions: Boolean = false): Unit = Try {

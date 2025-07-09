@@ -50,15 +50,18 @@ object CpgTestFixture {
       this.copy(codeBase = newCode)
     }
 
-    /**
-     * Creates the source files described by this mock instance at the specified input location in the config.
+    /** Creates the source files described by this mock instance at the specified input location in the config.
      *
-     * @return this project.
+     * @return
+     * this project.
      */
     def writeFiles: MockProject[R] = {
       val targetPath = Paths.get(config.inputPath)
       // Clear any existing contents (that aren't the CPG) then set-up project on disk
-      Files.list(targetPath).toList.asScala
+      Files
+        .list(targetPath)
+        .toList
+        .asScala
         .filterNot(_ == Paths.get(config.outputPath))
         .foreach(_.deleteRecursively)
       codeBase.foreach { case CodeAndPath(code, path) =>
@@ -69,12 +72,13 @@ object CpgTestFixture {
       this
     }
 
-    /**
-     * Creates an initial build of a project from an empty CPG. This method builds the project before
-     * creating the CPG automatically.
+    /** Creates an initial build of a project from an empty CPG. This method builds the project before creating the CPG
+     * automatically.
      *
-     * @param builder the incremental CPG builder.
-     * @return the resulting CPG.
+     * @param builder
+     * the incremental CPG builder.
+     * @return
+     * the resulting CPG.
      */
     def buildAndOpen(using builder: CpgBuilder[R]): Cpg = {
       writeFiles
@@ -96,5 +100,3 @@ object CpgTestFixture {
   }
 
 }
-
-

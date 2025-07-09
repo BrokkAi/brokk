@@ -20,14 +20,17 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  std::cout << "Hello, world!" << std::endl;
           |  return 0;
           |}
-          |""".stripMargin, "Foo.cpp")
+          |""".stripMargin,
+        "Foo.cpp"
+      )
       testIncremental(projectA, projectB)
     }
   }
 
   "an incremental build from a single file change" in {
     withIncrementalTestConfig { (configA, configB) =>
-      val projectA = project(configA,
+      val projectA = project(
+        configA,
         """
           |#include <iostream>
           |
@@ -35,8 +38,11 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  std::cout << "Hello, world!" << std::endl;
           |  return 0;
           |}
-          |""".stripMargin, "Foo.cpp")
-      val projectB = project(configB,
+          |""".stripMargin,
+        "Foo.cpp"
+      )
+      val projectB = project(
+        configB,
         """
           |#include <iostream>
           |
@@ -44,7 +50,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  std::cout << "Hello, my incremental world!" << std::endl;
           |  return 0;
           |}
-          |""".stripMargin, "Foo.cpp")
+          |""".stripMargin,
+        "Foo.cpp"
+      )
 
       testIncremental(projectA, projectB)
     }
@@ -52,7 +60,8 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
 
   "an incremental build from a single file change with unchanged files present" in {
     withIncrementalTestConfig { (configA, configB) =>
-      val projectA = project(configA,
+      val projectA = project(
+        configA,
         """
           |#include <iostream>
           |
@@ -60,7 +69,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  std::cout << "Hello, world!" << std::endl;
           |  return 0;
           |}
-          |""".stripMargin, "Foo.cpp").moreCode(
+          |""".stripMargin,
+        "Foo.cpp"
+      ).moreCode(
         """
           |namespace test {
           |  class Bar {
@@ -70,8 +81,11 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    }
           |  };
           |}
-          |""".stripMargin, "test/Bar.cpp")
-      val projectB = project(configB,
+          |""".stripMargin,
+        "test/Bar.cpp"
+      )
+      val projectB = project(
+        configB,
         """
           |#include <iostream>
           |
@@ -79,7 +93,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  std::cout << "Hello, my incremental world!" << std::endl;
           |  return 0;
           |}
-          |""".stripMargin, "Foo.cpp").moreCode(
+          |""".stripMargin,
+        "Foo.cpp"
+      ).moreCode(
         """
           |namespace test {
           |  class Bar {
@@ -89,7 +105,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    }
           |  };
           |}
-          |""".stripMargin, "test/Bar.cpp")
+          |""".stripMargin,
+        "test/Bar.cpp"
+      )
 
       testIncremental(projectA, projectB)
     }
@@ -97,7 +115,8 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
 
   "an incremental build with file inheritance and calls across files" in {
     withIncrementalTestConfig { (configA, configB) =>
-      val projectA = project(configA,
+      val projectA = project(
+        configA,
         """
           |#include <iostream>
           |
@@ -108,7 +127,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  }
           |  virtual ~Base() = default;
           |};
-          |""".stripMargin, "Base.h").moreCode(
+          |""".stripMargin,
+        "Base.h"
+      ).moreCode(
         """
           |#include <iostream>
           |#include "Base.h"
@@ -119,7 +140,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    std::cout << "Hello, super A!" << std::endl;
           |  }
           |};
-          |""".stripMargin, "SuperA.h").moreCode(
+          |""".stripMargin,
+        "SuperA.h"
+      ).moreCode(
         """
           |#include <iostream>
           |#include "Base.h"
@@ -130,7 +153,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    std::cout << "Hello, super B!" << std::endl;
           |  }
           |};
-          |""".stripMargin, "SuperB.h").moreCode(
+          |""".stripMargin,
+        "SuperB.h"
+      ).moreCode(
         """
           |#include "Base.h"
           |
@@ -142,8 +167,11 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    }
           |  }
           |};
-          |""".stripMargin, "Driver.h")
-      val projectB = project(configB,
+          |""".stripMargin,
+        "Driver.h"
+      )
+      val projectB = project(
+        configB,
         """
           |#include <iostream>
           |
@@ -154,7 +182,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |  }
           |  virtual ~Base() = default;
           |};
-          |""".stripMargin, "Base.h").moreCode(
+          |""".stripMargin,
+        "Base.h"
+      ).moreCode(
         """
           |#include <iostream>
           |#include "Base.h"
@@ -165,7 +195,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    std::cout << "Hello, super A!" << std::endl;
           |  }
           |};
-          |""".stripMargin, "SuperA.h").moreCode(
+          |""".stripMargin,
+        "SuperA.h"
+      ).moreCode(
         """
           |#include <iostream>
           |#include "Base.h"
@@ -176,7 +208,9 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    std::cout << "Hello, super B (but different)!" << std::endl;
           |  }
           |};
-          |""".stripMargin, "SuperB.h").moreCode(
+          |""".stripMargin,
+        "SuperB.h"
+      ).moreCode(
         """
           |#include "Base.h"
           |
@@ -188,11 +222,12 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
           |    }
           |  }
           |};
-          |""".stripMargin, "Driver.h")
+          |""".stripMargin,
+        "Driver.h"
+      )
 
       testIncremental(projectA, projectB)
     }
   }
-
 
 }

@@ -25,9 +25,8 @@ import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes}
 import io.shiftleft.passes.CpgPass
 import io.shiftleft.semanticcpg.language.*
 
-/**
- * Re-implements [[NamespaceCreator]] and checks if a namespace exists before creating one, and similarly for the
- * `REF` edges.
+/** Re-implements [[NamespaceCreator]] and checks if a namespace exists before creating one, and similarly for the `REF`
+ * edges.
  */
 class NamespaceCreator(cpg: Cpg) extends CpgPass(cpg) {
 

@@ -102,4 +102,3 @@ object TypeNodePass {
     }
   }
 }
-

@@ -12,8 +12,7 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 
-/**
- * Removes AST nodes associated with deleted or modified files.
+/** Removes AST nodes associated with deleted or modified files.
  */
 private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   extends ForkJoinParallelCpgPass[FileChange](cpg) {
@@ -30,7 +29,8 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   }
 
   override def generateParts(): Array[FileChange] = {
-    val filesToRemove = changedFiles.collect {
+    val filesToRemove = changedFiles
+      .collect {
         case x: RemovedFile => x
         case x: ModifiedFile => x
       }

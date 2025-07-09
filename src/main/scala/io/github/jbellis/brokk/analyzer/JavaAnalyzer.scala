@@ -16,12 +16,10 @@ import scala.util.boundary.break
 import scala.util.matching.Regex
 import scala.util.{Try, Using, boundary}
 
-/**
- * A concrete analyzer for Java source code, extending AbstractAnalyzer
- * with Java-specific logic for building the CPG, method signatures, etc.
+/** A concrete analyzer for Java source code, extending AbstractAnalyzer with Java-specific logic for building the CPG,
+ * method signatures, etc.
  */
-class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
-  extends JoernAnalyzer(sourcePath, cpgInit) {
+class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer(sourcePath, cpgInit) {
 
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
@@ -37,8 +35,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
   override def isCpg: Boolean = true
 
-  /**
-   * Java-specific method signature builder.
+  /** Java-specific method signature builder.
    */
   override protected def methodSignature(m: Method): String = {
     val knownModifiers = Map(
@@ -52,9 +49,11 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
       "synchronized" -> "synchronized"
     )
 
-    val modifiers = m.modifier.map { modNode =>
-      knownModifiers.getOrElse(modNode.modifierType.toLowerCase, "")
-    }.filter(_.nonEmpty)
+    val modifiers = m.modifier
+      .map { modNode =>
+        knownModifiers.getOrElse(modNode.modifierType.toLowerCase, "")
+      }
+      .filter(_.nonEmpty)
 
     val modString = if (modifiers.nonEmpty) modifiers.mkString(" ") + " " else ""
     val returnType = sanitizeType(m.methodReturn.typeFullName)
@@ -68,8 +67,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     s"$modString$returnType ${m.name}($paramList)"
   }
 
-  /**
-   * Java-specific logic for removing lambda suffixes, nested class numeric suffixes, etc.
+  /** Java-specific logic for removing lambda suffixes, nested class numeric suffixes, etc.
    */
   override private[brokk] def resolveMethodName(methodName: String): String = {
     val segments = methodName.split("\\.")
@@ -90,11 +88,14 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
       val mainType = t.substring(0, t.indexOf("<"))
       val genericPart = t.substring(t.indexOf("<") + 1, t.lastIndexOf(">"))
       val processedMain = processType(mainType)
-      val processedParams = genericPart.split(",").map { param =>
-        val trimmed = param.trim
-        if (trimmed.contains("<")) sanitizeType(trimmed)
-        else processType(trimmed)
-      }.mkString(", ")
+      val processedParams = genericPart
+        .split(",")
+        .map { param =>
+          val trimmed = param.trim
+          if (trimmed.contains("<")) sanitizeType(trimmed)
+          else processType(trimmed)
+        }
+        .mkString(", ")
       s"$processedMain<$processedParams>"
     } else processType(t)
   }
@@ -104,8 +105,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     cpg.method.fullName(escaped + ":.*").l
   }
 
-  /**
-   * Recursively builds a structural "skeleton" for a given TypeDecl.
+  /** Recursively builds a structural "skeleton" for a given TypeDecl.
    */
   override protected def outlineTypeDecl(td: TypeDecl, indent: Int = 0): String = {
     val sb = new StringBuilder
@@ -127,12 +127,14 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     }
 
     // Nested classes: skip any named "<lambda>N" or purely numeric suffix
-    td.astChildren.isTypeDecl.filterNot { nested =>
-      nested.name.startsWith("<lambda>") ||
+    td.astChildren.isTypeDecl
+      .filterNot { nested =>
+        nested.name.startsWith("<lambda>") ||
         nested.name.split("\\$").exists(_.forall(_.isDigit))
-    }.foreach { nested =>
-      sb.append(outlineTypeDecl(nested, indent + 1)).append("\n")
-    }
+      }
+      .foreach { nested =>
+        sb.append(outlineTypeDecl(nested, indent + 1)).append("\n")
+      }
 
     sb.append("  " * indent).append("}")
     sb.toString
@@ -175,17 +177,14 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     }
 
     if (matched.size > 1) {
-      throw new SymbolAmbiguousException(
-        s"Multiple methods match $fqMethodName with parameter names $paramList"
-      )
+      throw new SymbolAmbiguousException(s"Multiple methods match $fqMethodName with parameter names $paramList")
     }
 
     toFunctionLocation(matched.head)
   }
 
-  /**
-   * Turns a method node into a FunctionLocation.
-   * Throws SymbolNotFoundError if file/line info or code extraction fails.
+  /** Turns a method node into a FunctionLocation. Throws SymbolNotFoundError if file/line info or code extraction
+   * fails.
    */
   private def toFunctionLocation(chosen: Method): IAnalyzer.FunctionLocation = {
     // chosen.typeDecl is a Traversal. Get the TypeDecl node, then its filename.
@@ -198,25 +197,29 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     val start = chosen.lineNumber.get
     val end = chosen.lineNumberEnd.get
 
-    Try(Using.resource(Source.fromFile(file.absPath().toFile))
-      (_.getLines()
-        .slice(start - 1, end) // Use slice for safer indexing
-        .mkString("\n")))
-      .toOption match {
+    Try(
+      Using.resource(Source.fromFile(file.absPath().toFile))(
+        _.getLines()
+          .slice(start - 1, end) // Use slice for safer indexing
+          .mkString("\n")
+      )
+    ).toOption match {
       case Some(code) => IAnalyzer.FunctionLocation(file, start, end, code)
       case None => throw new SymbolNotFoundException("Could not read code for chosen method.")
     }
   }
 
-  /**
-   * Parses a Java fully qualified name into its components using CPG lookups first,
-   * then falling back to heuristics.
-   * For classes: packageName = everything up to last dot, className = last segment, memberName = empty
-   * For members: packageName = everything up to class, className = class part, memberName = member
+  /** Parses a Java fully qualified name into its components using CPG lookups first, then falling back to heuristics.
+   * For classes: packageName = everything up to last dot, className = last segment, memberName = empty For members:
+   * packageName = everything up to class, className = class part, memberName = member
    *
-   * @param expectedType The type of CodeUnit expected by the caller (CLASS, FUNCTION, or FIELD).
+   * @param expectedType
+   * The type of CodeUnit expected by the caller (CLASS, FUNCTION, or FIELD).
    */
-  protected[analyzer] def parseFqName(fqName: String, expectedType: CodeUnitType): CodeUnit.Tuple3[String, String, String] = boundary {
+  protected[analyzer] def parseFqName(
+                                       fqName: String,
+                                       expectedType: CodeUnitType
+                                     ): CodeUnit.Tuple3[String, String, String] = boundary {
     if (fqName == null || fqName.isEmpty) {
       break(new CodeUnit.Tuple3("", "", ""))
     }
@@ -225,7 +228,8 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     // This path is only valid if the caller expects a class.
     if (expectedType == CodeUnitType.CLASS && cpg.typeDecl.fullNameExact(fqName).nonEmpty) {
       val lastDot = fqName.lastIndexOf('.')
-      val (pkg, cls) = if (lastDot == -1) ("", fqName) else (fqName.substring(0, lastDot), fqName.substring(lastDot + 1))
+      val (pkg, cls) =
+        if (lastDot == -1) ("", fqName) else (fqName.substring(0, lastDot), fqName.substring(lastDot + 1))
       break(new CodeUnit.Tuple3(pkg, cls, ""))
     }
 
@@ -237,9 +241,16 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
 
       cpg.typeDecl.fullNameExact(potentialClassFullName).headOption.foreach { td =>
         val classDotPkgSep = potentialClassFullName.lastIndexOf('.')
-        val (pkg, cls) = if (classDotPkgSep == -1) ("", potentialClassFullName) else (potentialClassFullName.substring(0, classDotPkgSep), potentialClassFullName.substring(classDotPkgSep + 1))
+        val (pkg, cls) =
+          if (classDotPkgSep == -1) ("", potentialClassFullName)
+          else
+            (potentialClassFullName.substring(0, classDotPkgSep), potentialClassFullName.substring(classDotPkgSep + 1))
 
-        if (expectedType == CodeUnitType.FUNCTION && (potentialMemberName == "<init>" || td.method.nameExact(potentialMemberName).nonEmpty)) {
+        if (
+          expectedType == CodeUnitType.FUNCTION && (potentialMemberName == "<init>" || td.method
+            .nameExact(potentialMemberName)
+            .nonEmpty)
+        ) {
           break(new CodeUnit.Tuple3(pkg, cls, potentialMemberName))
         }
         if (expectedType == CodeUnitType.FIELD && td.member.nameExact(potentialMemberName).nonEmpty) {
@@ -289,8 +300,7 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
     }
   }
 
-  /**
-   * Builds a structural skeleton for a given class by name
+  /** Builds a structural skeleton for a given class by name
    */
   override def getSkeleton(fqName: String): Optional[String] = {
     val decls = cpg.typeDecl.fullNameExact(fqName).l
@@ -301,10 +311,18 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   override def cuClass(fqcn: String, file: ProjectFile): Option[CodeUnit] = {
     val parts = parseFqName(fqcn, CodeUnitType.CLASS)
     if (!parts._3().isEmpty) { // Member part should be empty for a class
-      throw new IllegalArgumentException(s"Expected a class FQCN but parsing indicated a member: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(
+        s"Expected a class FQCN but parsing indicated a member: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${
+          parts
+            ._2()
+        }', Member='${parts._3()}'"
+      )
     }
     if (parts._2().isEmpty && !fqcn.isEmpty) { // Class name part should not be empty if fqcn was not empty
-      throw new IllegalArgumentException(s"Parsed class name is empty for FQCN: $fqcn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(s"Parsed class name is empty for FQCN: $fqcn. Parsed as: Pkg='${
+        parts
+          ._1()
+      }', Class='${parts._2()}', Member='${parts._3()}'")
     }
     Try(CodeUnit.cls(file, parts._1(), parts._2())).toOption
   }
@@ -312,10 +330,18 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   override def cuFunction(fqmn: String, file: ProjectFile): Option[CodeUnit] = {
     val parts = parseFqName(fqmn, CodeUnitType.FUNCTION)
     if (parts._3().isEmpty) { // Member part (method name) must not be empty
-      throw new IllegalArgumentException(s"Expected a method FQCN but parsing indicated it was not a member: $fqmn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(
+        s"Expected a method FQCN but parsing indicated it was not a member: $fqmn. Parsed as: Pkg='${
+          parts
+            ._1()
+        }', Class='${parts._2()}', Member='${parts._3()}'"
+      )
     }
     if (parts._2().isEmpty) { // Class name part must not be empty for a method
-      throw new IllegalArgumentException(s"Parsed class name is empty for method FQCN: $fqmn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(s"Parsed class name is empty for method FQCN: $fqmn. Parsed as: Pkg='${
+        parts
+          ._1()
+      }', Class='${parts._2()}', Member='${parts._3()}'")
     }
     val pkg = parts._1()
     val className = parts._2()
@@ -326,10 +352,18 @@ class JavaAnalyzer private(sourcePath: Path, cpgInit: Cpg)
   override def cuField(fqfn: String, file: ProjectFile): Option[CodeUnit] = {
     val parts = parseFqName(fqfn, CodeUnitType.FIELD)
     if (parts._3().isEmpty) { // Member part (field name) must not be empty
-      throw new IllegalArgumentException(s"Expected a field FQCN but parsing indicated it was not a member: $fqfn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(
+        s"Expected a field FQCN but parsing indicated it was not a member: $fqfn. Parsed as: Pkg='${
+          parts
+            ._1()
+        }', Class='${parts._2()}', Member='${parts._3()}'"
+      )
     }
     if (parts._2().isEmpty) { // Class name part must not be empty for a field
-      throw new IllegalArgumentException(s"Parsed class name is empty for field FQCN: $fqfn. Parsed as: Pkg='${parts._1()}', Class='${parts._2()}', Member='${parts._3()}'")
+      throw new IllegalArgumentException(s"Parsed class name is empty for field FQCN: $fqfn. Parsed as: Pkg='${
+        parts
+          ._1()
+      }', Class='${parts._2()}', Member='${parts._3()}'")
     }
     val pkg = parts._1()
     val className = parts._2()
@@ -350,10 +384,8 @@ object JavaAnalyzer {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    if Files.exists(cpgPath) then
-      logger.info(s"Updating Java CPG at '$cpgPath'")
-    else
-      logger.info(s"Creating Java CPG at '$cpgPath'")
+    if Files.exists(cpgPath) then logger.info(s"Updating Java CPG at '$cpgPath'")
+    else logger.info(s"Creating Java CPG at '$cpgPath'")
 
     // Build the CPG
     Config()

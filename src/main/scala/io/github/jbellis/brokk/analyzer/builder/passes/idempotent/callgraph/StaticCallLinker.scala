@@ -40,7 +40,8 @@ class StaticCallLinker(cpg: Cpg) extends ForkJoinParallelCpgPass[Seq[Call]](cpg)
       try {
         call.dispatchType match {
           case DispatchTypes.STATIC_DISPATCH | DispatchTypes.INLINED =>
-            val resolvedMethods = cpg.method.fullNameExact(call.methodFullName).filterNot(_.in(EdgeTypes.CALL).contains(call)).l
+            val resolvedMethods =
+              cpg.method.fullNameExact(call.methodFullName).filterNot(_.in(EdgeTypes.CALL).contains(call)).l
             resolvedMethods.foreach(dst => builder.addEdge(call, dst, EdgeTypes.CALL))
             val size = resolvedMethods.size
             // Add the debug logs with number of METHOD nodes found for given method full name

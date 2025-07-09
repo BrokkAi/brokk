@@ -11,27 +11,27 @@ object X2CpgConfigExt {
 
   extension [R <: X2CpgConfig[R]](config: R) {
 
-    /**
-     * @return opens the CPG associated with `config.outputPath` if one exists, or creates a new one at that location
-     *         otherwise.
+    /** @return
+     * opens the CPG associated with `config.outputPath` if one exists, or creates a new one at that location
+     * otherwise.
      */
     def open: Cpg = Cpg.withStorage(Paths.get(config.outputPath))
 
-    /**
-     * Builds or updates a CPG based on the given config. A new CPG is created or an existing one is loaded based on the
-     * `outputPath` property of the config. The new or updated CPG will then be serialized to disk to ensure the
+    /** Builds or updates a CPG based on the given config. A new CPG is created or an existing one is loaded based on
+     * the `outputPath` property of the config. The new or updated CPG will then be serialized to disk to ensure the
      * changes are fresh.
      *
-     * @param builder the builder associated with the frontend specified by the instance of 'config'.
-     * @return this configuration.
+     * @param builder
+     * the builder associated with the frontend specified by the instance of 'config'.
+     * @return
+     * this configuration.
      */
     def build(using builder: CpgBuilder[R]): Try[R] = withNewOrExistingCpg { cpg =>
       builder.build(cpg, config)
       config
     }
 
-    /**
-     * Alias for [[build]] where exceptions are thrown if one occurs.
+    /** Alias for [[build]] where exceptions are thrown if one occurs.
      */
     def buildAndThrow(using builder: CpgBuilder[R]): R = {
       build.failed.foreach(e => throw e)
