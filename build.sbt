@@ -169,7 +169,7 @@ buildInfoPackage := "io.github.jbellis.brokk"
 buildInfoObject := "BuildInfo"
 
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", xs@_*) =>
+  case PathList("META-INF", xs*) =>
     xs.last match {
       case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") => MergeStrategy.discard
       case "MANIFEST.MF" => MergeStrategy.discard
