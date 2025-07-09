@@ -1,7 +1,7 @@
 
 
 scalaVersion := "3.6.4"
-version := "0.12.0-preview-2"
+version := "0.12.0"
 organization := "io.github.jbellis"
 name := "brokk"
 
