@@ -180,18 +180,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Ensure cursor is handled if it were AutoCloseable.
             TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
             TSQueryCursor cursor = new TSQueryCursor();
-            try {
-                cursor.exec(returnJsxQuery, bodyNode);
-                TSQueryMatch match = new TSQueryMatch(); // Reusable match object
-                if (cursor.nextMatch(match)) {
+            cursor.exec(returnJsxQuery, bodyNode);
+            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+            if (cursor.nextMatch(match)) {
                     return true; // Found a JSX return
                 }
-            } finally {
-                // Manually close cursor if underlying native resource needs it,
-                // though the current TreeSitter binding might not require explicit closing for TSQueryCursor.
-                // For safety and future-proofing, if a close method were available, it would be called here.
-                // cursor.close(); // Example if TSQueryCursor had a close method
-            }
         } catch (TSQueryException e) {
             // Log specific query exceptions, which usually indicate a problem with the query string itself.
             log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);

@@ -445,10 +445,7 @@ public interface Language {
             }
             // Example: exclude .cargo directory if it exists
             Path cargoDir = projectRoot.resolve(".cargo");
-            if (Files.isDirectory(cargoDir) && normalizedPathToImport.startsWith(cargoDir)) {
-                return false;
-            }
-            return true; // Default: if under project root and not in typical build/dependency dirs
+            return !Files.isDirectory(cargoDir) || !normalizedPathToImport.startsWith(cargoDir);// Default: if under project root and not in typical build/dependency dirs
         }
     };
 
@@ -490,10 +487,7 @@ public interface Language {
             }
             // Example: exclude vendor directory
             Path vendorDir = projectRoot.resolve("vendor");
-            if (normalizedPathToImport.startsWith(vendorDir)) {
-                return false;
-            }
-            return true; // Default: if under project root and not in typical build/dependency dirs
+            return !normalizedPathToImport.startsWith(vendorDir);// Default: if under project root and not in typical build/dependency dirs
         }
     };
 
