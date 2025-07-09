@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.gui;
 
-import com.google.common.base.Ascii;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -332,7 +331,7 @@ public final class GitUiUtil {
     /**
      * Format commit date to show e.g. "HH:MM:SS today" if it is today's date.
      */
-    static String formatCommitDate(java.time.Instant commitInstant, java.time.LocalDate today) {
+    public static String formatRelativeDate(java.time.Instant commitInstant, java.time.LocalDate today) {
         try {
             var now = java.time.Instant.now();
             var duration = java.time.Duration.between(commitInstant, now);

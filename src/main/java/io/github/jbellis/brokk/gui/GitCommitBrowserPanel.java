@@ -328,7 +328,7 @@ public class GitCommitBrowserPanel extends JPanel {
                 }
                 if (column == 2 && value instanceof java.time.Instant instant) {
                     var today = java.time.LocalDate.now(java.time.ZoneId.systemDefault());
-                    setText(GitUiUtil.formatCommitDate(instant, today));
+                    setText(GitUiUtil.formatRelativeDate(instant, today));
                 } else {
                     setValue(value);
                 }

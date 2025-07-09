@@ -830,7 +830,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener {
                 disableIssueActions();
             } else {
                 for (var header : displayedIssues) {
-                    String formattedUpdated = (header.updated() != null) ? gitPanel.formatCommitDate(header.updated(), today) : "";
+                    String formattedUpdated;
+                    formattedUpdated = header.updated() != null ? GitUiUtil.formatRelativeDate(header.updated().toInstant(), today) : "";
                     String labelsStr = String.join(", ", header.labels());
                     String assigneesStr = String.join(", ", header.assignees());
 
