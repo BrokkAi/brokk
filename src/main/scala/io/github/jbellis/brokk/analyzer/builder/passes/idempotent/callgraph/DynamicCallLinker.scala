@@ -38,7 +38,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   // the best interest of reproducibility during debugging.
   private val validM = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
   // Used for dynamic programming as subtree's don't need to be recalculated later
-  private val subclassCache = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
+  private val subclassCache   = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
   private val superclassCache = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
   // Used for O(1) lookups on methods that will work without indexManager
   private val typeMap = mutable.Map.empty[String, TypeDecl]
@@ -55,7 +55,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   /** Main method of enhancement - to be implemented by child class
-   */
+    */
   override def run(dstGraph: DiffGraphBuilder): Unit = {
     // Perform early stopping in the case of no virtual calls
     if (!cpg.call.exists(_.dispatchType == DispatchTypes.DYNAMIC_DISPATCH)) {
@@ -66,7 +66,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     // func ptrs implementing N for C and its subclasses
     for {
       typeDecl <- cpg.typeDecl
-      method <- typeDecl._methodViaAstOut
+      method   <- typeDecl._methodViaAstOut
     } {
       val methodName = method.fullName
       val candidates = allSubclasses(typeDecl.fullName).flatMap {
@@ -88,20 +88,20 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   /** Recursively returns all the sub-types of the given type declaration. Does account for circular hierarchies.
-   */
+    */
   private def allSubclasses(typDeclFullName: String): mutable.LinkedHashSet[String] =
     inheritanceTraversal(typDeclFullName, subclassCache, inSuperDirection = false)
 
   /** Recursively returns all the super-types of the given type declaration. Does account for circular hierarchies.
-   */
+    */
   private def allSuperClasses(typDeclFullName: String): mutable.LinkedHashSet[String] =
     inheritanceTraversal(typDeclFullName, superclassCache, inSuperDirection = true)
 
   private def inheritanceTraversal(
-                                    typDeclFullName: String,
-                                    cache: mutable.Map[String, mutable.LinkedHashSet[String]],
-                                    inSuperDirection: Boolean
-                                  ): mutable.LinkedHashSet[String] = {
+    typDeclFullName: String,
+    cache: mutable.Map[String, mutable.LinkedHashSet[String]],
+    inSuperDirection: Boolean
+  ): mutable.LinkedHashSet[String] = {
     cache.get(typDeclFullName) match {
       case Some(superClasses) => superClasses
       case None =>
@@ -109,7 +109,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
           .fullNameExact(typDeclFullName)
           .headOption match {
           case Some(curr) => inheritTraversal(curr, inSuperDirection)
-          case None => mutable.LinkedHashSet.empty
+          case None       => mutable.LinkedHashSet.empty
         }).map(_.fullName)
         cache.put(typDeclFullName, totalSuperclasses)
         totalSuperclasses
@@ -117,15 +117,15 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   private def inheritTraversal(
-                                cur: TypeDecl,
-                                inSuperDirection: Boolean,
-                                visitedNodes: mutable.LinkedHashSet[TypeDecl] = mutable.LinkedHashSet.empty
-                              ): mutable.LinkedHashSet[TypeDecl] = {
+    cur: TypeDecl,
+    inSuperDirection: Boolean,
+    visitedNodes: mutable.LinkedHashSet[TypeDecl] = mutable.LinkedHashSet.empty
+  ): mutable.LinkedHashSet[TypeDecl] = {
     if (visitedNodes.contains(cur)) return visitedNodes
     visitedNodes.addOne(cur)
 
     (if (inSuperDirection) cpg.typeDecl.fullNameExact(cur.fullName)._typeViaInheritsFromOut.referencedTypeDecl
-    else cpg.typ.fullNameExact(cur.fullName).inheritsFromIn)
+     else cpg.typ.fullNameExact(cur.fullName).inheritsFromIn)
       .collectAll[TypeDecl]
       .to(mutable.LinkedHashSet) match {
       case classesToEval if classesToEval.isEmpty => visitedNodes
@@ -136,7 +136,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   /** Returns the method from a sub-class implementing a method for the given subclass.
-   */
+    */
   private def staticLookup(subclass: String, method: Method): Option[String] = {
     typeMap.get(subclass) match {
       case Some(sc) =>
@@ -155,10 +155,10 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     def split(str: String, n: Int) = (str.take(n), str.drop(n + 1))
 
     val (fullName, signature) = split(call.methodFullName, call.methodFullName.lastIndexOf(":"))
-    val typeDeclFullName = fullName.replace(s".${call.name}", "")
+    val typeDeclFullName      = fullName.replace(s".${call.name}", "")
     val candidateInheritedMethods =
       cpg.typeDecl
-        .fullNameExact(allSuperClasses(typeDeclFullName).toIndexedSeq *)
+        .fullNameExact(allSuperClasses(typeDeclFullName).toIndexedSeq*)
         .astChildren
         .isMethod
         .nameExact(call.name)
@@ -187,7 +187,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     validM.get(call.methodFullName) match {
       case Some(tgts) =>
         val callsOut = call._callOut.cast[Method].fullName.toSetImmutable
-        val tgtMs = tgts.flatMap(destMethod => methodFullNameToNode(destMethod)).toSet
+        val tgtMs    = tgts.flatMap(destMethod => methodFullNameToNode(destMethod)).toSet
         // Non-overridden methods linked as external stubs should be excluded if they are detected
         val (externalMs, internalMs) = tgtMs.partition(_.isExternal)
         (if (externalMs.nonEmpty && internalMs.nonEmpty) internalMs else tgtMs)
@@ -204,13 +204,13 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   /** In the case where the method isn't an internal method and cannot be resolved by crawling TYPE_DECL nodes it can be
-   * resolved from the map of external methods.
-   */
+    * resolved from the map of external methods.
+    */
   private def fallbackToStaticResolution(call: Call, dstGraph: DiffGraphBuilder): Unit = {
     methodMap.get(call.methodFullName) match {
       case Some(tgtM) if !tgtM.callIn(NoResolve).contains(call) => dstGraph.addEdge(call, tgtM, EdgeTypes.CALL)
-      case None => printLinkingError(call)
-      case _ => // ignore
+      case None                                                 => printLinkingError(call)
+      case _                                                    => // ignore
     }
   }
 

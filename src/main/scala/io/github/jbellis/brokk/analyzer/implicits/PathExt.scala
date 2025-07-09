@@ -12,11 +12,11 @@ object PathExt {
   extension (path: Path) {
 
     /** Generates a SHA-1 hash of the file at the given path. If a directory is given, the hash is generated
-     * recursively.
-     *
-     * @return
-     * the SHA-1 hash of the contents within this path.
-     */
+      * recursively.
+      *
+      * @return
+      *   the SHA-1 hash of the contents within this path.
+      */
     def sha1: String = {
       val messageDigest = MessageDigest.getInstance("SHA-1")
       digestPath(path, messageDigest)
@@ -39,8 +39,8 @@ object PathExt {
     }
 
     /** If the path points to a file, it is deleted. If it points to a directory, it is deleted recursively. Note, this
-     * propagates any exceptions resulting from [[java.nio.file.Files.delete]].
-     */
+      * propagates any exceptions resulting from [[java.nio.file.Files.delete]].
+      */
     def deleteRecursively(suppressExceptions: Boolean = false): Unit = Try {
       if (Files.isDirectory(path)) {
         // Files.list may return `null`, so we wrap it in an `Option`
@@ -50,7 +50,7 @@ object PathExt {
       }
     } match {
       case Failure(e) if !suppressExceptions => throw e
-      case _ => // ignore
+      case _                                 => // ignore
     }
 
   }

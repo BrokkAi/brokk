@@ -16,8 +16,8 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   this: CpgTestFixture[R] =>
 
   /** Tests the incremental construction of a project via two changes. Each change must have configurations pointing to
-   * different directories to avoid collisions.
-   */
+    * different directories to avoid collisions.
+    */
   def testIncremental(beforeChange: MockProject[R], afterChange: MockProject[R])(using builder: CpgBuilder[R]): Unit = {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
       beforeChange.config.inputPath should not be afterChange.config.inputPath
@@ -29,7 +29,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
       .Manager { use =>
         // Old path now has new files, so re-build this for updates
         val updatedCpg = beforeConfig.build match {
-          case Failure(e) => fail("Exception occurred while incrementally updating CPG.", e)
+          case Failure(e)      => fail("Exception occurred while incrementally updating CPG.", e)
           case Success(config) => use(config.open)
         }
         val fromScratchCpg = use(afterChange.buildAndOpen)
@@ -40,8 +40,8 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   }
 
   protected def withIncrementalTestConfig(
-                                           f: (R, R) => Unit
-                                         )(implicit initialConfig: () => R = () => defaultConfig): Unit = {
+    f: (R, R) => Unit
+  )(implicit initialConfig: () => R = () => defaultConfig): Unit = {
     val tempDirA = Files.createTempDirectory("brokk-incremental-cpg-A-test-")
     val tempDirB = Files.createTempDirectory("brokk-incremental-cpg-B-test-")
     try {
@@ -55,19 +55,19 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   }
 
   /** Verifies/asserts that the 'updated' CPG is equivalent to the 'fromScratch' CPG and has no other oddities.
-   *
-   * @param updated
-   * the incrementally updated CPG.
-   * @param fromScratch
-   * the CPG built from scratch, i.e., not incrementally.
-   */
+    *
+    * @param updated
+    *   the incrementally updated CPG.
+    * @param fromScratch
+    *   the CPG built from scratch, i.e., not incrementally.
+    */
   private def verifyConsistency(updated: Cpg, fromScratch: Cpg): Unit = {
 
     /** Asserts that, in the updated CPG, there is at most 1 edge of the given kind between two nodes.
-     *
-     * @param edgeKind
-     * the edge kind to verify.
-     */
+      *
+      * @param edgeKind
+      *   the edge kind to verify.
+      */
     def assertSingleEdgePairs(edgeKind: String): Unit = {
       withClue(s"Detected more than one $edgeKind edge between the same two nodes.") {
         updated.graph.allEdges

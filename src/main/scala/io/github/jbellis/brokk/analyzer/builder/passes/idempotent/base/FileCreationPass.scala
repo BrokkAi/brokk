@@ -30,15 +30,15 @@ import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 import scala.collection.mutable
 
 /** Re-implements [[FileCreationPass]] with only feeding source nodes to the linker that don't already have a
- * `SOURCE_FILE` edge.
- */
+  * `SOURCE_FILE` edge.
+  */
 class FileCreationPass(cpg: Cpg) extends CpgPass(cpg) with LinkingUtil {
 
   private val srcLabels = List(NodeTypes.NAMESPACE_BLOCK, NodeTypes.TYPE_DECL, NodeTypes.METHOD, NodeTypes.COMMENT)
 
   override def run(dstGraph: DiffGraphBuilder): Unit = {
     val originalFileNameToNode = mutable.Map.empty[String, StoredNode]
-    val newFileNameToNode = mutable.Map.empty[String, FileBase]
+    val newFileNameToNode      = mutable.Map.empty[String, FileBase]
 
     cpg.file.foreach { node =>
       originalFileNameToNode += node.name -> node
@@ -65,7 +65,7 @@ class FileCreationPass(cpg: Cpg) extends CpgPass(cpg) with LinkingUtil {
     // Create SOURCE_FILE edges from nodes of various types to FILE
     linkToSingle(
       cpg,
-      srcNodes = cpg.graph.nodes(srcLabels *).cast[StoredNode].whereNot(_.out(EdgeTypes.SOURCE_FILE)).toList,
+      srcNodes = cpg.graph.nodes(srcLabels*).cast[StoredNode].whereNot(_.out(EdgeTypes.SOURCE_FILE)).toList,
       srcLabels = srcLabels,
       dstNodeLabel = NodeTypes.FILE,
       edgeType = EdgeTypes.SOURCE_FILE,

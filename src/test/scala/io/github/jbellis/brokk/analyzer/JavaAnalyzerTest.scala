@@ -17,7 +17,7 @@ class JavaAnalyzerTest {
   @Test
   def callerTest(): Unit = {
     val analyzer = getAnalyzer
-    val callOut = analyzer.cpg.method.call.l
+    val callOut  = analyzer.cpg.method.call.l
     assert(callOut.nonEmpty)
     val callIn = analyzer.cpg.method.caller.l
     assert(callIn.nonEmpty)
@@ -34,7 +34,7 @@ class JavaAnalyzerTest {
 
   @Test
   def extractMethodSource(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A.method2")
     assertTrue(sourceOpt.isPresent)
     val source = sourceOpt.get()
@@ -54,7 +54,7 @@ class JavaAnalyzerTest {
 
   @Test
   def extractMethodSourceNested(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A$AInner$AInnerInner.method7")
     assertTrue(sourceOpt.isPresent)
     val source = sourceOpt.get()
@@ -69,7 +69,7 @@ class JavaAnalyzerTest {
 
   @Test
   def extractMethodSourceConstructor(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("B.<init>")
     assertTrue(sourceOpt.isPresent)
     val source = sourceOpt.get()
@@ -85,7 +85,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("A")
+    val source   = analyzer.getClassSource("A")
 
     // Verify the source contains class definition and methods
     assertTrue(source.contains("class A {"))
@@ -96,7 +96,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNestedTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("A$AInner")
+    val source   = analyzer.getClassSource("A$AInner")
 
     // Verify the source contains inner class definition
     assertTrue(source.contains("class AInner {"))
@@ -106,7 +106,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("NonExistentClass")
+    val source   = analyzer.getClassSource("NonExistentClass")
     assertEquals(null, source)
   }
 
@@ -207,12 +207,12 @@ class JavaAnalyzerTest {
   @Test
   def getAllClassesTest(): Unit = {
     val analyzer = getAnalyzer
-    val classes = analyzer.getAllDeclarations
+    val classes  = analyzer.getAllDeclarations
   }
 
   @Test
   def getCallgraphToTest(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer  = getAnalyzer
     val callgraph = analyzer.getCallgraphTo("A.method1", 5)
 
     // Convert to a more convenient form for testing
@@ -228,7 +228,7 @@ class JavaAnalyzerTest {
 
   @Test
   def getCallgraphFromTest(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer  = getAnalyzer
     val callgraph = analyzer.getCallgraphFrom("B.callsIntoA", 5)
 
     // Convert to a more convenient form for testing
@@ -248,7 +248,7 @@ class JavaAnalyzerTest {
     val analyzer = getAnalyzer
     import scala.jdk.javaapi.*
 
-    val seeds = CollectionConverters.asJava(Map("D" -> (1.0: java.lang.Double)))
+    val seeds  = CollectionConverters.asJava(Map("D" -> (1.0: java.lang.Double)))
     val ranked = analyzer.getPagerank(seeds, 3, false)
 
     // D calls A and B
@@ -263,7 +263,7 @@ class JavaAnalyzerTest {
     import scala.jdk.javaapi.*
 
     // Seed with CamelClass, which has no connections
-    val seeds = CollectionConverters.asJava(Map("CamelClass" -> (1.0: java.lang.Double)))
+    val seeds  = CollectionConverters.asJava(Map("CamelClass" -> (1.0: java.lang.Double)))
     val ranked = analyzer.getPagerank(seeds, 5, false)
 
     // Expect an empty list because CamelClass has few connections,
@@ -273,8 +273,8 @@ class JavaAnalyzerTest {
 
   @Test
   def getDeclarationsInFileTest(): Unit = {
-    val analyzer = getAnalyzer
-    val file = analyzer.toFile("D.java").get
+    val analyzer     = getAnalyzer
+    val file         = analyzer.toFile("D.java").get
     val declarations = analyzer.getDeclarationsInFile(file)
     val expected = Set(
       // Classes
@@ -296,8 +296,8 @@ class JavaAnalyzerTest {
 
   @Test
   def declarationsInPackagedFileTest(): Unit = {
-    val analyzer = getAnalyzer
-    val file = analyzer.toFile("Packaged.java").get
+    val analyzer     = getAnalyzer
+    val file         = analyzer.toFile("Packaged.java").get
     val declarations = analyzer.getDeclarationsInFile(file)
     val expected = Set(
       // Class
@@ -314,30 +314,30 @@ class JavaAnalyzerTest {
   @Test
   def getUsesMethodExistingTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "A.method2"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "A.method2"
+    val usages   = analyzer.getUses(symbol)
 
     // Expect references in B.callsIntoA() because it calls a.method2("test")
     val actualMethodRefs = asScala(usages).filter(_.isFunction).map(_.fqName).toSet
-    val actualRefs = asScala(usages).map(_.fqName).toSet
+    val actualRefs       = asScala(usages).map(_.fqName).toSet
     assertEquals(Set("B.callsIntoA", "AnonymousUsage.foo"), actualRefs)
   }
 
   @Test
   def getUsesMethodNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "A.noSuchMethod:java.lang.String()"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    val symbol   = "A.noSuchMethod:java.lang.String()"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
     assertTrue(ex.getMessage.contains("not found as a method, field, or class"))
   }
 
   @Test
   def getUsesFieldExistingTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "D.field1" // fully qualified field name
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "D.field1" // fully qualified field name
+    val usages   = analyzer.getUses(symbol)
 
-    val file = analyzer.toFile("D.java").get
+    val file       = analyzer.toFile("D.java").get
     val actualRefs = asScala(usages).map(_.fqName).toSet
     assertEquals(Set("D.methodD2", "E.dMethod"), actualRefs)
   }
@@ -345,8 +345,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesFieldNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "D.notAField"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    val symbol   = "D.notAField"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
     assertTrue(ex.getMessage.contains("not found"))
   }
 
@@ -362,8 +362,8 @@ class JavaAnalyzerTest {
 
     // Get the usages of each type
     val functionRefs = asScala(usages).filter(_.isFunction).map(_.fqName).toSet
-    val fieldRefs = asScala(usages).filter(cu => !cu.isFunction && !cu.isClass).map(_.fqName).toSet
-    val classRefs = asScala(usages).filter(_.isClass).map(_.fqName).toSet
+    val fieldRefs    = asScala(usages).filter(cu => !cu.isFunction && !cu.isClass).map(_.fqName).toSet
+    val classRefs    = asScala(usages).filter(_.isClass).map(_.fqName).toSet
 
     // There should be function usages in these methods
     assertEquals(Set("B.callsIntoA", "D.methodD1", "AnonymousUsage.foo"), functionRefs)
@@ -375,8 +375,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesClassNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "NoSuchClass"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    val symbol   = "NoSuchClass"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
     assertTrue(
       ex.getMessage.contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class")
     )
@@ -393,17 +393,17 @@ class JavaAnalyzerTest {
 
     // Find classes matching "*E"
     val classMatches = analyzer.searchDefinitions(".*e")
-    val classRefs = asScala(classMatches).filter(_.isClass).map(_.fqName).toSet
+    val classRefs    = asScala(classMatches).filter(_.isClass).map(_.fqName).toSet
     assertEquals(Set("E", "UseE", "AnonymousUsage"), classRefs)
 
     // Find methods matching "method*"
     val methodMatches = analyzer.searchDefinitions("method.*1")
-    val methodRefs = asScala(methodMatches).map(_.fqName).toSet
+    val methodRefs    = asScala(methodMatches).map(_.fqName).toSet
     assertEquals(Set("A.method1", "D.methodD1"), methodRefs)
 
     // Find fields matching "field.*"
     val fieldMatches = analyzer.searchDefinitions(".*field.*")
-    val fieldRefs = asScala(fieldMatches).map(_.fqName).toSet
+    val fieldRefs    = asScala(fieldMatches).map(_.fqName).toSet
     assertEquals(Set("D.field1", "D.field2", "E.iField", "E.sField"), fieldRefs)
   }
 
@@ -444,8 +444,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesClassWithStaticMembersTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "E"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "E"
+    val usages   = analyzer.getUses(symbol)
 
     val refs = asScala(usages).map(_.fqName).toSet
     // Now includes field reference UseE.e as a FIELD type
@@ -455,8 +455,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesClassInheritanceTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "BaseClass"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "BaseClass"
+    val usages   = analyzer.getUses(symbol)
 
     val refs = asScala(usages).map(_.fqName).toSet
 
@@ -660,7 +660,7 @@ class JavaAnalyzerTest {
   @Test
   def codeUnitShortNameTest(): Unit = {
     val analyzer = getAnalyzer
-    val file = analyzer.toFile("A.java").get
+    val file     = analyzer.toFile("A.java").get
 
     // Class
     val classA = CodeUnit.cls(file, "", "A")
@@ -694,7 +694,7 @@ class JavaAnalyzerTest {
 
     // Field in class with package
     val filePackaged = analyzer.toFile("Packaged.java").get
-    val fieldF = CodeUnit.field(filePackaged, "io.github.jbellis.brokk", "Foo.f")
+    val fieldF       = CodeUnit.field(filePackaged, "io.github.jbellis.brokk", "Foo.f")
     assertEquals("Foo.f", fieldF.shortName())
     assertEquals("io.github.jbellis.brokk.Foo.f", fieldF.fqName())
     assertEquals("f", fieldF.identifier())
@@ -702,7 +702,7 @@ class JavaAnalyzerTest {
     assertTrue(fieldF.classUnit().toScala.contains(fieldFClass))
 
     // Field in class without package
-    val fileD = analyzer.toFile("D.java").get
+    val fileD  = analyzer.toFile("D.java").get
     val field1 = CodeUnit.field(fileD, "", "D.field1")
     assertEquals("D.field1", field1.shortName())
     assertEquals("D.field1", field1.fqName())
@@ -723,13 +723,13 @@ class JavaAnalyzerTest {
     val analyzer = getAnalyzer
 
     def check(
-               fqn: String,
-               expectedType: CodeUnitType,
-               expectedPkg: String,
-               expectedCls: String,
-               expectedMem: String
-             ): Unit = {
-      val result = analyzer.parseFqName(fqn, expectedType) // Call protected method directly
+      fqn: String,
+      expectedType: CodeUnitType,
+      expectedPkg: String,
+      expectedCls: String,
+      expectedMem: String
+    ): Unit = {
+      val result     = analyzer.parseFqName(fqn, expectedType) // Call protected method directly
       val typeString = if (expectedType != null) expectedType.toString else "null"
       assertEquals(expectedPkg, result._1(), s"Package name mismatch for FQN [$fqn] with type [$typeString]")
       assertEquals(expectedCls, result._2(), s"Class name mismatch for FQN [$fqn] with type [$typeString]")

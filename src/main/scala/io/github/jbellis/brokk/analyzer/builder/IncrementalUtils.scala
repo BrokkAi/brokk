@@ -19,20 +19,20 @@ object IncrementalUtils {
   private[brokk] case class PathAndHash(path: String, contents: String)
 
   /** Determines which files have been "changed" when compared to the given CPG. This is a reflection of the difference
-   * in state between the current project and the last time the CPG was generated.
-   *
-   * @param cpg
-   * the "old" cpg.
-   * @param config
-   * the current configuration.
-   * @return
-   * a sequence of file changes.
-   */
+    * in state between the current project and the last time the CPG was generated.
+    *
+    * @param cpg
+    *   the "old" cpg.
+    * @param config
+    *   the current configuration.
+    * @return
+    *   a sequence of file changes.
+    */
   def determineChangedFiles[R <: X2CpgConfig[R]](
-                                                  cpg: Cpg,
-                                                  config: R,
-                                                  sourceFileExtensions: Set[String]
-                                                ): Seq[FileChange] = {
+    cpg: Cpg,
+    config: R,
+    sourceFileExtensions: Set[String]
+  ): Seq[FileChange] = {
     val rootPath = cpg.projectRoot
     val existingFiles = cpg.file.map { file =>
       val path = rootPath.resolve(file.name)
@@ -50,23 +50,23 @@ object IncrementalUtils {
       .map(Paths.get(_))
       .flatMap {
         case dir if Files.isDirectory(dir) => None
-        case path => Option(PathAndHash(path.toString, path.sha1))
+        case path                          => Option(PathAndHash(path.toString, path.sha1))
       }
     determineChangedFiles(existingFiles, newFiles)
   }
 
   /** Determines the file changes between an existing and a new set of files.
-   *
-   * @param existingFiles
-   * The sequence of files considered as the baseline.
-   * @param newFiles
-   * The sequence of files to compare against the baseline.
-   * @return
-   * A sequence of FileChange objects representing added, removed, or modified files.
-   */
+    *
+    * @param existingFiles
+    *   The sequence of files considered as the baseline.
+    * @param newFiles
+    *   The sequence of files to compare against the baseline.
+    * @return
+    *   A sequence of FileChange objects representing added, removed, or modified files.
+    */
   private def determineChangedFiles(existingFiles: Seq[PathAndHash], newFiles: Seq[PathAndHash]): Seq[FileChange] = {
     val existingFilesMap = existingFiles.map(f => f.path -> f.contents).toMap
-    val newFilesMap = newFiles.map(f => f.path -> f.contents).toMap
+    val newFilesMap      = newFiles.map(f => f.path -> f.contents).toMap
 
     val allPaths = existingFilesMap.keySet ++ newFilesMap.keySet
 
@@ -75,7 +75,7 @@ object IncrementalUtils {
     // It discards `None` values, which represent unchanged files.
     allPaths.flatMap { pathStr =>
       val existingContentOpt = existingFilesMap.get(pathStr)
-      val newContentOpt = newFilesMap.get(pathStr)
+      val newContentOpt      = newFilesMap.get(pathStr)
 
       val filePath = Path.of(pathStr)
 
@@ -94,18 +94,18 @@ object IncrementalUtils {
   }
 
   /** Builds a temporary directory of all the files that were newly added.
-   *
-   * @param projectRoot
-   * the project root used to relativize file paths.
-   * @param fileChanges
-   * all file changes.
-   * @return
-   * a temporary directory of all the newly added files.
-   */
+    *
+    * @param projectRoot
+    *   the project root used to relativize file paths.
+    * @param fileChanges
+    *   all file changes.
+    * @return
+    *   a temporary directory of all the newly added files.
+    */
   private def createNewIncrementalBuildDirectory(projectRoot: Path, fileChanges: Seq[FileChange]): Path = {
     val tempDir = Files.createTempDirectory("brokk-incremental-build-")
     val filesToMove = fileChanges.collect {
-      case x: AddedFile => x.path
+      case x: AddedFile    => x.path
       case x: ModifiedFile => x.path
     }
 
@@ -113,7 +113,7 @@ object IncrementalUtils {
 
     filesToMove.foreach { path =>
       val relativePath = Paths.get(path.toString.stripPrefix(projectRoot.toString).stripPrefix(File.separator))
-      val newPath = tempDir.resolve(relativePath)
+      val newPath      = tempDir.resolve(relativePath)
       val newParentDir = newPath.getParent
       if (!Files.exists(newParentDir)) Files.createDirectories(newParentDir)
       Try(Files.copy(path, newPath)).failed.foreach {
@@ -134,26 +134,26 @@ object IncrementalUtils {
   extension (cpg: Cpg) {
 
     /** Applies [[RemovedFilePass]] which concurrently deletes all nodes related to removed or modified files.
-     *
-     * @param fileChanges
-     * all file changes.
-     * @return
-     * this CPG.
-     */
+      *
+      * @param fileChanges
+      *   all file changes.
+      * @return
+      *   this CPG.
+      */
     def removeStaleFiles(fileChanges: Seq[FileChange]): Cpg = {
       RemovedFilePass(cpg, fileChanges).createAndApply()
       cpg
     }
 
     /** Builds the ASTs for new files from a temporary directory.
-     *
-     * @param fileChanges
-     * all file changes.
-     * @param astBuilder
-     * builds on top of the CPG defined at the CPG project root.
-     * @return
-     * the updated CPG.
-     */
+      *
+      * @param fileChanges
+      *   all file changes.
+      * @param astBuilder
+      *   builds on top of the CPG defined at the CPG project root.
+      * @return
+      *   the updated CPG.
+      */
     def buildAddedAsts(fileChanges: Seq[FileChange], astBuilder: Path => Unit): Cpg = {
       val buildDir = createNewIncrementalBuildDirectory(cpg.projectRoot, fileChanges)
       // We need to ensure this CPG is serialized

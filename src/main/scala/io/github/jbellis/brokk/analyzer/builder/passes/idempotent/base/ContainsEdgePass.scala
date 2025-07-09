@@ -28,13 +28,13 @@ import io.shiftleft.semanticcpg.language.*
 import scala.collection.mutable
 
 /** Wraps [[ContainsEdgePass]] with a check around the next "part" to see if contains edges are already present.
- */
+  */
 class ContainsEdgePass(cpg: Cpg) extends ForkJoinParallelCpgPass[AstNode](cpg) {
 
   import ContainsEdgePass.*
 
   override def generateParts(): Array[AstNode] =
-    cpg.graph.nodes(sourceTypes *).cast[AstNode].toArray
+    cpg.graph.nodes(sourceTypes*).cast[AstNode].toArray
 
   override def runOnPart(dstGraph: DiffGraphBuilder, source: AstNode): Unit =
     if (source._containsIn.isEmpty && source._containsOut.isEmpty) {
@@ -55,12 +55,12 @@ object ContainsEdgePass {
 
   private def isSourceType(node: StoredNode): Boolean = node match {
     case _: Method | _: TypeDecl | _: File => true
-    case _ => false
+    case _                                 => false
   }
 
   private def isDestinationType(node: StoredNode): Boolean = node match {
     case _: Block | _: Identifier | _: FieldIdentifier | _: Return | _: Method | _: TypeDecl | _: Call | _: Literal |
-         _: MethodRef | _: TypeRef | _: ControlStructure | _: JumpTarget | _: Unknown | _: TemplateDom =>
+        _: MethodRef | _: TypeRef | _: ControlStructure | _: JumpTarget | _: Unknown | _: TemplateDom =>
       true
     case _ => false
   }

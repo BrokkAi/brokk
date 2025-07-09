@@ -13,11 +13,11 @@ import org.slf4j.LoggerFactory
 import scala.collection.mutable
 
 /** Removes AST nodes associated with deleted or modified files.
- */
+  */
 private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
-  extends ForkJoinParallelCpgPass[FileChange](cpg) {
+    extends ForkJoinParallelCpgPass[FileChange](cpg) {
 
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger        = LoggerFactory.getLogger(getClass)
   private val pathToFileMap = mutable.Map.empty[String, File]
 
   override def init(): Unit = {
@@ -31,7 +31,7 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   override def generateParts(): Array[FileChange] = {
     val filesToRemove = changedFiles
       .collect {
-        case x: RemovedFile => x
+        case x: RemovedFile  => x
         case x: ModifiedFile => x
       }
       .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
@@ -44,15 +44,15 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
     logger.debug(s"Removing nodes associated with '${part.path}'")
     pathToFileMap.get(part.path.toString) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
-      case None => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")
+      case None           => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")
     }
   }
 
   private def isSpecialNodeName(name: String): Boolean = {
     name == NamespaceTraversal.globalNamespaceName ||
-      name == Defines.Any ||
-      name == File.PropertyDefaults.Name ||
-      name == FileTraversal.UNKNOWN
+    name == Defines.Any ||
+    name == File.PropertyDefaults.Name ||
+    name == FileTraversal.UNKNOWN
   }
 
   private def obtainNodesToDelete(fileNode: File): Seq[StoredNode] = {
@@ -62,10 +62,10 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
       .map {
         // avoid special nodes
         case x: NamespaceBlock if !isSpecialNodeName(x.fullName) => x
-        case x: Namespace if !isSpecialNodeName(x.name) => x
-        case x: TypeDecl if !isSpecialNodeName(x.fullName) => x
-        case x: Type if !isSpecialNodeName(x.fullName) => x
-        case other => other
+        case x: Namespace if !isSpecialNodeName(x.name)          => x
+        case x: TypeDecl if !isSpecialNodeName(x.fullName)       => x
+        case x: Type if !isSpecialNodeName(x.fullName)           => x
+        case other                                               => other
       }
       .cast[AstNode] // All nodes from here inherit the AstNode abstract type
       .flatMap(_.ast)

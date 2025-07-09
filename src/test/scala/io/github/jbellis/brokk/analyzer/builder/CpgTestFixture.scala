@@ -51,10 +51,10 @@ object CpgTestFixture {
     }
 
     /** Creates the source files described by this mock instance at the specified input location in the config.
-     *
-     * @return
-     * this project.
-     */
+      *
+      * @return
+      *   this project.
+      */
     def writeFiles: MockProject[R] = {
       val targetPath = Paths.get(config.inputPath)
       // Clear any existing contents (that aren't the CPG) then set-up project on disk
@@ -73,13 +73,13 @@ object CpgTestFixture {
     }
 
     /** Creates an initial build of a project from an empty CPG. This method builds the project before creating the CPG
-     * automatically.
-     *
-     * @param builder
-     * the incremental CPG builder.
-     * @return
-     * the resulting CPG.
-     */
+      * automatically.
+      *
+      * @param builder
+      *   the incremental CPG builder.
+      * @return
+      *   the resulting CPG.
+      */
     def buildAndOpen(using builder: CpgBuilder[R]): Cpg = {
       writeFiles
       config.build.failed.foreach(e => throw e)
@@ -92,7 +92,7 @@ object CpgTestFixture {
     override def equals(obj: Any): Boolean = {
       obj match {
         case CodeAndPath(_, otherPath) => otherPath == path
-        case _ => false
+        case _                         => false
       }
     }
 
