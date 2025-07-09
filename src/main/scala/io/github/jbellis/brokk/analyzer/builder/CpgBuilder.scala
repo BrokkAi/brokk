@@ -1,7 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
-import io.github.jbellis.brokk.analyzer.builder.passes.idempotent
 import io.github.jbellis.brokk.analyzer.builder.passes.incremental.{HashFilesPass, PruneTypesPass}
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.joern.x2cpg.X2CpgConfig
@@ -162,12 +161,12 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
       // Stub creators are moved up as these create nodes that interact with [File|Namespace]CreationPass
       new MethodStubCreator(cpg),
       new TypeDeclStubCreator(cpg),
-      new idempotent.base.FileCreationPass(cpg),
-      new idempotent.base.NamespaceCreator(cpg),
+      new FileCreationPass(cpg),
+      new NamespaceCreator(cpg),
       new ParameterIndexCompatPass(cpg),
       new MethodDecoratorPass(cpg),
       new AstLinkerPass(cpg),
-      new idempotent.base.ContainsEdgePass(cpg),
+      new ContainsEdgePass(cpg),
       new TypeRefPass(cpg),
       new TypeEvalPass(cpg)
     )
@@ -180,8 +179,8 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   protected def callGraphPasses(cpg: Cpg): Iterator[CpgPassBase] = {
     Iterator(
       new MethodRefLinker(cpg),
-      new idempotent.callgraph.StaticCallLinker(cpg),
-      new idempotent.callgraph.DynamicCallLinker(cpg)
+      new StaticCallLinker(cpg),
+      new DynamicCallLinker(cpg)
     )
   }
 

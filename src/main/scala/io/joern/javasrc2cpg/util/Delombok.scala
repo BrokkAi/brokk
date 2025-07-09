@@ -1,0 +1,156 @@
+/*
+ * Copyright 2025 The Joern Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/*
+ * Modifications copyright 2025 Brokk, Inc. and made available under the GPLv3.
+ *
+ * The original file can be found at https://github.com/joernio/joern/blob/3e923e15368e64648e6c5693ac014a2cac83990a/joern-cli/frontends/javasrc2cpg/src/main/scala/io/joern/javasrc2cpg/util/Delombok.scala
+ */
+package io.joern.javasrc2cpg.util
+
+import io.joern.javasrc2cpg.util.Delombok.DelombokMode.*
+import io.shiftleft.semanticcpg.utils.FileUtil.*
+import io.shiftleft.semanticcpg.utils.{ExternalCommand, FileUtil}
+import org.slf4j.LoggerFactory
+
+import java.nio.file.{Files, Path, Paths}
+import java.util.concurrent.Executors
+import scala.collection.parallel.CollectionConverters.*
+import scala.collection.parallel.ExecutionContextTaskSupport
+import scala.concurrent.ExecutionContext
+import scala.util.{Failure, Success, Try, Using}
+
+object Delombok {
+
+  enum DelombokMode {
+    case NoDelombok  extends DelombokMode // Don't run delombok at all.
+    case Default     extends DelombokMode
+    case TypesOnly   extends DelombokMode
+    case RunDelombok extends DelombokMode
+  }
+
+  case class DelombokRunResult(path: Path, isDelombokedPath: Boolean)
+
+  private val logger = LoggerFactory.getLogger(this.getClass)
+
+  private def systemJavaPath: String = {
+    sys.env
+      .get("JAVA_HOME")
+      .flatMap { javaHome =>
+        val javaExecutable = Paths.get(javaHome, "bin", "java")
+
+        Option.when(Files.exists(javaExecutable) && Files.isExecutable(javaExecutable)) {
+          javaExecutable.absolutePathAsString
+        }
+      }
+      .getOrElse("java")
+  }
+
+  private def delombokToTempDirCommand(inputPath: Path, outputDir: Path, analysisJavaHome: Option[String]) = {
+    val javaPath = analysisJavaHome.getOrElse(systemJavaPath)
+    val classPathArg = Try(FileUtil.newTemporaryFile("classpath")) match {
+      case Success(file) =>
+        FileUtil.deleteOnExit(file)
+        // Write classpath to a file to work around Windows length limits.
+        Files.writeString(file, System.getProperty("java.class.path"))
+        s"@${file.absolutePathAsString}"
+
+      case Failure(t) =>
+        logger.warn(
+          s"Failed to create classpath file for delombok execution. Results may be missing on Windows systems",
+          t
+        )
+        System.getProperty("java.class.path")
+    }
+    val command =
+      Seq(
+        javaPath,
+        "-Xmx1G",
+        "-cp",
+        classPathArg,
+        "lombok.launch.Main",
+        "delombok",
+        inputPath.absolutePathAsString,
+        "-d",
+        outputDir.absolutePathAsString
+      )
+    logger.debug(s"Executing delombok with command ${command.mkString(" ")}")
+    command
+  }
+
+  def delombokPackageRoot(
+                           projectDir: Path,
+                           relativePackageRoot: Path,
+                           delombokTempDir: Path,
+                           analysisJavaHome: Option[String]
+                         ): Try[String] = {
+    val rootIsFile = Files.isRegularFile(projectDir.resolve(relativePackageRoot))
+    val relativeOutputPath =
+      if (rootIsFile) Option(relativePackageRoot.getParent).map(_.toString).getOrElse(".")
+      else relativePackageRoot.toString
+    val inputDir = projectDir.resolve(relativePackageRoot)
+
+    val childPath = (delombokTempDir / relativeOutputPath).toAbsolutePath.normalize()
+
+    Try(childPath.createWithParentsIfNotExists(asDirectory = true)).flatMap { packageOutputDir =>
+      ExternalCommand
+        .run(delombokToTempDirCommand(inputDir, packageOutputDir, analysisJavaHome))
+        .logIfFailed()
+        .toTry
+        .map(_ => delombokTempDir.absolutePathAsString)
+    }
+  }
+
+  def run(
+           inputPath: Path,
+           fileInfo: List[SourceParser.FileInfo],
+           analysisJavaHome: Option[String]
+         ): DelombokRunResult = {
+    Try(Files.createTempDirectory("delombok")) match {
+      case Failure(_) =>
+        logger.warn(s"Could not create temporary directory for delombok output. Scanning original sources instead")
+        DelombokRunResult(inputPath, false)
+
+      case Success(tempDir) =>
+        FileUtil.deleteOnExit(tempDir)
+
+        // Use a dedicated thread pool with exactly one thread per core to avoid
+        // ForkJoinPool compensation threads (which spawn additional workers).
+        val cores    = Runtime.getRuntime.availableProcessors()
+        Using.resource(Executors.newFixedThreadPool(cores)){ executor =>
+          val executorService = ExecutionContext.fromExecutorService(executor)
+          val parPackageRoots = PackageRootFinder.packageRootsFromFiles(inputPath, fileInfo).par
+          
+          parPackageRoots.tasksupport = new ExecutionContextTaskSupport(executorService)
+          parPackageRoots.foreach { relativeRoot => delombokPackageRoot(inputPath, relativeRoot, tempDir, analysisJavaHome) }
+        }
+
+        DelombokRunResult(tempDir, true)
+    }
+  }
+
+  def parseDelombokModeOption(delombokModeStr: Option[String]): DelombokMode = {
+    delombokModeStr.map(_.toLowerCase) match {
+      case None                 => Default
+      case Some("no-delombok")  => NoDelombok
+      case Some("default")      => Default
+      case Some("types-only")   => TypesOnly
+      case Some("run-delombok") => RunDelombok
+      case Some(value) =>
+        logger.warn(s"Found unrecognised delombok mode `$value`. Using default instead.")
+        Default
+    }
+  }
+}
