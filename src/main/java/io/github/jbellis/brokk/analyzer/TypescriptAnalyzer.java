@@ -2,12 +2,12 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Set;
 import java.util.List;
@@ -44,33 +44,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         "module", "namespace",
         "internal_module", "namespace",
         "ambient_declaration", "namespace",
-        "abstract_class_declaration", "class"
+        "abstract_class_declaration", "abstract class"
     );
 
-    // Cache configuration constants
-    private static final int MAX_TEXT_CACHE_SIZE = 10000;
-    private static final int MAX_AMBIENT_CACHE_SIZE = 5000;
-    private static final int MAX_PARENT_CACHE_SIZE = 2500;
-
-    // Bounded LRU cache for text slices
-    private final Map<String, String> textSliceCache = Collections.synchronizedMap(
-        new LinkedHashMap<String, String>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-                return size() > MAX_TEXT_CACHE_SIZE;
-            }
-        }
-    );
-
-    // Bounded LRU cache for ambient context checks - use position-based keys to avoid TSNode retention
-    private final Map<String, Boolean> ambientContextCache = Collections.synchronizedMap(
-        new LinkedHashMap<String, Boolean>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
-                return size() > MAX_AMBIENT_CACHE_SIZE;
-            }
-        }
-    );
 
     private static final LanguageSyntaxProfile TS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             // classLikeNodeTypes
@@ -124,21 +100,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         this(project, Collections.emptySet());
     }
 
-    // Optimized textSlice with caching for frequently accessed slices
-    private String cachedTextSlice(TSNode node, String src) {
-        if (node.isNull()) {
-            return "";
-        }
-
-        // Use more efficient key generation
-        long key = ((long) node.getStartByte() << 32) | node.getEndByte();
-        String keyStr = key + ":" + src.hashCode();
-        return textSliceCache.computeIfAbsent(keyStr, k -> textSlice(node, src));
-    }
-
     private String cachedTextSliceStripped(TSNode node, String src) {
-        String text = cachedTextSlice(node, src);
-        return text.strip();
+        return textSlice(node, src).strip();
     }
 
     @Override
@@ -259,8 +222,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             String keyword = "";
             String nodeType = funcNode.getType();
             if (FUNCTION_NODE_TYPES.contains(nodeType)) {
-                // Function signatures in ambient contexts should not include the "function" keyword
-                if ("function_signature".equals(nodeType) && isInAmbientContext(funcNode)) {
+                // Function signatures inside namespaces/modules should not include the "function" keyword
+                // but top-level ambient function declarations (declare function) should include it
+                if ("function_signature".equals(nodeType) && isInNamespaceContext(funcNode)) {
                     keyword = "";
                 } else {
                     keyword = "function";
@@ -352,11 +316,17 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                                        String baseIndent)
     {
         String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), "class");
+        
+        // For abstract classes, remove "abstract" from the prefix since it's included in the classKeyword
+        String adjustedPrefix = exportAndModifierPrefix;
+        if ("abstract class".equals(classKeyword)) {
+            adjustedPrefix = exportAndModifierPrefix.replaceAll("\\babstract\\b\\s*", "").strip();
+        }
 
         String remainingSignature = signatureText.stripLeading();
 
-        // Strip the comprehensive exportAndModifierPrefix if it's at the start of the raw signature slice
-        String strippedPrefix = exportAndModifierPrefix.strip(); // e.g., "export abstract"
+        // Strip the comprehensive adjustedPrefix if it's at the start of the raw signature slice
+        String strippedPrefix = adjustedPrefix.strip(); // e.g., "export" (abstract removed)
         if (!strippedPrefix.isEmpty() && remainingSignature.startsWith(strippedPrefix)) {
             remainingSignature = remainingSignature.substring(strippedPrefix.length()).stripLeading();
         } else {
@@ -381,12 +351,11 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         }
 
         // remainingSignature is now "ClassName<Generics> extends Base implements Iface"
-        // exportAndModifierPrefix already has a trailing space if it's not empty.
-        String finalPrefix = exportAndModifierPrefix.stripTrailing();
+        // Use adjustedPrefix which has abstract removed for abstract classes
+        String finalPrefix = adjustedPrefix.stripTrailing();
         if (!finalPrefix.isEmpty() && !classKeyword.isEmpty() && !remainingSignature.isEmpty()) {
              finalPrefix += " ";
         }
-
 
         return baseIndent + finalPrefix + classKeyword + " " + remainingSignature + " {";
     }
@@ -462,10 +431,36 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
      * Checks if a function node is inside an ambient declaration context (declare namespace/module).
      * In ambient contexts, function signatures should not include the "function" keyword.
      */
-    boolean isInAmbientContext(TSNode node) {
-        // Use position-based key instead of TSNode reference to avoid memory leaks
-        String nodeKey = node.getStartByte() + ":" + node.getEndByte();
-        return ambientContextCache.computeIfAbsent(nodeKey, k -> checkAmbientContextDirect(node));
+    public boolean isInAmbientContext(TSNode node) {
+        return checkAmbientContextDirect(node);
+    }
+
+    /**
+     * Checks if a function node is inside a namespace/module context where function signatures
+     * should not include the "function" keyword. This includes both regular namespaces and
+     * functions inside ambient namespaces, but excludes top-level ambient function declarations.
+     */
+    public boolean isInNamespaceContext(TSNode node) {
+        TSNode parent = node.getParent();
+        while (parent != null && !parent.isNull()) {
+            String parentType = parent.getType();
+            
+            // If we find an internal_module (namespace), the function is inside a namespace
+            if ("internal_module".equals(parentType)) {
+                return true;
+            }
+            
+            // If we find a statement_block that's inside an internal_module, we're in a namespace
+            if ("statement_block".equals(parentType)) {
+                TSNode grandParent = parent.getParent();
+                if (grandParent != null && "internal_module".equals(grandParent.getType())) {
+                    return true;
+                }
+            }
+            
+            parent = parent.getParent();
+        }
+        return false;
     }
 
     private boolean checkAmbientContextDirect(TSNode node) {
@@ -595,8 +590,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             // Handle interface/class/enum header duplication (e.g., "export interface Point {" vs "interface Point {")
             // Also handle function signature variations (skeleton vs full source)
             boolean isDuplicate = false;
-            String lineToRemove = null;
-            
+
             // Create a copy of seen to avoid ConcurrentModificationException
             var seenCopy = new ArrayList<>(seen);
             
@@ -608,8 +602,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 }
                 // Check if the current line is an export version of a seen line
                 if (trimmedLine.startsWith("export ") && trimmedLine.length() > 7 && trimmedLine.substring(7).equals(seenLine)) {
-                    // Mark for replacement
-                    lineToRemove = seenLine;
                     // Find and replace the line in result
                     for (int i = 0; i < result.size(); i++) {
                         if (result.get(i).trim().equals(seenLine)) {
@@ -626,7 +618,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     // Prefer the skeleton version (with { ... }) over full implementation
                     if (trimmedLine.contains("{ ... }")) {
                         // Mark for replacement
-                        lineToRemove = seenLine;
                         for (int i = 0; i < result.size(); i++) {
                             if (result.get(i).trim().equals(seenLine)) {
                                 result.set(i, line);
@@ -639,17 +630,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     break;
                 }
             }
-            
-            // Apply the removal after iteration
-            if (lineToRemove != null) {
-                seen.remove(lineToRemove);
-            }
 
-            if (!isDuplicate) {
-                seen.add(trimmedLine);
+            if (!isDuplicate && seen.add(trimmedLine)) {
                 result.add(line);
-            } else if (lineToRemove != null) {
-                seen.add(trimmedLine);
             }
         }
 
@@ -949,7 +932,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (functionName.isEmpty()) {
                     TSNode nameNode = variableDeclarator.getChildByFieldName("name");
                     if (nameNode != null && !nameNode.isNull()) {
-                        functionName = cachedTextSlice(nameNode, src);
+                        functionName = textSlice(nameNode, src);
                     }
                 }
 
@@ -967,13 +950,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                 if (!profile.typeParametersFieldName().isEmpty()) {
                     TSNode typeParamsNode = arrowFunctionNode.getChildByFieldName(profile.typeParametersFieldName());
                     if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                        typeParamsText = cachedTextSlice(typeParamsNode, src);
+                        typeParamsText = textSlice(typeParamsNode, src);
                     }
                 }
 
                 // Check if arrow function is async by looking for async keyword in the lexical declaration
                 boolean isAsync = false;
-                String arrowFunctionText = cachedTextSlice(arrowFunctionNode, src);
+                String arrowFunctionText = textSlice(arrowFunctionNode, src);
                 if (arrowFunctionText.startsWith("async ")) {
                     isAsync = true;
                 }
@@ -1058,54 +1041,25 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return Optional.empty();
     }
 
-    // Bounded LRU cache for parent-child relationships using string keys to avoid object retention
-    private final Map<String, String> parentCache = Collections.synchronizedMap(
-        new LinkedHashMap<>(16, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, String> eldest) {
-                return size() > MAX_PARENT_CACHE_SIZE;
-            }
-        }
-    );
-
     /**
      * Find the top-level parent CodeUnit for a given CodeUnit.
      * If the CodeUnit has no parent, it returns itself.
      */
     private CodeUnit findTopLevelParent(CodeUnit cu) {
-        String cuKey = cu.fqName();
-
-        // Check if we have the top-level result cached
-        String topLevelKey = parentCache.get(cuKey + ":toplevel");
-        if (topLevelKey != null) {
-            // Find the CodeUnit by fqName
-            for (CodeUnit candidate : signatures.keySet()) {
-                if (candidate.fqName().equals(topLevelKey)) {
-                    return candidate;
-                }
-            }
-        }
-
-        // Build parent chain lazily
+        // Build parent chain without caching
         CodeUnit current = cu;
         CodeUnit parent = findDirectParent(current);
         while (parent != null) {
-            // Cache the relationship using string keys
-            parentCache.put(current.fqName(), parent.fqName());
             current = parent;
             parent = findDirectParent(current);
         }
-
-        // Cache the top-level result
-        parentCache.put(cuKey + ":toplevel", current.fqName());
         return current;
     }
 
     /**
      * Find direct parent of a CodeUnit by looking in childrenByParent map
      */
-    @Nullable
-    private CodeUnit findDirectParent(CodeUnit cu) {
+    private @Nullable CodeUnit findDirectParent(CodeUnit cu) {
         for (var entry : childrenByParent.entrySet()) {
             CodeUnit parent = entry.getKey();
             List<CodeUnit> children = entry.getValue();

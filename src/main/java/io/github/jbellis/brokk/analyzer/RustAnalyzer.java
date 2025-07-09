@@ -300,6 +300,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return baseIndent + fullSignature;
     }
 
+    @Override
     protected boolean requiresSemicolons() {
         return false; // Rust fields like "pub x: i32," should not have semicolons added
     }

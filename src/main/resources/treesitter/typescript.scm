@@ -124,7 +124,7 @@
     "declare" @keyword.modifier
     (function_signature
       name: (identifier) @function.name
-      type_parameters: (_)? @function.type_parameters)) @function.definition)
+      type_parameters: (_)? @function.type_parameters) @function.definition))
 
 ; Ambient class declarations (declare class)
 (program

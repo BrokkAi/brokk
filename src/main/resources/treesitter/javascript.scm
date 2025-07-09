@@ -13,6 +13,7 @@
 ; For simplicity, anchoring to program for top-level lexical arrow functions.
 (program
   (lexical_declaration
+    ["const" "let"] @keyword.modifier
     (variable_declarator
       name: (identifier) @function.name
       value: ((arrow_function) @function.definition))))
@@ -44,6 +45,7 @@
 (program
   [
     (lexical_declaration
+      ["const" "let"] @keyword.modifier
       (variable_declarator
         name: (identifier) @field.name
         value: [
@@ -69,6 +71,7 @@
       ) @field.definition
     )
     (variable_declaration
+      ["var"] @keyword.modifier
       (variable_declarator
         name: (identifier) @field.name
         value: [
@@ -100,8 +103,10 @@
 ; Catches 'export const x = 1;' etc.
 (
   (export_statement
+    "export" @keyword.modifier
     declaration: [
       (lexical_declaration
+        ["const" "let"] @keyword.modifier
         (variable_declarator
           name: (identifier) @field.name
           value: [
@@ -127,6 +132,7 @@
         ) @field.definition
       )
       (variable_declaration
+        ["var"] @keyword.modifier
         (variable_declarator
           name: (identifier) @field.name
           value: [
@@ -157,6 +163,7 @@
 
 ; Exported top-level class
 ((export_statement
+  "export" @keyword.modifier
   declaration: (class_declaration
     name: (identifier) @class.name
   )
@@ -164,6 +171,7 @@
 
 ; Exported top-level function
 ((export_statement
+  "export" @keyword.modifier
   declaration: (function_declaration
     name: (identifier) @function.name
   )
@@ -172,7 +180,9 @@
 ; Exported top-level arrow function (e.g., export const Foo = () => {})
 (
   (export_statement
+    "export" @keyword.modifier
     declaration: (lexical_declaration
+      ["const" "let"] @keyword.modifier
       (variable_declarator
         name: (identifier) @function.name
         value: ((arrow_function) @function.definition) ; Capture the arrow_function itself as the definition

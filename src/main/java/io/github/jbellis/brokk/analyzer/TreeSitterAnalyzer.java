@@ -182,9 +182,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                     return newSignaturesList; // Already unmodifiable from result
                                 }
                                 List<String> combined = new ArrayList<>(existingSignaturesList);
-                                combined.addAll(newSignaturesList);
-                                // Assuming order from newSignaturesList is appropriate to append.
-                                // If global ordering or deduplication of signatures for a CU is needed, add here.
+                                // Deduplicate signatures to avoid duplicates from multiple analysis runs
+                                for (String newSignature : newSignaturesList) {
+                                    if (!combined.contains(newSignature)) {
+                                        combined.add(newSignature);
+                                    }
+                                }
                                 return Collections.unmodifiableList(combined);
                             }));
 
@@ -732,9 +735,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 TSNode parent = node.getParent();
                 if (parent != null && !parent.isNull() && "export_statement".equals(parent.getType())) {
                     log.trace("analyzeFileDeclarations: Skipping {} CU for '{} ({})' because it's wrapped in export_statement, handled by export patterns.",
-                               primaryCaptureName, simpleName, node.getType());
+                              primaryCaptureName, simpleName, node.getType());
                     continue;
                 }
+            }
 ======= */
             if (simpleName.isBlank()) {
                 log.warn("Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
@@ -839,29 +843,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 log.warn("createCodeUnit returned null for node {} ({})", simpleName, primaryCaptureName);
                 continue;
             }
+            
 
-/* <<<<<<< HEAD
-            List<TSNode> decoratorNodes = defInfo.decoratorNodes();
-            String signature = buildSignatureString(node, simpleName, src, primaryCaptureName, modifierKeywords, decoratorNodes, file);
-            log.trace("Built signature for '{}': [{}]", simpleName, signature == null ? "NULL" : signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
-
-
-            if (signature == null || signature.isBlank()) {
-======= */
             List<TSNode> decoratorNodes = defInfo.decoratorNodes();
             String signature = buildSignatureString(node, simpleName, src, primaryCaptureName, modifierKeywords, decoratorNodes, file);
             log.trace("Built signature for '{}': [{}]", simpleName, signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
 
-            if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
-                log.trace("[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
-                         node.getType(), simpleName, primaryCaptureName, packageName, classChain);
-                log.trace("[vars.py DEBUG] CU created: {}, Signature: [{}]", cu, signature.isBlank() ? "BLANK_SIG" : signature.lines().findFirst().orElse("EMPTY_SIG"));
-            }
 
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual skeleton but create a CU.
                 // However, if it's blank, it shouldn't be added to signatures map.
-// >>>>>>> master
                 log.debug("buildSignatureString returned empty/null for node {} ({}), simpleName {}. This CU might not have a direct textual signature.", node.getType(), primaryCaptureName, simpleName);
                 continue;
             }
@@ -1003,7 +994,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
 ======= */
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
         // For JAVASCRIPT:
-        if (language == Language.JAVASCRIPT && "export_statement".equals(definitionNode.getType())) {
+        if ("export_statement".equals(definitionNode.getType())) {
 // >>>>>>> master
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
@@ -1085,6 +1076,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     if (classSignatureText.endsWith("{")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                     else if (classSignatureText.endsWith(";")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                 }
+                
 
                 // If exportPrefix is present and classSignatureText also starts with it,
                 // remove it from classSignatureText to avoid duplication by renderClassHeader.
@@ -1135,32 +1127,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 break;
             }
             case FIELD_LIKE: {
-/* <<<<<<< HEAD */
-                String fieldSignatureText = textSlice(nodeForContent, src).strip(); // Raw text of the field node
-                // formatFieldSignature will prepend the exportPrefix.
-                // We don't need to strip prefix from fieldSignatureText here if formatFieldSignature
-                // expects the raw field (e.g. "fieldName: type = value") and prepends `exportPrefix`.
-                // The current `formatFieldSignature` in `TypescriptAnalyzer` does:
-                // `(exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();`
-                // So, `signatureText` should be the field content *without* the prefix.
+                String fieldSignatureText = textSlice(nodeForContent, src).strip();
+                
+                // Strip export prefix if present to avoid duplication
                 if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
                     String strippedExportPrefix = exportPrefix.strip();
                     if (fieldSignatureText.startsWith(strippedExportPrefix)) {
                         fieldSignatureText = fieldSignatureText.substring(strippedExportPrefix.length()).stripLeading();
                     }
-                    String fieldLine = formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
-                    if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
                 }
-/* ======= */
-                /*String fieldDeclText = textSlice(nodeForContent, src).stripLeading().strip();
-                // If exportPrefix is present and fieldDeclText also starts with it,
-                // remove it from fieldDeclText to avoid duplication.
-                if (!exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix.strip())) {
-                    fieldDeclText = fieldDeclText.substring(exportPrefix.strip().length()).stripLeading();
-                } else if (!exportPrefix.isBlank() && fieldDeclText.startsWith(exportPrefix)) {
-                    fieldDeclText = fieldDeclText.substring(exportPrefix.length()).stripLeading();
-// >>>>>>> master
-                }*/
+                
+                
                 String fieldLine = formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
                 if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
                 break;
