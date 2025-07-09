@@ -363,8 +363,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.getActionMap().put("smartPaste", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var clipboard  = Toolkit.getDefaultToolkit().getSystemClipboard();
-                var contents   = clipboard.getContents(null);
+                var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+                var contents = clipboard.getContents(null);
                 boolean imageHandled = false;
 
                 if (contents != null) {
@@ -375,7 +375,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 || flavor.getMimeType().startsWith("image/")) {
                                 // Re-use existing WorkspacePanel logic
                                 chrome.getContextPanel()
-                                      .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                                        .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
                                 imageHandled = true;
                                 break;
                             }
@@ -491,23 +491,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // ----- context-menu support -----------------------------------------------------------
         referenceFileTable.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
-            public void mousePressed(java.awt.event.MouseEvent e)  { 
+            public void mousePressed(java.awt.event.MouseEvent e) {
                 // Only handle popup triggers (right-click) on press
                 if (e.isPopupTrigger()) {
                     ContextMenuUtils.handleFileReferenceClick(e,
-                                                             referenceFileTable,
-                                                             chrome,
-                                                             () -> triggerContextSuggestion(null)); 
+                                                              referenceFileTable,
+                                                              chrome,
+                                                              () -> triggerContextSuggestion(null));
                 }
             }
-            
+
             @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) { 
+            public void mouseReleased(java.awt.event.MouseEvent e) {
                 // Handle both popup triggers and left-clicks on release
                 ContextMenuUtils.handleFileReferenceClick(e,
-                                                         referenceFileTable,
-                                                         chrome,
-                                                         () -> triggerContextSuggestion(null)); 
+                                                          referenceFileTable,
+                                                          chrome,
+                                                          () -> triggerContextSuggestion(null));
             }
         });
 
@@ -948,14 +948,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
             if (similarity < SIMILARITY_THRESHOLD) {
                 var msg = """
-                New embeddings similarity = %.3f, triggering recompute
-                
-                # Old text
-                %s
-                
-                # New text
-                %s
-                """.formatted(similarity, lastCheckedInputText, currentText);
+                          New embeddings similarity = %.3f, triggering recompute
+                          
+                          # Old text
+                          %s
+                          
+                          # New text
+                          %s
+                          """.formatted(similarity, lastCheckedInputText, currentText);
                 logger.debug(msg);
                 return true;
             }
@@ -1013,24 +1013,24 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         deepScanButton.setLoading(true, "Scanning…");
 
         DeepScanDialog.triggerDeepScan(chrome, goal)
-            .whenComplete((Void v, @Nullable Throwable throwable) -> {
-                // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
-                SwingUtilities.invokeLater(() -> {
-                    deepScanButton.setLoading(false, null); // Restores button state
+                .whenComplete((Void v, @Nullable Throwable throwable) -> {
+                    // This callback runs when the analysis phase (ContextAgent, ValidationAgent) is complete.
+                    SwingUtilities.invokeLater(() -> {
+                        deepScanButton.setLoading(false, null); // Restores button state
 
-                    if (throwable != null) {
-                        if (throwable instanceof InterruptedException ||
-                            (throwable.getCause() instanceof InterruptedException)) {
-                            logger.info("Deep Scan analysis was cancelled or interrupted.");
-                        } else {
-                            logger.error("Deep Scan analysis failed.", throwable);
-                            chrome.toolError("Deep Scan analysis encountered an error: " + throwable.getMessage());
+                        if (throwable != null) {
+                            if (throwable instanceof InterruptedException ||
+                                (throwable.getCause() instanceof InterruptedException)) {
+                                logger.info("Deep Scan analysis was cancelled or interrupted.");
+                            } else {
+                                logger.error("Deep Scan analysis failed.", throwable);
+                                chrome.toolError("Deep Scan analysis encountered an error: " + throwable.getMessage());
+                            }
                         }
-                    }
-                    this.contextManager.submitBackgroundTask("Post Deep Scan: Balance Check", this::checkBalanceAndNotify);
-                    notifyActionComplete("Deep Scan"); // General notification that the "Deep Scan" action initiated here has concluded its primary phase.
+                        this.contextManager.submitBackgroundTask("Post Deep Scan: Balance Check", this::checkBalanceAndNotify);
+                        notifyActionComplete("Deep Scan"); // General notification that the "Deep Scan" action initiated here has concluded its primary phase.
+                    });
                 });
-            });
     }
 
     /**
@@ -1123,12 +1123,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         contextManager.getAnalyzerWrapper().pause();
         try {
             var result = new CodeAgent(contextManager, model).runTask(input, false);
+            chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
             // code agent has displayed status in llmoutput
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
-                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 maybeAddInterruptedResult(input, result);
             } else {
-                chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
                 contextManager.addToHistory(result, false);
             }
         } finally {
@@ -1199,17 +1198,17 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         populateInstructionsArea(input);
     }
 
-        public void maybeAddInterruptedResult(String action, String input) {
-            if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
-                logger.debug(action + " command cancelled with partial results");
-                var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
-                                                   new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
-                                                   Set.of(),
-                                                   new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
-                chrome.getContextManager().addToHistory(sessionResult, false);
-            }
-            populateInstructionsArea(input);
+    public void maybeAddInterruptedResult(String action, String input) {
+        if (chrome.getLlmRawMessages().stream().anyMatch(m -> m instanceof AiMessage)) {
+            logger.debug(action + " command cancelled with partial results");
+            var sessionResult = new TaskResult("%s (Cancelled): %s".formatted(action, input),
+                                               new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), input),
+                                               Set.of(),
+                                               new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+            chrome.getContextManager().addToHistory(sessionResult, false);
         }
+        populateInstructionsArea(input);
+    }
 
     /**
      * Executes the core logic for the "Agent" command.
@@ -1289,8 +1288,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         final String finalActionMessage = actionMessage; // Effectively final for lambda
         contextManager.pushContext(ctx -> {
             var parsed = new TaskFragment(chrome.getContextManager(), List.copyOf(chrome.getLlmRawMessages()), finalActionMessage);
-                return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
-            });
+            return ctx.withParsedOutput(parsed, CompletableFuture.completedFuture(finalActionMessage));
+        });
     }
 
     // --- Action Handlers ---
@@ -1311,10 +1310,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Check vision capabilities only if running in current project
         if (contextHasImages()) {
             var nonVisionModels = Stream.of(architectModel, codeModel, searchModel) // Check all models Architect might use
-                                        .filter(m -> !models.supportsVision(m))
-                                        .map(models::nameOf)
-                                        .distinct() // Avoid duplicate model names if they are the same
-                                        .toList();
+                    .filter(m -> !models.supportsVision(m))
+                    .map(models::nameOf)
+                    .distinct() // Avoid duplicate model names if they are the same
+                    .toList();
             if (!nonVisionModels.isEmpty()) {
                 showVisionSupportErrorDialog(String.join(", ", nonVisionModels));
                 return; // Abort if any required model lacks vision and context has images
@@ -1381,11 +1380,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 String sourceBranchForNew = mainGitRepo.getCurrentBranch(); // New branch is created from current branch of main repo
 
                 var setupResult = GitWorktreeTab.setupNewGitWorktree(
-                                                                     (MainProject) projectForWorktreeSetup,
-                                                                     mainGitRepo,
-                                                                     generatedBranchName,
-                                                                     true, // Always creating a new branch in this flow
-                                                                     sourceBranchForNew);
+                        (MainProject) projectForWorktreeSetup,
+                        mainGitRepo,
+                        generatedBranchName,
+                        true, // Always creating a new branch in this flow
+                        sourceBranchForNew);
                 newWorktreePath = setupResult.worktreePath();
                 actualBranchName = setupResult.branchName();
 
@@ -1399,8 +1398,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 };
 
                 MainProject mainProject = (currentProject instanceof MainProject mainProj)
-                                                ? mainProj
-                                                : (MainProject) currentProject.getParent();
+                                          ? mainProj
+                                          : (MainProject) currentProject.getParent();
 
                 new Brokk.OpenProjectBuilder(newWorktreePath)
                         .parent(mainProject)
@@ -1408,18 +1407,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         .sourceContextForSession(cm.topContext())
                         .open()
                         .thenAccept(success ->
-                {
-                    if (Boolean.TRUE.equals(success)) {
-                        chrome.systemOutput("New worktree opened for Architect");
-                    } else {
-                        chrome.toolError("Failed to open the new worktree project for Architect.");
-                        populateInstructionsArea(originalInstructions);
-                    }
-                }).exceptionally(ex -> {
-                    chrome.toolError("Error opening new worktree project: " + ex.getMessage());
-                    populateInstructionsArea(originalInstructions);
-                    return null;
-                });
+                                    {
+                                        if (Boolean.TRUE.equals(success)) {
+                                            chrome.systemOutput("New worktree opened for Architect");
+                                        } else {
+                                            chrome.toolError("Failed to open the new worktree project for Architect.");
+                                            populateInstructionsArea(originalInstructions);
+                                        }
+                                    }).exceptionally(ex -> {
+                            chrome.toolError("Error opening new worktree project: " + ex.getMessage());
+                            populateInstructionsArea(originalInstructions);
+                            return null;
+                        });
             } catch (InterruptedException e) {
                 logger.debug("Architect worktree setup interrupted.", e);
                 populateInstructionsArea(originalInstructions);
@@ -1436,7 +1435,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Overload for programmatic invocation of Architect agent after options are determined,
      * typically called directly or from the worktree setup.
      *
-     * @param goal The user's goal/instructions.
+     * @param goal    The user's goal/instructions.
      * @param options The pre-configured ArchitectOptions.
      */
     public void runArchitectCommand(String goal, ArchitectAgent.ArchitectOptions options) {
@@ -1626,9 +1625,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Architect Button
             architectButton.setEnabled(cmAvailable);
             if (cmAvailable) {
-                 architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
+                architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
             } else {
-                 architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
+                architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
             }
             // Worktree option is now part of ArchitectOptionsDialog
 
@@ -1790,7 +1789,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         } else {
             favoriteModelsToShow.forEach(fav -> {
                 var item = new JMenuItem(fav.alias());
-                 // Add a tooltip showing model name and reasoning level
+                // Add a tooltip showing model name and reasoning level
                 item.setToolTipText("<html>Model: " + fav.modelName() + "<br>Reasoning: " + fav.reasoning().toString() + "</html>");
                 item.addActionListener(e -> onModelSelect.accept(fav.modelName(), fav.reasoning()));
                 popupMenu.add(item);
@@ -1807,7 +1806,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void insertString(FilterBypass fb, int offs, String str, AttributeSet a)
-                throws BadLocationException {
+        throws BadLocationException
+        {
             super.insertString(fb, offs, str, a);
             if (!isPopupOpen) {
                 maybeHandleAt(fb, offs + str.length());
@@ -1816,7 +1816,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         @Override
         public void replace(FilterBypass fb, int offs, int len, String str, AttributeSet a)
-                throws BadLocationException {
+        throws BadLocationException
+        {
             super.replace(fb, offs, len, str, a);
             if (!isPopupOpen) {
                 maybeHandleAt(fb, offs + str.length());
@@ -1836,7 +1837,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         }
 
         private void showAddPopup(int atOffset) {
-            if (isPopupOpen) return; // Already showing one
+            if (isPopupOpen) {
+                return; // Already showing one
+            }
 
             isPopupOpen = true;
             try {
@@ -1880,7 +1883,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     }
 
                     @Override
-                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
+                    public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                    }
 
                     @Override
                     public void popupMenuCanceled(PopupMenuEvent e) {
