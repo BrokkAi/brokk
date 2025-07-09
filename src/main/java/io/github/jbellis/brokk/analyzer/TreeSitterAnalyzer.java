@@ -354,14 +354,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         }
 
         for (String individualFullSignature : sigList) {
-/* <<<<<<< HEAD
-            assert individualFullSignature != null && !individualFullSignature.isBlank() : "Stored signature for CU " + cu + " is unexpectedly null or blank.";
-======= */
             if (individualFullSignature.isBlank()) {
                 log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
                 continue;
             }
-// >>>>>>> master
             // Apply indent to each line of the current signature
             String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
             for (String line : signatureLines) {
@@ -372,7 +368,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         List<CodeUnit> kids = childrenByParent.getOrDefault(cu, List.of());
         // Only add children and closer if the CU can have them (e.g. class, or function that can nest)
         // For simplicity now, always check for children. Specific languages might refine this.
-        if (!kids.isEmpty() || (cu.isClass() && getLanguageSpecificCloser(cu).length() > 0)) { // also add closer for empty classes
+        if (!kids.isEmpty() || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
             String childIndent = indent + getLanguageSpecificIndent();
             for (CodeUnit kid : kids) {
                 reconstructSkeletonRecursive(kid, childIndent, sb);
@@ -651,7 +647,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 // If it can, then this 'if' should not 'continue' but allow further processing.
             }
 
-// >>>>>>> master
             // Process each potential definition found in the match
             for (var captureEntry : capturedNodesForMatch.entrySet()) {
                 String captureName = captureEntry.getKey();

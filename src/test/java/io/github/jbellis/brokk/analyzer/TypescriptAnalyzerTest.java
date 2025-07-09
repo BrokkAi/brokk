@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.testutil.TestProject;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 public class TypescriptAnalyzerTest {
 
-    private static TreeSitterAnalyzerTest.TestProject project;
+    private static TestProject project;
     private static TypescriptAnalyzer analyzer;
 
     // Helper to normalize line endings and strip leading/trailing whitespace from each line
@@ -32,7 +33,7 @@ public class TypescriptAnalyzerTest {
                    "Test resource directory 'testcode-ts' must exist.");
 
         // For TypescriptAnalyzerTest, we'll point the TestProject root directly to testcode-ts
-        project = TreeSitterAnalyzerTest.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
         analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
         assertFalse(analyzer.isEmpty(), "Analyzer should have processed TypeScript files and not be empty.");
     }
