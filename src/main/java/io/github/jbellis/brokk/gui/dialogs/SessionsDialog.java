@@ -22,6 +22,9 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.time.LocalDate;
+
+import io.github.jbellis.brokk.gui.GitUiUtil;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -67,8 +70,8 @@ public class SessionsDialog extends JDialog {
     }
 
     private void initializeComponents() {
-        // Initialize sessions table model with Active, Session Name, and hidden SessionInfo columns
-        sessionsTableModel = new DefaultTableModel(new Object[]{"Active", "Session Name", "SessionInfo"}, 0) {
+        // Initialize sessions table model with Active, Session Name, Date, and hidden SessionInfo columns
+        sessionsTableModel = new DefaultTableModel(new Object[]{"Active", "Session Name", "Date", "SessionInfo"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
                 return false;
@@ -82,7 +85,7 @@ public class SessionsDialog extends JDialog {
                 java.awt.Point p = event.getPoint();
                 int rowIndex = rowAtPoint(p);
                 if (rowIndex >= 0 && rowIndex < getRowCount()) {
-                    SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 2);
+                    SessionInfo sessionInfo = (SessionInfo) sessionsTableModel.getValueAt(rowIndex, 3);
                     return "Last modified: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM).withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(sessionInfo.modified()));
                 }
                 return super.getToolTipText(event);
@@ -202,19 +205,20 @@ public class SessionsDialog extends JDialog {
 
         // Create top row with Sessions (30%), Activity (30%), and MOP (40%) horizontal space
         JSplitPane topFirstSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
-        topFirstSplit.setResizeWeight(0.5); // Sessions gets 30%, Activity gets 30%, so 30/(30+30) = 0.5
+        topFirstSplit.setResizeWeight(0.6); // 1.5 : 1  => 0.6 of the sub-split goes to Sessions
 
         JSplitPane topSecondSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, topFirstSplit, mopPanel);
-        topSecondSplit.setResizeWeight(0.6); // Sessions+Activity get 60%, MOP gets 40%
+        topSecondSplit.setResizeWeight(5.0 / 9.0); // (1.5+1) : 2  => 5/9 ≈ 0.556 goes to Sessions+Activity
 
         // Set divider locations after the dialog is shown to achieve 30%/30%/40% split
         SwingUtilities.invokeLater(() -> {
             int totalWidth = topSecondSplit.getWidth();
             if (totalWidth > 0) {
-                // Set first divider at 30% of the way (between Sessions and Activity)
-                topFirstSplit.setDividerLocation((3 * totalWidth) / 10);
-                // Set second divider at 60% of the way (between Activity and MOP)
-                topSecondSplit.setDividerLocation((3 * totalWidth) / 5);
+                // 1.5 : 1 : 2  (total units 4.5)
+                // First divider at 1/3 of total width (Sessions width)
+                topFirstSplit.setDividerLocation(totalWidth / 3);
+                // Second divider at (1/3 + 2/9) = 5/9 of total width (Sessions + Activity)
+                topSecondSplit.setDividerLocation((5 * totalWidth) / 9);
             }
         });
 
@@ -240,7 +244,7 @@ public class SessionsDialog extends JDialog {
             }
             int[] selected = sessionsTable.getSelectedRows();
             if (selected.length == 1) {
-                var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], 2);
+                var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], 3);
                 loadSessionHistory(info.id());
             } else { // multi-select: clear preview panels
                 activityTableModel.setRowCount(0);
@@ -381,22 +385,25 @@ public class SessionsDialog extends JDialog {
         UUID currentSessionId = contextManager.getCurrentSessionId();
         for (var session : sessions) {
             String active = session.id().equals(currentSessionId) ? "✓" : "";
-            sessionsTableModel.addRow(new Object[]{active, session.name(), session});
+            var date = GitUiUtil.formatRelativeDate(Instant.ofEpochMilli(session.modified()), LocalDate.now(ZoneId.systemDefault()));
+            sessionsTableModel.addRow(new Object[]{active, session.name(), date, session});
         }
 
         // Hide the "SessionInfo" column
-        sessionsTable.getColumnModel().getColumn(2).setMinWidth(0);
-        sessionsTable.getColumnModel().getColumn(2).setMaxWidth(0);
-        sessionsTable.getColumnModel().getColumn(2).setWidth(0);
+        sessionsTable.getColumnModel().getColumn(3).setMinWidth(0);
+        sessionsTable.getColumnModel().getColumn(3).setMaxWidth(0);
+        sessionsTable.getColumnModel().getColumn(3).setWidth(0);
 
         // Set column widths for sessions table
-        sessionsTable.getColumnModel().getColumn(0).setPreferredWidth(40);
-        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(40);
-        sessionsTable.getColumnModel().getColumn(1).setPreferredWidth(120);
+        sessionsTable.getColumnModel().getColumn(0).setPreferredWidth(20);
+        sessionsTable.getColumnModel().getColumn(0).setMaxWidth(20);
+        sessionsTable.getColumnModel().getColumn(1).setPreferredWidth(200);
+        sessionsTable.getColumnModel().getColumn(2).setPreferredWidth(110);
+        sessionsTable.getColumnModel().getColumn(2).setMaxWidth(110);
 
         // Select current session and load its history
         for (int i = 0; i < sessionsTableModel.getRowCount(); i++) {
-            SessionInfo rowInfo = (SessionInfo) sessionsTableModel.getValueAt(i, 2);
+            SessionInfo rowInfo = (SessionInfo) sessionsTableModel.getValueAt(i, 3);
             if (rowInfo.id().equals(currentSessionId)) {
                 sessionsTable.setRowSelectionInterval(i, i);
                 loadSessionHistory(rowInfo.id()); // Load history for current session
@@ -416,7 +423,7 @@ public class SessionsDialog extends JDialog {
 
         int[] selectedRows = sessionsTable.getSelectedRows();
         var selectedSessions = java.util.Arrays.stream(selectedRows)
-                                               .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 2))
+                                               .mapToObj(r -> (SessionInfo) sessionsTableModel.getValueAt(r, 3))
                                                .toList();
 
         JPopupMenu popup = new JPopupMenu();
