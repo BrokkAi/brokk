@@ -769,21 +769,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This does that by assuming that the live and frozen Contexts have their fragments in the same order.
      */
     private ContextFragment mapToLiveFragment(ContextFragment f) {
-        // Non‑frozen fragments are definitionally live
         if (!(f instanceof FrozenFragment)) {
             return f;
         }
 
-        // Locate the fragment with the same id in the live context.
-        return liveContext
-                .getAllFragmentsInDisplayOrder()
-                .stream()
-                .filter(liveFrag -> liveFrag.id().equals(f.id()))
-                .findFirst()
-                .orElseThrow(() -> {
-                    var msg = "Fragment %s not found in live context %s".formatted(f, liveContext.getAllFragmentsInDisplayOrder());
-                    return new IllegalStateException(msg);
-                });
+        int idx = topContext().getAllFragmentsInDisplayOrder().indexOf(f);
+        return liveContext.getAllFragmentsInDisplayOrder().get(idx);
     }
 
     /**
