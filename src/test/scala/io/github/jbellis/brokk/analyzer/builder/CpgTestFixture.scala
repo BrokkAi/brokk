@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
+import io.shiftleft.semanticcpg.language.{ICallResolver, NoResolve}
 import org.scalatest.Inside
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpec
@@ -14,6 +15,8 @@ import scala.jdk.CollectionConverters.*
 trait CpgTestFixture[R <: X2CpgConfig[R]] extends AnyWordSpec with Matchers with Inside {
 
   import CpgTestFixture.*
+
+  protected implicit val callResolver: ICallResolver = NoResolve // resolves calls based on existing `CALL` edges
 
   def project(config: R, code: String, path: String): MockProject[R] =
     MockProject(config, Set(CodeAndPath(code, path)))
