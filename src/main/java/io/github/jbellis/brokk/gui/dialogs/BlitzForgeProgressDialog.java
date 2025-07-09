@@ -577,7 +577,7 @@ public class BlitzForgeProgressDialog extends JDialog {
                 var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
 
                 var messages = result.output().messages();
-                assert messages.isEmpty() || messages.size() == 22; // by construction
+                assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
                 var effectiveOutputMode = messages.isEmpty() ? ParallelOutputMode.NONE : outputMode;
                 var parallelDetails = switch (effectiveOutputMode) {
                     case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
