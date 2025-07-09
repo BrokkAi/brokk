@@ -34,9 +34,16 @@ object IncrementalUtils {
     sourceFileExtensions: Set[String]
   ): Seq[FileChange] = {
     val rootPath = cpg.projectRoot
-    val existingFiles = cpg.file.map { file =>
-      val path = rootPath.resolve(file.name)
-      PathAndHash(path.toString, file.hash.getOrElse(""))
+    val existingFiles = cpg.file.flatMap { file =>
+      val fileName = file.name
+      Try(rootPath.resolve(fileName)) match
+        case scala.util.Success(absPath) =>
+          Some(PathAndHash(absPath.toString, file.hash.getOrElse("")))
+        case scala.util.Failure(e: InvalidPathException) =>
+          logger.debug(s"Skipping invalid or synthetic file entry '$fileName': ${e.getMessage}")
+          None
+        case scala.util.Failure(e) =>
+          throw e
     }.toSeq
     // The below will include files unrelated to project source code, but will be filtered out by the language frontend
     val newFiles = SourceFiles
