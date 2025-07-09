@@ -8,6 +8,7 @@ import io.shiftleft.passes.ForkJoinParallelCpgPass
 import io.shiftleft.semanticcpg.language.*
 
 import java.nio.file.Files
+import scala.util.Try
 
 class HashFilesPass(cpg: Cpg) extends ForkJoinParallelCpgPass[Seq[File]](cpg) {
 
@@ -17,11 +18,15 @@ class HashFilesPass(cpg: Cpg) extends ForkJoinParallelCpgPass[Seq[File]](cpg) {
   override def runOnPart(builder: DiffGraphBuilder, files: Seq[File]): Unit = {
     val root = cpg.projectRoot
     files.foreach { file =>
-      val absPath = root.resolve(file.name)
-      // There are some "external" placeholder file nodes which are not on disk
-      if Files.isRegularFile(absPath) then {
-        val fileHash = absPath.sha1
-        if !file.hash.contains(fileHash) then builder.setNodeProperty(file, PropertyNames.HASH, fileHash)
+      // Attempt to turn the file name into a valid Path; skip on InvalidPathException
+      val maybePath = Try(root.resolve(file.name)).toOption
+      maybePath.foreach { absPath =>
+        // There are some "external" placeholder file nodes which are not on disk
+        if Files.isRegularFile(absPath) then {
+          val fileHash = absPath.sha1
+          if !file.hash.contains(fileHash) then
+            builder.setNodeProperty(file, PropertyNames.HASH, fileHash)
+        }
       }
     }
   }
