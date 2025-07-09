@@ -366,8 +366,10 @@ object JavaAnalyzer {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    if Files.exists(cpgPath) then logger.info(s"Updating Java CPG at '$cpgPath'")
-    else logger.info(s"Creating Java CPG at '$cpgPath'")
+    if Files.exists(cpgPath) then
+      logger.info(s"Deleting existing CPG at '$cpgPath' to ensure a fresh build.")
+      Files.delete(cpgPath)
+    logger.info(s"Creating Java CPG at '$cpgPath'")
 
     // Build the CPG
     Config()
