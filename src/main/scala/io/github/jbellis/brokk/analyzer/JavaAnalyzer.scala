@@ -9,7 +9,7 @@ import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Path}
 import java.util.Optional
 import scala.io.Source
 import scala.util.boundary.break
@@ -24,14 +24,8 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
 
-  def this(sourcePath: Path, excludedFiles: java.util.Set[String]) =
-    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin")))
-
   def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
     this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
-
-  def this(sourcePath: Path) =
-    this(sourcePath, java.util.Collections.emptySet[String]())
 
   override def isCpg: Boolean = true
 

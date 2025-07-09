@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.analyzer
 
-import flatgraph.storage.Serialization
 import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
@@ -1159,12 +1158,6 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       }
 
     declarations.toSet.asJava
-  }
-
-  /** Write the underlying CPG to the specified path.
-    */
-  def writeCpg(path: Path): Unit = {
-    Serialization.writeGraph(cpg.graph, path)
   }
 
   override def close(): Unit = cpg.close()
