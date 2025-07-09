@@ -1368,7 +1368,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context pushContext(Function<Context, Context> contextGenerator) {
         var updatedLiveContext = contextGenerator.apply(liveContext);
         assert !updatedLiveContext.containsFrozenFragments() : updatedLiveContext;
-        if (liveContext.workspaceContentEquals(updatedLiveContext)) {
+        if (liveContext.equals(updatedLiveContext)) {
             // No change occurred
             return liveContext;
         }
