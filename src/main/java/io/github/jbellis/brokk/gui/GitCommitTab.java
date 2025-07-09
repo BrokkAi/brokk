@@ -615,17 +615,13 @@ return;
         });
     }
 
-    public void disableButtons() {
-        SwingUtilities.invokeLater(() -> {
-            stashButton.setEnabled(false);
-            commitButton.setEnabled(false);
-        });
+    void disableButtons() {
+        stashButton.setEnabled(false);
+        commitButton.setEnabled(false);
     }
 
-    public void enableButtons() {
-        SwingUtilities.invokeLater(() -> {
-            stashButton.setEnabled(true);
-            commitButton.setEnabled(true);
-        });
+    void enableButtons() {
+        stashButton.setEnabled(true);
+        commitButton.setEnabled(true);
     }
 }

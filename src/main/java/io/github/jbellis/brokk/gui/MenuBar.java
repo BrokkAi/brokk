@@ -271,6 +271,9 @@ public class MenuBar {
         });
         upgradeAgentItem.setEnabled(true);
         toolsMenu.add(upgradeAgentItem);
+
+        // Let Chrome manage this item’s enabled state during long-running actions
+        chrome.setBlitzForgeMenuItem(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) {
             menuBar.add(toolsMenu);
         }

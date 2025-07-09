@@ -1553,7 +1553,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         // Update the LLM output panel directly via Chrome
         chrome.llmOutput("# Please be patient\n\nBrokk makes multiple requests to the LLM while searching. Progress is logged in System Messages below.", ChatMessageType.USER);
         clearCommandInput();
-        disableButtons();
         // Submit the action, calling the private execute method inside the lambda
         submitAction(ACTION_SEARCH, input, () -> executeSearchCommand(searchModel, input));
     }
@@ -1571,7 +1570,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public void runRunCommand(String input) {
         clearCommandInput();
-        disableButtons();
         submitAction(ACTION_RUN, input, () -> executeRunCommand(input));
     }
 
@@ -1599,17 +1597,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Methods to disable and enable buttons.
-    public void disableButtons() {
-        SwingUtilities.invokeLater(() -> {
-            architectButton.setEnabled(false);
-            codeButton.setEnabled(false);
-            askButton.setEnabled(false);
-            searchButton.setEnabled(false);
-            runButton.setEnabled(false);
-            deepScanButton.setEnabled(false);
-            stopButton.setEnabled(true);
-            chrome.disableHistoryPanel();
-        });
+    void disableButtons() {
+        architectButton.setEnabled(false);
+        codeButton.setEnabled(false);
+        askButton.setEnabled(false);
+        searchButton.setEnabled(false);
+        runButton.setEnabled(false);
+        deepScanButton.setEnabled(false);
+        stopButton.setEnabled(true);
     }
 
     /**
@@ -1617,43 +1612,41 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * and ContextManager availability. Called when actions complete.
      */
     private void updateButtonStates() {
-        SwingUtilities.invokeLater(() -> {
-            boolean cmAvailable = this.contextManager != null;
-            boolean gitAvailable = chrome.getProject().hasGit();
-            // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
+        boolean cmAvailable = this.contextManager != null;
+        boolean gitAvailable = chrome.getProject().hasGit();
+        // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
 
-            // Architect Button
-            architectButton.setEnabled(cmAvailable);
-            if (cmAvailable) {
-                architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
-            } else {
-                architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
-            }
-            // Worktree option is now part of ArchitectOptionsDialog
+        // Architect Button
+        architectButton.setEnabled(cmAvailable);
+        if (cmAvailable) {
+            architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
+        } else {
+            architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
+        }
+        // Worktree option is now part of ArchitectOptionsDialog
 
-            // Code Button
-            if (!gitAvailable) {
-                codeButton.setEnabled(false);
-                codeButton.setToolTipText("Code feature requires Git integration for this project.");
-            } else {
-                codeButton.setEnabled(cmAvailable);
-                // Default tooltip is set during initialization, no need to reset unless it changed
-            }
+        // Code Button
+        if (!gitAvailable) {
+            codeButton.setEnabled(false);
+            codeButton.setToolTipText("Code feature requires Git integration for this project.");
+        } else {
+            codeButton.setEnabled(cmAvailable);
+            // Default tooltip is set during initialization, no need to reset unless it changed
+        }
 
-            askButton.setEnabled(cmAvailable);
-            searchButton.setEnabled(cmAvailable);
-            runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
-            // Enable deepScanButton only if instructionsArea is also enabled
-            deepScanButton.setEnabled(cmAvailable && instructionsArea.isEnabled());
-            // Stop is only enabled when an action is running
-            stopButton.setEnabled(false);
+        askButton.setEnabled(cmAvailable);
+        searchButton.setEnabled(cmAvailable);
+        runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
+        // Enable deepScanButton only if instructionsArea is also enabled
+        deepScanButton.setEnabled(cmAvailable && instructionsArea.isEnabled());
+        // Stop is only enabled when an action is running
+        stopButton.setEnabled(false);
 
-            if (cmAvailable) {
-                chrome.enableHistoryPanel();
-            } else {
-                chrome.disableHistoryPanel();
-            }
-        });
+        if (cmAvailable) {
+            chrome.enableHistoryPanel();
+        } else {
+            chrome.disableHistoryPanel();
+        }
     }
 
     @Override
@@ -1663,7 +1656,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         triggerContextSuggestion(null); // Use null ActionEvent to indicate non-timer trigger
     }
 
-    public void enableButtons() {
+    void enableButtons() {
         // Called when an action completes. Reset buttons based on current CM/project state.
         updateButtonStates();
     }
