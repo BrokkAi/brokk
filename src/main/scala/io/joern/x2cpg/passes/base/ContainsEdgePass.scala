@@ -18,7 +18,7 @@
  *
  * The original file can be found at https://github.com/joernio/joern/blob/3e923e15368e64648e6c5693ac014a2cac83990a/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/base/ContainsEdgePass.scala
  */
-package io.github.jbellis.brokk.analyzer.builder.passes.idempotent.base
+package io.joern.x2cpg.passes.base
 
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes, NodeTypes}
