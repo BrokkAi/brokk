@@ -24,8 +24,7 @@ class HashFilesPass(cpg: Cpg) extends ForkJoinParallelCpgPass[Seq[File]](cpg) {
         // There are some "external" placeholder file nodes which are not on disk
         if Files.isRegularFile(absPath) then {
           val fileHash = absPath.sha1
-          if !file.hash.contains(fileHash) then
-            builder.setNodeProperty(file, PropertyNames.HASH, fileHash)
+          if !file.hash.contains(fileHash) then builder.setNodeProperty(file, PropertyNames.HASH, fileHash)
         }
       }
     }
