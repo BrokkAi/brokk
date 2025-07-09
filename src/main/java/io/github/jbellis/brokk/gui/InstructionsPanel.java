@@ -1187,10 +1187,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     public void maybeAddInterruptedResult(String input, TaskResult result) {
-        if (result.stopDetails().reason() != TaskResult.StopReason.INTERRUPTED) {
-            return;
-        }
-
         if (result.output().messages().stream().anyMatch(m -> m instanceof AiMessage)) {
             logger.debug(result.actionDescription() + " command cancelled with partial results");
             chrome.getContextManager().addToHistory(result, false);
@@ -1522,7 +1518,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             // Persist to history regardless of success/failure
             chrome.setSkipNextUpdateOutputPanelOnContextChange(true);
-            maybeAddInterruptedResult(input, result);
+            if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
+                maybeAddInterruptedResult(input, result);
+            } else {
+                contextManager.addToHistory(result, false);
+            }
 
             // Provide a brief status update
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
