@@ -12,6 +12,8 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
     protected boolean currentCaseSensitive = false;
     @Nullable
     protected SearchCompleteCallback searchCompleteCallback = null;
+    @Nullable
+    protected SearchNavigationCallback searchNavigationCallback = null;
 
     @Override
     public void setSearchCompleteCallback(@Nullable SearchCompleteCallback callback) {
@@ -22,6 +24,11 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
     @Nullable
     public SearchCompleteCallback getSearchCompleteCallback() {
         return searchCompleteCallback;
+    }
+
+    @Override
+    public void setSearchNavigationCallback(@Nullable SearchNavigationCallback callback) {
+        this.searchNavigationCallback = callback;
     }
 
 
@@ -58,6 +65,26 @@ public abstract class BaseSearchableComponent implements SearchableComponent {
                 SwingUtilities.invokeLater(() -> {
                     if (searchCompleteCallback != null) {
                         searchCompleteCallback.onSearchError(error);
+                    }
+                });
+            }
+        }
+    }
+
+    /**
+     * Notifies the callback that search navigation occurred.
+     *
+     * @param caretPosition the new caret position after navigation
+     */
+    protected void notifySearchNavigation(int caretPosition) {
+        if (searchNavigationCallback != null) {
+            // If already on EDT, call directly; otherwise use invokeLater
+            if (SwingUtilities.isEventDispatchThread()) {
+                searchNavigationCallback.onSearchNavigation(caretPosition);
+            } else {
+                SwingUtilities.invokeLater(() -> {
+                    if (searchNavigationCallback != null) {
+                        searchNavigationCallback.onSearchNavigation(caretPosition);
                     }
                 });
             }

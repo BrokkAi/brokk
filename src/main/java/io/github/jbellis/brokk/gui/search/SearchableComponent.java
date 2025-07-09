@@ -63,7 +63,7 @@ public interface SearchableComponent {
         default void onSearchError(String error) {
             // Default implementation does nothing - components can override for error handling
         }
-        
+
         /**
          * Called when a search operation starts.
          */
@@ -78,6 +78,23 @@ public interface SearchableComponent {
     }
 
     /**
+     * Interface for receiving search navigation callbacks.
+     */
+    interface SearchNavigationCallback {
+        /**
+         * Called when the user navigates to a search result.
+         *
+         * @param caretPosition the new caret position after navigation
+         */
+        void onSearchNavigation(int caretPosition);
+
+        /**
+         * A no-op callback that can be used when a callback is required but no notification is desired.
+         */
+        SearchNavigationCallback NONE = (caretPosition) -> {};
+    }
+
+    /**
      * Sets a callback to be notified when search operations complete.
      * All SearchableComponent implementations must support this async pattern.
      * Synchronous implementations should call the callback immediately.
@@ -85,6 +102,15 @@ public interface SearchableComponent {
      * @param callback the callback to notify when operations complete
      */
     void setSearchCompleteCallback(@Nullable SearchCompleteCallback callback);
+
+    /**
+     * Sets a callback to be notified when search navigation occurs.
+     *
+     * @param callback the callback to notify when navigation occurs
+     */
+    default void setSearchNavigationCallback(@Nullable SearchNavigationCallback callback) {
+        // Default implementation does nothing - components can override if they support navigation callbacks
+    }
 
     /**
      * Convenience method to notify immediate feedback when starting a search.

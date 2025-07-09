@@ -289,21 +289,21 @@ public class ScrollSynchronizer
                 int originalY = rect.y;
                 int viewportHeight = viewport.getSize().height;
                 int padding = Math.min(100, viewportHeight / 8); // 100px padding or 1/8 viewport
-                
+
                 // Try to center, but if that would go negative, just use padding from top
                 int centeredY = originalY - (viewportHeight / 2);
                 int finalY = Math.max(padding, centeredY);
-                
+
                 // Make sure we don't scroll past the document end
                 var scrollPane = fp.getScrollPane();
                 var maxY = scrollPane.getVerticalScrollBar().getMaximum() - viewportHeight;
                 finalY = Math.min(finalY, maxY);
-                
+
                 var p = new Point(rect.x, finalY);
-                
+
                 // Set viewport position
                 viewport.setViewPosition(p);
-                
+
                 // Force a repaint to ensure the scroll is visible
                 viewport.repaint();
 
@@ -329,6 +329,40 @@ public class ScrollSynchronizer
         });
     }
 
+    public void scrollToLineAndSync(FilePanel sourcePanel, int line)
+    {
+        boolean leftSide = sourcePanel == filePanelLeft;
+        System.out.println("Synchronize");
+
+        // First, scroll the panel where the search originated
+        scrollToLine(sourcePanel, line);
+
+        // Determine the counterpart panel
+        FilePanel targetPanel = leftSide ? filePanelRight : filePanelLeft;
+        if (targetPanel == null) {
+            return;
+        }
+
+        // Compute the best-effort mapped line on the opposite side using existing logic
+        int mappedLine;
+        var patch = diffPanel.getPatch();
+        if (patch == null) {
+            mappedLine = line;            // fall back to same line number
+        } else {
+            mappedLine = approximateLineMapping(patch, line, leftSide);
+
+            // Clamp to document bounds for safety
+            var targetDoc = targetPanel.getBufferDocument();
+            if (targetDoc != null) {
+                int maxLine = Math.max(0, targetDoc.getNumberOfLines() - 1);
+                mappedLine = Math.max(0, Math.min(mappedLine, maxLine));
+            }
+        }
+
+        // Finally, scroll the counterpart panel
+        scrollToLine(targetPanel, mappedLine);
+    }
+
     /**
      * Called by BufferDiffPanel when the user picks a specific delta.
      * We attempt to show the original chunk in the left side, then scroll the right side.
@@ -336,28 +370,28 @@ public class ScrollSynchronizer
     public void showDelta(AbstractDelta<String> delta)
     {
         logger.debug("showDelta called for delta at position {}", delta.getSource().getPosition());
-        
+
         // Mark both panels as navigating to ensure highlights appear on both sides
         filePanelLeft.setNavigatingToDiff(true);
         filePanelRight.setNavigatingToDiff(true);
 
         // Disable scroll sync during navigation to prevent feedback loops
         syncState.setProgrammaticScroll(true);
-        
+
         try {
             // Get the source line from the delta
             var source = delta.getSource();
             int sourceLine = source.getPosition();
-            
+
             logger.debug("Navigation: scrolling to source line {}", sourceLine);
-            
+
             // Scroll left panel to source line
             scrollToLine(filePanelLeft, sourceLine);
-            
+
             // For navigation, we want to scroll to the corresponding target of this specific delta
             var target = delta.getTarget();
             int targetLine;
-            
+
             if (target != null && target.size() > 0) {
                 // Normal case: target chunk exists, scroll to its position
                 targetLine = target.getPosition();
@@ -368,7 +402,7 @@ public class ScrollSynchronizer
                 targetLine = target != null ? target.getPosition() : sourceLine;
                 logger.debug("Navigation: DELETE delta, scrolling right panel to target position {}", targetLine);
             }
-            
+
             scrollToLine(filePanelRight, targetLine);
         } finally {
             // Re-enable scroll sync after a short delay to allow navigation to complete
@@ -383,7 +417,7 @@ public class ScrollSynchronizer
         // Trigger immediate redisplay on both panels to ensure highlights appear
         filePanelLeft.reDisplay();
         filePanelRight.reDisplay();
-        
+
         logger.debug("showDelta completed - both panels scrolled");
     }
 
