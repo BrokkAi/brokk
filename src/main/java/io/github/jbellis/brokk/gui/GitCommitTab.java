@@ -20,6 +20,7 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Panel for the "Changes" tab (formerly "Commit" tab) in the Git Panel.
@@ -542,12 +543,14 @@ return;
 
         contextManager.submitUserTask("Rolling back files", () -> {
             try {
-                // Add files to context first (this ensures they can be restored)
-                contextManager.editFiles(selectedFiles);
-
-                // Take a snapshot of the current state before rollback
-                var frozen = contextManager.liveContext().freezeAndCleanup();
-                contextManager.getContextHistory().addFrozenContextAndClearRedo(frozen.frozenContext());
+                // Add any files that we're rolling back that aren't in the workspace already,
+                // so they are part of the snapshot and we can undo the rollback if we want
+                var filesNotInWorkspace = selectedFiles.stream()
+                        .filter(pf -> contextManager.topContext().allFragments().noneMatch(f -> {
+                            return (f.getType() == ContextFragment.FragmentType.PROJECT_PATH) && f.files().iterator().next().equals(pf);
+                        }))
+                        .collect(Collectors.toSet());
+                contextManager.editFiles(filesNotInWorkspace); // read-only files are ignored during undo/redo
 
                 // Perform the actual rollback
                 logger.debug("Rolling back {} files to HEAD", selectedFiles.size());
@@ -557,12 +560,19 @@ return;
                 String fileList = GitUiUtil.formatFileList(selectedFiles);
                 var rollbackDescription = "Rollback " + fileList + " to HEAD";
                 var taskResult = new TaskResult(
-                    rollbackDescription,
-                    new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
-                    new HashSet<>(selectedFiles),
-                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
+                        rollbackDescription,
+                        new ContextFragment.TaskFragment(contextManager, List.of(), rollbackDescription),
+                        new HashSet<>(selectedFiles),
+                        new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)
                 );
                 contextManager.addToHistory(taskResult, false);
+
+                // drop the files from the workspace that weren't there originally
+                var fragmentsAdded = contextManager.topContext().editableFiles()
+                        .filter(f -> (f.getType() == ContextFragment.FragmentType.PROJECT_PATH)
+                                     && filesNotInWorkspace.contains(f.files().iterator().next()))
+                        .toList();
+                contextManager.drop(fragmentsAdded);
 
                 // Update UI on EDT
                 SwingUtilities.invokeLater(() -> {
@@ -571,7 +581,6 @@ return;
                     updateCommitPanel();
                     gitPanel.updateLogTab();
                 });
-
             } catch (Exception ex) {
                 logger.error("Error rolling back files:", ex);
                 SwingUtilities.invokeLater(() -> chrome.toolError("Error rolling back files: " + ex.getMessage()));
