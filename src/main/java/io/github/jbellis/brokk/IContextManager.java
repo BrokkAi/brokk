@@ -155,4 +155,8 @@ public interface IContextManager {
     default Llm getLlm(StreamingChatLanguageModel model, String taskDescription, boolean allowPartialResponses) {
         return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
+
+    default void deleteFiles(List<ProjectFile> files) {
+        throw new UnsupportedOperationException();
+    }
 }

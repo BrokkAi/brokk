@@ -615,8 +615,13 @@ class EditBlockTest {
     // Helper methods
     // ----------------------------------------------------
     private EditBlock.SearchReplaceBlock[] parseBlocks(String fullResponse, Set<String> validFilenames) {
-        var files = validFilenames.stream().map(f -> new ProjectFile(Path.of("/"), Path.of(f))).collect(Collectors.toSet());
-        var blocks = EditBlockParser.instance.parseEditBlocks(fullResponse, files).blocks();
-        return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
+        try {
+            Path root = Files.createTempDirectory("brokk-test-");
+            var files = validFilenames.stream().map(f -> new ProjectFile(root, Path.of(f))).collect(Collectors.toSet());
+            var blocks = EditBlockParser.instance.parseEditBlocks(fullResponse, files).blocks();
+            return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 }
