@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -780,7 +782,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 log.warn("createCodeUnit returned null for node {} ({})", simpleName, primaryCaptureName);
                 continue;
             }
-            
+
 
             String signature = buildSignatureString(node, simpleName, src, primaryCaptureName, modifierKeywords, file);
             log.trace("Built signature for '{}': [{}]", simpleName, signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
@@ -919,9 +921,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         SkeletonType skeletonType = getSkeletonTypeForCapture(primaryCaptureName); // Get skeletonType early
 
         TSNode nodeForContent = definitionNode;
+        TSNode nodeForSignature = definitionNode; // Keep original for signature text slicing
 
         // 1. Handle language-specific structural unwrapping (e.g., export statements, Python's decorated_definition)
-        // For JAVASCRIPT:
+        // For JAVASCRIPT/TYPESCRIPT: unwrap for processing but keep original for signature
         if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT) && "export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
             if (declarationInExport != null && !declarationInExport.isNull()) {
@@ -930,7 +933,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 String innerType = declarationInExport.getType();
                 switch (skeletonType) {
                     case CLASS_LIKE -> typeMatch = profile.classLikeNodeTypes().contains(innerType);
-                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType);
+                    case FUNCTION_LIKE -> typeMatch = profile.functionLikeNodeTypes().contains(innerType) ||
+                            // Special case for TypeScript/JavaScript arrow functions in lexical declarations
+                            ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT) &&
+                             ("lexical_declaration".equals(innerType) || "variable_declaration".equals(innerType)));
                     case FIELD_LIKE -> typeMatch = profile.fieldLikeNodeTypes().contains(innerType);
                     case ALIAS_LIKE ->
                             typeMatch = (project.getAnalyzerLanguages().contains(Language.TYPESCRIPT) && "type_alias_declaration".equals(innerType));
@@ -938,13 +944,49 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     }
                 }
                 if (typeMatch) {
-                    nodeForContent = declarationInExport;
+                    nodeForContent = declarationInExport; // Unwrap for processing
+                    // Keep nodeForSignature as the original export_statement for text slicing
                 } else {
                     log.warn("Export statement in {} wraps an unexpected declaration type '{}' for skeletonType '{}'. Using export_statement as nodeForContent. DefinitionNode: {}, SimpleName: {}",
                              definitionNode.getStartPoint().getRow() +1, innerType, skeletonType, definitionNode.getType(), simpleName);
                 }
             }
-        } else if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
+        }
+
+        // Check if we need to find specific variable_declarator (this should run after export unwrapping)
+        if ((language == Language.TYPESCRIPT || language == Language.JAVASCRIPT) &&
+                   ("lexical_declaration".equals(nodeForContent.getType()) || "variable_declaration".equals(nodeForContent.getType())) &&
+                   (skeletonType == SkeletonType.FIELD_LIKE || skeletonType == SkeletonType.FUNCTION_LIKE)) {
+            // For lexical_declaration (const/let) or variable_declaration (var), find the specific variable_declarator by name
+            log.debug("Entering variable_declarator lookup for '{}' in nodeForContent '{}'",
+                     simpleName, nodeForContent.getType());
+            boolean found = false;
+            for (int i = 0; i < nodeForContent.getNamedChildCount(); i++) {
+                TSNode child = nodeForContent.getNamedChild(i);
+                log.debug("  Child[{}]: type='{}', text='{}'", i, child.getType(),
+                         textSlice(child, src).lines().findFirst().orElse("").trim());
+                if ("variable_declarator".equals(child.getType())) {
+                    TSNode nameNode = child.getChildByFieldName(profile.identifierFieldName());
+                    if (nameNode != null && !nameNode.isNull() && simpleName.equals(textSlice(nameNode, src).strip())) {
+                        nodeForContent = child; // Use the specific variable_declarator
+                        found = true;
+                        log.debug("Found specific variable_declarator for '{}' in lexical_declaration", simpleName);
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                log.warn("Could not find variable_declarator for '{}' in {}", simpleName, nodeForContent.getType());
+            } else {
+                // Check if this variable_declarator contains an arrow function
+                TSNode valueNode = nodeForContent.getChildByFieldName("value");
+                if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
+                    log.debug("Found arrow function in variable_declarator for '{}'", simpleName);
+                }
+            }
+        }
+
+        if (language == Language.PYTHON && "decorated_definition".equals(definitionNode.getType())) {
             // Python's decorated_definition: decorators and actual def are children.
             // Process decorators directly here and identify the actual content node.
             for (int i = 0; i < definitionNode.getNamedChildCount(); i++) {
@@ -975,14 +1017,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 String classSignatureText;
                 if (bodyNode != null && !bodyNode.isNull()) {
-                    classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), src).stripTrailing();
+                    // For export statements, use the original node to include the export keyword
+                    if (nodeForSignature != nodeForContent) {
+                        classSignatureText = textSlice(nodeForSignature.getStartByte(), bodyNode.getStartByte(), src).stripTrailing();
+                    } else {
+                        classSignatureText = textSlice(nodeForContent.getStartByte(), bodyNode.getStartByte(), src).stripTrailing();
+                    }
                 } else {
-                    classSignatureText = textSlice(nodeForContent.getStartByte(), nodeForContent.getEndByte(), src).stripTrailing();
+                    // For export statements, use the original node to include the export keyword
+                    if (nodeForSignature != nodeForContent) {
+                        classSignatureText = textSlice(nodeForSignature.getStartByte(), nodeForSignature.getEndByte(), src).stripTrailing();
+                    } else {
+                        classSignatureText = textSlice(nodeForContent.getStartByte(), nodeForContent.getEndByte(), src).stripTrailing();
+                    }
                     // Attempt to remove trailing tokens like '{' or ';' if no body node found, to get a cleaner signature part
                     if (classSignatureText.endsWith("{")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                     else if (classSignatureText.endsWith(";")) classSignatureText = classSignatureText.substring(0, classSignatureText.length() - 1).stripTrailing();
                 }
-                
+
 
                 // If exportPrefix is present and classSignatureText also starts with it,
                 // remove it from classSignatureText to avoid duplication by renderClassHeader.
@@ -998,6 +1050,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 break;
             }
             case FUNCTION_LIKE: {
+                log.debug("FUNCTION_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
+                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
+
                 // Add extra comments determined from the function body
                 TSNode bodyNodeForComments = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 List<String> extraComments = getExtraFunctionComments(bodyNodeForComments, src, null);
@@ -1007,21 +1062,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                     }
                 }
                 // Pass determined exportPrefix to buildFunctionSkeleton
+                // Always use nodeForContent for structural operations (finding body, etc.)
+                // The export prefix is already included via the exportPrefix parameter
                 buildFunctionSkeleton(nodeForContent, Optional.of(simpleName), src, "", signatureLines, exportPrefix);
                 break;
             }
             case FIELD_LIKE: {
+                // Always use nodeForContent which has been set to the specific variable_declarator
+                log.debug("FIELD_LIKE: simpleName='{}', nodeForContent.type='{}', nodeForSignature.type='{}'",
+                         simpleName, nodeForContent.getType(), nodeForSignature.getType());
                 String fieldSignatureText = textSlice(nodeForContent, src).strip();
-                
+
                 // Strip export prefix if present to avoid duplication
                 if (!exportPrefix.isEmpty() && !exportPrefix.isBlank()) {
                     String strippedExportPrefix = exportPrefix.strip();
+                    log.debug("Checking for prefix duplication: exportPrefix='{}', fieldSignatureText='{}'",
+                             strippedExportPrefix, fieldSignatureText);
+
+                    // Check for exact match first
                     if (fieldSignatureText.startsWith(strippedExportPrefix)) {
                         fieldSignatureText = fieldSignatureText.substring(strippedExportPrefix.length()).stripLeading();
+                    } else {
+                        // For TypeScript/JavaScript, check for partial duplicates like "export const" + "const ..."
+                        List<String> exportTokens = Splitter.on(Pattern.compile("\\s+")).splitToList(strippedExportPrefix);
+                        List<String> fieldTokens = Splitter.on(Pattern.compile("\\s+")).limit(2).splitToList(fieldSignatureText);
+
+                        if (exportTokens.size() > 1 && !fieldTokens.isEmpty()) {
+                            // Check if the last token of export prefix matches the first token of field signature
+                            String lastExportToken = exportTokens.get(exportTokens.size() - 1);
+                            String firstFieldToken = fieldTokens.get(0);
+
+                            if (lastExportToken.equals(firstFieldToken)) {
+                                // Remove the duplicate token from field signature
+                                fieldSignatureText = fieldSignatureText.substring(firstFieldToken.length()).stripLeading();
+                                log.debug("Removed duplicate token '{}' from field signature", firstFieldToken);
+                            }
+                        }
                     }
                 }
-                
-                
+
+
                 String fieldLine = formatFieldSignature(nodeForContent, src, exportPrefix, fieldSignatureText, "", file);
                 if (!fieldLine.isBlank()) signatureLines.add(fieldLine);
                 break;

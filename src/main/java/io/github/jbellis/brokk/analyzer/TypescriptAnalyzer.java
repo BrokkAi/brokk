@@ -2,24 +2,19 @@ package io.github.jbellis.brokk.analyzer;
 
 import com.google.common.base.Splitter;
 import io.github.jbellis.brokk.IProject;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TreeSitterTypescript;
 
 import java.util.ArrayList;
-import java.util.Set;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Collections;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.LinkedHashMap;
-import java.nio.file.Files;
 
 public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
@@ -32,9 +27,6 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     // Fast lookups for type checks
     private static final Set<String> FUNCTION_NODE_TYPES = Set.of(
         "function_declaration", "generator_function_declaration", "function_signature"
-    );
-    private static final Set<String> SIGNATURE_NODE_TYPES = Set.of(
-        "method_signature", "construct_signature", "abstract_method_signature"
     );
 
     // Class keyword mapping for fast lookup
@@ -53,9 +45,9 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             Set.of("class_declaration", "interface_declaration", "enum_declaration", "abstract_class_declaration", "module", "internal_module"),
             // functionLikeNodeTypes
             Set.of("function_declaration", "method_definition", "arrow_function", "generator_function_declaration",
-                   "function_signature", "method_signature", "abstract_method_signature"), // method_signature for interfaces, abstract_method_signature for abstract classes
+                   "function_signature", "method_signature", "abstract_method_signature"), // function_signature for overloads, method_signature for interfaces, abstract_method_signature for abstract classes
             // fieldLikeNodeTypes
-            Set.of("variable_declarator", "public_field_definition", "property_signature", "enum_member"), // type_alias_declaration will be ALIAS_LIKE
+            Set.of("variable_declarator", "public_field_definition", "property_signature", "enum_member", "lexical_declaration", "variable_declaration"), // type_alias_declaration will be ALIAS_LIKE
             // decoratorNodeTypes
             Set.of("decorator"),
             // identifierFieldName
@@ -192,103 +184,108 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src,
-                                               String exportAndModifierPrefix, String ignoredAsyncPrefix, // asyncPrefix is ignored
+                                               String exportAndModifierPrefix, String ignoredAsyncPrefix,
                                                String functionName, String typeParamsText, String paramsText, String returnTypeText,
                                                String indent)
     {
-        // exportAndModifierPrefix now contains all modifiers, including "async" if applicable.
-        // The asyncPrefix parameter is deprecated from the base class and ignored here.
-        String combinedPrefix = exportAndModifierPrefix.stripTrailing(); // e.g., "export async", "public static"
-
-        String tsReturnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
-        String signature;
-        String bodySuffix;
-
+        // Use text slicing approach for simpler rendering
         TSNode bodyNode = funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
 
+        // For arrow functions, handle specially
         if ("arrow_function".equals(funcNode.getType())) {
-            // combinedPrefix for arrow func (e.g. "export const"), add async if present
+            String prefix = exportAndModifierPrefix.stripTrailing();
             String asyncPart = ignoredAsyncPrefix.isEmpty() ? "" : ignoredAsyncPrefix + " ";
-            signature = String.format("%s %s%s = %s%s%s =>", // Space after prefix if not empty, add assignment operator
-                                      combinedPrefix,
-                                      functionName.isEmpty() ? "" : functionName,
-                                      typeParamsText,
-                                      asyncPart,
-                                      paramsText,
-                                      tsReturnTypeSuffix).stripLeading(); // stripLeading in case prefix was empty
-            bodySuffix = " " + bodyPlaceholder(); // Always use placeholder for arrow functions in skeletons
-        } else {
-            String keyword = "";
-            String nodeType = funcNode.getType();
-            if (FUNCTION_NODE_TYPES.contains(nodeType)) {
-                // Function signatures inside namespaces/modules should not include the "function" keyword
-                // but top-level ambient function declarations (declare function) should include it
-                if ("function_signature".equals(nodeType) && isInNamespaceContext(funcNode)) {
-                    keyword = "";
-                } else {
-                    keyword = "function";
-                    if ("generator_function_declaration".equals(nodeType)) keyword += "*";
-                }
-            } else if ("constructor".equals(functionName) && "method_definition".equals(nodeType)) {
-                keyword = "constructor";
-                functionName = ""; // constructor name is part of keyword
-            } else if ("construct_signature".equals(nodeType)) {
-                keyword = "new";
-                functionName = ""; // constructor signatures use "new" keyword instead of function name
-            } else if ("method_definition".equals(nodeType)) {
-                String nodeTextStart = textSlice(funcNode.getStartByte(), Math.min(funcNode.getEndByte(), funcNode.getStartByte() + 4), src);
-                if (nodeTextStart.startsWith("get ")) {
-                    keyword = "get";
-                     // functionName will be the property name; ensure it's not duplicated if already part of `exportAndModifierPrefix`
-                } else if (nodeTextStart.startsWith("set ")) {
-                    keyword = "set";
-                }
-            }
+            String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
 
-            String endMarker = "";
-            if (!hasBody && !"arrow_function".equals(nodeType)) {
-                // Interface method signatures, abstract method signatures, non-ambient function signatures, and constructor signatures should not have semicolons per TypeScript conventions
-                boolean isNonAmbientFunctionSignature = "function_signature".equals(nodeType) && !isInAmbientContext(funcNode);
-
-                if (!SIGNATURE_NODE_TYPES.contains(nodeType) && !isNonAmbientFunctionSignature) {
-                    endMarker = ";";
-                }
-            }
-
-            // Assemble: combinedPrefix [keyword] [functionName] [typeParams] paramsText returnTypeSuffix endMarker
-            var signatureBuilder = new StringBuilder();
-            if (!combinedPrefix.isEmpty()) {
-                signatureBuilder.append(combinedPrefix);
-            }
-            if (!keyword.isEmpty()) {
-                if (!signatureBuilder.isEmpty()) signatureBuilder.append(" ");
-                signatureBuilder.append(keyword);
-            }
-            if (!functionName.isEmpty() || (keyword.equals("constructor") && functionName.isEmpty())) {
-                // Add functionName + typeParams for regular functions and constructors
-                if (!signatureBuilder.isEmpty() && !keyword.equals("constructor")) {
-                    signatureBuilder.append(" ");
-                }
-                signatureBuilder.append(functionName).append(typeParamsText);
-            } else if (keyword.equals("new")) {
-                // For constructor signatures, add type parameters separately since there's no function name
-                if (!typeParamsText.isEmpty()) {
-                    if (!signatureBuilder.isEmpty()) signatureBuilder.append(" ");
-                    signatureBuilder.append(typeParamsText);
-                }
-            }
-
-            // Special handling for constructor signatures to add space before parameters
-            if (keyword.equals("new")) {
-                signatureBuilder.append(" ").append(paramsText).append(tsReturnTypeSuffix).append(endMarker);
-            } else {
-                signatureBuilder.append(paramsText).append(tsReturnTypeSuffix).append(endMarker);
-            }
-            signature = signatureBuilder.toString().strip();
-            bodySuffix = hasBody ? " " + bodyPlaceholder() : "";
+            String signature = String.format("%s %s%s = %s%s%s =>",
+                                              prefix,
+                                              functionName,
+                                              typeParamsText,
+                                              asyncPart,
+                                              paramsText,
+                                              returnTypeSuffix).stripLeading();
+            return indent + signature + " " + bodyPlaceholder();
         }
-        return indent + signature.strip() + bodySuffix;
+
+        // For regular functions, use text slicing when possible
+        if (hasBody) {
+            String signature = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src).strip();
+
+            // Prepend export and other modifiers if not already present
+            String prefix = exportAndModifierPrefix.stripTrailing();
+            if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
+                // Check if any word in the prefix is already in the signature to avoid duplicates
+                List<String> prefixWords = Splitter.on(Pattern.compile("\\s+")).splitToList(prefix);
+                StringBuilder uniquePrefix = new StringBuilder();
+                for (String word : prefixWords) {
+                    if (!signature.contains(word)) {
+                        uniquePrefix.append(word).append(" ");
+                    }
+                }
+                if (uniquePrefix.length() > 0) {
+                    signature = uniquePrefix.toString().stripTrailing() + " " + signature;
+                }
+            }
+
+            return indent + signature + " " + bodyPlaceholder();
+        }
+
+        // For signatures without bodies, build minimal signature
+        String prefix = exportAndModifierPrefix.stripTrailing();
+        String keyword = getKeywordForFunction(funcNode, functionName);
+        String returnTypeSuffix = !returnTypeText.isEmpty() ? ": " + returnTypeText.strip() : "";
+
+        var parts = new ArrayList<String>();
+        if (!prefix.isEmpty()) parts.add(prefix);
+        if (!keyword.isEmpty()) parts.add(keyword);
+        // For construct signatures, keyword is "new" and functionName is also "new", so skip functionName
+        if (!functionName.isEmpty() && !keyword.equals(functionName)) {
+            parts.add(functionName + typeParamsText);
+        } else if (keyword.equals("constructor")) {
+            parts.add(functionName + typeParamsText);
+        } else if (keyword.isEmpty() && !functionName.isEmpty()) {
+            parts.add(functionName + typeParamsText);
+        } else if (keyword.equals(functionName) && !typeParamsText.isEmpty()) {
+            // For construct signatures with type parameters, add them after the keyword
+            parts.set(parts.size() - 1, keyword + typeParamsText);
+        }
+
+        // For construct signatures, we need a space before params
+        boolean needsSpaceBeforeParams = "construct_signature".equals(funcNode.getType());
+        
+        String signature = String.join(" ", parts);
+        if (!paramsText.isEmpty()) {
+            signature += (needsSpaceBeforeParams && !signature.isEmpty() ? " " : "") + paramsText;
+        }
+        signature += returnTypeSuffix;
+
+        // Add semicolon for:
+        // - function signatures inside namespaces (but not those that start with "declare")
+        // - ambient function declarations (those with "declare")
+        // But NOT for export function overloads
+        if ("function_signature".equals(funcNode.getType())) {
+            if (prefix.contains("declare") || // ambient declarations need semicolons
+                (isInNamespaceContext(funcNode) && !prefix.contains("declare"))) { // namespace functions need semicolons
+                signature += ";";
+            }
+            // Export function overloads don't need semicolons
+        }
+
+        return indent + signature;
+    }
+
+    private String getKeywordForFunction(TSNode funcNode, String functionName) {
+        String nodeType = funcNode.getType();
+        if (FUNCTION_NODE_TYPES.contains(nodeType)) {
+            if ("function_signature".equals(nodeType) && isInNamespaceContext(funcNode)) {
+                return "";
+            }
+            return "function";
+        }
+        if ("constructor".equals(functionName)) return "constructor";
+        if ("construct_signature".equals(nodeType)) return "new";
+        return "";
     }
 
     @Override
@@ -300,7 +297,8 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
-        if (fieldNode.getParent() != null && "enum_body".equals(fieldNode.getParent().getType()) &&
+        if (!fieldNode.isNull() && fieldNode.getParent() != null && !fieldNode.getParent().isNull() &&
+            "enum_body".equals(fieldNode.getParent().getType()) &&
             ("property_identifier".equals(fieldNode.getType()) || "enum_assignment".equals(fieldNode.getType()))) {
             // Enum members get commas, not semicolons
             suffix = ",";
@@ -311,53 +309,47 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String renderClassHeader(TSNode classNode, String src,
-                                       String exportAndModifierPrefix, // This now comes from captured @keyword.modifier list
-                                       String signatureText, // This is the raw text slice from class start to body start
+                                       String exportAndModifierPrefix,
+                                       String signatureText,
                                        String baseIndent)
     {
-        String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), "class");
-        
-        // For abstract classes, remove "abstract" from the prefix since it's included in the classKeyword
-        String adjustedPrefix = exportAndModifierPrefix;
-        if ("abstract class".equals(classKeyword)) {
-            adjustedPrefix = exportAndModifierPrefix.replaceAll("\\babstract\\b\\s*", "").strip();
-        }
+        // Use text slicing approach but include export prefix
+        TSNode bodyNode = classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
+        if (bodyNode != null && !bodyNode.isNull()) {
+            String signature = textSlice(classNode.getStartByte(), bodyNode.getStartByte(), src).strip();
 
-        String remainingSignature = signatureText.stripLeading();
-
-        // Strip the comprehensive adjustedPrefix if it's at the start of the raw signature slice
-        String strippedPrefix = adjustedPrefix.strip(); // e.g., "export" (abstract removed)
-        if (!strippedPrefix.isEmpty() && remainingSignature.startsWith(strippedPrefix)) {
-            remainingSignature = remainingSignature.substring(strippedPrefix.length()).stripLeading();
-        } else {
-            // If the full prefix doesn't match, try to strip individual modifiers that might appear in the signature
-            var prefixParts = Splitter.on("\\s+").splitToList(strippedPrefix);
-            for (String part : prefixParts) {
-                if (remainingSignature.startsWith(part + " ")) {
-                    remainingSignature = remainingSignature.substring((part + " ").length()).stripLeading();
-                } else if (remainingSignature.startsWith(part) &&
-                          (remainingSignature.length() == part.length() || !Character.isLetterOrDigit(remainingSignature.charAt(part.length())))) {
-                    remainingSignature = remainingSignature.substring(part.length()).stripLeading();
+            // Prepend export and other modifiers if not already present
+            String prefix = exportAndModifierPrefix.stripTrailing();
+            if (!prefix.isEmpty() && !signature.startsWith(prefix)) {
+                // Check if any word in the prefix is already in the signature to avoid duplicates
+                List<String> prefixWords = Splitter.on(Pattern.compile("\\s+")).splitToList(prefix);
+                StringBuilder uniquePrefix = new StringBuilder();
+                for (String word : prefixWords) {
+                    if (!signature.contains(word)) {
+                        uniquePrefix.append(word).append(" ");
+                    }
+                }
+                if (uniquePrefix.length() > 0) {
+                    signature = uniquePrefix.toString().stripTrailing() + " " + signature;
                 }
             }
+
+            return baseIndent + signature + " {";
         }
 
-        // Then, strip the class keyword itself
-        if (remainingSignature.startsWith(classKeyword + " ")) {
-            remainingSignature = remainingSignature.substring((classKeyword + " ").length()).stripLeading();
-        } else if (remainingSignature.startsWith(classKeyword) && (remainingSignature.length() == classKeyword.length() || !Character.isLetterOrDigit(remainingSignature.charAt(classKeyword.length())))) {
-             // Case where class keyword is not followed by space, e.g. "class<T>"
-             remainingSignature = remainingSignature.substring(classKeyword.length()).stripLeading();
+        // Fallback for classes without bodies
+        String classKeyword = CLASS_KEYWORDS.getOrDefault(classNode.getType(), "class");
+        String prefix = exportAndModifierPrefix.stripTrailing();
+
+        // For abstract classes, avoid duplicate "abstract" keyword
+        if ("abstract class".equals(classKeyword)) {
+            prefix = prefix.replaceAll("\\babstract\\b\\s*", "").strip();
         }
 
-        // remainingSignature is now "ClassName<Generics> extends Base implements Iface"
-        // Use adjustedPrefix which has abstract removed for abstract classes
-        String finalPrefix = adjustedPrefix.stripTrailing();
-        if (!finalPrefix.isEmpty() && !classKeyword.isEmpty() && !remainingSignature.isEmpty()) {
-             finalPrefix += " ";
-        }
+        String finalPrefix = prefix.isEmpty() ? "" : prefix + " ";
+        String cleanSignature = signatureText.stripLeading();
 
-        return baseIndent + finalPrefix + classKeyword + " " + remainingSignature + " {";
+        return baseIndent + finalPrefix + classKeyword + " " + cleanSignature + " {";
     }
 
     @Override
@@ -444,12 +436,12 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         TSNode parent = node.getParent();
         while (parent != null && !parent.isNull()) {
             String parentType = parent.getType();
-            
+
             // If we find an internal_module (namespace), the function is inside a namespace
             if ("internal_module".equals(parentType)) {
                 return true;
             }
-            
+
             // If we find a statement_block that's inside an internal_module, we're in a namespace
             if ("statement_block".equals(parentType)) {
                 TSNode grandParent = parent.getParent();
@@ -457,7 +449,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     return true;
                 }
             }
-            
+
             parent = parent.getParent();
         }
         return false;
@@ -478,59 +470,79 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         var skeletons = super.getSkeletons(file);
 
-        // First, remove duplicate CodeUnits for arrow functions
-        // Arrow functions get captured both as function definitions and variable declarations
-        var deduplicatedSkeletons = new HashMap<String, Map.Entry<CodeUnit, String>>();
-        var arrowFunctionInfo = new HashMap<String, CodeUnit>(); // basename -> function CodeUnit
+        // Clean up skeleton content and handle duplicates more carefully
+        var cleanedSkeletons = new HashMap<CodeUnit, String>();
 
-        // First pass: collect all function-type arrow functions
         for (var entry : skeletons.entrySet()) {
             CodeUnit cu = entry.getKey();
-            if (cu.isFunction()) {
-                String basename = getBaseName(cu.fqName());
-                arrowFunctionInfo.put(basename, cu);
-            }
-        }
+            String skeleton = entry.getValue();
 
-        // Second pass: process all CodeUnits, skipping field versions when function versions exist
-        for (var entry : skeletons.entrySet()) {
-            CodeUnit cu = entry.getKey();
-            String fqn = cu.fqName();
-            String basename = getBaseName(fqn);
+            // Fix duplicate interface headers within skeleton
+            if (skeleton.contains("interface ") && skeleton.contains("export interface ")) {
+                // Remove lines that are just "interface Name {" when we already have "export interface Name {"
+                var lines = List.of(skeleton.split("\n"));
+                var filteredLines = new ArrayList<String>();
+                boolean foundExportInterface = false;
 
-            // Skip arrow functions that are nested inside function bodies (not direct namespace/module declarations)
-            if (cu.isFunction() && isNestedInFunctionBody(basename, entry.getValue())) {
-                continue;
-            }
-
-            // Handle arrow function duplicates: prefer function-type over field-type
-            if (cu.kind() == CodeUnitType.FIELD && fqn.startsWith("_module_.")) {
-                if (arrowFunctionInfo.containsKey(basename)) {
-                    // Function version exists, skip this field version
-                    continue;
+                for (String line : lines) {
+                    String trimmed = line.trim();
+                    if (trimmed.startsWith("export interface ") && trimmed.endsWith(" {")) {
+                        foundExportInterface = true;
+                        filteredLines.add(line);
+                    } else if (foundExportInterface && trimmed.startsWith("interface ") && trimmed.endsWith(" {") &&
+                               !trimmed.startsWith("export interface ")) {
+                        // Skip this duplicate interface header
+                    } else {
+                        filteredLines.add(line);
+                    }
                 }
+                skeleton = String.join("\n", filteredLines);
             }
 
-            deduplicatedSkeletons.put(fqn, entry);
+            cleanedSkeletons.put(cu, skeleton);
         }
 
-        // Clean up and deduplicate skeletons to match test expectations
+        // Now handle FQN-based deduplication only for class-like entities
+        var deduplicatedSkeletons = new HashMap<String, Map.Entry<CodeUnit, String>>();
+
+        for (var entry : cleanedSkeletons.entrySet()) {
+            CodeUnit cu = entry.getKey();
+            String skeleton = entry.getValue();
+            String fqn = cu.fqName();
+
+            // Only deduplicate class-like entities (interfaces, classes, enums, etc.)
+            // Don't deduplicate field-like entities as they should be unique
+            if (cu.isClass()) {
+                // Check if we already have this FQN for class-like entities
+                if (deduplicatedSkeletons.containsKey(fqn)) {
+                    // Prefer the one with "export" in the skeleton
+                    String existingSkeleton = deduplicatedSkeletons.get(fqn).getValue();
+                    if (skeleton.startsWith("export") && !existingSkeleton.startsWith("export")) {
+                        // Replace with export version
+                        deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
+                    }
+                    // Otherwise keep the existing one
+                } else {
+                    deduplicatedSkeletons.put(fqn, Map.entry(cu, skeleton));
+                }
+            } else {
+                // For non-class entities (functions, fields), don't deduplicate by FQN
+                // Use a unique key to preserve all of them
+                String uniqueKey = fqn + "#" + cu.kind() + "#" + System.identityHashCode(cu);
+                deduplicatedSkeletons.put(uniqueKey, Map.entry(cu, skeleton));
+            }
+        }
+
+        // Apply basic cleanup
         var cleaned = new HashMap<CodeUnit, String>(deduplicatedSkeletons.size());
         for (var entry : deduplicatedSkeletons.values()) {
             CodeUnit cu = entry.getKey();
             String skeleton = entry.getValue();
 
-            // Remove trailing commas in enums: ",\n}" -> "\n}"
+            // Basic cleanup: remove trailing commas in enums and semicolons from type aliases
             skeleton = ENUM_COMMA_CLEANUP.matcher(skeleton).replaceAll("\n$1");
 
-            // Remove trailing semicolons from non-exported arrow functions only
-            if (skeleton.contains("=>") && skeleton.strip().endsWith("};") && !skeleton.startsWith("export")) {
-                skeleton = TRAILING_SEMICOLON.matcher(skeleton).replaceAll("");
-            }
-
-            // Remove semicolons from type alias lines and filter out nested arrow functions
-            skeleton = filterNestedArrowFunctions(skeleton, cu);
-
+            // Remove semicolons from type alias lines
             var lines = Splitter.on('\n').splitToList(skeleton);
             var skeletonBuilder = new StringBuilder(skeleton.length());
             for (int i = 0; i < lines.size(); i++) {
@@ -545,11 +557,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
             }
             skeleton = skeletonBuilder.toString();
 
-            // Remove duplicate lines within skeletons and handle default exports
-            skeleton = deduplicateSkeletonLines(skeleton);
-            skeleton = extractDefaultExportIfPresent(skeleton);
-
-            cleaned.put(entry.getKey(), skeleton);
+            cleaned.put(cu, skeleton);
         }
 
         return cleaned;
@@ -569,279 +577,13 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
-    /**
-     * Remove duplicate lines within a skeleton while preserving order and structure.
-     */
-    private String deduplicateSkeletonLines(String skeleton) {
-        var lines = Splitter.on('\n').splitToList(skeleton);
-        var result = new ArrayList<String>(lines.size());
-        var seen = new HashSet<String>(lines.size());
-
-        for (String line : lines) {
-            String trimmedLine = line.trim();
 
 
-            // Keep structural lines and only deduplicate content
-            if (trimmedLine.isEmpty() || trimmedLine.equals("{") || trimmedLine.equals("}")) {
-                result.add(line);
-                continue;
-            }
 
-            // Handle interface/class/enum header duplication (e.g., "export interface Point {" vs "interface Point {")
-            // Also handle function signature variations (skeleton vs full source)
-            boolean isDuplicate = false;
 
-            // Create a copy of seen to avoid ConcurrentModificationException
-            var seenCopy = new ArrayList<>(seen);
-            
-            for (String seenLine : seenCopy) {
-                // Check if the seen line is an export version of the current line
-                if (seenLine.startsWith("export ") && seenLine.length() > 7 && seenLine.substring(7).equals(trimmedLine)) {
-                    isDuplicate = true;
-                    break;
-                }
-                // Check if the current line is an export version of a seen line
-                if (trimmedLine.startsWith("export ") && trimmedLine.length() > 7 && trimmedLine.substring(7).equals(seenLine)) {
-                    // Find and replace the line in result
-                    for (int i = 0; i < result.size(); i++) {
-                        if (result.get(i).trim().equals(seenLine)) {
-                            result.set(i, line);
-                            break;
-                        }
-                    }
-                    isDuplicate = true;
-                    break;
-                }
 
-                // Handle function signature variations: "func() => { ... }" vs "func() => { implementation }"
-                if (isFunctionSignatureVariation(seenLine, trimmedLine)) {
-                    // Prefer the skeleton version (with { ... }) over full implementation
-                    if (trimmedLine.contains("{ ... }")) {
-                        // Mark for replacement
-                        for (int i = 0; i < result.size(); i++) {
-                            if (result.get(i).trim().equals(seenLine)) {
-                                result.set(i, line);
-                                break;
-                            }
-                        }
-                    }
-                    // Either way, it's a duplicate
-                    isDuplicate = true;
-                    break;
-                }
-            }
 
-            if (!isDuplicate && seen.add(trimmedLine)) {
-                result.add(line);
-            }
-        }
 
-        return String.join("\n", result);
-    }
-
-    /**
-     * Check if two lines represent the same function signature with different body representations.
-     * E.g., "const func = () => { ... }" vs "const func = () => { implementation }"
-     */
-    private boolean isFunctionSignatureVariation(String line1, String line2) {
-        // Quick check: both must contain "=>" for arrow functions, or both contain "function"
-        boolean bothArrow = line1.contains("=>") && line2.contains("=>");
-        boolean bothFunction = line1.contains("function ") && line2.contains("function ");
-
-        if (!bothArrow && !bothFunction) {
-            return false;
-        }
-
-        // Extract signature part (everything before the body)
-        String sig1 = extractFunctionSignature(line1);
-        String sig2 = extractFunctionSignature(line2);
-
-        return sig1.equals(sig2) && !sig1.isEmpty();
-    }
-
-    private String extractFunctionSignature(String line) {
-        // For arrow functions: extract everything up to "=> " (including arrow)
-        if (line.contains("=>")) {
-            int arrowIndex = line.indexOf("=>");
-            if (arrowIndex > 0) {
-                // Include the "=> " part but not the body
-                return line.substring(0, arrowIndex + 2).trim();
-            }
-        }
-
-        // For regular functions: extract everything up to the opening brace
-        if (line.contains("function ")) {
-            int braceIndex = line.indexOf("{");
-            if (braceIndex > 0) {
-                return line.substring(0, braceIndex).trim();
-            }
-        }
-
-        return "";
-    }
-
-    /**
-     * Extract the base name from an FQN (remove _module_. prefix if present)
-     */
-    private String getBaseName(String fqn) {
-        if (fqn.startsWith("_module_.")) {
-            return fqn.substring("_module_.".length());
-        }
-        return fqn;
-    }
-
-    /**
-     * Check if an arrow function is nested inside a function body rather than being a direct declaration.
-     * This helps filter out arrow functions like 'const nestedArrow = () => ...' that are defined
-     * inside function bodies and should not appear in skeletons.
-     */
-    private boolean isNestedInFunctionBody(String basename, String skeleton) {
-        // For arrow functions, check the skeleton structure
-        // Arrow functions that are direct namespace/module declarations should have proper declaration syntax
-
-        var lines = Splitter.on('\n').splitToList(skeleton);
-        for (String line : lines) {
-            String trimmed = line.trim();
-
-            // Check if this line contains our arrow function with a proper declaration pattern
-            if (trimmed.contains(basename + " =") && trimmed.contains("=>")) {
-                // Check if it has proper declaration keywords (const/let/export at line start)
-                if (trimmed.startsWith("const ") || trimmed.startsWith("let ") ||
-                    trimmed.startsWith("export const ") || trimmed.startsWith("export let ")) {
-                    return false; // This is a proper direct declaration
-                }
-                // If it appears without proper declaration keywords, it's likely nested
-                return true;
-            }
-        }
-
-        // Default: assume it's nested if we can't identify it as a direct declaration
-        return false;
-    }
-
-    /**
-     * Filter out nested arrow functions from skeletons based on context analysis.
-     * This method looks at the CodeUnit context and source file structure to identify
-     * arrow functions that are incorrectly captured at the wrong scope level.
-     */
-    private String filterNestedArrowFunctions(String skeleton, CodeUnit cu) {
-        // Only apply filtering to namespace/module skeletons where nested functions might appear
-        if (!cu.isClass() || !skeleton.contains("=>")) {
-            return skeleton;
-        }
-
-        // Read the source file to understand the actual structure
-        String sourceContent;
-        try {
-            sourceContent = Files.readString(cu.source().absPath());
-        } catch (Exception e) {
-            log.debug("Could not read source file for nested function filtering: {}", e.getMessage());
-            return skeleton; // If we can't read the source, don't filter
-        }
-
-        var lines = Splitter.on('\n').splitToList(skeleton);
-        var filteredLines = new ArrayList<String>();
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-
-            // Check if this is a const arrow function line
-            if (trimmed.startsWith("const ") && trimmed.contains("=>") && trimmed.contains("{ ... }")) {
-                // Extract the function name
-                var matcher = java.util.regex.Pattern.compile("const\\s+(\\w+)\\s*=").matcher(trimmed);
-                if (matcher.find()) {
-                    String functionName = matcher.group(1);
-
-                    // Check if this function is actually defined inside another function in the source
-                    if (isActuallyNestedInSource(functionName, sourceContent)) {
-                        continue; // Skip this line - it's a nested function
-                    }
-                }
-            }
-
-            filteredLines.add(line);
-        }
-
-        return String.join("\n", filteredLines);
-    }
-
-    /**
-     * Check if a function is actually nested inside another function in the source code.
-     */
-    private boolean isActuallyNestedInSource(String functionName, String sourceContent) {
-        // Look for the function definition in the source
-        String functionPattern = "const\\s+" + functionName + "\\s*=.*=>";
-        var pattern = java.util.regex.Pattern.compile(functionPattern);
-        var matcher = pattern.matcher(sourceContent);
-
-        if (matcher.find()) {
-            int functionStart = matcher.start();
-
-            // Look backwards from the function definition to find if it's inside a function body
-            String beforeFunction = sourceContent.substring(0, functionStart);
-
-            // Count open/close braces to determine nesting level
-            int braceDepth = 0;
-            boolean insideFunctionBody = false;
-
-            // Simple heuristic: if we find an unmatched opening brace from a function,
-            // this arrow function is nested
-            for (int i = beforeFunction.length() - 1; i >= 0; i--) {
-                char c = beforeFunction.charAt(i);
-                if (c == '}') {
-                    braceDepth++;
-                } else if (c == '{') {
-                    braceDepth--;
-                    if (braceDepth < 0) {
-                        // We found an unmatched opening brace - check if it's from a function
-                        String precedingContext = beforeFunction.substring(Math.max(0, i - 50), i);
-                        if (precedingContext.contains("function ") || precedingContext.contains(") => ") ||
-                            precedingContext.contains("): ") || precedingContext.contains(") {")) {
-                            insideFunctionBody = true;
-                            break;
-                        }
-                        braceDepth = 0;  // Reset for next potential function
-                    }
-                }
-            }
-
-            return insideFunctionBody;
-        }
-
-        return false;
-    }
-
-    /**
-     * If skeleton contains both regular and default export lines, keep only the default export.
-     */
-    private String extractDefaultExportIfPresent(String skeleton) {
-        var lines = Splitter.on('\n').splitToList(skeleton);
-        boolean hasDefaultExport = false;
-
-        // Quick check for default export without creating stream - avoid strip() in loop
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith("export default")) {
-                hasDefaultExport = true;
-                break;
-            }
-        }
-
-        if (!hasDefaultExport) {
-            return skeleton;
-        }
-
-        // Filter out non-default exports if default exports exist
-        var result = new ArrayList<String>(lines.size());
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.startsWith("export default") || !trimmed.startsWith("export ")) {
-                result.add(line);
-            }
-        }
-
-        return String.join("\n", result);
-    }
 
     @Override
     protected Optional<String> extractSimpleName(TSNode decl, String src) {
@@ -854,116 +596,45 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected void buildFunctionSkeleton(TSNode funcNode, Optional<String> providedNameOpt, String src, String indent, List<String> lines, String exportPrefix) {
+        // Handle variable_declarator containing arrow function
+        if ("variable_declarator".equals(funcNode.getType())) {
+            TSNode valueNode = funcNode.getChildByFieldName("value");
+            if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
+                // Build the const/let declaration with arrow function
+                String fullDeclaration = textSlice(funcNode, src).strip();
+                
+                // Replace function body with placeholder
+                TSNode bodyNode = valueNode.getChildByFieldName("body");
+                if (bodyNode != null && !bodyNode.isNull()) {
+                    String beforeBody = textSlice(funcNode.getStartByte(), bodyNode.getStartByte(), src).strip();
+                    String signature = exportPrefix.stripTrailing() + " " + beforeBody + " " + bodyPlaceholder();
+                    lines.add(indent + signature.stripLeading());
+                } else {
+                    lines.add(indent + exportPrefix.stripTrailing() + " " + fullDeclaration);
+                }
+                return;
+            }
+        }
+        
         // Handle constructor signatures specially
         if ("construct_signature".equals(funcNode.getType())) {
-            // For constructor signatures, handle return type extraction manually
-            // since they use "type" field instead of "return_type" field
             TSNode typeNode = funcNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
                 String typeText = textSlice(typeNode, src);
-                // typeText includes the colon, e.g., ": GenericInterface<T,U>"
                 String returnTypeText = typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
 
-                // Get the other components from the base method
                 var profile = getLanguageSyntaxProfile();
                 String functionName = extractSimpleName(funcNode, src).orElse("new");
                 TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
                 String paramsText = formatParameterList(paramsNode, src);
 
-                // Extract type parameters
                 String typeParamsText = "";
                 TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
                 if (typeParamsNode != null && !typeParamsNode.isNull()) {
                     typeParamsText = textSlice(typeParamsNode, src);
                 }
 
-                // Render the constructor signature manually
                 String signature = renderFunctionDeclaration(funcNode, src, exportPrefix, "", functionName, typeParamsText, paramsText, returnTypeText, indent);
-                if (!signature.isBlank()) {
-                    lines.add(signature);
-                }
-                return;
-            }
-        }
-
-        // Handle lexical_declaration with arrow_function specially
-        TSNode lexicalDeclaration = null;
-
-        // Check if funcNode is a lexical_declaration
-        if ("lexical_declaration".equals(funcNode.getType())) {
-            lexicalDeclaration = funcNode;
-        }
-        // Check if funcNode is an export_statement containing a lexical_declaration
-        else if ("export_statement".equals(funcNode.getType())) {
-            for (int i = 0; i < funcNode.getChildCount(); i++) {
-                TSNode child = funcNode.getChild(i);
-                if ("lexical_declaration".equals(child.getType())) {
-                    lexicalDeclaration = child;
-                    break;
-                }
-            }
-        }
-
-        if (lexicalDeclaration != null) {
-            // This is a const/let declaration containing an arrow function
-            TSNode variableDeclarator = null;
-            TSNode arrowFunctionNode = null;
-
-            // Find the declaration keyword (const, let) and variable_declarator
-            for (int i = 0; i < lexicalDeclaration.getChildCount(); i++) {
-                TSNode child = lexicalDeclaration.getChild(i);
-                if ("variable_declarator".equals(child.getType())) {
-                    variableDeclarator = child;
-                    // Look for arrow_function in the value
-                    for (int j = 0; j < child.getChildCount(); j++) {
-                        TSNode valueChild = child.getChild(j);
-                        if ("arrow_function".equals(valueChild.getType())) {
-                            arrowFunctionNode = valueChild;
-                            break;
-                        }
-                    }
-                    break;
-                }
-            }
-
-            if (variableDeclarator != null && arrowFunctionNode != null) {
-                // Extract the name from variable declarator
-                String functionName = providedNameOpt.orElse("");
-                if (functionName.isEmpty()) {
-                    TSNode nameNode = variableDeclarator.getChildByFieldName("name");
-                    if (nameNode != null && !nameNode.isNull()) {
-                        functionName = textSlice(nameNode, src);
-                    }
-                }
-
-                // Extract parameters from arrow function
-                TSNode paramsNode = arrowFunctionNode.getChildByFieldName("parameters");
-                String paramsText = formatParameterList(paramsNode, src);
-
-                // Extract return type from arrow function
-                TSNode returnTypeNode = arrowFunctionNode.getChildByFieldName("return_type");
-                String returnTypeText = formatReturnType(returnTypeNode, src);
-
-                // Extract type parameters from arrow function
-                String typeParamsText = "";
-                var profile = getLanguageSyntaxProfile();
-                if (!profile.typeParametersFieldName().isEmpty()) {
-                    TSNode typeParamsNode = arrowFunctionNode.getChildByFieldName(profile.typeParametersFieldName());
-                    if (typeParamsNode != null && !typeParamsNode.isNull()) {
-                        typeParamsText = textSlice(typeParamsNode, src);
-                    }
-                }
-
-                // Check if arrow function is async by looking for async keyword in the lexical declaration
-                boolean isAsync = false;
-                String arrowFunctionText = textSlice(arrowFunctionNode, src);
-                if (arrowFunctionText.startsWith("async ")) {
-                    isAsync = true;
-                }
-
-                // Build the abbreviated arrow function skeleton - use existing exportPrefix which already contains the modifiers
-                String asyncPrefix = isAsync ? "async" : "";
-                String signature = renderFunctionDeclaration(arrowFunctionNode, src, exportPrefix, asyncPrefix, functionName, typeParamsText, paramsText, returnTypeText, indent);
                 if (!signature.isBlank()) {
                     lines.add(signature);
                 }
