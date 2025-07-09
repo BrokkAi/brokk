@@ -10,7 +10,8 @@ function md2hast(md: string, { enableEditBlocks = true } = {}) {
   if (enableEditBlocks) {
     processor.use(editBlockPlugin().remarkPlugin[0]);
   }
-  return processor.runSync(processor.parse(md));
+  // Pass the markdown content as part of the VFile to ensure file.contents is available
+  return processor.runSync(processor.parse(md), { value: md });
 }
 
 // Helper to find edit-block nodes in the AST
@@ -22,6 +23,17 @@ function findEditBlocks(tree: any): any[] {
     }
   });
   return editBlocks;
+}
+
+// Helper to find code-fence nodes in the AST
+function findCodeFences(tree: any): any[] {
+  const codeFences: any[] = [];
+  visit(tree, (node) => {
+    if (node.data && node.data.hName === 'code-fence') {
+      codeFences.push(node);
+    }
+  });
+  return codeFences;
 }
 
 
@@ -63,7 +75,7 @@ new content line 1
   expect(props.changed).toBe('1');
 });
 
-test('ignores incomplete edit block', () => {
+test('handles incomplete edit block', () => {
   const md = `
 <<<<<<< SEARCH
 some content
@@ -71,7 +83,14 @@ some content
   `;
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);
-  expect(editBlocks.length).toBe(0);
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('?');
+  expect(props.search).toBe('some content\n');
+  expect(props.replace).toBe('');
+  expect(props.adds).toBe('0');
+  expect(props.dels).toBe('1');
+  expect(props.changed).toBe('0');
 });
 
 test('handles empty search and replace sections', () => {
@@ -139,6 +158,8 @@ Here's a list with mixed content:
   expect(editProps.dels).toBe('1');
   expect(editProps.changed).toBe('1');
   
+  const codeFences = findCodeFences(tree);
+  expect(codeFences.length).toBe(1);
   const codeProps = codeFences[0].data.hProperties;
   expect(codeProps.lang).toBe('java');
   expect(codeProps.content).toBe('System.out.println("Item 2");');
@@ -275,4 +296,130 @@ four
 
   const ids = editBlocks.map(b => b.data.hProperties.id);
   expect(new Set(ids).size).toBe(2); // Ensure IDs are distinct
+});
+
+// ------------------------------------------------------------
+// FILENAME only in fence
+// ------------------------------------------------------------
+test('detects filename only in fence', () => {
+  const md = `
+\`\`\`script.js
+<<<<<<< SEARCH
+old code
+=======
+new code
+>>>>>>> REPLACE
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('script.js');
+});
+
+// ------------------------------------------------------------
+// FILENAME after fence, before HEAD
+// ------------------------------------------------------------
+test('detects filename after fence before HEAD', () => {
+  const md = `
+\`\`\`
+script.js
+<<<<<<< SEARCH
+old code
+=======
+new code
+>>>>>>> REPLACE
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('script.js');
+});
+
+// ------------------------------------------------------------
+// HEAD line with no filename
+// ------------------------------------------------------------
+test('detects HEAD line with no filename', () => {
+  const md = `
+<<<<<<< SEARCH
+old content
+=======
+new content
+>>>>>>> REPLACE
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('?');
+});
+
+// ------------------------------------------------------------
+// Non-edit code fence remains unchanged
+// ------------------------------------------------------------
+test('ignores non-edit code fence', () => {
+  const md = `
+\`\`\`java
+public class Main {
+    public static void main(String[] args) {
+        System.out.println("Hello, World!");
+    }
+}
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(0);
+});
+
+// ------------------------------------------------------------
+// Streaming detector for early recognition
+// ------------------------------------------------------------
+test('ordinary code fence containing SEARCH marker is not converted', () => {
+  const md = `
+\`\`\`sh
+# shell script with weird text
+echo "<<<<<<< SEARCH not a real conflict"
+echo "line 2"
+echo "line 3"
+echo "line 4"
+echo "line 5"
+echo "line 6"
+echo "line 7"
+echo "line 8"
+echo "line 9"
+echo "line 10"
+echo "line 11"
+echo "line 12"
+echo "line 13"
+echo "line 14"
+echo "line 15"
+echo "line 16"
+echo "line 17"
+echo "line 18"
+echo "line 19"
+echo "line 20"
+echo "line 21"
+echo "line 22"
+echo "line 23"
+echo "line 24"
+echo "line 25"
+echo "line 26"
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+  expect(editBlocks.length).toBe(0); // no edit-block should be created
 });

@@ -1,10 +1,49 @@
-import type { Plugin } from 'svelte-exmarkdown';
-import type { Root, Node } from 'mdast';
-import { visit } from 'unist-util-visit';
-import { toString } from 'mdast-util-to-string';
+import type {Plugin} from 'svelte-exmarkdown';
+import type {Root, Node, Content, Code, Parent, Text, RootContent} from 'mdast';
+import {visit, SKIP, type VisitorResult} from 'unist-util-visit';
+import {toString} from 'mdast-util-to-string';
+import type {VFile} from 'vfile';
 import EditBlock from '../components/EditBlock.svelte';
+import type {Test} from "unist-util-visit/lib";
 
-const HEAD = /^ {0,3}<{5,9}\s+SEARCH(?:\s+(.*))?\s*$/;
+// Augment mdast to recognize custom data properties
+declare module 'mdast' {
+    interface Data {
+        'code-fence'?: {
+            hName: 'code-fence';
+            hProperties: {
+                lang: string;
+                content: string;
+            };
+        };
+        'edit-block'?: {
+            hName: 'edit-block';
+            hProperties: EditBlockProps;
+        };
+    }
+}
+
+interface EditBlockProps {
+    id: string;
+    filename: string;
+    search: string;
+    replace: string;
+    adds: string;
+    dels: string;
+    changed: string;
+    status: string;
+}
+
+interface ParsedResult {
+    filename: string;
+    search: string;
+    replace: string;
+    adds: number;
+    dels: number;
+    changed: number;
+}
+
+const HEAD = /^ {0,3}<{5,9}\s+SEARCH(?:\s+(.*))?\s*$/m;
 const DIVIDER = /^ {0,3}={5,9}/;
 const UPDATED = /^ {0,3}>{5,9}\s+REPLACE/;
 const FENCE = /^ {0,3}```(?:\s*(\S[^`\s]*))?\s*$/;
@@ -24,112 +63,260 @@ function stripFilename(line: string): string | null {
     return s || null;
 }
 
-function parseEditBlock(lines: string[], lang: string | null): {
-    filename: string;
-    search: string;
-    replace: string;
-    adds: number;
-    dels: number;
-    changed: number;
-} | null {
-    let filename = '';
-    if (lang && looksLikePath(lang)) {
-        filename = lang;
+function stripQuotedWrapping(block: string, fname: string): string {
+    if (block.length === 0) {
+        return block;
     }
-
-    let startIndex = 0;
-    if (lines.length > 0 && FENCE.test(lines[0])) {
-        const fenceMatch = lines[0].match(FENCE);
-        if (fenceMatch && fenceMatch[1] && looksLikePath(fenceMatch[1])) {
-            filename = fenceMatch[1].trim();
-        }
-        startIndex = 1;
-    }
-
-    if (startIndex < lines.length) {
-        const possibleFilename = stripFilename(lines[startIndex]);
-        if (possibleFilename && looksLikePath(possibleFilename)) {
-            filename = possibleFilename;
-            startIndex++;
+    const lines = block.split('\n');
+    if (fname && lines.length > 0) {
+        const fn = fname.split('/').pop() || fname;
+        if (lines[0].trim().endsWith(fn)) {
+            lines.shift();
         }
     }
-
-    const headIndex = lines.findIndex((line, i) => i >= startIndex && HEAD.test(line));
-    if (headIndex === -1) return null;
-
-    const headMatch = lines[headIndex].match(HEAD);
-    if (headMatch && headMatch[1]) {
-        filename = headMatch[1].trim();
-    } else if (headIndex > 0) {
-        const prevLine = stripFilename(lines[headIndex - 1]);
-        if (prevLine && looksLikePath(prevLine)) {
-            filename = prevLine;
-        }
+    if (lines.length >= 2 && lines[0].startsWith('```') && lines[lines.length - 1].startsWith('```')) {
+        lines.shift();
+        lines.pop();
     }
-
-    const dividerIndex = lines.findIndex((line, i) => i > headIndex && DIVIDER.test(line));
-    if (dividerIndex === -1) return null;
-
-    const updatedIndex = lines.findIndex((line, i) => i > dividerIndex && UPDATED.test(line));
-    if (updatedIndex === -1) return null;
-
-    const searchLines = lines.slice(headIndex + 1, dividerIndex);
-    const replaceLines = lines.slice(dividerIndex + 1, updatedIndex);
-
-    const search = searchLines.join('\n');
-    const replace = replaceLines.join('\n');
-
-    const getLineCount = (s: string) => {
-        const trimmed = s.trim();
-        return trimmed ? trimmed.split('\n').length : 0;
-    };
-
-    const dels = getLineCount(search);
-    const adds = getLineCount(replace);
-    const changed = Math.min(adds, dels);
-
-    return { filename: filename || '?', search, replace, adds, dels, changed };
+    let result = lines.join('\n').trimEnd();
+    if (result && !result.endsWith('\n')) {
+        result += '\n';
+    }
+    return result;
 }
 
-function remarkEditBlock() {
-    let id = 0;
-    return (tree: Root) => {
-        visit(tree, ['code', 'paragraph'], (node: Node, index?: number, parent?: Node) => {
-            if (index === undefined || !parent || !('children' in parent)) return;
+function scanLines(lines: string[], initialFilename = ''): ParsedResult | null {
+    enum Phase { FILENAME, SEARCH, REPLACE }
 
-            const raw = toString(node);
-            if (!raw.startsWith('<') && !raw.startsWith('```')) return;
+    let phase = Phase.FILENAME;
+    let filename = initialFilename;
+    let searchBuf: string[] = [];
+    let replaceBuf: string[] = [];
+    let sawHead = false;
 
-            const headMatch = HEAD.exec(raw);
-            if (!headMatch) return;
-
-            const lang = node.type === 'code' && 'lang' in node ? (node.lang as string) : null;
-            const lines = raw.split('\n');
-            const parsed = parseEditBlock(lines, lang);
-            if (!parsed) return;
-
-            const { filename, search, replace, adds, dels, changed } = parsed;
-
-            const replacement = {
-                type: 'text',
-                value: '',
-                data: {
-                    hName: 'edit-block',
-                    hProperties: {
-                        id: String(++id),
-                        filename,
-                        search,
-                        replace,
-                        adds: String(adds),
-                        dels: String(dels),
-                        changed: String(changed),
-                        status: 'UNKNOWN'
+    for (const line of lines) {
+        switch (phase) {
+            case Phase.FILENAME: {
+                const m = line.match(HEAD);
+                if (m) {
+                    sawHead = true;
+                    if (m[1]) filename = m[1].trim();
+                    phase = Phase.SEARCH;
+                    continue;
+                }
+                if (!sawHead) {
+                    const stripped = stripFilename(line);
+                    if (stripped && looksLikePath(stripped)) {
+                        filename = stripped;
+                        continue;
                     }
                 }
-            };
+                break;
+            }
+            case Phase.SEARCH: {
+                if (DIVIDER.test(line)) {
+                    phase = Phase.REPLACE;
+                    continue;
+                }
+                searchBuf.push(line);
+                continue;
+            }
+            case Phase.REPLACE: {
+                if (UPDATED.test(line)) {
+                    // Complete block found, we can return the full result immediately.
+                    const search = stripQuotedWrapping(searchBuf.join('\n'), filename);
+                    const replace = stripQuotedWrapping(replaceBuf.join('\n'), filename);
+                    const lineCount = (s: string) => {
+                        const t = s.trim();
+                        return t ? t.split('\n').length : 0;
+                    };
+                    const dels = lineCount(search);
+                    const adds = lineCount(replace);
+                    const changed = Math.min(adds, dels);
+                    return {
+                        filename: filename || '?',
+                        search,
+                        replace,
+                        adds,
+                        dels,
+                        changed
+                    };
+                }
+                replaceBuf.push(line);
+                continue;
+            }
+        }
+    }
 
-            parent.children.splice(index, 1, replacement as any);
-            return ['skip', index + 1];
+    // If we saw a HEAD but not a TAIL, this is an incomplete (streaming) block.
+    // Return a partial result.
+    if (sawHead) {
+        const search = stripQuotedWrapping(searchBuf.join('\n'), filename);
+        const replace = stripQuotedWrapping(replaceBuf.join('\n'), filename);
+        const lineCount = (s: string) => {
+            const t = s.trim();
+            return t ? t.split('\n').length : 0;
+        };
+        const dels = lineCount(search);
+        const adds = lineCount(replace);
+        const changed = Math.min(adds, dels);
+        return {
+            filename: filename || '?',
+            search,
+            replace,
+            adds,
+            dels,
+            changed
+        };
+    }
+
+    return null;
+}
+
+function fenceLooksLikeEditBlock(lines: string[]): boolean {
+    const maxLook = 25;
+    for (let i = 0; i < Math.min(lines.length, maxLook); i++) {
+        if (HEAD.test(lines[i])) return true;
+        if (FENCE.test(lines[i])) return false; // any subsequent fence (opening or closing) means not an edit block
+    }
+    return false;
+}
+
+function findFileNameNearby(allLines: string[], startIndex: number): string | null {
+    const maxLookBack = 3;
+    const start = Math.max(0, startIndex - maxLookBack);
+    for (let i = startIndex - 1; i >= start; i--) {
+        const line = allLines[i];
+        if (!line.startsWith('```')) {
+            const possible = stripFilename(line);
+            if (possible && looksLikePath(possible)) {
+                return possible;
+            }
+        }
+    }
+    return null;
+}
+
+function rawOf(node: Node & {
+    position?: { start: { offset: number }; end: { offset: number } }
+}, file: VFile): string {
+    if (node.position && file.contents) {
+        return file.contents.slice(
+            node.position.start.offset,
+            node.position.end.offset
+        );
+    }
+    return toString(node);
+}
+
+function parseEditBlock(lines: string[], lang: string | null, parentLineIndex: number, allLines: string[]): ParsedResult | null {
+    let filename = lang && looksLikePath(lang) ? lang : '';
+    const result = scanLines(lines, filename);
+    if (result && !filename && result.filename === '?') {
+        if (parentLineIndex > 0) {
+            const nearby = findFileNameNearby(allLines, parentLineIndex);
+            if (nearby) result.filename = nearby;
+        }
+    }
+    return result;
+}
+
+function handleFencedBlock(node: Code, index: number, parent: Parent, tree: Root, file: VFile, id: number): VisitorResult {
+    const raw = toString(node);
+    if (raw.includes('<<<<<<< SEARCH')) {
+        const lines = raw.split('\n');
+        if (fenceLooksLikeEditBlock(lines)) {
+            const lang = node.lang; // sometimes lang == filename
+            const allLines = file.contents ? file.contents.toString().split('\n') : [];
+            const parsed = parseEditBlock(lines, lang, node.position?.start.line || 0, allLines);
+            if (parsed) {
+                const {filename, search, replace, adds, dels, changed} = parsed;
+                const replacement: Text & { data: { hName: 'edit-block'; hProperties: EditBlockProps } } = {
+                    type: 'text',
+                    value: '',
+                    data: {
+                        hName: 'edit-block',
+                        hProperties: {
+                            id: String(id),
+                            filename,
+                            search,
+                            replace,
+                            adds: String(adds),
+                            dels: String(dels),
+                            changed: String(changed),
+                            status: 'UNKNOWN'
+                        }
+                    }
+                };
+                parent.children.splice(index, 1, replacement);
+                return [SKIP, index + 1];
+            }
+        }
+    }
+    return;
+}
+
+function handleUnfencedBlock(node: Content, index: number, parent: Parent, tree: Root, file: VFile, id: number): VisitorResult {
+    let raw = rawOf(node, file);
+    if (!raw.includes('<<<<<<< SEARCH')) return;
+
+    // Accumulate siblings until closing marker
+    let end = index;
+    while (
+        end < parent.children.length &&
+        !raw.includes('>>>>>>> REPLACE')
+        ) {
+        end += 1;
+        if (end >= parent.children.length) break;
+        raw += '\n' + rawOf(parent.children[end], file);
+    }
+    
+    // Parse
+    const lines = raw.split('\n');
+    const allLines = file.contents ? file.contents.toString().split('\n') : [];
+    const parsed = parseEditBlock(
+        lines,
+        null,
+        node.position?.start.line || 0,
+        allLines
+    );
+    if (!parsed) return;
+
+    const {filename, search, replace, adds, dels, changed} = parsed;
+
+    const replacement: Text & { data: { hName: 'edit-block'; hProperties: EditBlockProps } } = {
+        type: 'text',
+        value: '',
+        data: {
+            hName: 'edit-block',
+            hProperties: {
+                id: String(id),
+                filename,
+                search,
+                replace,
+                adds: String(adds),
+                dels: String(dels),
+                changed: String(changed),
+                status: 'UNKNOWN'
+            }
+        }
+    };
+
+    // Replace the slice [index … end]
+    parent.children.splice(index, end - index + 1, replacement);
+    return [SKIP, index + 1]; // skip over the newly inserted node
+}
+
+function remarkEditBlock(): (tree: Root, file: VFile) => void {
+    let id = 0;
+    return (tree: Root, file: VFile) => {
+        visit<Root, Test>(tree, (n): n is RootContent => n.type !== 'inlineCode', (node: RootContent, index: number | undefined, parent: Parent | undefined) => {
+            if (index === undefined || parent === undefined) return;
+            if (node.type === 'code') {
+                return handleFencedBlock(node as Code, index, parent, tree, file, ++id);
+            } else {
+                return handleUnfencedBlock(node, index, parent, tree, file, ++id);
+            }
         });
     };
 }
