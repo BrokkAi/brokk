@@ -368,15 +368,19 @@ public class AnalyzerWrapper implements AutoCloseable {
 
     /** Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding. */
     private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, @Nullable Path analyzerPath) {
+        // ACHTUNG!
+        // LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call
+        // it outside of try/catch with recovery!
+
         if (analyzerPath == null || !Files.exists(analyzerPath)) {
             return new CachedAnalyzerResult(null, false);
         }
 
         // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL && !externalRebuildRequested) {
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL) {
             logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
             try {
-                return new CachedAnalyzerResult(lang.loadAnalyzer(project), false);
+                return new CachedAnalyzerResult(lang.loadAnalyzer(project), externalRebuildRequested);
             } catch (Throwable th) {
                 logger.info("Error loading {} analyzer from {}: {}", lang.name(), analyzerPath, th.getMessage());
                 return new CachedAnalyzerResult(null, false);
@@ -400,10 +404,10 @@ public class AnalyzerWrapper implements AutoCloseable {
             cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
         } catch (IOException e) {
             logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
-            return new CachedAnalyzerResult(null, false); // Cannot determine if cache is fresh
+            return new CachedAnalyzerResult(null, false);
         }
 
-        boolean isStale = false;
+        boolean isStale = externalRebuildRequested;
         for (ProjectFile rf : trackedFiles) {
             try {
                 if (!Files.exists(rf.absPath())) continue; // File might have been deleted
@@ -672,7 +676,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     
     private record FileChangeEvent(EventType type, Path path) {
     }
-    
+
     private record CachedAnalyzerResult(@Nullable IAnalyzer analyzer, boolean needsRebuild) {
     }
 }
