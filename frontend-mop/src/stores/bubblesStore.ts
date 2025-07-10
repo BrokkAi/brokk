@@ -1,15 +1,7 @@
 import { writable } from 'svelte/store';
-import type { BrokkEvent, Bubble } from './types';
-import type { ResultMsg } from './shared';
-import { pushChunk, clear, flush } from './worker-bridge';
-
-/* ─── types ───────────────────────────────────────────── */
-export type BubbleState = Bubble & {
-  seq: number;                  // worker sequence for this bubble
-  hast?: ResultMsg['tree'];     // latest parsed tree
-  epoch?: number;               // mirrors Java event for ACK
-  streaming: boolean;           // indicates if still growing
-};
+import type {BrokkEvent, Bubble, BubbleState} from "../types";
+import type {ResultMsg} from "../worker/shared";
+import {clear, flush, pushChunk} from "../worker/worker-bridge";
 
 export const bubblesStore = writable<BubbleState[]>([]);
 

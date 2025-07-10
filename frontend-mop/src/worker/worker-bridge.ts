@@ -1,5 +1,5 @@
 import type {InboundToWorker, OutboundFromWorker, ResultMsg} from './shared';
-import { onWorkerResult } from './bubblesStore';
+import { onWorkerResult } from '../stores/bubblesStore';
 
 const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
 

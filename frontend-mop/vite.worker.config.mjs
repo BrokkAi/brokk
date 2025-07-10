@@ -7,7 +7,7 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: 'src/markdown.worker.ts',
+      entry: 'src/worker/markdown.worker.ts',
       name: 'MarkdownWorker',
       fileName: 'markdown.worker',
       formats: ['es']

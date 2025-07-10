@@ -2,10 +2,11 @@
   import { fade } from 'svelte/transition';
     import Icon from "@iconify/svelte";
   import HastRenderer from './HastRenderer.svelte';
-  import { rendererPlugins } from '../renderer-plugins';
-  import type { BubbleState } from '../bubblesStore';
+  import { rendererPlugins } from '../lib/renderer-plugins';
+  import type { BubbleState } from '../stores/bubblesStore';
+  import type {Bubble} from "@/types";
 
-  export let bubble: BubbleState;
+  export let bubble: Bubble;
 
   /* Map bubble type to CSS variable names for highlight and background colors */
   const hlVar = {
@@ -22,8 +23,8 @@
   const defaultIcons = { USER: 'mdi:account', AI: 'mdi:robot', SYSTEM: 'mdi:cog', CUSTOM: 'mdi:wrench' };
 
   /* Use provided title/icon if available, otherwise fall back to defaults */
-  $: title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
-  $: iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
+  const title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
+  const iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
 </script>
 
 <div
@@ -45,7 +46,6 @@
   >
     {#if bubble.hast}
       <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />
-    {:else}
     {/if}
   </div>
 </div>

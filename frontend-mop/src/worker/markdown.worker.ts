@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { parseMarkdown } from './lib/parse-markdown';
+import { parseMarkdown } from './parse-markdown';
 import type {
   InboundToWorker, OutboundFromWorker,
   ResultMsg, ErrorMsg
@@ -42,7 +42,8 @@ async function parseAndPost(): Promise<void> {
     post(<ErrorMsg>{ type: 'error', message: String(e), seq });
   }
 
-  await new Promise(r => setTimeout(r, 0)); // yield
+  // this is needed to drain the event loop (queued message in onmessage) => accumulate some buffer
+  await new Promise(r => setTimeout(r, 5));
 
   if (dirty) { dirty = false; await parseAndPost(); }
   else busy = false;

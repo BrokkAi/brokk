@@ -3,22 +3,18 @@
   import { fade } from 'svelte/transition';
   import type { Writable } from 'svelte/store';
   import type { SpinnerState } from './types';
-  import type { BubbleState } from './bubblesStore';
+  import type { BubbleState } from './stores/bubblesStore';
   import MessageBubble from './components/MessageBubble.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
-  import { themeStore } from './stores';
+  import { themeStore } from './stores/themeStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
   export let spinnerStore: Writable<SpinnerState>;
 
   let spinner: SpinnerState = { visible: false, message: '' };
-  let chatContainer: HTMLElement;
   let stopAutoScroll: (() => void) | null = null;
 
   onMount(() => {
-    if (!chatContainer.id) {
-      chatContainer.id = 'chat-container';
-    }
     // Check initial theme
     const isDark = document.querySelector('html')?.classList.contains('theme-dark') || false;
     themeStore.set(isDark);
@@ -29,7 +25,7 @@
   });
 
   const bubblesUnsubscribe = bubblesStore.subscribe(list => {
-    const last = list.at(-1);
+    const last: BubbleState | undefined = list.at(-1);
     if (last?.streaming) {
       if (!stopAutoScroll) {
         stopAutoScroll = autoScroll({
@@ -82,7 +78,7 @@
 
 <div
   class="chat-container"
-  bind:this={chatContainer}
+  id="chat-container"
 >
   {#each $bubblesStore as bubble (bubble.id)}
     <div in:fade={{ duration: 200 }} out:fade={{ duration: 100 }}>

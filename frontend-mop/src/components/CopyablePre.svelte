@@ -17,7 +17,7 @@
         const sel = window.getSelection();
         sel?.removeAllRanges();
         sel?.addRange(range);
-        const result = document.execCommand('copy');
+        document.execCommand('copy');
         sel?.removeAllRanges();
       }
     } catch (e) {
