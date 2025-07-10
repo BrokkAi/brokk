@@ -89,9 +89,9 @@ public class GitRepoRemoteMergeTest {
         // Force garbage collection to help with Windows file handle cleanup
         System.gc();
 
-        // Small delay to allow file handles to be released on Windows
+        // Longer delay to allow file handles to be released on Windows
         try {
-            Thread.sleep(100);
+            Thread.sleep(500);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
