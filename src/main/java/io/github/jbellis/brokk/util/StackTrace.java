@@ -122,7 +122,10 @@ public class StackTrace {
     // Group 4: Special source (e.g. "Native Method") or null
     private static final String STACK_TRACE_LINE_REGEX = ".*\\s+at\\s+([^(]+)\\((?:([^:]+):([0-9]+)|([^)]+))\\).*$";
     private static final Pattern STACK_TRACE_LINE_PATTERN = Pattern.compile(STACK_TRACE_LINE_REGEX);
-    
+    // A regular expression pattern to capture the original method name from a lambda.  The pattern looks for "lambda$",
+    // followed by the method name (captured), and ending with a "$" and a number.
+    private static final Pattern LAMBDA_METHOD_NAME_PATTERN = Pattern.compile("lambda\\$(.*?)\\$\\d+");
+
     private static @Nullable String parseExceptionType(String firstLine) {
         List<String> parts = Splitter.on(':').splitToList(firstLine);
         if (parts.isEmpty()) {
@@ -213,5 +216,19 @@ public class StackTrace {
                 : relevantTrace.toString();
         
         return new StackTrace(firstLine, stackTraceLines, cleanedTrace);
+    }
+
+    public static String methodFullNameFromStacktraceElement(StackTraceElement element) {
+        var methodName = element.getMethodName();
+        var methodFullName = element.getClassName() + "." + element.getMethodName();
+
+        // Handle possible lambda names
+        if (methodName.startsWith("lambda")) {
+            var matcher = LAMBDA_METHOD_NAME_PATTERN.matcher(methodName);
+            if (matcher.find()) {
+                methodFullName = element.getClassName() + "." + matcher.group(1);
+            }
+        }
+        return methodFullName;
     }
 }

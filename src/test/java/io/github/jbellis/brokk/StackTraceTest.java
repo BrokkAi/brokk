@@ -69,4 +69,12 @@ public class StackTraceTest {
         assertEquals(2, st2.getFrames().size());
         assertEquals(2, st2.getFrames("io.github.jbellis.brokk.gui").size());
     }
+    
+    @Test
+    public void testStackTraceElementMethodFullNameLambdaParsing() {
+        var stackTraceElement = new StackTraceElement("io.github.jbellis.brokk.gui.GitCommitTab", "lambda$rollbackChangesWithUndo$19", "GitCommitTab.java", 565);
+        var fullName = StackTrace.methodFullNameFromStacktraceElement(stackTraceElement);
+        assertEquals("io.github.jbellis.brokk.gui.GitCommitTab.rollbackChangesWithUndo", fullName);
+                
+    }
 }
