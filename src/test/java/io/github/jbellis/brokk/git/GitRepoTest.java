@@ -45,9 +45,7 @@ public class GitRepoTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (repo != null) {
-            repo.close();
-        }
+        GitTestCleanupUtil.cleanupGitResources(repo);
     }
 
     @Test
