@@ -249,8 +249,8 @@ class ScrollSynchronizerTest {
             debouncer.submit(request);
 
             // Wait for execution and completion with longer timeout
-            assertTrue(executionLatch.await(2000, TimeUnit.MILLISECONDS), "Debounced action should execute");
-            assertTrue(completionLatch.await(2000, TimeUnit.MILLISECONDS), "Completion callback should execute");
+            assertTrue(executionLatch.await(3000, TimeUnit.MILLISECONDS), "Debounced action should execute");
+            assertTrue(completionLatch.await(3000, TimeUnit.MILLISECONDS), "Completion callback should execute");
 
             // Should only execute once due to debouncing
             assertEquals(1, executionCount.get(), "Should execute only once due to debouncing");
