@@ -1,35 +1,26 @@
-import { wrap } from 'comlink';
-import type { MarkdownWorker } from './markdown.worker';
+import type {InboundToWorker, OutboundFromWorker, ResultMsg} from './shared';
+import { onWorkerResult } from './bubblesStore';
 
-export let mdWorker: ReturnType<typeof wrap<MarkdownWorker>> | undefined;
+const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
 
-let workerSupported = false;
-try {
-  workerSupported = !!window.Worker;
-} catch (e) {
-  console.error('[Worker test] Worker not supported:', e);
-  workerSupported = false;
+/* outbound ---------------------------------------------------------- */
+export function pushChunk(text: string, seq: number) {
+  worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export const canUseWorker = workerSupported;
+export function clear(seq: number) {
+  worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
+}
 
-if (canUseWorker) {
-  try {
-    const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
-    worker.onerror = (e: ErrorEvent) => {
-      console.error('[Worker error event]', {
-        message: e.message || 'Unknown error',
-        filename: e.filename,
-        lineno: e.lineno,
-        colno: e.colno,
-        error: e.error
-      });
-    };
-    worker.onmessageerror = (e) => console.error('[Worker message error]', e);
-    worker.onmessage = (e) => console.log('[Worker first message]', e.data);
-    mdWorker = wrap<MarkdownWorker>(worker);
-  } catch (e) {
-    console.error('[Worker instantiation failed]', e);
-    // Optionally, set canUseWorker to false to trigger fallback
+export function flush(seq: number) {
+  worker.postMessage(<InboundToWorker>{ type: 'flush', seq });
+}
+
+/* inbound ----------------------------------------------------------- */
+worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
+  const msg = e.data;
+  if (msg.type === 'error') {
+    console.error('[md-worker]', msg.message);
   }
-}
+  onWorkerResult(e.data as ResultMsg);
+};

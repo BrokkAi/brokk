@@ -1,8 +1,9 @@
 import './styles/global.scss';
 import { mount } from 'svelte';
-import { writable } from 'svelte/store';
+import { tick } from 'svelte';
 import App from './App.svelte';
 import type { BrokkEvent } from './types';
+import { bubblesStore, onBrokkEvent } from './bubblesStore';
 import { spinnerStore, themeStore } from './stores';
 
 // Declare global interfaces for Java bridge
@@ -10,7 +11,7 @@ declare global {
   interface Window {
     brokk: {
       _buffer: BufferItem[];
-      onEvent: (payload: BrokkEvent) => void;
+      onEvent: (payload: BrokkEvent) => Promise<void>;
       getSelection: () => string;
       clear: () => void;
       setTheme: (dark: boolean) => void;
@@ -33,13 +34,16 @@ interface BufferItem {
   args?: unknown[];
 }
 
-// Create a writable store for events
-const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, streaming: false, msgType: 'SYSTEM', epoch: 0 });
+// Worker guard
+if (!('Worker' in window)) {
+  alert('This version of Brokk requires a newer runtime with Web Worker support.');
+  throw new Error('Web Workers unsupported');
+}
 
 // Instantiate the app using Svelte 5 API
 const app = mount(App, {
   target: document.getElementById('mop-root')!,
-  props: { eventStore, spinnerStore }
+  props: { bubblesStore, spinnerStore }
 } as any); // Temporary workaround for TypeScript error, to be fixed with Svelte 5 typing updates
 
 // Retrieve buffered calls and events from the early stub
@@ -48,24 +52,20 @@ const buffer = window.brokk._buffer || [];
 // Replace the temporary brokk proxy with the real implementation
 window.brokk = {
   _buffer: [],
-  onEvent: (payload) => {
-    console.log('Received event from Java bridge:', JSON.stringify(payload));
-    eventStore.set(payload);
+  onEvent: async (payload) => {
+    onBrokkEvent(payload); // updates store & talks to worker
 
-    // ACK after a frame render to ensure UI has updated
-    if (payload.epoch) {
-      requestAnimationFrame(() => {
-        if (window.javaBridge) {
-          window.javaBridge.onAck(payload.epoch);
-        }
-      });
-    }
+    // Wait until Svelte updated *and* browser painted
+    await tick();
+    requestAnimationFrame(() => {
+      if (payload.epoch) window.javaBridge?.onAck(payload.epoch);
+    });
   },
   getSelection: () => {
     return window.getSelection()?.toString() ?? '';
   },
   clear: () => {
-    eventStore.set({ type: 'chunk', text: '', isNew: true, streaming: false, msgType: 'SYSTEM', epoch: 0 });
+    onBrokkEvent({ type: 'clear', epoch: 0 });
   },
   setTheme: (dark) => {
     themeStore.set(dark);

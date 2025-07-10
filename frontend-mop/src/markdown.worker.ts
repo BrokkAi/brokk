@@ -1,77 +1,51 @@
 /// <reference lib="webworker" />
 
-import { expose } from 'comlink';
-import { unified } from 'unified';
-import type { Root as HastRoot } from 'hast';
-import remarkParse from 'remark-parse';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-//import { remarkEditBlock } from './lib/edit-block-plugin';
-import remarkRehype from 'remark-rehype';
-import rehypeShiki from '@shikijs/rehype/core';
+import { parseMarkdown } from './lib/parse-markdown';
+import type {
+  InboundToWorker, OutboundFromWorker,
+  ResultMsg, ErrorMsg
+} from './shared';
 
-import { createHighlighterCore, createCssVariablesTheme } from 'shiki/core';
-import { createJavaScriptRegexEngine } from 'shiki/engine/javascript';
-import { ensureLang, setHighlighter } from './worker-lang-loader';
+let buffer = '';
+let busy = false;
+let dirty = false;
+let seq = 0; // keeps echo of main-thread seq
 
-const cssVarsTheme = createCssVariablesTheme({
-    name: 'css-vars',
-    variablePrefix: '--shiki-',
-    variableDefaults: {},
-    fontStyle: true
-});
+self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
+  const m = ev.data;
+  switch (m.type) {
+    case 'chunk':
+      buffer += m.text;
+      seq = m.seq;
+      if (!busy) { busy = true; void parseAndPost(); }
+      else dirty = true;
+      break;
 
-const languageAttributeTransformer = {
-    name: 'add-language-attributes',
-    pre(node) {
-        node.properties = node.properties || {};
-        node.properties['data-language'] = this.options.lang;
-        return node;
-    }
+    case 'clear':
+      buffer = '';
+      dirty = false;
+      seq = m.seq;
+      break;
+
+    case 'flush':
+      seq = m.seq;
+      if (!busy) { busy = true; void parseAndPost(); }
+      break;
+  }
 };
 
-const highlighterPromise = createHighlighterCore({
-    themes: [cssVarsTheme],
-    langs: [], // start empty -> lazy
-    engine: createJavaScriptRegexEngine()
-});
+async function parseAndPost(): Promise<void> {
+  try {
+    const tree = parseMarkdown(buffer);
+    post(<ResultMsg>{ type: 'result', tree, seq });
+  } catch (e) {
+    post(<ErrorMsg>{ type: 'error', message: String(e), seq });
+  }
 
-let processor: ReturnType<typeof unified> | null = null;
+  await new Promise(r => setTimeout(r, 0)); // yield
 
-highlighterPromise.then(highlighter => {
-    setHighlighter(highlighter);
-    processor = unified()
-        .use(remarkParse)
-        .use(remarkGfm)
-        .use(remarkBreaks)
-        // .use(remarkEditBlock)
-        .use(remarkRehype, { allowDangerousHtml: true })
-        .use(rehypeShiki, {
-            highlighter,
-            theme: 'css-vars',
-            transformers: [languageAttributeTransformer],
-            async getLanguage(lang) {
-                await ensureLang(lang);
-                return lang;
-            }
-        });
-});
-
-
-async function render(md: string): Promise<HastRoot> {
-    await highlighterPromise;
-    if (!processor) {
-        throw new Error('Processor not initialized');
-    }
-    const mdast = processor.parse(md);
-    const hast = await processor.run(mdast);
-    return hast as HastRoot;
+  if (dirty) { dirty = false; await parseAndPost(); }
+  else busy = false;
 }
 
-const workerApi = {
-    render
-};
-
-export type MarkdownWorker = typeof workerApi;
-
-expose(workerApi);
+function post(msg: OutboundFromWorker) { self.postMessage(msg); }
