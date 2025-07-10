@@ -11,6 +11,7 @@ import io.shiftleft.semanticcpg.language.types.structure.{FileTraversal, Namespa
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
+import scala.util.Try
 
 /** Removes AST nodes associated with deleted or modified files.
   */
@@ -23,8 +24,13 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   override def init(): Unit = {
     val projectRoot = cpg.projectRoot
     cpg.file.foreach { file =>
-      val resolvedPath = projectRoot.resolve(file.name).toString
-      pathToFileMap.put(resolvedPath, file)
+      file.name match {
+        case s"<$_>" => // ignore synthetic name
+        case name =>
+          Try(projectRoot.resolve(name)).map(_.toString).foreach { resolvedPath =>
+            pathToFileMap.put(resolvedPath, file)
+          }
+      }
     }
   }
 

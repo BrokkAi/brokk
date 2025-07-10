@@ -42,7 +42,7 @@ public class PhpAnalyzerTest {
         Optional<CodeUnit> barClassCU = analyzer.getDefinition("Another.SubNs.Bar");
         assertTrue(barClassCU.isPresent(), "Bar class CU should be present.");
         assertEquals("Another.SubNs", barClassCU.get().packageName(), "Package name for Bar.php should be Another.SubNs");
-        
+
         ProjectFile noNsFile = new ProjectFile(testProject.getRoot(), "NoNamespace.php");
         Optional<CodeUnit> noNsClassCU = analyzer.getDefinition("NoNsClass"); // No package prefix
         assertTrue(noNsClassCU.isPresent(), "NoNsClass CU should be present.");
@@ -72,7 +72,7 @@ public class PhpAnalyzerTest {
         Set<String> actualFqNames = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertEquals(expectedFqNames, actualFqNames, "Declarations in Foo.php mismatch.");
     }
-    
+
     @Test
     void testGetDeclarationsInFile_NoNamespace() {
         ProjectFile noNsFile = new ProjectFile(testProject.getRoot(), "NoNamespace.php");
@@ -136,7 +136,7 @@ public class PhpAnalyzerTest {
         // Assuming PHP grammar order: visibility, static, abstract/final. So "protected abstract".
         // Test code has `abstract protected`. Let's stick to test file for now.
 
-        assertEquals(expectedSkeleton.trim(), skeletonOpt.get().trim(), "Foo class skeleton mismatch.");
+        assertEquals(expectedSkeleton.trim(), skeletonOpt.get().replace(System.lineSeparator(), "\n").trim(), "Foo class skeleton mismatch.");
     }
 
     @Test
@@ -195,14 +195,14 @@ public class PhpAnalyzerTest {
         """.stripIndent();
         assertEquals(expectedTraitSkeleton.trim(), traitOpt.get().trim());
     }
-    
+
     @Test
     void testGetSymbols() {
         ProjectFile fooFile = new ProjectFile(testProject.getRoot(), "Foo.php");
         CodeUnit fooClassCU = CodeUnit.cls(fooFile, "My.Lib", "Foo");
         Set<String> symbols = analyzer.getSymbols(Set.of(fooClassCU));
         Set<String> expectedSymbols = Set.of(
-            "Foo", "MY_CONST", "staticProp", "value", "nullableProp", 
+            "Foo", "MY_CONST", "staticProp", "value", "nullableProp",
             "__construct", "getValue", "abstractMethod", "refReturnMethod"
         );
         assertEquals(expectedSymbols, symbols);
