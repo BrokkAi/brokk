@@ -56,11 +56,11 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
-            var an = loadOrCreateAnalyzerInternal(true);
-            var codeUnits = an.getAllDeclarations();
+            currentAnalyzer = loadOrCreateAnalyzerInternal(true);
+            var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
-            return an;
+            return currentAnalyzer;
         });
     }
 
@@ -216,7 +216,8 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /**
-     * Internal version of loadOrCreateAnalyzer.
+     * Caller is responsible for setting currentAnalyzer to the result of this method.
+     *
      * @param isInitialLoad true if this is the very first load (triggers UNSET logic and watcher start).
      */
     private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad) {
@@ -224,9 +225,8 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
         if (projectLangs.isEmpty() || (projectLangs.size() == 1 && projectLangs.contains(Language.NONE))) {
-            currentAnalyzer = new DisabledAnalyzer();
             if (isInitialLoad) startWatcher(); // Watcher for git, etc.
-            return currentAnalyzer;
+            return new DisabledAnalyzer();
         }
 
         if (listener != null) {
@@ -277,7 +277,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 totalDeclarations += delegate.getAllDeclarations().size();
             }
         }
-        currentAnalyzer = switch (delegateAnalyzers.size()) {
+        var loadedAnalyzer = switch (delegateAnalyzers.size()) {
             case 0 -> new DisabledAnalyzer();
             case 1 -> delegateAnalyzers.values().iterator().next();
             default -> new MultiAnalyzer(delegateAnalyzers);
@@ -302,7 +302,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         } else if (isInitialLoad) { // Not UNSET, but still initial load
             startWatcher();
         }
-        return currentAnalyzer;
+        return loadedAnalyzer;
     }
 
     private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
@@ -454,10 +454,9 @@ public class AnalyzerWrapper implements AutoCloseable {
         future = runner.submit("Rebuilding code intelligence", () -> {
             try {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
-                IAnalyzer newAnalyzer = loadOrCreateAnalyzerInternal(false);
-                currentAnalyzer = newAnalyzer;
+                currentAnalyzer = loadOrCreateAnalyzerInternal(false);
                 logger.debug("Analyzer (full rebuild) completed.");
-                return newAnalyzer;
+                return currentAnalyzer;
             } finally {
                 synchronized (AnalyzerWrapper.this) {
                     rebuildInProgress = false;
