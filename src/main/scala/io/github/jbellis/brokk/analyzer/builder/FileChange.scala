@@ -7,14 +7,14 @@ import java.nio.file.{InvalidPathException, Path}
   */
 sealed trait FileChange {
 
-  /**
-   * @return the absolute file path as a string if this is a non-synthetic node.
-   */
+  /** @return
+    *   the absolute file path as a string if this is a non-synthetic node.
+    */
   def name: String
 
-  /**
-   * @return a [[Path]] instance of name.
-   */
+  /** @return
+    *   a [[Path]] instance of name.
+    */
   @throws[InvalidPathException]
   def path: Path = Path.of(name)
 

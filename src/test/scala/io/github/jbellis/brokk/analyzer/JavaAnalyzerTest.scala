@@ -13,7 +13,7 @@ import scala.jdk.javaapi.CollectionConverters.asScala
 
 class JavaAnalyzerTest {
   implicit val callResolver: ICallResolver = NoResolve
-  private val n = System.lineSeparator
+  private val n                            = System.lineSeparator
 
   @Test
   def callerTest(): Unit = {
