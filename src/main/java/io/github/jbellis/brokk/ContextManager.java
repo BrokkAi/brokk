@@ -2115,6 +2115,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    public void deleteFiles(List<ProjectFile> files) {
+        for (var file : files) {
+            try {
+                if (file.exists()) {
+                    var content = file.read();
+                    EditBlock.replaceInFile(file, content, "", this);
+                }
+            } catch (IOException e) {
+                var msg = "Error deleting file " + file.getRelPath();
+                logger.error(msg, e);
+                getIo().systemOutput(msg + ": " + e.getMessage());
+            } catch (EditBlock.NoMatchException | EditBlock.AmbiguousMatchException e) {
+                var msg = "Could not delete file " + file.getRelPath() + " as its content changed.";
+                logger.error(msg, e);
+                getIo().systemOutput(msg);
+            } catch (org.eclipse.jgit.api.errors.GitAPIException e) {
+                var msg = "Error removing file " + file.getRelPath() + " from Git index.";
+                logger.error(msg, e);
+                getIo().systemOutput(msg + ": " + e.getMessage());
+            }
+        }
+    }
+
+    @Override
     public IConsoleIO getIo() {
         return io;
     }

@@ -247,6 +247,24 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
         contextMenu.add(summarizeItem);
 
         contextMenu.addSeparator();
+
+        var deleteItem = new JMenuItem(selectedFiles.size() == 1 ? "Delete" : "Delete All");
+        deleteItem.addActionListener(ev -> {
+            var message = selectedFiles.size() == 1
+                          ? "Are you sure you want to delete '" + selectedFiles.getFirst().getFileName() + "'?"
+                          : "Are you sure you want to delete these " + selectedFiles.size() + " files?";
+
+            int result = JOptionPane.showConfirmDialog(this, message, "Confirm Deletion", JOptionPane.YES_NO_OPTION);
+
+            if (result == JOptionPane.YES_OPTION) {
+                contextManager.submitContextTask("Delete files", () -> {
+                    contextManager.deleteFiles(selectedFiles);
+                });
+            }
+        });
+        contextMenu.add(deleteItem);
+
+        contextMenu.addSeparator();
         // Add "Run Tests in Shell" item
         JMenuItem runTestsItem = new JMenuItem("Run Tests in Shell");
         boolean hasTestFiles = selectedFiles.stream().allMatch(ContextManager::isTestFile);
