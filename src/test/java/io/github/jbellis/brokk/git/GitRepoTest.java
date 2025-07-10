@@ -692,7 +692,8 @@ public class GitRepoTest {
         repo.getGit().commit().setMessage("Modify MyClass").setSign(false).call();
 
         // Checkout from first commit
-        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "src/main/java/MyClass.java"));
+        var relName = String.join(File.separator, List.of("src", "main", "java", "MyClass.java"));
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, relName));
         repo.checkoutFilesFromCommit(firstCommit, files);
 
         // Verify restoration

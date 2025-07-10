@@ -27,7 +27,7 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
       Try(projectRoot.resolve(file.name)).map(_.toString) match {
         case Failure(_) =>
           // Shouldn't be resolved, but should be considered nonetheless
-          pathToFileMap.put(file.name, file)
+          pathToFileMap.put(s"$projectRoot${java.io.File.separator}${file.name}", file)
         case Success(resolvedPath) => pathToFileMap.put(resolvedPath, file)
       }
     }
