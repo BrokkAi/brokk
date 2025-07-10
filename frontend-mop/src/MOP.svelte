@@ -14,12 +14,6 @@
   let spinner: SpinnerState = { visible: false, message: '' };
   let stopAutoScroll: (() => void) | null = null;
 
-  onMount(() => {
-    // Check initial theme
-    const isDark = document.querySelector('html')?.classList.contains('theme-dark') || false;
-    themeStore.set(isDark);
-  });
-
   const spinnerUnsubscribe = spinnerStore.subscribe(state => {
     spinner = state;
   });

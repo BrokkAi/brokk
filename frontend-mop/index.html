@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html class="theme-light">
+<html>
 <head>
   <meta charset='utf-8'>
   <title>Brokk MOP</title>
@@ -10,7 +10,7 @@
     (function() {
       const buffer = []; // Unified buffer for all calls and events
       let seq = 0; // Sequence number to maintain order
-      
+
       window.brokk = new Proxy({
         _buffer: buffer
       }, {

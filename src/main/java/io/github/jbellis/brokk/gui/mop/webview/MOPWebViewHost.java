@@ -181,7 +181,9 @@ public final class MOPWebViewHost extends JPanel {
                     html, body {
                         background-color: var(--chat-background) !important;
                     }""".formatted(theme.cssColor());
-                String dataCssUrl = "data:text/css," + java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8) + "#t=" + System.currentTimeMillis();
+                String encodedCss = java.net.URLEncoder.encode(css, java.nio.charset.StandardCharsets.UTF_8)
+                                                       .replace("+", "%20");
+                String dataCssUrl = "data:text/css," + encodedCss + "#t=" + System.currentTimeMillis();
                 webView.getEngine().setUserStyleSheetLocation(dataCssUrl);
             });
         }
