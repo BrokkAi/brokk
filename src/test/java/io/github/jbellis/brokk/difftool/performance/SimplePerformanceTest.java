@@ -258,7 +258,7 @@ class SimplePerformanceTest {
 
             cachedRange = calculator.get();
             cachedKey = key;
-            lastUpdate = now;
+            lastUpdate = System.currentTimeMillis(); // record time *after* calculation completes
             return cachedRange;
         }
     }
@@ -294,7 +294,7 @@ class SimplePerformanceTest {
 
         // Cache testing
         public static final long TEST_CACHE_VALIDITY_MS = 100;
-        public static final long TEST_SIMULATED_CALCULATION_TIME_MS = 150;
+        public static final long TEST_SIMULATED_CALCULATION_TIME_MS = 50;
         public static final int TEST_EXPECTED_CACHE_SPEED_FACTOR = 5;
 
         // Optimization strategies
