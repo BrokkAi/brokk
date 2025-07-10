@@ -3,8 +3,8 @@ export type Seq = number;
 /* ---------- main → worker ---------- */
 export interface ChunkMsg { type: 'chunk'; text: string; seq: Seq; }
 export interface ClearMsg { type: 'clear'; seq: Seq; }
-export interface FlushMsg { type: 'flush'; seq: Seq; }
-export type InboundToWorker = ChunkMsg | ClearMsg | FlushMsg;
+export interface ParseMsg { type: 'parse'; text: string; seq: Seq; }
+export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg;
 
 /* ---------- worker → main ---------- */
 import type { Root as HastRoot } from 'hast';

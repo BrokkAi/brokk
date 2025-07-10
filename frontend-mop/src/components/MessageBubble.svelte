@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
-    import Icon from "@iconify/svelte";
+  import Icon from "@iconify/svelte";
   import HastRenderer from './HastRenderer.svelte';
   import { rendererPlugins } from '../lib/renderer-plugins';
   import type { BubbleState } from '../stores/bubblesStore';
@@ -29,8 +28,6 @@
 
 <div
   class="message-wrapper"
-  in:fade={{ duration: 150 }}
-  out:fade={{ duration: 150 }}
 >
   <header class="header" style="color: var({hlVar});">
     <Icon icon={iconId} style="color: var({hlVar}); margin-right: 0.35em;" />

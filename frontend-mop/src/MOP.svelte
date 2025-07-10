@@ -81,9 +81,7 @@
   id="chat-container"
 >
   {#each $bubblesStore as bubble (bubble.id)}
-    <div in:fade={{ duration: 200 }} out:fade={{ duration: 100 }}>
       <MessageBubble {bubble} />
-    </div>
   {/each}
   {#if spinner.visible}
     <div id="spinner" class="spinner-msg" in:fade={{ duration: 150 }} out:fade={{ duration: 100 }}>

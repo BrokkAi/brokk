@@ -8,12 +8,12 @@ export function pushChunk(text: string, seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export function clear(seq: number) {
-  worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
+export function parse(text: string, seq: number) {
+  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq });
 }
 
-export function flush(seq: number) {
-  worker.postMessage(<InboundToWorker>{ type: 'flush', seq });
+export function clear(seq: number) {
+  worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
 }
 
 /* inbound ----------------------------------------------------------- */

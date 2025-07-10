@@ -17,8 +17,9 @@
   <h1>Brokk MOP - Development Mode</h1>
   <p>Events from Java will be logged to the console and displayed raw below.</p>
   <h3>Dev Tools</h3>
-  <button onclick="simulateAskResponse()">Simulate Ask</button>
-  <button onclick="simulateEdit()">Simulate Edit</button>
+  <button onclick="streamAsk()">Stream "Ask"</button>
+  <button onclick="streamEdit()">Stream "Edit"</button>
+  <button onclick="showMd()">Show MD</button>
   <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle Theme</button>
   <button onclick="window.brokk.clear()">Clear Log</button>
   <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
@@ -32,7 +33,7 @@
   (function() {
     const buffer = []; // Unified buffer for all calls and events
     let seq = 0; // Sequence number to maintain order
-    
+
     window.brokk = new Proxy({
       _buffer: buffer
     }, {
@@ -65,7 +66,7 @@
     window.brokk.onEvent({type, epoch: Date.now(), ...data});
   }
 
-  function simulateAskResponse() {
+
     const contentUser = `> "npm run dev" should run vite/svelte based on dev.html? \nany idea?`;
     const contentAi = `
 ### Why Vite is showing *index.html* even though you have *dev.html*
@@ -211,9 +212,9 @@ Both approaches:
 - Vite always *serves* every HTML file under \`root\`, but it *opens* only one page at start-up.
 - Adjusting \`server.open\` (or the CLI \`--open\`) lets you point dev mode to whichever HTML file you want without disturbing the production build.
 `;
+ function streamAsk() {
     let index = 0;
-    simulateEvent('clear');
-    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
     const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
     const interval = setInterval(() => {
       if (index < chunks.length) {
@@ -225,7 +226,13 @@ Both approaches:
     }, 10);
   }
 
-  function simulateEdit() {
+  function showMd() {
+      simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+      simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false})
+      simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+  }
+
+  function streamEdit() {
     const contentUser = `fix it`;
     const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
 
@@ -431,7 +438,7 @@ if (buffer.length > 0) {
     `;
     let index = 0;
     simulateEvent('clear');
-    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false});
+    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true});
     const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
     const interval = setInterval(() => {
       if (index < chunks.length) {

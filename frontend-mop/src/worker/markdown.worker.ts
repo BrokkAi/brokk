@@ -14,6 +14,15 @@ let seq = 0; // keeps echo of main-thread seq
 self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   const m = ev.data;
   switch (m.type) {
+    case 'parse':
+      try {
+        const tree = parseMarkdown(m.text);
+        post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
+      } catch (e) {
+        post(<ErrorMsg>{ type: 'error', message: String(e), seq: m.seq });
+      }
+      break;
+
     case 'chunk':
       buffer += m.text;
       seq = m.seq;
@@ -25,11 +34,6 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       buffer = '';
       dirty = false;
       seq = m.seq;
-      break;
-
-    case 'flush':
-      seq = m.seq;
-      if (!busy) { busy = true; void parseAndPost(); }
       break;
   }
 };

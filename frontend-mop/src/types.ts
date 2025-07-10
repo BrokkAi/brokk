@@ -1,4 +1,4 @@
-import type {ResultMsg} from "@/worker/shared";
+import type {ResultMsg} from "./worker/shared";
 
 export type BrokkEvent = {
   type: 'chunk' | 'clear' | 'spinner';
@@ -32,7 +32,6 @@ export interface BufferItem {
 }
 
 export type BubbleState = Bubble & {
-  seq: number;                  // worker sequence for this bubble
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
