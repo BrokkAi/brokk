@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -124,14 +125,21 @@ class SerialByKeyExecutorTest {
             executionOrder.add("runnable2");
         });
 
-        // Wait for completion - Runnable tasks return null
-        assertNull(future1.get(1, TimeUnit.SECONDS));
-        assertNull(future2.get(1, TimeUnit.SECONDS));
+        // Wait for all tasks to complete
+        CompletableFuture.allOf(future1, future2).get(1, TimeUnit.SECONDS);
+
+        // Verify results
+        assertNull(future1.getNow(null));
+        assertNull(future2.getNow(null));
 
         // Verify serial execution
         assertEquals(List.of("runnable1", "runnable2"), executionOrder);
-        // Give the executor a moment to drop its reference to completed tasks
-        awaitZeroActiveKeys();
+
+        // Wait deterministically for cleanup callbacks to complete
+        // Schedule one more task on the executor to ensure cleanup callbacks have finished
+        CompletableFuture.runAsync(() -> {}, executorService).get(1, TimeUnit.SECONDS);
+
+        assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 
     @Test
@@ -168,15 +176,4 @@ class SerialByKeyExecutorTest {
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 
-    /**
-     * Wait (briefly) for {@link SerialByKeyExecutor#getActiveKeyCount()} to reach zero.
-     * The internal callback that cleans up completed tasks executes asynchronously,
-     * so we poll for a short period before asserting.
-     */
-    private static void awaitZeroActiveKeys() throws InterruptedException {
-        for (int i = 0; i < 50 && serialByKeyExecutor.getActiveKeyCount() != 0; i++) {
-            Thread.sleep(10);
-        }
-        assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
-    }
 }
