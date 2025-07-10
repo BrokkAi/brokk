@@ -130,7 +130,8 @@ class SerialByKeyExecutorTest {
 
         // Verify serial execution
         assertEquals(List.of("runnable1", "runnable2"), executionOrder);
-        assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
+        // Give the executor a moment to drop its reference to completed tasks
+        awaitZeroActiveKeys();
     }
 
     @Test
@@ -164,6 +165,18 @@ class SerialByKeyExecutorTest {
         assertEquals(List.of("task2"), executionOrder);
 
         // Verify key is no longer active
+        assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
+    }
+
+    /**
+     * Wait (briefly) for {@link SerialByKeyExecutor#getActiveKeyCount()} to reach zero.
+     * The internal callback that cleans up completed tasks executes asynchronously,
+     * so we poll for a short period before asserting.
+     */
+    private static void awaitZeroActiveKeys() throws InterruptedException {
+        for (int i = 0; i < 50 && serialByKeyExecutor.getActiveKeyCount() != 0; i++) {
+            Thread.sleep(10);
+        }
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 }
