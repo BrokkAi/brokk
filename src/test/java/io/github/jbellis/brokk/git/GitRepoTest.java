@@ -681,9 +681,8 @@ public class GitRepoTest {
         Files.createDirectories(subDir);
         Path file = subDir.resolve("MyClass.java");
         Files.writeString(file, "public class MyClass {}");
-        
-        var relName = String.join(File.separator, List.of("src", "main", "java", "MyClass.java")); // fixme: This shouldn't be necessary
-        repo.getGit().add().addFilepattern(relName).call();
+
+        repo.getGit().add().addFilepattern("src/main/java/MyClass.java").call();
         repo.getGit().commit().setMessage("Add MyClass").setSign(false).call();
         String firstCommit = repo.getCurrentCommitId();
 
