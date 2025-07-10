@@ -29,7 +29,7 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
       .Manager { use =>
         // Old path now has new files, so re-build this for updates
         val updatedCpg = beforeConfig.build match {
-          case Failure(e)      => fail("Exception occurred while incrementally updating CPG.", e)
+          case Failure(e)      => throw e
           case Success(config) => use(config.open)
         }
         val fromScratchCpg = use(afterChange.buildAndOpen)

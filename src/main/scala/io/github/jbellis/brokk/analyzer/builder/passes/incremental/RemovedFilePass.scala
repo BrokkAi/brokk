@@ -11,6 +11,7 @@ import io.shiftleft.semanticcpg.language.types.structure.{FileTraversal, Namespa
 import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
+import scala.util.{Failure, Success, Try}
 
 /** Removes AST nodes associated with deleted or modified files.
   */
@@ -23,8 +24,12 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   override def init(): Unit = {
     val projectRoot = cpg.projectRoot
     cpg.file.foreach { file =>
-      val resolvedPath = projectRoot.resolve(file.name).toString
-      pathToFileMap.put(resolvedPath, file)
+      Try(projectRoot.resolve(file.name)).map(_.toString) match {
+        case Failure(_) =>
+          // Shouldn't be resolved, but should be considered nonetheless
+          pathToFileMap.put(s"$projectRoot${java.io.File.separator}${file.name}", file)
+        case Success(resolvedPath) => pathToFileMap.put(resolvedPath, file)
+      }
     }
   }
 
@@ -34,17 +39,17 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
         case x: RemovedFile  => x
         case x: ModifiedFile => x
       }
-      .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
+      .filterNot(f => isSpecialNodeName(f.name)) // avoid special nodes
       .toArray
     logger.info(s"Removing ${filesToRemove.length} files from the CPG")
     filesToRemove
   }
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
-    logger.debug(s"Removing nodes associated with '${part.path}'")
-    pathToFileMap.get(part.path.toString) match {
+    logger.debug(s"Removing nodes associated with '${part.fullName}'")
+    pathToFileMap.get(part.fullName) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
-      case None           => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")
+      case None           => logger.warn(s"Unable to match ${part.fullName} in the CPG, this is unexpected.")
     }
   }
 

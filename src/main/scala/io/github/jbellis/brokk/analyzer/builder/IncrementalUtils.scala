@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.nio.file.*
-import scala.util.Try
+import scala.util.{Try, Success, Failure}
 
 object IncrementalUtils {
 
@@ -37,12 +37,14 @@ object IncrementalUtils {
     val existingFiles = cpg.file.flatMap { file =>
       val fileName = file.name
       Try(rootPath.resolve(fileName)) match
-        case scala.util.Success(absPath) =>
+        case Failure(_) if fileName.matches("<\\w+>") =>
+          Some(PathAndHash(s"$rootPath${java.io.File.separator}$fileName", "<changed>"))
+        case Success(absPath) =>
           Some(PathAndHash(absPath.toString, file.hash.getOrElse("")))
-        case scala.util.Failure(e: InvalidPathException) =>
-          logger.debug(s"Skipping invalid or synthetic file entry '$fileName': ${e.getMessage}")
+        case Failure(e: InvalidPathException) =>
+          logger.debug(s"Skipping invalid file entry '$fileName': ${e.getMessage}")
           None
-        case scala.util.Failure(e) =>
+        case Failure(e) =>
           throw e
     }.toSeq
     // The below will include files unrelated to project source code, but will be filtered out by the language frontend
@@ -84,15 +86,13 @@ object IncrementalUtils {
       val existingContentOpt = existingFilesMap.get(pathStr)
       val newContentOpt      = newFilesMap.get(pathStr)
 
-      val filePath = Path.of(pathStr)
-
       (existingContentOpt, newContentOpt) match {
         // Modified: Path exists in both, but contents differ.
-        case (Some(existingHash), Some(newHash)) if existingHash != newHash => Some(ModifiedFile(filePath))
+        case (Some(existingHash), Some(newHash)) if existingHash != newHash => Some(ModifiedFile(pathStr))
         // Added: Path exists only in the new files map.
-        case (None, Some(_)) => Some(AddedFile(filePath))
+        case (None, Some(_)) => Some(AddedFile(pathStr))
         // Removed: Path exists only in the existing files map.
-        case (Some(_), None) => Some(RemovedFile(filePath))
+        case (Some(_), None) => Some(RemovedFile(pathStr))
         // Unchanged: Path exists in both with identical content, or other invalid states.
         // These are mapped to None and filtered out by flatMap.
         case _ => None
