@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory
 
 import java.io.File
 import java.nio.file.*
-import scala.util.Try
+import scala.util.{Try, Success, Failure}
 
 object IncrementalUtils {
 
@@ -37,12 +37,14 @@ object IncrementalUtils {
     val existingFiles = cpg.file.flatMap { file =>
       val fileName = file.name
       Try(rootPath.resolve(fileName)) match
-        case scala.util.Success(absPath) =>
+        case Success(_) if fileName.matches("<\\w+>") =>
+          Some(PathAndHash(s"$rootPath${java.io.File.separator}$fileName", "<changed>"))
+        case Success(absPath) =>
           Some(PathAndHash(absPath.toString, file.hash.getOrElse("")))
-        case scala.util.Failure(e: InvalidPathException) =>
-          logger.debug(s"Skipping invalid or synthetic file entry '$fileName': ${e.getMessage}")
-          Some(PathAndHash(fileName, ""))
-        case scala.util.Failure(e) =>
+        case Failure(e: InvalidPathException) =>
+          logger.debug(s"Skipping invalid file entry '$fileName': ${e.getMessage}")
+          None
+        case Failure(e) =>
           throw e
     }.toSeq
     // The below will include files unrelated to project source code, but will be filtered out by the language frontend

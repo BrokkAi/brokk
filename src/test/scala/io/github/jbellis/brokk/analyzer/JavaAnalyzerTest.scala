@@ -38,7 +38,7 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A.method2")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get().replace(n, "\n")
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """    public String method2(String input) {
@@ -48,7 +48,7 @@ class JavaAnalyzerTest {
         |    public String method2(String input, int otherInput) {
         |        // overload of method2
         |        return "prefix_" + input + " " + otherInput;
-        |    }""".stripMargin
+        |    }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
@@ -58,12 +58,12 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A$AInner$AInnerInner.method7")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get().replace(n, "\n")
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """            public void method7() {
         |                System.out.println("hello");
-        |            }""".stripMargin
+        |            }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
@@ -73,12 +73,12 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("B.<init>")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get().replace(n, "\n")
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """    public B() {
         |        System.out.println("B constructor");
-        |    }""".stripMargin
+        |    }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
@@ -142,7 +142,7 @@ class JavaAnalyzerTest {
   def getSkeletonTestA(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("A")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get().replace(n, "\n")
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     // https://github.com/joernio/joern/issues/5297
     //    |  public Function<Integer, Integer> method3() {...}
     val expected =
@@ -165,7 +165,7 @@ class JavaAnalyzerTest {
         |  class A$AInnerStatic {
         |    public void <init>() {...}
         |  }
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
@@ -173,7 +173,7 @@ class JavaAnalyzerTest {
   def getSkeletonTestD(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get().replace(n, "\n")
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     val expected =
       """class D {
         |  public void methodD1() {...}
@@ -187,7 +187,7 @@ class JavaAnalyzerTest {
         |  class D$DSub {
         |    public void <init>(D outerClass) {...}
         |  }
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
@@ -195,13 +195,13 @@ class JavaAnalyzerTest {
   def getGetSkeletonHeaderTest(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeletonHeader("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get().replace(n, "\n")
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     val expected =
       """class D {
         |  public int field1;
         |  private String field2;
         |  [... methods not shown ...]
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
