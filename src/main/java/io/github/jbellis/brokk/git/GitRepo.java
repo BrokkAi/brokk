@@ -1669,14 +1669,10 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitStateException("Files to stash are not actually uncommitted!?");
         }
 
-        Set<String> filesToStashPaths = filesToStash.stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.toSet());
-
         // Files NOT to stash
         var filesToCommit = allUncommittedFilesWithStatus.stream()
-                .filter(mfs -> !filesToStashPaths.contains(mfs.file().toString()))
                 .map(ModifiedFile::file)
+                .filter(file -> !filesToStash.contains(file))
                 .collect(Collectors.toList());
 
         if (filesToCommit.isEmpty()) {
