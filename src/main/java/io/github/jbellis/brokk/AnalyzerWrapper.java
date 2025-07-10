@@ -5,12 +5,15 @@ import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.xnio.FileChangeEvent;
 
 import javax.swing.*;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -53,7 +56,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
-            var an = loadOrCreateAnalyzer();
+            var an = loadOrCreateAnalyzerInternal(true);
             var codeUnits = an.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
@@ -213,16 +216,6 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /**
-     * Synchronously load or create an Analyzer:
-     *   1) If the cpg file is up to date, reuse it;
-     *   2) Otherwise, rebuild a fresh Analyzer.
-     * This method is called for the initial load and for full rebuilds.
-     */
-    private IAnalyzer loadOrCreateAnalyzer() {
-        return loadOrCreateAnalyzerInternal(true);
-    }
-
-    /**
      * Internal version of loadOrCreateAnalyzer.
      * @param isInitialLoad true if this is the very first load (triggers UNSET logic and watcher start).
      */
@@ -240,124 +233,80 @@ public class AnalyzerWrapper implements AutoCloseable {
             listener.beforeEachBuild();
         }
 
-        IAnalyzer resultAnalyzer = null;
-        try {
-            BuildAgent.BuildDetails fetchedBuildDetails = project.awaitBuildDetails();
-            if (fetchedBuildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
-                logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
-            }
+        BuildAgent.BuildDetails fetchedBuildDetails = project.awaitBuildDetails();
+        if (fetchedBuildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
+            logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
+        }
 
-            long totalCreationTimeMs;
-            int totalDeclarations = 0;
-            boolean allEmpty = true;
+        long totalCreationTimeMs;
+        int totalDeclarations = 0;
 
-            boolean needsRebuild = false;
+        boolean needsRebuild = false;
 
-            if (projectLangs.size() == 1) {
-                Language lang = projectLangs.iterator().next();
-                assert lang != Language.NONE;
+        var delegateAnalyzers = new HashMap<Language, IAnalyzer>();
+        long longestLangCreationTimeMs = 0;
 
-                Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
-                long startTime = System.currentTimeMillis();
-
-                if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                    logger.debug("First startup for language {}: timing Analyzer creation", lang.name());
-                    resultAnalyzer = lang.createAnalyzer(project);
-                } else {
-                    var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                    if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
-                        // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
-                        resultAnalyzer = cachedResult.analyzer;
-                        if (isInitialLoad) {
-                            needsRebuild = cachedResult.needsRebuild;
-                        }
-                        logger.debug("Using {} cached analyzer for {}", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
-                    } else {
-                        // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
-                        String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
-                        logger.debug("Creating fresh {} analyzer for {} ({})", lang.name(), project.getRoot(), reason);
-                        resultAnalyzer = lang.createAnalyzer(project);
-                    }
-                }
-                totalCreationTimeMs = System.currentTimeMillis() - startTime;
-                if (!resultAnalyzer.isEmpty()) {
-                    allEmpty = false;
-                    try {
-                        totalDeclarations = resultAnalyzer.getAllDeclarations().size();
-                    } catch (UnsupportedOperationException e) { /* some analyzers might not support it */ }
-                }
-            } else { // Multi-language
-                java.util.Map<Language, IAnalyzer> delegateAnalyzers = new java.util.HashMap<>();
-                long longestLangCreationTimeMs = 0;
-
-                for (Language lang : projectLangs) {
-                    if (lang == Language.NONE) continue;
-                    Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
-                    IAnalyzer delegate;
-                    long langStartTime = System.currentTimeMillis();
-
-                    if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                        delegate = lang.createAnalyzer(project);
-                    } else {
-                        var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                        if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
-                            // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
-                            delegate = cachedResult.analyzer;
-                            if (isInitialLoad) {
-                                needsRebuild = needsRebuild || cachedResult.needsRebuild;
-                            }
-                            logger.debug("Using {} cached {} analyzer", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
-                        } else {
-                            // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
-                            String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
-                            logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
-                            delegate = lang.createAnalyzer(project);
-                        }
-                    }
-                    long langCreationTime = System.currentTimeMillis() - langStartTime;
-                    longestLangCreationTimeMs = Math.max(longestLangCreationTimeMs, langCreationTime);
-                    delegateAnalyzers.put(lang, delegate);
-
-                    if (!delegate.isEmpty()) {
-                        allEmpty = false;
-                        try {
-                            totalDeclarations += delegate.getAllDeclarations().size();
-                        } catch (UnsupportedOperationException e) { /* ignore */ }
-                    }
-                }
-                resultAnalyzer = new MultiAnalyzer(delegateAnalyzers);
-                totalCreationTimeMs = longestLangCreationTimeMs; // Use longest for multi-analyzer setup time heuristic
-            }
-            currentAnalyzer = resultAnalyzer;
-            logger.debug("Analyzer (re)build completed for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
-
-            // Notify listener after each build, once currentAnalyzer is set
-            if (listener != null) {
-                listener.afterEachBuild(true, externalRebuildRequested);
-            }
-
-            // Schedule background rebuild if using stale cached analyzer
-            if (needsRebuild) {
-                logger.debug("Scheduling background rebuild for stale analyzer");
-                rebuild();
-            }
+        for (Language lang : projectLangs) {
+            if (lang == Language.NONE) continue;
+            Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
+            IAnalyzer delegate;
+            long langStartTime = System.currentTimeMillis();
 
             if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, allEmpty, projectLangs);
-                startWatcher();
-            } else if (isInitialLoad) { // Not UNSET, but still initial load
-                startWatcher();
+                delegate = lang.createAnalyzer(project);
+            } else {
+                var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
+                if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
+                    // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
+                    delegate = cachedResult.analyzer;
+                    if (isInitialLoad) {
+                        needsRebuild = needsRebuild || cachedResult.needsRebuild;
+                    }
+                    logger.debug("Using {} cached {} analyzer", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
+                } else {
+                    // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
+                    String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
+                    logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
+                    delegate = lang.createAnalyzer(project);
+                }
             }
-        } catch (Exception e) {
-            if (listener != null && (currentAnalyzer == null || currentAnalyzer != resultAnalyzer)) {
-                listener.afterEachBuild(false, externalRebuildRequested);
+            long langCreationTime = System.currentTimeMillis() - langStartTime;
+            longestLangCreationTimeMs = Math.max(longestLangCreationTimeMs, langCreationTime);
+            if (!delegate.isEmpty()) {
+                delegateAnalyzers.put(lang, delegate);
+                totalDeclarations += delegate.getAllDeclarations().size();
             }
-            throw e;
         }
-        return resultAnalyzer;
+        currentAnalyzer = switch (delegateAnalyzers.size()) {
+            case 0 -> new DisabledAnalyzer();
+            case 1 -> delegateAnalyzers.values().iterator().next();
+            default -> new MultiAnalyzer(delegateAnalyzers);
+        };
+        totalCreationTimeMs = longestLangCreationTimeMs; // Use longest for multi-analyzer setup time heuristic
+        logger.debug("Analyzer (re)build completed for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
+
+        // Notify listener after each build, once currentAnalyzer is set
+        if (listener != null) {
+            listener.afterEachBuild(true, externalRebuildRequested);
+        }
+
+        // Schedule background rebuild if using stale cached analyzer
+        if (needsRebuild) {
+            logger.debug("Scheduling background rebuild for stale analyzer");
+            rebuild();
+        }
+
+        if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
+            handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, projectLangs);
+            startWatcher();
+        } else if (isInitialLoad) { // Not UNSET, but still initial load
+            startWatcher();
+        }
+        return currentAnalyzer;
     }
 
-    private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, boolean isEmpty, Set<Language> languages) {
+    private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
+        var isEmpty = totalDeclarations > 0;
         String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
         String langExtensions = languages.stream()
             .flatMap(l -> l.getExtensions().stream())
