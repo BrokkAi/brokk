@@ -116,6 +116,7 @@ class SerialByKeyExecutorTest {
     void testRunnableSubmission() throws Exception {
         var executionOrder = new CopyOnWriteArrayList<String>();
         var key = "runnable-key";
+        var cleanupLatch = new CountDownLatch(1);
 
         var future1 = serialByKeyExecutor.submit(key, () -> {
             executionOrder.add("runnable1");
@@ -123,6 +124,26 @@ class SerialByKeyExecutorTest {
 
         var future2 = serialByKeyExecutor.submit(key, () -> {
             executionOrder.add("runnable2");
+        });
+
+        // Add a cleanup detection callback to the last future
+        future2.whenComplete((res, err) -> {
+            // Poll until cleanup is complete, then signal
+            executorService.execute(() -> {
+                for (int i = 0; i < 100; i++) {
+                    if (serialByKeyExecutor.getActiveKeyCount() == 0) {
+                        cleanupLatch.countDown();
+                        return;
+                    }
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                cleanupLatch.countDown(); // Signal even if cleanup didn't complete
+            });
         });
 
         // Wait for all tasks to complete
@@ -135,10 +156,8 @@ class SerialByKeyExecutorTest {
         // Verify serial execution
         assertEquals(List.of("runnable1", "runnable2"), executionOrder);
 
-        // Wait deterministically for cleanup callbacks to complete
-        // Schedule one more task on the executor to ensure cleanup callbacks have finished
-        CompletableFuture.runAsync(() -> {}, executorService).get(1, TimeUnit.SECONDS);
-
+        // Wait for cleanup to complete
+        assertTrue(cleanupLatch.await(2, TimeUnit.SECONDS), "Cleanup should complete within 2 seconds");
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 
