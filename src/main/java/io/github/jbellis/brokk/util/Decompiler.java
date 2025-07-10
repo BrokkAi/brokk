@@ -15,42 +15,77 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayDeque;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.ZipFile;
 
 public class Decompiler {
     private static final Logger logger = LogManager.getLogger(Decompiler.class);
 
-    private static @Nullable String getMavenCoordinatesFromPath(Path jarPath) {
+    /**
+     * Extracts Maven coordinates from a {@code pom.properties} file found under {@code META-INF/maven/}.
+     */
+    private static Optional<String> getMavenCoordinatesFromPomProperties(Path jarPath) {
+        try (var zip = new ZipFile(jarPath.toFile())) {
+            var entries = zip.entries();
+            while (entries.hasMoreElements()) {
+                var entry = entries.nextElement();
+                var name = entry.getName();
+                if (!entry.isDirectory() && name.startsWith("META-INF/maven/") && name.endsWith("/pom.properties")) {
+                    var props = new Properties();
+                    try (var in = zip.getInputStream(entry)) {
+                        props.load(in);
+                    }
+                    var groupId = props.getProperty("groupId");
+                    var artifactId = props.getProperty("artifactId");
+                    var version = props.getProperty("version");
+                    if (groupId != null && artifactId != null && version != null) {
+                        var coords = String.format("%s:%s:%s", groupId, artifactId, version);
+                        logger.debug("Determined Maven coordinates for {} as {} from pom.properties", jarPath, coords);
+                        return Optional.of(coords);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.warn("Could not read pom.properties from {}: {}", jarPath, e.getMessage());
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Fallback heuristic to extract Maven coordinates by parsing the jar's path inside a Maven repository.
+     */
+    private static Optional<String> getMavenCoordinatesFromPath(Path jarPath) {
         // Expects a path like .../repository/group/id/artifact/version/artifact-version.jar
         try {
-            var path = jarPath.toAbsolutePath();
+            var path = jarPath;
             var name = path.getFileName().toString();
 
             Path versionDir = path.getParent();
             if (versionDir == null) {
                 logger.debug("JAR path has no parent directory: {}", path);
-                return null;
+                return Optional.empty();
             }
             var version = versionDir.getFileName().toString();
 
             Path artifactDir = versionDir.getParent();
             if (artifactDir == null) {
                 logger.debug("JAR path has no artifact directory: {}", path);
-                return null;
+                return Optional.empty();
             }
             var artifactId = artifactDir.getFileName().toString();
 
             // check for consistency
             if (!name.startsWith(artifactId + "-" + version) || !name.endsWith(".jar")) {
                 logger.debug("JAR file name {} does not match expected pattern for artifactId {} and version {}", name, artifactId, version);
-                return null;
+                return Optional.empty();
             }
 
             var groupIdPath = artifactDir.getParent();
             if (groupIdPath == null) {
                 logger.debug("JAR path has no group ID directory: {}", path);
-                return null;
+                return Optional.empty();
             }
             var groupIdParts = new ArrayDeque<String>();
             var current = groupIdPath;
@@ -66,16 +101,16 @@ public class Decompiler {
 
             if (groupIdParts.isEmpty()) {
                 logger.debug("Could not determine groupId from path {}", jarPath);
-                return null;
+                return Optional.empty();
             }
 
             var groupId = String.join(".", groupIdParts);
             var coords = String.format("%s:%s:%s", groupId, artifactId, version);
-            logger.debug("Determined Maven coordinates for {} as {}", jarPath, coords);
-            return coords;
+            logger.debug("Determined Maven coordinates for {} as {} from path heuristic", jarPath, coords);
+            return Optional.of(coords);
         } catch (Exception e) {
-            logger.warn("Failed to determine Maven coordinates from path {}", jarPath, e);
-            return null;
+            logger.warn("Failed to determine Maven coordinates from path {}: {}", jarPath, e.getMessage());
+            return Optional.empty();
         }
     }
 
@@ -96,17 +131,28 @@ public class Decompiler {
         io.systemOutput("Importing " + jarName + "...");
 
         runner.submit("Importing " + jarName, () -> {
-            // Attempt to download sources if it's a Maven artifact
-            var coords = getMavenCoordinatesFromPath(jarPath);
-            if (coords != null) {
-                io.systemOutput("Found Maven artifact. Attempting to download sources...");
+            // Attempt to download sources if we can determine Maven coordinates
+            var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath)
+                                  .or(() -> getMavenCoordinatesFromPath(jarPath));
+
+            Optional<Path> sourcesJarPathOpt = Optional.empty();
+            if (coordsOpt.isPresent()) {
+                var coords = coordsOpt.get();
+                io.systemOutput("Detected Maven coordinates: " + coords + ". Attempting to download sources...");
                 var fetcher = new MavenArtifactFetcher();
-                fetcher.fetch(coords, "sources");
+                sourcesJarPathOpt = fetcher.fetch(coords, "sources");
             }
 
-            // Check if sources are available locally (either pre-existing or just downloaded)
-            var sourcesJarPath = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
-            boolean sourcesFound = Files.exists(sourcesJarPath);
+            // If not downloaded, check for a local sibling
+            if (sourcesJarPathOpt.isEmpty()) {
+                if (coordsOpt.isEmpty()) {
+                    logger.info("Could not determine Maven coordinates for {}. Checking for local sources before decompiling.", jarPath.getFileName());
+                }
+                Path localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
+                if (Files.exists(localSources)) {
+                    sourcesJarPathOpt = Optional.of(localSources);
+                }
+            }
 
             try {
                 // Prepare output directory, asking for overwrite if necessary
@@ -115,11 +161,15 @@ public class Decompiler {
                     return null;
                 }
 
-                if (sourcesFound) {
-                    io.systemOutput("Found sources JAR. Unpacking...");
+                if (sourcesJarPathOpt.isPresent()) {
+                    Path sourcesJarPath = sourcesJarPathOpt.get();
+                    io.systemOutput("Found sources JAR. Unpacking " + sourcesJarPath.getFileName() + "...");
                     extractJarToTemp(sourcesJarPath, outputDir);
                     io.systemOutput("Sources unpacked. Reopen project to incorporate the new source files.");
                 } else {
+                    if (coordsOpt.isPresent()) {
+                        logger.info("Could not find sources for {}. Falling back to decompilation.", coordsOpt.get());
+                    }
                     decompile(io, jarPath, outputDir);
                 }
             } catch (Exception e) {
