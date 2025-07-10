@@ -10,6 +10,7 @@ import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.{FileTraversal, NamespaceTraversal}
 import org.slf4j.LoggerFactory
 
+import java.util.regex.Matcher
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -39,7 +40,9 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
         case x: RemovedFile  => x
         case x: ModifiedFile => x
       }
-      .filterNot(f => isSpecialNodeName(f.name.split(java.io.File.separator).last)) // avoid special nodes
+      .filterNot(f =>
+        isSpecialNodeName(f.name.split(Matcher.quoteReplacement(java.io.File.separator)).last)
+      ) // avoid special nodes
       .toArray
     logger.info(s"Removing ${filesToRemove.length} files from the CPG")
     filesToRemove
