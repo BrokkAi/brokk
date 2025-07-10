@@ -39,17 +39,17 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
         case x: RemovedFile  => x
         case x: ModifiedFile => x
       }
-      .filterNot(f => isSpecialNodeName(f.path.getFileName.toString)) // avoid special nodes
+      .filterNot(f => isSpecialNodeName(f.name.split(java.io.File.separator).last)) // avoid special nodes
       .toArray
     logger.info(s"Removing ${filesToRemove.length} files from the CPG")
     filesToRemove
   }
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
-    logger.debug(s"Removing nodes associated with '${part.path}'")
-    pathToFileMap.get(part.path.toString) match {
+    logger.debug(s"Removing nodes associated with '${part.name}'")
+    pathToFileMap.get(part.name) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
-      case None           => logger.warn(s"Unable to match ${part.path} in the CPG, this is unexpected.")
+      case None           => logger.warn(s"Unable to match ${part.name} in the CPG, this is unexpected.")
     }
   }
 

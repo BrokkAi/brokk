@@ -65,7 +65,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   private def debugChanges(fileChanges: Seq[FileChange]): Unit = {
     val extensionGroups = fileChanges
       .map { p =>
-        val maybeExt = p.name.split('.').lastOption
+        val maybeExt = p.name.split(java.io.File.separator).lastOption.flatMap(_.split('.').lastOption)
         maybeExt.getOrElse("<N/A>") -> p
       }
       .groupBy(_._1)
