@@ -88,7 +88,6 @@ public class GitRepoRemoteMergeTest {
 
         // Force garbage collection to help with Windows file handle cleanup
         System.gc();
-        System.runFinalization();
 
         // Small delay to allow file handles to be released on Windows
         try {
