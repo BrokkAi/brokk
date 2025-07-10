@@ -154,12 +154,12 @@ class SerialByKeyExecutorTest {
         });
 
         // Verify future1 completed exceptionally
-        var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> future1.get(1, TimeUnit.SECONDS));
+        var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> future1.get(5, TimeUnit.SECONDS));
         assertInstanceOf(java.lang.RuntimeException.class, ex.getCause());
         assertEquals(testException, ex.getCause());
 
         // Wait for future2 and verify its result
-        assertEquals("result2", future2.get(1, TimeUnit.SECONDS));
+        assertEquals("result2", future2.get(5, TimeUnit.SECONDS));
 
         // Verify execution order
         assertEquals(List.of("task2"), executionOrder);

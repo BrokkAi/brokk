@@ -60,14 +60,41 @@ public class GitRepoRemoteMergeTest {
 
     @AfterEach
     void tearDown() {
+        // Close GitRepo first which calls git.close() and repository.close()
         if (localRepo != null) {
-            localRepo.close();
+            try {
+                localRepo.close();
+            } catch (Exception e) {
+                // Log but don't fail test cleanup
+                System.err.println("Error closing localRepo: " + e.getMessage());
+            }
         }
+
+        // Close Git instances - redundant but ensures cleanup on Windows
         if (localGit != null) {
-            localGit.close();
+            try {
+                localGit.close();
+            } catch (Exception e) {
+                System.err.println("Error closing localGit: " + e.getMessage());
+            }
         }
         if (remoteGit != null) {
-            remoteGit.close();
+            try {
+                remoteGit.close();
+            } catch (Exception e) {
+                System.err.println("Error closing remoteGit: " + e.getMessage());
+            }
+        }
+
+        // Force garbage collection to help with Windows file handle cleanup
+        System.gc();
+        System.runFinalization();
+
+        // Small delay to allow file handles to be released on Windows
+        try {
+            Thread.sleep(100);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
