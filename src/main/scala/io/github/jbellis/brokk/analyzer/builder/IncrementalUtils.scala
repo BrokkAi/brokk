@@ -37,7 +37,7 @@ object IncrementalUtils {
     val existingFiles = cpg.file.flatMap { file =>
       val fileName = file.name
       Try(rootPath.resolve(fileName)) match
-        case Success(_) if fileName.matches("<\\w+>") =>
+        case Failure(_) if fileName.matches("<\\w+>") =>
           Some(PathAndHash(s"$rootPath${java.io.File.separator}$fileName", "<changed>"))
         case Success(absPath) =>
           Some(PathAndHash(absPath.toString, file.hash.getOrElse("")))
