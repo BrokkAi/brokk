@@ -1306,7 +1306,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // Add each file path to the checkout command
         for (ProjectFile file : files) {
-            var relativePath = file.toString();
+            var relativePath = toRepoRelativePath(file);
             checkoutCommand.addPath(relativePath);
             logger.trace("Adding file to checkout: {}", relativePath);
         }
