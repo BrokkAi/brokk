@@ -2,7 +2,8 @@ import './styles/global.scss';
 import { mount } from 'svelte';
 import { writable } from 'svelte/store';
 import App from './App.svelte';
-import type { BrokkEvent, SpinnerState } from './types';
+import type { BrokkEvent } from './types';
+import { spinnerStore, themeStore } from './stores';
 
 // Declare global interfaces for Java bridge
 declare global {
@@ -34,9 +35,6 @@ interface BufferItem {
 
 // Create a writable store for events
 const eventStore = writable<BrokkEvent>({ type: 'chunk', text: '', isNew: false, streaming: false, msgType: 'SYSTEM', epoch: 0 });
-
-// Create stores for UI commands
-const spinnerStore = writable<SpinnerState>({ visible: false, message: '' });
 
 // Instantiate the app using Svelte 5 API
 const app = mount(App, {
@@ -70,6 +68,7 @@ window.brokk = {
     eventStore.set({ type: 'chunk', text: '', isNew: true, streaming: false, msgType: 'SYSTEM', epoch: 0 });
   },
   setTheme: (dark) => {
+    themeStore.set(dark);
     const html = document.querySelector('html')!;
     const [addTheme, removeTheme] = dark ? ['theme-dark', 'theme-light'] : ['theme-light', 'theme-dark'];
     html.classList.add(addTheme);

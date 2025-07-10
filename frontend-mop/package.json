@@ -3,14 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "concurrently \"vite build -c vite.worker.config.mjs --watch\" \"vite\"",
+    "build": "vite build -c vite.worker.config.mjs && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
     "@iconify/svelte": "^5.0.0",
+    "@rollup/plugin-node-resolve": "^16.0.1",
     "@sveltejs/vite-plugin-svelte": "^5.1.0",
     "@tsconfig/svelte": "^5.0.2",
+    "concurrently": "^9.1.0",
     "sass-embedded": "^1.89.2",
     "shiki": "^3.7.0",
     "svelte": "^5.34.9",
@@ -23,8 +25,10 @@
   "dependencies": {
     "@shikijs/rehype": "^3.7.0",
     "@yrobot/auto-scroll": "^3.0.1",
+    "comlink": "^4.4.2",
     "diff": "^8.0.2",
     "remark-breaks": "^4.0.0",
+    "remark-rehype": "^11.1.2",
     "svelte-exmarkdown": "^5.0.1"
   }
 }

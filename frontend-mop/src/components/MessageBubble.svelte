@@ -11,8 +11,36 @@
     import CopyablePre from './CopyablePre.svelte';
     import { editBlockPlugin } from '../lib/edit-block-plugin';
 
+    import type { Root as HastRoot } from 'hast';
+    import { canUseWorker, mdWorker } from '../worker-bridge';
+    import HastRenderer from './HastRenderer.svelte';
+    import { rendererPlugins } from '../renderer-plugins';
+
     export let bubble: Bubble;
     export let shikiPlugin: Plugin;
+
+    let hastTree: HastRoot | null = null;
+    let loading = canUseWorker;
+
+    $: if (bubble.markdown) {
+        processMarkdown(bubble.markdown);
+    }
+
+    async function processMarkdown(md: string) {
+        if (canUseWorker && mdWorker) {
+            loading = true;
+            try {
+                hastTree = await mdWorker.render(md);
+            } catch (e) {
+                console.error("Markdown worker failed", e);
+                hastTree = null; // Ensure we fall out of loading state
+            } finally {
+                loading = false;
+            }
+        } else {
+            loading = false;
+        }
+    }
 
     /* Map bubble type to CSS variable names for highlight and background colors */
     const hlVar = {
@@ -32,24 +60,19 @@
     $: title = bubble.title ?? defaultTitles[bubble.type] ?? 'Message';
     $: iconId = bubble.iconId ?? defaultIcons[bubble.type] ?? 'mdi:message';
 
-    // Languages that are needed for this bubble's markdown
-    $: neededLangs = Array.from(
-      bubble.markdown.matchAll(/```(\w+)/g),
-      m => m[1].toLowerCase()
-    ).filter(lang => lang && lang !== 'text' && lang !== 'plaintext');
+    // ---- Fallback logic for when worker is not available ----
+    // $: neededLangs = Array.from(
+    //   bubble.markdown.matchAll(/```(\w+)/g),
+    //   m => m[1].toLowerCase()
+    // ).filter(lang => lang && lang !== 'text' && lang !== 'plaintext');
+    //
+    // $: neededLangs.forEach(ensureAndTrack);
+    //
+    // const allLangsLoaded = derived(loadedLangs, $loadedLangs =>
+    //   neededLangs.every(lang => $loadedLangs.has(lang))
+    // );
 
-    // As soon as we know which languages are needed, start loading them.
-    // This is a fire-and-forget operation.
-    $: neededLangs.forEach(ensureAndTrack);
-
-    // This derived store becomes true once all needed languages for this bubble are loaded.
-    const allLangsLoaded = derived(loadedLangs, $loadedLangs =>
-      neededLangs.every(lang => $loadedLangs.has(lang))
-    );
-
-    // The plugins array is reactive. It includes the shikiPlugin only when it's
-    // available AND all required languages for this bubble have been loaded.
-    $: plugins = [
+    $: fallbackPlugins = [
         gfmPlugin(),
         { remarkPlugin: [remarkBreaks] },
         editBlockPlugin(),
@@ -75,7 +98,12 @@
       color: var(--chat-text);
     "
     >
-        <Markdown class="bubble" md={bubble.markdown} {plugins} />
+        {#if canUseWorker}
+            {#if hastTree}
+                <HastRenderer tree={hastTree} plugins={rendererPlugins} />
+                <!-- Error case or empty markdown -->
+            {/if}
+        {/if}
     </div>
 </div>
 

@@ -7,6 +7,7 @@
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import { shikiPluginPromise } from './shiki-plugin';
   import type { Plugin } from 'svelte-exmarkdown';
+  import { themeStore } from './stores';
 
   export let eventStore: Writable<BrokkEvent>;
   export let spinnerStore: Writable<SpinnerState>;
@@ -17,16 +18,16 @@
   let chatContainer: HTMLElement;
   let stopAutoScroll: (() => void) | null = null;
   let shikiPlugin: Plugin | null = null;
-  let isDarkTheme = false;
 
   onMount(async () => {
     if (!chatContainer.id) {
       chatContainer.id = 'chat-container';
     }
-    // Load Shiki plugin once
+    // Load Shiki plugin once for fallback
     shikiPlugin = await shikiPluginPromise;
     // Check initial theme
-    isDarkTheme = document.querySelector('html')?.classList.contains('theme-dark') || false;
+    const isDark = document.querySelector('html')?.classList.contains('theme-dark') || false;
+    themeStore.set(isDark);
   });
 
   // Subscribe to store changes explicitly to handle every event

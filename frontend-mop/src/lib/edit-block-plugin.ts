@@ -307,7 +307,7 @@ function handleUnfencedBlock(node: Content, index: number, parent: Parent, tree:
     return [SKIP, index + 1]; // skip over the newly inserted node
 }
 
-function remarkEditBlock(): (tree: Root, file: VFile) => void {
+export function remarkEditBlock(): (tree: Root, file: VFile) => void {
     let id = 0;
     return (tree: Root, file: VFile) => {
         visit<Root, Test>(tree, (n): n is RootContent => n.type !== 'inlineCode', (node: RootContent, index: number | undefined, parent: Parent | undefined) => {

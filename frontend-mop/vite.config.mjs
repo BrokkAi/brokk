@@ -9,6 +9,10 @@ export default defineConfig(({ command }) => ({
       preprocess: sveltePreprocess({ typescript: true })
     })
   ],
+  resolve: {
+    // Main thread bundle: keep browser-first to get DOM-aware builds
+    conditions: ['browser', 'import', 'default'],
+  },
   build: {
     outDir: '../src/main/resources/mop-web',
     emptyOutDir: true,
