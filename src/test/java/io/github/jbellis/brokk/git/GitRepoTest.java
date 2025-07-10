@@ -7,8 +7,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -675,7 +677,7 @@ public class GitRepoTest {
     @Test
     void testCheckoutFilesFromCommit_FileInSubdirectory() throws Exception {
         // Create file in subdirectory
-        Path subDir = projectRoot.resolve("src/main/java");
+        Path subDir = projectRoot.resolve("src").resolve("main").resolve("java");
         Files.createDirectories(subDir);
         Path file = subDir.resolve("MyClass.java");
         Files.writeString(file, "public class MyClass {}");

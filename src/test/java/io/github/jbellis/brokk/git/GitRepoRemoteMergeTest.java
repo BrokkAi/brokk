@@ -96,7 +96,7 @@ public class GitRepoRemoteMergeTest {
 
         // Verify the feature file exists
         assertTrue(Files.exists(featureFile));
-        assertEquals("feature content\n", Files.readString(featureFile, StandardCharsets.UTF_8));
+        assertEquals(String.format("feature content%s", n), Files.readString(featureFile, StandardCharsets.UTF_8));
     }
 
     @Test

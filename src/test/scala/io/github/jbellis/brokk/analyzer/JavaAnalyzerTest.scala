@@ -13,6 +13,7 @@ import scala.jdk.javaapi.CollectionConverters.asScala
 
 class JavaAnalyzerTest {
   implicit val callResolver: ICallResolver = NoResolve
+  private val n = System.lineSeparator
 
   @Test
   def callerTest(): Unit = {
@@ -37,7 +38,7 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A.method2")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n")
 
     val expected =
       """    public String method2(String input) {
@@ -57,7 +58,7 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A$AInner$AInnerInner.method7")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n")
 
     val expected =
       """            public void method7() {
@@ -72,7 +73,7 @@ class JavaAnalyzerTest {
     val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("B.<init>")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n")
 
     val expected =
       """    public B() {
@@ -141,7 +142,7 @@ class JavaAnalyzerTest {
   def getSkeletonTestA(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("A")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n")
     // https://github.com/joernio/joern/issues/5297
     //    |  public Function<Integer, Integer> method3() {...}
     val expected =
@@ -172,7 +173,7 @@ class JavaAnalyzerTest {
   def getSkeletonTestD(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n")
     val expected =
       """class D {
         |  public void methodD1() {...}
@@ -194,7 +195,7 @@ class JavaAnalyzerTest {
   def getGetSkeletonHeaderTest(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeletonHeader("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n")
     val expected =
       """class D {
         |  public int field1;

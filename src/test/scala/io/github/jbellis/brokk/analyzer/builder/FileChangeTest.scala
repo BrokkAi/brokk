@@ -101,7 +101,7 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
     *   the test assertion.
     */
   def assertAgainstCpgWithPaths(existingFiles: Seq[FileAndContents], newFiles: Seq[FileAndContents])(
-    assertion: (Cpg, Path, String => Path) => Assertion
+    assertion: (Cpg, Path, String => String) => Assertion
   ): Assertion = {
     Using.resource(Cpg.empty) { cpg =>
       val tempDir = Files.createTempDirectory("brokk-file-change-test-")
@@ -126,7 +126,7 @@ trait FileChangeTestFixture extends AnyWordSpec with Matchers {
         }
 
         // Run assertions
-        val absFileNameProvider = (relativeName: String) => tempDir.resolve(relativeName)
+        val absFileNameProvider = (relativeName: String) => tempDir.resolve(relativeName).toString
         assertion(cpg, tempDir, absFileNameProvider)
       } finally {
         tempDir.deleteRecursively()

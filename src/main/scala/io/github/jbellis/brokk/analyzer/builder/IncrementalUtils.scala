@@ -84,7 +84,7 @@ object IncrementalUtils {
       val existingContentOpt = existingFilesMap.get(pathStr)
       val newContentOpt      = newFilesMap.get(pathStr)
 
-      val filePath = Path.of(pathStr)
+      val filePath = Path.of(pathStr).toString
 
       (existingContentOpt, newContentOpt) match {
         // Modified: Path exists in both, but contents differ.
