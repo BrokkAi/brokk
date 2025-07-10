@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.git;
 
 import io.github.jbellis.brokk.util.Environment;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.lib.RepositoryCache;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -39,6 +40,10 @@ public class GitTestCleanupUtil {
                 }
             });
         }
+
+        // Clear any cached JGit repositories to release mmapped pack files,
+        // preventing Windows file-handle leaks that block temp-dir deletion.
+        closeWithErrorHandling("RepositoryCache.clear", RepositoryCache::clear);
 
         // Windows-specific cleanup: first trigger GC, then eagerly delete the
         // repository/work-tree directories to release any lingering mmapped pack
