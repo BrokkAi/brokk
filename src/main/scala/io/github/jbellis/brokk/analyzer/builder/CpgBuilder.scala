@@ -15,7 +15,6 @@ import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.IOException
 import java.nio.file.Paths
-import java.util.regex.Matcher
 import scala.util.{Try, Using}
 
 /** A trait to be implemented by a language-specific incremental CPG builder.
@@ -66,8 +65,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
   private def debugChanges(fileChanges: Seq[FileChange]): Unit = {
     val extensionGroups = fileChanges
       .map { p =>
-        val maybeExt =
-          p.name.split(Matcher.quoteReplacement(java.io.File.separator)).lastOption.flatMap(_.split('.').lastOption)
+        val maybeExt = p.name.split('.').lastOption
         maybeExt.getOrElse("<N/A>") -> p
       }
       .groupBy(_._1)

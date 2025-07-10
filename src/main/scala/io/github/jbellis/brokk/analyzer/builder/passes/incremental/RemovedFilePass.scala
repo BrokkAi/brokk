@@ -10,7 +10,6 @@ import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.{FileTraversal, NamespaceTraversal}
 import org.slf4j.LoggerFactory
 
-import java.util.regex.Matcher
 import scala.collection.mutable
 import scala.util.{Failure, Success, Try}
 
@@ -40,19 +39,17 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
         case x: RemovedFile  => x
         case x: ModifiedFile => x
       }
-      .filterNot(f =>
-        isSpecialNodeName(f.name.split(Matcher.quoteReplacement(java.io.File.separator)).last)
-      ) // avoid special nodes
+      .filterNot(f => isSpecialNodeName(f.name)) // avoid special nodes
       .toArray
     logger.info(s"Removing ${filesToRemove.length} files from the CPG")
     filesToRemove
   }
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
-    logger.debug(s"Removing nodes associated with '${part.name}'")
-    pathToFileMap.get(part.name) match {
+    logger.debug(s"Removing nodes associated with '${part.fullName}'")
+    pathToFileMap.get(part.fullName) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
-      case None           => logger.warn(s"Unable to match ${part.name} in the CPG, this is unexpected.")
+      case None           => logger.warn(s"Unable to match ${part.fullName} in the CPG, this is unexpected.")
     }
   }
 
