@@ -41,7 +41,7 @@ object IncrementalUtils {
           Some(PathAndHash(absPath.toString, file.hash.getOrElse("")))
         case scala.util.Failure(e: InvalidPathException) =>
           logger.debug(s"Skipping invalid or synthetic file entry '$fileName': ${e.getMessage}")
-          None
+          Some(PathAndHash(fileName, ""))
         case scala.util.Failure(e) =>
           throw e
     }.toSeq
