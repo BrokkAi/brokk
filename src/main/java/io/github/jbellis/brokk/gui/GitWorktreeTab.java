@@ -3,7 +3,6 @@ package io.github.jbellis.brokk.gui;
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
-import io.github.jbellis.brokk.gui.MergeBranchDialogPanel;
 import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.git.IGitRepo;
@@ -11,6 +10,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -19,18 +19,12 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.awt.Color;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
-import javax.swing.JCheckBox;
-import javax.swing.JOptionPane;
-import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -821,6 +815,32 @@ public class GitWorktreeTab extends JPanel {
 
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
+
+        // Copy (prefer hard-link) existing language CPG caches to the new worktree
+        var enabledLanguages = parentProject.getAnalyzerLanguages();
+        for (var lang : enabledLanguages) {
+            if (!lang.isCpg()) {
+                continue;
+            }
+            var srcCpg = lang.getCpgPath(parentProject);
+            if (!Files.exists(srcCpg)) {
+                continue;
+            }
+            try {
+                var relative = parentProject.getRoot().relativize(srcCpg);
+                var destCpg = newWorktreePath.resolve(relative);
+                Files.createDirectories(destCpg.getParent());
+                try {
+                    Files.createLink(destCpg, srcCpg);  // Try hard-link first
+                    logger.debug("Hard-linked CPG cache from {} to {}", srcCpg, destCpg);
+                } catch (UnsupportedOperationException | IOException linkEx) {
+                    Files.copy(srcCpg, destCpg, StandardCopyOption.REPLACE_EXISTING);
+                    logger.debug("Copied CPG cache from {} to {}", srcCpg, destCpg);
+                }
+            } catch (IOException copyEx) {
+                logger.warn("Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
+            }
+        }
 
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }
