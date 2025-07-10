@@ -48,6 +48,8 @@ public class CommitPrompts {
                - Is in the imperative mood (e.g., "Add feature" not "Added feature" or "Adding feature").
                - Does not exceed 72 characters.
                
+               Additionally, if a single file is changed be sure to include the short filename (not the path, not the extension).
+               
                Reply only with the one-line commit message, without any additional text, explanations,
                or line breaks.
                """.formatted(formatInstructions);
