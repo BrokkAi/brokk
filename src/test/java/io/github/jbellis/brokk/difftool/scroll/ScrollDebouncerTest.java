@@ -70,8 +70,8 @@ class ScrollDebouncerTest
         );
         debouncer.submit(firstRequest);
 
-        // Small delay to ensure first request is queued
-        Thread.sleep(10);
+        // Verify first request is pending
+        assertTrue(debouncer.hasPending(), "First request should be pending");
 
         // Submit second request before first executes (should cancel first)
         var secondRequest = new ScrollDebouncer.DebounceRequest<>(
