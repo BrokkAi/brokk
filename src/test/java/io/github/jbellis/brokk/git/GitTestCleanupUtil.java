@@ -7,6 +7,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Utility class for cleaning up Git resources in tests, with special handling for Windows file handle issues.
@@ -38,9 +40,37 @@ public class GitTestCleanupUtil {
             });
         }
 
-        // Windows-specific cleanup to help with file handle release
+        // Windows-specific cleanup: first trigger GC, then eagerly delete the
+        // repository/work-tree directories to release any lingering mmapped pack
+        // files that would otherwise prevent JUnit from deleting the temp dir.
         if (Environment.isWindows()) {
             performWindowsFileHandleCleanup();
+
+            // Gather unique directories associated with the Git resources
+            Set<Path> dirsToDelete = new HashSet<>();
+            if (gitRepo != null) {
+                dirsToDelete.add(gitRepo.getGitTopLevel());
+            }
+            for (Git git : gitInstances) {
+                if (git != null) {
+                    var repo = git.getRepository();
+                    Path dir = repo.isBare()
+                             ? repo.getDirectory().toPath()
+                             : repo.getWorkTree().toPath();
+                    dirsToDelete.add(dir);
+                }
+            }
+
+            // Attempt to remove each directory (best-effort, logged on failure)
+            for (Path dir : dirsToDelete) {
+                closeWithErrorHandling("forceDeleteDirectory(" + dir + ")", () -> {
+                    try {
+                        forceDeleteDirectory(dir);
+                    } catch (IOException e) {
+                        // ignore
+                    }
+                });
+            }
         }
     }
 
