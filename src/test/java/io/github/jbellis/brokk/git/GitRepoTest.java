@@ -681,8 +681,9 @@ public class GitRepoTest {
         Files.createDirectories(subDir);
         Path file = subDir.resolve("MyClass.java");
         Files.writeString(file, "public class MyClass {}");
-
-        repo.getGit().add().addFilepattern("src/main/java/MyClass.java").call();
+        
+        var relName = String.join(File.separator, List.of("src", "main", "java", "MyClass.java")); // fixme: This shouldn't be necessary
+        repo.getGit().add().addFilepattern(relName).call();
         repo.getGit().commit().setMessage("Add MyClass").setSign(false).call();
         String firstCommit = repo.getCurrentCommitId();
 
@@ -692,8 +693,7 @@ public class GitRepoTest {
         repo.getGit().commit().setMessage("Modify MyClass").setSign(false).call();
 
         // Checkout from first commit
-        var relName = String.join(File.separator, List.of("src", "main", "java", "MyClass.java"));
-        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, relName));
+        List<ProjectFile> files = List.of(new ProjectFile(projectRoot, "src/main/java/MyClass.java"));
         repo.checkoutFilesFromCommit(firstCommit, files);
 
         // Verify restoration
