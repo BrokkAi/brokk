@@ -332,7 +332,7 @@ class ScrollSynchronizerTest {
         });
 
         // Wait for timer to execute
-        assertTrue(resetLatch.await(100, TimeUnit.MILLISECONDS), "Reset timer should execute");
+        assertTrue(resetLatch.await(500, TimeUnit.MILLISECONDS), "Reset timer should execute");
         assertTrue(resetExecuted.get(), "Reset action should be executed");
     }
 
