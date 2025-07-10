@@ -25,6 +25,9 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.swing.RowSorter;
+import javax.swing.SortOrder;
+import javax.swing.table.TableRowSorter;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
@@ -68,6 +71,7 @@ public class BlitzForgeDialog extends JDialog {
     private FileSelectionPanel fileSelectionPanel;
     private JTable selectedFilesTable;
     private javax.swing.table.DefaultTableModel tableModel;
+    private TableRowSorter<javax.swing.table.DefaultTableModel> selectedFilesSorter;
     private JRadioButton listFilesScopeRadioButton;
     private JTextArea listFilesTextArea;
     // Components for the raw-text “List Files” card
@@ -262,6 +266,10 @@ public class BlitzForgeDialog extends JDialog {
         // Create the JTable and its scroll pane
         tableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0);
         selectedFilesTable = new JTable(tableModel);
+        // Persistent sorter (view ↔ model mapping)
+        selectedFilesSorter = new TableRowSorter<>(tableModel);
+        selectedFilesTable.setRowSorter(selectedFilesSorter);
+        selectedFilesSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
 
         JPopupMenu popupMenu = new JPopupMenu();
         JMenuItem removeItem = new JMenuItem("Remove");
@@ -1246,6 +1254,9 @@ public class BlitzForgeDialog extends JDialog {
                 }
             }
         }
+        // Sort the table model after adding new files
+        selectedFilesSorter.sort();
+
         fileSelectionPanel.setInputText("");
         updateCostEstimate();
     }
@@ -1254,8 +1265,10 @@ public class BlitzForgeDialog extends JDialog {
         int[] selectedRows = selectedFilesTable.getSelectedRows();
         // Remove rows in reverse order to prevent index shifting issues
         for (int i = selectedRows.length - 1; i >= 0; i--) {
-            tableModel.removeRow(selectedRows[i]);
+            int modelIndex = selectedFilesTable.convertRowIndexToModel(selectedRows[i]);
+            tableModel.removeRow(modelIndex);
         }
+        selectedFilesTable.clearSelection();
         updateCostEstimate();
     }
 
@@ -1290,6 +1303,13 @@ public class BlitzForgeDialog extends JDialog {
                 .toList();
 
         matches.forEach(pf -> parsedTableModel.addRow(new Object[]{pf.getRelPath().toString()}));
+
+        // Sort the parsed table model
+        var parsedRowSorter = new TableRowSorter<>(parsedTableModel);
+        parsedFilesTable.setRowSorter(parsedRowSorter);
+        parsedRowSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
+        parsedRowSorter.sort();
+
         selectedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s") + " selected");
         updateCostEstimate();
     }
