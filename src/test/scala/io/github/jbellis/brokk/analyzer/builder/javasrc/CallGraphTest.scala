@@ -181,4 +181,67 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
       }
     }
   }
+
+  "a chained dynamic dispatch call should be resolved" in {
+    withTestConfig { config =>
+      val cpg = project(
+        config,
+        """
+          |public interface B {
+          |  void doSomething();
+          |}
+          |""".stripMargin,
+        "B.java"
+      ).moreCode(
+        """
+            |public class ConcreteB implements B {
+            |  @Override
+            |  public void doSomething() {}
+            |}
+            |""".stripMargin,
+        "ConcreteB.java"
+      ).moreCode(
+        """
+            |public interface A {
+            |  B getB();
+            |}
+            |""".stripMargin,
+        "A.java"
+      ).moreCode(
+        """
+            |public class ConcreteA implements A {
+            |  private final B myB = new ConcreteB();
+            |  @Override
+            |  public B getB() { return this.myB; }
+            |}
+            |""".stripMargin,
+        "ConcreteA.java"
+      ).moreCode(
+        """
+            |public class Driver {
+            |  public static void main(String[] args) {
+            |    A a = new ConcreteA();
+            |    a.getB().doSomething();
+            |  }
+            |}
+            |""".stripMargin,
+        "Driver.java"
+      ).buildAndOpen
+
+      inside(cpg.call.name("getB").l) { case getBCall :: Nil =>
+        getBCall.method.fullName shouldBe "Driver.main:void(java.lang.String[])"
+        getBCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
+        getBCall.callee.fullName.l should contain theSameElementsAs List("A.getB:B()", "ConcreteA.getB:B()")
+      }
+
+      inside(cpg.call.name("doSomething").l) { case doSomethingCall :: Nil =>
+        doSomethingCall.method.fullName shouldBe "Driver.main:void(java.lang.String[])"
+        doSomethingCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
+        doSomethingCall.callee.fullName.l should contain theSameElementsAs List(
+          "B.doSomething:void()",
+          "ConcreteB.doSomething:void()"
+        )
+      }
+    }
+  }
 }

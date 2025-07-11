@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
+import io.github.jbellis.brokk.analyzer.builder.passes.cpp.PointerTypesPass
 import io.joern.c2cpg.astcreation.CGlobal
 import io.joern.c2cpg.parser.FileDefaults
 import io.joern.c2cpg.passes.*
@@ -9,6 +10,7 @@ import io.joern.x2cpg.SourceFiles
 import io.joern.x2cpg.passes.frontend.TypeNodePass
 import io.joern.x2cpg.utils.Report
 import io.shiftleft.codepropertygraph.generated.{Cpg, Languages}
+import io.shiftleft.passes.CpgPassBase
 
 import scala.util.Try
 
@@ -37,6 +39,9 @@ object CBuilder {
       report.print()
       cpg
     }
+
+    override def basePasses(cpg: Cpg): Iterator[CpgPassBase] =
+      (super.basePasses(cpg).toList :+ new PointerTypesPass(cpg)).iterator
 
   }
 

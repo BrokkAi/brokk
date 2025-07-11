@@ -128,12 +128,11 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
       inside(cpg.call.nameExact("greet").l) { case greetCall :: Nil =>
         greetCall.method.name shouldBe "doGreet"
         greetCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
-      // There is a bug in the frontend caused by `Greeter*` to be interpreted literally with the * resulting in
-      // no matched types
-      //        greetCall.callee.fullName.l should contain theSameElementsAs List(
-      //          "EnglishGreeter.greet:std.string()",
-      //          "SpanishGreeter.greet:std.string()"
-      //        )
+        greetCall.callee.fullName.l should contain theSameElementsAs List(
+          "Greeter.greet:ANY()",
+          "EnglishGreeter.greet:string()",
+          "SpanishGreeter.greet:string()"
+        )
       }
     }
   }
@@ -178,6 +177,64 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
         funcCall.callee.fullName.l should contain(
           "<unresolvedNamespace>.func:<unresolvedSignature>(0)"
         ) // ,lambdaMethod.fullName)
+      }
+    }
+  }
+
+  "a chained dynamic dispatch call should be resolved" in {
+    withTestConfig { config =>
+      val cpg = project(
+        config,
+        """
+          |class B {
+          |public:
+          |  virtual void doSomething() = 0;
+          |  virtual ~B() = default;
+          |};
+          |
+          |class ConcreteB : public B {
+          |public:
+          |  void doSomething() override {}
+          |};
+          |
+          |class A {
+          |public:
+          |  virtual B* getB() = 0;
+          |  virtual ~A() = default;
+          |};
+          |
+          |class ConcreteA : public A {
+          |private:
+          |  B* myB;
+          |public:
+          |  ConcreteA() { myB = new ConcreteB(); }
+          |  ~ConcreteA() { delete myB; }
+          |  B* getB() override { return myB; }
+          |};
+          |
+          |int main() {
+          |  A* a = new ConcreteA();
+          |  a->getB()->doSomething();
+          |  delete a;
+          |  return 0;
+          |}
+          |""".stripMargin,
+        "test.cpp"
+      ).buildAndOpen
+
+      inside(cpg.call.nameExact("getB").l) { case getBCall :: Nil =>
+        getBCall.method.name shouldBe "main"
+        getBCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
+        getBCall.callee.fullName.l should contain theSameElementsAs List("A.getB:B*()", "ConcreteA.getB:B*()")
+      }
+
+      inside(cpg.call.nameExact("doSomething").l) { case doSomethingCall :: Nil =>
+        doSomethingCall.method.name shouldBe "main"
+        doSomethingCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
+        doSomethingCall.callee.fullName.l should contain theSameElementsAs List(
+          "B.doSomething:void()",
+          "ConcreteB.doSomething:void()"
+        )
       }
     }
   }
