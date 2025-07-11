@@ -334,14 +334,6 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
             List<DefaultMutableTreeNode> childNodes = new ArrayList<>();
             for (File child : children) {
-                // Skip hidden files and common ignore patterns
-                if (child.getName().startsWith(".") || 
-                    child.getName().equals("node_modules") ||
-                    child.getName().equals("target") ||
-                    child.getName().equals("build")) {
-                    continue;
-                }
-
                 ProjectTreeNode childTreeNode = new ProjectTreeNode(child, false);
                 DefaultMutableTreeNode childNode = new DefaultMutableTreeNode(childTreeNode);
 

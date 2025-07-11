@@ -811,8 +811,16 @@ public class Context {
         return id.hashCode();
     }
 
+    /**
+     * this is to support answering the question of, "did the dynamic components of the Context change".
+     * probably best to avoid the temptation to scope-creep further than that.
+     */
     public boolean workspaceContentEquals(Context other) {
-        return allFragments().toList().equals(other.allFragments().toList()) && taskHistory.equals(other.taskHistory);
+        // comparing live with frozen contexts will ~always fail since FrozenFragment's id is content-based
+        assert !this.containsDynamicFragments();
+        assert !other.containsDynamicFragments();
+
+        return allFragments().toList().equals(other.allFragments().toList());
     }
 
     public boolean containsFrozenFragments() {

@@ -1,10 +1,7 @@
-import sbt.*
-import sbt.Keys.*
-import sbtbuildinfo.BuildInfoPlugin
-import sbtbuildinfo.BuildInfoPlugin.autoImport.*
+
 
 scalaVersion := "3.6.4"
-version := "0.12.0-preview-2"
+version := "0.12.1"
 organization := "io.github.jbellis"
 name := "brokk"
 
@@ -17,7 +14,7 @@ Compile / unmanagedJars ++= Seq(
   baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
   baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
   baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
-  baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar"
+  baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
 )
 
 // also add to javac’s annotation-processor classpath
@@ -27,25 +24,22 @@ Compile / javacOptions ++= {
     baseDirectory.value / "errorprone" / "dataflow-errorprone-3.49.3-eisop1.jar",
     baseDirectory.value / "errorprone" / "nullaway-0.12.7.jar",
     baseDirectory.value / "errorprone" / "dataflow-nullaway-3.49.3.jar",
-    baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar"
+    baseDirectory.value / "errorprone" / "checker-qual-3.49.3.jar",
   )
 
-  val procPath =
-    pluginJars.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+  val procPath = pluginJars.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
   Seq("-processorpath", procPath)
 }
 
 val javaVersion = "21"
 javacOptions := {
   Seq(
-    "--release",
-    javaVersion,
+    "--release", javaVersion,
     // Reflection-specific flags
     "-parameters", // Preserve method parameter names
     "-g:source,lines,vars", // Generate full debugging information
     // Error Prone configuration
-    "-Xmaxerrs",
-    "500",
+    "-Xmaxerrs", "500",
     "-Xplugin:ErrorProne " +
       "-Xep:FutureReturnValueIgnored:OFF " +
       "-Xep:MissingSummary:OFF " +
@@ -79,7 +73,7 @@ javacOptions := {
     "-J--add-opens=jdk.compiler/com.sun.tools.javac.comp=ALL-UNNAMED",
     // Error Prone flags for compilation policy
     "-XDcompilePolicy=simple",
-    "--should-stop=ifError=FLOW"
+    "--should-stop=ifError=FLOW",
   )
 }
 
@@ -89,11 +83,12 @@ Compile / javaHome := Some(file(System.getProperty("java.home")))
 scalacOptions ++= Seq(
   "-Xfatal-warnings",
   "-print-lines",
-  "-encoding",
-  "UTF-8", // two args, need to go together
+  "-encoding", "UTF-8", // two args, need to go together
   // Reflection-related compiler options
   "-language:reflectiveCalls",
-  "-feature"
+  "-feature",
+  // Warn if unused imports are present
+  "-Wunused:imports"
 )
 
 val jlamaVersion = "1.0.0-beta3"
@@ -111,6 +106,7 @@ libraryDependencies ++= Seq(
   "dev.langchain4j" % "langchain4j" % "1.0.0-beta3",
   "dev.langchain4j" % "langchain4j-open-ai" % "1.0.0-beta3",
   "com.squareup.okhttp3" % "okhttp" % "4.12.0",
+
   "com.github.tjake" % "jlama-core" % "0.8.3",
 
   // Console and logging
@@ -118,12 +114,12 @@ libraryDependencies ++= Seq(
   "org.apache.logging.log4j" % "log4j-slf4j2-impl" % "2.20.0",
 
   // Joern dependencies
-  "io.joern" %% "x2cpg" % "4.0.369",
-  "io.joern" %% "c2cpg" % "4.0.369",
-  "io.joern" %% "javasrc2cpg" % "4.0.369",
-  "io.joern" %% "pysrc2cpg" % "4.0.369",
-  "io.joern" %% "joern-cli" % "4.0.369",
-  "io.joern" %% "semanticcpg" % "4.0.369",
+  "io.joern" %% "x2cpg" % "4.0.379",
+  "io.joern" %% "c2cpg" % "4.0.379",
+  "io.joern" %% "javasrc2cpg" % "4.0.379",
+  "io.joern" %% "pysrc2cpg" % "4.0.379",
+  "io.joern" %% "joern-cli" % "4.0.379",
+  "io.joern" %% "semanticcpg" % "4.0.379",
 
   // Utilities
   "com.formdev" % "flatlaf" % "3.6",
@@ -160,9 +156,10 @@ libraryDependencies ++= Seq(
   "org.junit.jupiter" % "junit-jupiter" % "5.10.2" % Test,
   "org.junit.jupiter" % "junit-jupiter-engine" % "5.10.2" % Test,
   "com.github.sbt.junit" % "jupiter-interface" % "0.13.3" % Test,
+  "org.scalatest" %% "scalatest" % "3.2.18" % Test,
 
   // Java Decompiler
-  "com.jetbrains.intellij.java" % "java-decompiler-engine" % "243.25659.59"
+  "com.jetbrains.intellij.java" % "java-decompiler-engine" % "243.25659.59",
 )
 
 enablePlugins(BuildInfoPlugin)
@@ -172,13 +169,13 @@ buildInfoPackage := "io.github.jbellis.brokk"
 buildInfoObject := "BuildInfo"
 
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", xs @ _*) =>
+  case PathList("META-INF", xs@_*) =>
     xs.last match {
-      case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") =>
-        MergeStrategy.discard
+      case x if x.endsWith(".SF") || x.endsWith(".DSA") || x.endsWith(".RSA") => MergeStrategy.discard
       case "MANIFEST.MF" => MergeStrategy.discard
-      case _             => MergeStrategy.first
+      case _ => MergeStrategy.first
     }
+  // This project's classes come first on the classpath, thus our version will be selected.
   case _ => MergeStrategy.first
 }
 assembly / mainClass := Some("io.github.jbellis.brokk.Brokk")
@@ -188,11 +185,9 @@ Compile / run / fork := true
 javaOptions ++= Seq(
   "-ea",
   "--add-modules=jdk.incubator.vector",
-  "-Dbrokk.devmode=true"
+  "-Dbrokk.devmode=true",
 )
 
 testFrameworks += new TestFramework("com.github.sbt.junit.JupiterFramework")
-Test / javacOptions := (Compile / javacOptions).value.filterNot(
-  _.contains("-Xplugin:ErrorProne")
-)
+Test / javacOptions := (Compile / javacOptions).value.filterNot(_.contains("-Xplugin:ErrorProne"))
 Test / fork := true

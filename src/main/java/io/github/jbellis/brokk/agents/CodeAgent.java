@@ -208,7 +208,7 @@ public class CodeAgent {
      */
     public TaskResult runSingleFileEdit(ProjectFile file,
                                         String instructions,
-                                        List<ChatMessage> readOnlyMessages) throws IOException
+                                        List<ChatMessage> readOnlyMessages)
     {
         // 0.  Setup: coder, parser, initial messages, and initial LoopContext
         var coder = contextManager.getLlm(model, "Code (single-file): " + instructions, true);
@@ -236,13 +236,13 @@ public class CodeAgent {
         while (true) {
             // ----- 1-a.  Construct messages for this turn --------------------
             List<ChatMessage> llmMessages;
-            llmMessages = CodePrompts.instance.getSingleFileMessages(contextManager.getProject().getStyleGuide(),
-                                                                     parser,
-                                                                     readOnlyMessages,
-                                                                     loopContext.conversationState().taskMessages(),
-                                                                     loopContext.conversationState().nextRequest(),
-                                                                     loopContext.editState().originalFileContents().keySet(),
-                                                                     editableMsg);
+            llmMessages = CodePrompts.instance.getSingleFileCodeMessages(contextManager.getProject().getStyleGuide(),
+                                                                         parser,
+                                                                         readOnlyMessages,
+                                                                         loopContext.conversationState().taskMessages(),
+                                                                         loopContext.conversationState().nextRequest(),
+                                                                         loopContext.editState().originalFileContents().keySet(),
+                                                                         editableMsg);
 
             // ----- 1-b.  Send to LLM -----------------------------------------
             StreamingResult streamingResult;

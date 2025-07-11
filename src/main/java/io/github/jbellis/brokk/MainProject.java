@@ -58,6 +58,8 @@ public final class MainProject extends AbstractProject {
     private static final String ARCHITECT_OPTIONS_JSON_KEY = "architectOptionsJson";
     private static final String ARCHITECT_RUN_IN_WORKTREE_KEY = "architectRunInWorktree";
 
+    private static final String LAST_MERGE_MODE_KEY = "lastMergeMode";
+
     // Old keys for migration
     private static final String OLD_ISSUE_PROVIDER_ENUM_KEY = "issueProvider"; // Stores the enum name (GITHUB, JIRA)
     private static final String JIRA_PROJECT_BASE_URL_KEY = "jiraProjectBaseUrl";
@@ -77,6 +79,8 @@ public final class MainProject extends AbstractProject {
 
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
+    /* Blitz-history workspace property key */
+    private static final String BLITZ_HISTORY_KEY = "blitzHistory";
 
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
@@ -816,6 +820,24 @@ public final class MainProject extends AbstractProject {
         }
     }
 
+    public Optional<GitRepo.MergeMode> getLastMergeMode() {
+        String modeName = mainWorkspaceProps.getProperty(LAST_MERGE_MODE_KEY);
+        if (modeName == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(GitRepo.MergeMode.valueOf(modeName));
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid merge mode '{}' in workspace properties, ignoring.", modeName);
+            return Optional.empty();
+        }
+    }
+
+    public void setLastMergeMode(GitRepo.MergeMode mode) {
+        mainWorkspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
+        persistWorkspacePropertiesFile();
+    }
+
     public static String getGitHubToken() {
         var props = loadGlobalProperties();
         return props.getProperty(GITHUB_TOKEN_KEY, "");
@@ -1267,6 +1289,48 @@ public final class MainProject extends AbstractProject {
         } catch (Exception e) {
             logger.error("Error listing worktrees or reserving their sessions for main project {}: {}", this.root.getFileName(), e.getMessage(), e);
         }
+    }
+
+    /* --------------------------------------------------------
+       Blitz-history (parallel + post-processing instructions)
+       -------------------------------------------------------- */
+    @Override
+    public List<List<String>> loadBlitzHistory() {
+        try {
+            String json = mainWorkspaceProps.getProperty(BLITZ_HISTORY_KEY);
+            if (json != null && !json.isEmpty()) {
+                var tf   = objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class,
+                        tf.constructCollectionType(List.class, String.class));
+                return objectMapper.readValue(json, type);
+            }
+        } catch (Exception e) {
+            logger.error("Error loading Blitz history: {}", e.getMessage(), e);
+        }
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<List<String>> addToBlitzHistory(String parallel, String post, int maxItems) {
+        if (parallel.trim().isEmpty() && post.trim().isEmpty()) {
+            return loadBlitzHistory();
+        }
+        var history = new ArrayList<>(loadBlitzHistory());
+        history.removeIf(p -> p.size() >= 2 &&
+                              p.get(0).equals(parallel) &&
+                              p.get(1).equals(post));
+        history.add(0, List.of(parallel, post));
+        if (history.size() > maxItems) {
+            history = new ArrayList<>(history.subList(0, maxItems));
+        }
+        try {
+            String json = objectMapper.writeValueAsString(history);
+            mainWorkspaceProps.setProperty(BLITZ_HISTORY_KEY, json);
+            persistWorkspacePropertiesFile();
+        } catch (Exception e) {
+            logger.error("Error saving Blitz history: {}", e.getMessage());
+        }
+        return history;
     }
 
     @Override

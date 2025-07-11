@@ -72,7 +72,7 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
         try {
             // Clear existing highlights first
             clearHighlights();
-            
+
             // Find all matches and highlight them
             var matches = SearchPatternUtils.findAllMatches(textArea.getText(), searchText, caseSensitive);
             highlightManager.highlightAllMatches(matches, -1); // -1 means no current match
@@ -110,7 +110,7 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     @Override
     public void clearHighlights() {
         highlightManager.clearHighlights();
-        
+
         // Clear the current selection/highlight as well
         textArea.setCaretPosition(textArea.getCaretPosition());
     }
@@ -137,6 +137,8 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
             int totalMatches = SearchPatternUtils.countMatches(textArea.getText(), searchText, caseSensitive);
             int currentMatch = getCurrentMatchIndex(searchText, caseSensitive);
             notifySearchComplete(totalMatches, currentMatch);
+            // Notify navigation callback
+            notifySearchNavigation(textArea.getCaretPosition());
         }
 
         return found;
@@ -149,6 +151,8 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
             var viewport = ScrollingUtils.findParentViewport(textArea);
             if (viewport != null && matchRect != null) {
                 ScrollingUtils.centerRectInViewport(viewport, matchRect, 0.33);
+                // Notify navigation callback when centering occurs
+                notifySearchNavigation(textArea.getCaretPosition());
             }
         } catch (Exception ex) {
             // Silently ignore any view transformation errors
@@ -164,25 +168,25 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     private int getCurrentMatchIndex(String searchText, boolean caseSensitive) {
         int caretPos = getCaretPosition();
         var matches = SearchPatternUtils.findAllMatches(getText(), searchText, caseSensitive);
-        
+
         for (int i = 0; i < matches.size(); i++) {
             int[] match = matches.get(i);
             if (caretPos >= match[0] && caretPos <= match[1]) {
                 return i + 1; // 1-based index
             }
         }
-        
+
         return 0; // No current match
     }
 
     public void setShouldJumpToFirstMatch(boolean shouldJump) {
         this.shouldJumpToFirstMatch = shouldJump;
     }
-    
+
     public static SearchableComponent wrap(RTextArea textArea) {
         return new RTextAreaSearchableComponent(textArea);
     }
-    
+
     public static RTextAreaSearchableComponent wrapWithoutJumping(RTextArea textArea) {
         var component = new RTextAreaSearchableComponent(textArea);
         component.setShouldJumpToFirstMatch(false);

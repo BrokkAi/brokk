@@ -1,15 +1,10 @@
 package io.github.jbellis.brokk.analyzer
 
-import flatgraph.storage.Serialization
 import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
-import io.joern.x2cpg.passes.base.*
-import io.joern.x2cpg.passes.callgraph.*
-import io.joern.x2cpg.passes.typerelations.*
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
-import io.shiftleft.passes.CpgPassBase
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
@@ -26,14 +21,13 @@ import scala.jdk.OptionConverters.RichOptional
 import scala.util.Try
 import scala.util.matching.Regex
 
-/**
- * An abstract base for language-specific analyzers.
- * It implements the bulk of "IAnalyzer" using Joern's CPG,
- * but delegates language-specific operations (like building a CPG or
- * constructing method signatures) to concrete subclasses.
- */
-abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg: Cpg)
-  extends IAnalyzer with Closeable {
+/** An abstract base for language-specific analyzers. It implements the bulk of "IAnalyzer" using Joern's CPG, but
+  * delegates language-specific operations (like building a CPG or constructing method signatures) to concrete
+  * subclasses.
+  */
+abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg: Cpg)
+    extends IAnalyzer
+    with Closeable {
 
   // Logger instance for this class
   protected val logger = LoggerFactory.getLogger(getClass)
@@ -46,79 +40,73 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   }
 
   // implicits at the top, you will regret it otherwise
-  protected implicit val ec: ExecutionContext = ExecutionContext.global
+  protected implicit val ec: ExecutionContext        = ExecutionContext.global
   protected implicit val callResolver: ICallResolver = NoResolve
 
   // Adjacency maps for pagerank
-  private var adjacency: Map[String, Map[String, Int]] = Map.empty
+  private var adjacency: Map[String, Map[String, Int]]        = Map.empty
   private var reverseAdjacency: Map[String, Map[String, Int]] = Map.empty
-  private var classesForPagerank: Set[String] = Set.empty
+  private var classesForPagerank: Set[String]                 = Set.empty
 
   // Cache for directChildren to avoid expensive CPG queries
   private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
 
   initializePageRank()
 
-  /**
-   * Secondary constructor: create a new analyzer, loading a pre-built CPG from `preloadedPath`.
-   */
+  /** Secondary constructor: create a new analyzer, loading a pre-built CPG from `preloadedPath`.
+    */
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
 
-  /**
-   * Simplest constructor: build a brand new CPG for the given source path.
-   */
+  /** Simplest constructor: build a brand new CPG for the given source path.
+    */
   def this(sourcePath: Path) = this(sourcePath, Cpg.empty)
 
-  /**
-   * Utility constructor that can override the language, or any other parameter.
-   * The default just calls `this(sourcePath)`.
-   */
+  /** Utility constructor that can override the language, or any other parameter. The default just calls
+    * `this(sourcePath)`.
+    */
   def this(sourcePath: Path, maybeUnused: Language) = this(sourcePath)
 
   override def isCpg: Boolean = true
 
-  /**
-   * Return the method signature as a language-appropriate String,
-   * e.g. for Java: "public int foo(String bar)"
-   */
+  /** Return the method signature as a language-appropriate String, e.g. for Java: "public int foo(String bar)"
+    */
   protected def methodSignature(m: Method): String
 
   // --- Abstract CodeUnit Creation Methods ---
 
-  /** Create a CLASS CodeUnit from FQCN. Relies on language-specific heuristics. Prefer CodeUnit factories where complete information is available. */
+  /** Create a CLASS CodeUnit from FQCN. Relies on language-specific heuristics. Prefer CodeUnit factories where
+    * complete information is available.
+    */
   def cuClass(fqcn: String, file: ProjectFile): Option[CodeUnit]
 
-  /** Create a FUNCTION CodeUnit from FQN. Relies on language-specific heuristics. Prefer CodeUnit factories where complete information is available. */
+  /** Create a FUNCTION CodeUnit from FQN. Relies on language-specific heuristics. Prefer CodeUnit factories where
+    * complete information is available.
+    */
   def cuFunction(fqmn: String, file: ProjectFile): Option[CodeUnit]
 
-  /** Create a FIELD CodeUnit from FQN. Relies on language-specific heuristics. Prefer CodeUnit factories where complete information is available. */
+  /** Create a FIELD CodeUnit from FQN. Relies on language-specific heuristics. Prefer CodeUnit factories where complete
+    * information is available.
+    */
   def cuField(fqfn: String, file: ProjectFile): Option[CodeUnit]
   // -----------------------------------------
 
-  /**
-   * Transform method node fullName to a stable "resolved" name
-   * (e.g. removing lambda suffixes).
-   */
+  /** Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).
+    */
   private[brokk] def resolveMethodName(methodName: String): String
 
-  /**
-   * Possibly remove package names from a type string, or do
-   * other language-specific cleanup.
-   */
+  /** Possibly remove package names from a type string, or do other language-specific cleanup.
+    */
   private[brokk] def sanitizeType(t: String): String
 
-  /**
-   * Return all Method nodes that match the given fully qualified method name
-   * (subclasses can handle language-specific naming).
-   */
+  /** Return all Method nodes that match the given fully qualified method name (subclasses can handle language-specific
+    * naming).
+    */
   protected def methodsFromName(resolvedMethodName: String): List[Method]
 
-  /**
-   * Optional final override if the notion of "class in project" differs
-   * by language. By default, we check that the typeDecl is present
-   * and has some members or methods.
-   */
+  /** Optional final override if the notion of "class in project" differs by language. By default, we check that the
+    * typeDecl is present and has some members or methods.
+    */
   def isClassInProject(className: String): Boolean = {
     val td = cpg.typeDecl.fullNameExact(className).l
     td.nonEmpty && !(td.member.isEmpty && td.method.isEmpty && td.derivedTypeDecl.isEmpty)
@@ -146,17 +134,19 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   override def getMethodSource(fqName: String): Optional[String] = {
     val resolvedMethodName = resolveMethodName(fqName)
-    val methods = methodsFromName(resolvedMethodName)
+    val methods            = methodsFromName(resolvedMethodName)
 
     // static constructors often lack line info
     val sources = methods.flatMap { method =>
       for {
-        file <- toFile(method.filename)
+        file      <- toFile(method.filename)
         startLine <- method.lineNumber
-        endLine <- method.lineNumberEnd
-      } yield scala.util.Using(Source.fromFile(file.absPath().toFile)) { source =>
-        source.getLines().slice(startLine - 1, endLine).mkString("\n")
-      }.toOption
+        endLine   <- method.lineNumberEnd
+      } yield scala.util
+        .Using(Source.fromFile(file.absPath().toFile)) { source =>
+          source.getLines().slice(startLine - 1, endLine).mkString("\n")
+        }
+        .toOption
     }.flatten
 
     if (sources.isEmpty) Optional.empty() else Optional.of(sources.mkString("\n\n"))
@@ -169,20 +159,20 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     if (classNodes.isEmpty) {
       // Attempt by simple name
       val simpleClassName = fqcn.split("[.$]").last
-      val nameMatches = cpg.typeDecl.name(simpleClassName).l
+      val nameMatches     = cpg.typeDecl.name(simpleClassName).l
 
       if (nameMatches.size == 1) {
         classNodes = nameMatches
       } else if (nameMatches.size > 1) {
         // Second attempt: try replacing $ with .
         val dotClassName = fqcn.replace('$', '.')
-        val dotMatches = nameMatches.filter(td => td.fullName.replace('$', '.') == dotClassName)
+        val dotMatches   = nameMatches.filter(td => td.fullName.replace('$', '.') == dotClassName)
         if (dotMatches.size == 1) classNodes = dotMatches
       }
     }
     if (classNodes.isEmpty) return null
 
-    val td = classNodes.head
+    val td      = classNodes.head
     val fileOpt = toFile(td.filename)
     if (fileOpt.isEmpty) return null
 
@@ -190,18 +180,15 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     scala.util.Using(Source.fromFile(file.absPath().toFile))(_.mkString).toOption.orNull
   }
 
-  /**
-   * Recursively builds a structural "skeleton" for a given TypeDecl.
-   * Language-specific details like method signatures and filtering rules
-   * are handled by the concrete implementation.
-   */
+  /** Recursively builds a structural "skeleton" for a given TypeDecl. Language-specific details like method signatures
+    * and filtering rules are handled by the concrete implementation.
+    */
   protected def outlineTypeDecl(td: TypeDecl, indent: Int = 0): String
 
-  /**
-   * Build a weighted adjacency map at the class level: className -> Map[targetClassName -> weight].
-   */
+  /** Build a weighted adjacency map at the class level: className -> Map[targetClassName -> weight].
+    */
   protected def buildWeightedAdjacency()(implicit callResolver: ICallResolver): Map[String, Map[String, Int]] = {
-    val adjacencyMap = TrieMap[String, TrieMap[String, Int]]()
+    val adjacencyMap   = TrieMap[String, TrieMap[String, Int]]()
     val primitiveTypes = Set("byte", "short", "int", "long", "float", "double", "boolean", "char", "void")
 
     def isRelevant(t: String): Boolean =
@@ -232,15 +219,14 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     adjacencyMap.map { case (src, tgtMap) => src -> tgtMap.toMap }.toMap
   }
 
-  /**
-   * Increment a (source -> target) edge by `count` in an adjacency map.
-   */
+  /** Increment a (source -> target) edge by `count` in an adjacency map.
+    */
   protected def increment(
-                           map: TrieMap[String, TrieMap[String, Int]],
-                           source: String,
-                           target: String,
-                           count: Int = 1
-                         ): Unit = {
+    map: TrieMap[String, TrieMap[String, Int]],
+    source: String,
+    target: String,
+    count: Int = 1
+  ): Unit = {
     val targetMap = map.getOrElseUpdate(source, TrieMap.empty)
     targetMap.update(target, targetMap.getOrElse(target, 0) + count)
   }
@@ -249,7 +235,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     val scalaOpt = cpg.typeDecl.fullNameExact(fqName).headOption.flatMap(toFile)
     scalaOpt match
       case Some(file) => java.util.Optional.of(file)
-      case None => java.util.Optional.empty()
+      case None       => java.util.Optional.empty()
   }
 
   private def toFile(td: TypeDecl): Option[ProjectFile] = {
@@ -286,39 +272,38 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
   }
 
   private def headerString(td: TypeDecl, indent: Int): String = {
-    val sb = new StringBuilder
+    val sb        = new StringBuilder
     val className = sanitizeType(td.name)
     sb.append("  " * indent).append("class ").append(className).append(" {\n")
     td.member.foreach { m =>
       val modifiers = m.modifier.map(_.modifierType.toLowerCase).filter(_.nonEmpty).mkString(" ")
       val modString = if (modifiers.nonEmpty) s"$modifiers " else ""
-      val typeName = sanitizeType(m.typeFullName)
+      val typeName  = sanitizeType(m.typeFullName)
       sb.append("  " * (indent + 1)).append(s"$modString$typeName ${m.name};\n")
     }
     sb.toString
   }
 
-  /**
-   * Remove the trailing “:signature” **only**.  Keep any earlier colon that
-   * is part of a CPG global-function name, e.g.
-   * geometry.cpp:global_func:void(int)  →  geometry.cpp:global_func
-   * shapes.Circle.getArea:double()      →  shapes.Circle.getArea
-   */
+  /** Remove the trailing “:signature” **only**. Keep any earlier colon that is part of a CPG global-function name, e.g.
+    * geometry.cpp:global_func:void(int) → geometry.cpp:global_func shapes.Circle.getArea:double() →
+    * shapes.Circle.getArea
+    */
   private def chopColon(full: String) =
     full.lastIndexOf(':') match
-      case -1 => full
+      case -1  => full
       case idx => full.substring(0, idx)
 
-  /**
-   * For a given method node `m`, returns the CPG Method nodes of its callers.
-   * If `excludeSelfRefs` is true, we skip callers whose TypeDecl matches `m.typeDecl`.
-   */
+  /** For a given method node `m`, returns the CPG Method nodes of its callers. If `excludeSelfRefs` is true, we skip
+    * callers whose TypeDecl matches `m.typeDecl`.
+    */
   protected def callersOfMethodNode(m: Method, excludeSelfRefs: Boolean): List[Method] = {
     var callNodes = m.callIn
     if (excludeSelfRefs) {
       m.typeDecl.fullName.headOption.foreach { selfSourceFqn =>
         callNodes = callNodes.filterNot { call =>
-          call.method.typeDecl.fullName.headOption.exists(callerSourceFqn => partOfClass(selfSourceFqn, callerSourceFqn))
+          call.method.typeDecl.fullName.headOption.exists(callerSourceFqn =>
+            partOfClass(selfSourceFqn, callerSourceFqn)
+          )
         }
       }
     }
@@ -327,13 +312,12 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
   protected def partOfClass(parentFqcn: String, childFqcn: String): Boolean = {
     childFqcn == parentFqcn ||
-      childFqcn.startsWith(parentFqcn + ".") ||
-      childFqcn.startsWith(parentFqcn + "$")
+    childFqcn.startsWith(parentFqcn + ".") ||
+    childFqcn.startsWith(parentFqcn + "$")
   }
 
-  /**
-   * Return all methods that reference a given field "classFullName.fieldName".
-   */
+  /** Return all methods that reference a given field "classFullName.fieldName".
+    */
   protected def referencesToField(selfSource: String, fieldName: String, excludeSelfRefs: Boolean): List[String] = {
     var calls = cpg.call
       .nameExact("<operator>.fieldAccess")
@@ -341,24 +325,20 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       .where(_.argument(2).codeExact(fieldName))
 
     if (excludeSelfRefs) {
-      calls = calls.filterNot(call =>
-        partOfClass(selfSource, call.method.typeDecl.fullName.head)
-      )
+      calls = calls.filterNot(call => partOfClass(selfSource, call.method.typeDecl.fullName.head))
     }
-    calls.method
-      .fullName
+    calls.method.fullName
       .map(x => resolveMethodName(chopColon(x)))
       .distinct
       .l
   }
 
-  /**
-   * Find references to a class used as a type:
-   * - fields typed with that class
-   * - parameters/locals typed with that class
-   * - classes that inherit from that class
-   * - methods that return that class
-   */
+  /** Find references to a class used as a type:
+    *   - fields typed with that class
+    *   - parameters/locals typed with that class
+    *   - classes that inherit from that class
+    *   - methods that return that class
+    */
   protected def referencesToClassAsType(classFullName: String): List[CodeUnit] = {
     val typePattern =
       "^" +
@@ -373,20 +353,25 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       .isTypeDecl
       .filter(td => !partOfClass(classFullName, td.fullName))
       .flatMap { td => // td is the TypeDecl containing the field
-        toFile(td).map { file => // Use map here since we return a List[CodeUnit] below
-          // Find members matching the type pattern within this TypeDecl
-          td.member.typeFullName(typePattern).flatMap { member =>
-            // Here we have all the parts: package, class, member
-            val lastDot = td.fullName.lastIndexOf('.')
-            val packageName = if (lastDot > 0) td.fullName.substring(0, lastDot) else ""
-            val className = td.name
-            val fieldName = member.name
+        toFile(td)
+          .map { file => // Use map here since we return a List[CodeUnit] below
+            // Find members matching the type pattern within this TypeDecl
+            td.member
+              .typeFullName(typePattern)
+              .flatMap { member =>
+                // Here we have all the parts: package, class, member
+                val lastDot     = td.fullName.lastIndexOf('.')
+                val packageName = if (lastDot > 0) td.fullName.substring(0, lastDot) else ""
+                val className   = td.name
+                val fieldName   = member.name
 
-            // Create using exact 3-parameter factory
-            Try(CodeUnit.field(file, packageName, s"$className.$fieldName")).toOption
-          }.toList // Convert the final Iterator[CodeUnit] to List[CodeUnit]
-        }.getOrElse(List.empty) // If toFile(td) was None, return empty list
-      } // This outer flatMap now correctly flattens List[List[CodeUnit]] into List[CodeUnit]
+                // Create using exact 3-parameter factory
+                Try(CodeUnit.field(file, packageName, s"$className.$fieldName")).toOption
+              }
+              .toList // Convert the final Iterator[CodeUnit] to List[CodeUnit]
+          }
+          .getOrElse(List.empty) // If toFile(td) was None, return empty list
+      }                          // This outer flatMap now correctly flattens List[List[CodeUnit]] into List[CodeUnit]
 
     // Parameters typed with this class → return as function CodeUnits
     val paramRefs = cpg.parameter
@@ -397,13 +382,13 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
             val methodName = resolveMethodName(chopColon(m.fullName))
-            val lastDot = methodName.lastIndexOf('.')
+            val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
-              val classLastDot = fullClassPath.lastIndexOf('.')
-              val packageName = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
-              val className = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
-              val memberName = methodName.substring(lastDot + 1)
+              val classLastDot  = fullClassPath.lastIndexOf('.')
+              val packageName   = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
+              val className     = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
+              val memberName    = methodName.substring(lastDot + 1)
 
               Try(CodeUnit.fn(file, packageName, s"$className.$memberName")).toOption
             } else {
@@ -423,13 +408,13 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
             val methodName = resolveMethodName(chopColon(m.fullName))
-            val lastDot = methodName.lastIndexOf('.')
+            val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
-              val classLastDot = fullClassPath.lastIndexOf('.')
-              val packageName = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
-              val className = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
-              val memberName = methodName.substring(lastDot + 1)
+              val classLastDot  = fullClassPath.lastIndexOf('.')
+              val packageName   = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
+              val className     = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
+              val memberName    = methodName.substring(lastDot + 1)
 
               Try(CodeUnit.fn(file, packageName, s"$className.$memberName")).toOption
             } else {
@@ -448,13 +433,13 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
             val methodName = resolveMethodName(chopColon(m.fullName))
-            val lastDot = methodName.lastIndexOf('.')
+            val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
-              val classLastDot = fullClassPath.lastIndexOf('.')
-              val packageName = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
-              val className = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
-              val memberName = methodName.substring(lastDot + 1)
+              val classLastDot  = fullClassPath.lastIndexOf('.')
+              val packageName   = if (classLastDot > 0) fullClassPath.substring(0, classLastDot) else ""
+              val className     = if (classLastDot > 0) fullClassPath.substring(classLastDot + 1) else fullClassPath
+              val memberName    = methodName.substring(lastDot + 1)
 
               Try(CodeUnit.fn(file, packageName, s"$className.$memberName")).toOption
             } else {
@@ -471,9 +456,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       .filter(td => !partOfClass(classFullName, td.fullName))
       .flatMap { td =>
         toFile(td).flatMap { file =>
-          val lastDot = td.fullName.lastIndexOf('.')
+          val lastDot     = td.fullName.lastIndexOf('.')
           val packageName = if (lastDot > 0) td.fullName.substring(0, lastDot) else ""
-          val className = td.name
+          val className   = td.name
 
           Try(CodeUnit.cls(file, packageName, className)).toOption
         }
@@ -483,13 +468,15 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     (fieldRefs ++ paramRefs ++ localRefs ++ methodReturnRefs ++ inheritingClasses).toList.distinct
   }
 
-  /**
-   * Recursively collects the fully-qualified names of all subclasses of the given class.
-   */
+  /** Recursively collects the fully-qualified names of all subclasses of the given class.
+    */
   private[brokk] def allSubclasses(className: String): Set[String] = {
-    val direct = cpg.typeDecl.l.filter { td =>
-      td.inheritsFromTypeFullName.contains(className)
-    }.map(_.fullName).toSet
+    val direct = cpg.typeDecl.l
+      .filter { td =>
+        td.inheritsFromTypeFullName.contains(className)
+      }
+      .map(_.fullName)
+      .toSet
     direct ++ direct.flatMap { sub => allSubclasses(sub) }
   }
 
@@ -508,8 +495,8 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
     val expandedMethodMatches =
       if (resolvedSymbol.contains(".")) {
-        val lastDot = resolvedSymbol.lastIndexOf('.')
-        val classPart = resolvedSymbol.substring(0, lastDot)
+        val lastDot    = resolvedSymbol.lastIndexOf('.')
+        val classPart  = resolvedSymbol.substring(0, lastDot)
         val methodPart = resolvedSymbol.substring(lastDot + 1)
         logger.debug(s"Symbol contains dot: classPart='$classPart', methodPart='$methodPart'")
 
@@ -540,16 +527,18 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     if (expandedMethodMatches.nonEmpty) {
       logger.debug(s"Processing ${expandedMethodMatches.size} matched methods")
       // Collect all CPG Method nodes of callers from all matched methods
-      val callingCpgMethods = expandedMethodMatches.flatMap(m => callersOfMethodNode(m, excludeSelfRefs = false)).distinct
+      val callingCpgMethods =
+        expandedMethodMatches.flatMap(m => callersOfMethodNode(m, excludeSelfRefs = false)).distinct
       logger.debug(s"Found ${callingCpgMethods.size} distinct calling CPG methods.")
 
       val results = callingCpgMethods.flatMap { cpgMethod =>
-        val fileOpt = if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
+        val fileOpt =
+          if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
         fileOpt.flatMap { file =>
           val isGlobalMethod = cpgMethod.astParent match {
             case parentNode: NamespaceBlock => true
-            case parentNode: TypeDecl => parentNode.name.endsWith("<global>")
-            case _ => false
+            case parentNode: TypeDecl       => parentNode.name.endsWith("<global>")
+            case _                          => false
           }
 
           // For global methods, CPG fullName might be "filename.ext:funcname".
@@ -560,11 +549,12 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
           val fqnForCu =
             if !baseFqn.contains(".") && !baseFqn.contains(":") then
               // synthesise package  “filename_ext”
-              val fn = baseFqn
+              val fn       = baseFqn
               val fileName = Path.of(file.toString).getFileName.toString
-              val dot = fileName.lastIndexOf('.')
-              val (stem, ext) = if dot > 0 then (fileName.substring(0, dot), fileName.substring(dot + 1))
-              else (fileName, "")
+              val dot      = fileName.lastIndexOf('.')
+              val (stem, ext) =
+                if dot > 0 then (fileName.substring(0, dot), fileName.substring(dot + 1))
+                else (fileName, "")
               val pkg = if ext.nonEmpty then s"${stem}_${ext}" else stem
               s"$pkg.$fn"
             else baseFqn
@@ -572,7 +562,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
           cuFunction(fqnForCu, file)
         }
       }
-      logger.debug(s"Created ${results.size} CodeUnits for calling methods. Example: ${results.take(5).map(_.fqName()).mkString(", ")}")
+      logger.debug(
+        s"Created ${results.size} CodeUnits for calling methods. Example: ${results.take(5).map(_.fqName()).mkString(", ")}"
+      )
       return results.asJava
     }
 
@@ -619,7 +611,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     val classDecls = cpg.typeDecl.fullNameExact(symbol).l // Use original `symbol` for class lookup
     if (classDecls.isEmpty) {
       logger.warn(s"Symbol '$symbol' (resolved: '$resolvedSymbol') not found as a method, field, or class")
-      throw new IllegalArgumentException(s"Symbol '$symbol' (resolved: '$resolvedSymbol') not found as a method, field, or class")
+      throw new IllegalArgumentException(
+        s"Symbol '$symbol' (resolved: '$resolvedSymbol') not found as a method, field, or class"
+      )
     }
 
     logger.debug(s"Found ${classDecls.size} class declarations for '$symbol'")
@@ -654,12 +648,13 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
     // Convert methodUsesAsCpgMethods (List[Method]) to CodeUnits
     val methodUseUnits = methodUsesAsCpgMethods.flatMap { cpgMethod =>
-      val fileOpt = if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
+      val fileOpt =
+        if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
       fileOpt.flatMap { file =>
         val isGlobalMethod = cpgMethod.astParent match {
           case parentNode: NamespaceBlock => true
-          case parentNode: TypeDecl => parentNode.name.endsWith("<global>")
-          case _ => false
+          case parentNode: TypeDecl       => parentNode.name.endsWith("<global>")
+          case _                          => false
         }
         val fqnForCu = resolveMethodName(chopColon(cpgMethod.fullName))
         cuFunction(fqnForCu, file)
@@ -673,7 +668,8 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       // methodsFromName should be able to find the CPG Method node(s).
       val cpgMethods = methodsFromName(methodFqnString)
       cpgMethods.headOption.flatMap { cpgMethod => // Take first if multiple, or handle ambiguity if needed
-        val fileOpt = if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
+        val fileOpt =
+          if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
         fileOpt.flatMap { file =>
           // The fqnForCu should be the methodFqnString itself, as it's already resolved.
           // Or, re-resolve from CPG method to be absolutely sure it's canonical.
@@ -682,35 +678,36 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         }
       }
     }
-    logger.debug(s"Converted ${fieldRefMethodFqns.size} field-referencing method FQNs to ${fieldUseUnits.size} CodeUnits.")
+    logger.debug(
+      s"Converted ${fieldRefMethodFqns.size} field-referencing method FQNs to ${fieldUseUnits.size} CodeUnits."
+    )
 
     val results = (methodUseUnits ++ fieldUseUnits ++ typeUses).distinct
     logger.debug(s"Final results: ${results.size} distinct usage references for '$symbol'")
     results.asJava
   }
 
-  /**
-   * Builds either a forward or reverse call graph from a starting method up to a given depth.
-   */
+  /** Builds either a forward or reverse call graph from a starting method up to a given depth.
+    */
   private def buildCallGraph(
-                              startingMethod: String,
-                              isIncoming: Boolean,
-                              maxDepth: Int
-                            ): java.util.Map[String, java.util.List[CallSite]] = {
-    val result = new java.util.HashMap[String, java.util.List[CallSite]]()
+    startingMethod: String,
+    isIncoming: Boolean,
+    maxDepth: Int
+  ): java.util.Map[String, java.util.List[CallSite]] = {
+    val result       = new java.util.HashMap[String, java.util.List[CallSite]]()
     val startMethods = cpg.method.filter(m => chopColon(m.fullName) == startingMethod).l
     if (startMethods.isEmpty) return result
 
-    val visited = mutable.Set[String]()
+    val visited          = mutable.Set[String]()
     val startMethodNames = startMethods.map(m => resolveMethodName(chopColon(m.fullName))).toSet
     visited ++= startMethodNames
 
     def shouldIncludeMethod(methodName: String): Boolean = {
       !methodName.startsWith("<operator>") &&
-        !methodName.startsWith("java.") &&
-        !methodName.startsWith("javax.") &&
-        !methodName.startsWith("sun.") &&
-        !methodName.startsWith("com.sun.")
+      !methodName.startsWith("java.") &&
+      !methodName.startsWith("javax.") &&
+      !methodName.startsWith("sun.") &&
+      !methodName.startsWith("com.sun.")
     }
 
     def getSourceLine(call: io.shiftleft.codepropertygraph.generated.nodes.Call): String =
@@ -728,13 +725,13 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
       methods.foreach { method =>
         val methodName = resolveMethodName(chopColon(method.fullName))
-        val calls = if (isIncoming) method.callIn.l else method.call.l
+        val calls      = if (isIncoming) method.callIn.l else method.call.l
 
         calls.foreach { call =>
           if (isIncoming) {
             // The caller is the next method
             val callerMethod = call.method
-            val callerName = resolveMethodName(chopColon(callerMethod.fullName))
+            val callerName   = resolveMethodName(chopColon(callerMethod.fullName))
 
             if (!visited.contains(callerName) && shouldIncludeMethod(callerName)) {
               val callerFileOpt = callerMethod.typeDecl.headOption.flatMap(toFile)
@@ -749,7 +746,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
           } else {
             // The callee is the next method
             val calleeFullName = chopColon(call.methodFullName)
-            val calleeName = resolveMethodName(calleeFullName)
+            val calleeName     = resolveMethodName(calleeFullName)
 
             if (!visited.contains(calleeName) && shouldIncludeMethod(calleeName)) {
               val calleePattern = s"^${Regex.quote(calleeFullName)}.*"
@@ -810,9 +807,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       .name(ciPattern)
       .filter { m => // A method is relevant if its parent class is in project OR it's a global
         val isGlobalHeuristic = m.astParent match {
-          case parentNode: NamespaceBlock => true // Directly in namespace (file scope)
-          case parentNode: TypeDecl => parentNode.name.endsWith("<global>") // file-scope pseudo-class
-          case _ => false
+          case parentNode: NamespaceBlock => true                                 // Directly in namespace (file scope)
+          case parentNode: TypeDecl       => parentNode.name.endsWith("<global>") // file-scope pseudo-class
+          case _                          => false
         }
         m.typeDecl.headOption.exists(td => isClassInProject(td.fullName)) || isGlobalHeuristic
       }
@@ -822,8 +819,8 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         fileOpt.flatMap { file =>
           val isGlobalMethod = m.astParent match {
             case parentNode: NamespaceBlock => true
-            case parentNode: TypeDecl => parentNode.method.isEmpty && parentNode.member.isEmpty
-            case _ => false
+            case parentNode: TypeDecl       => parentNode.method.isEmpty && parentNode.member.isEmpty
+            case _                          => false
           }
 
           // CPG method fullName is the source of truth. resolveMethodName cleans it up.
@@ -832,7 +829,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
           val fqnForCu =
             if !baseFqn.contains(".") && !baseFqn.contains(":") then
               val fileName = Path.of(file.toString).getFileName.toString
-              val dot = fileName.lastIndexOf('.')
+              val dot      = fileName.lastIndexOf('.')
               val (stem, ext) =
                 if dot > 0 then (fileName.substring(0, dot), fileName.substring(dot + 1))
                 else (fileName, "")
@@ -853,7 +850,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         // Ensure the owning class itself is not a pseudo-class (e.g. "<operator>")
         // and that it's considered part of the project.
         !owningTypeDecl.name.matches("<.*>") &&
-          isClassInProject(owningTypeDecl.fullName)
+        isClassInProject(owningTypeDecl.fullName)
       }
       .flatMap { f =>
         val td = f.typeDecl // Get the TypeDecl node directly
@@ -898,14 +895,15 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     if (methodCandidates.nonEmpty) {
       val theMethod = methodCandidates.head // Assuming methodsFromName returns best/single match first
       // For global methods, typeDecl might not give the file, use method.filename
-      val fileOpt = if (theMethod.filename.nonEmpty) toFile(theMethod.filename)
-      else theMethod.typeDecl.headOption.flatMap(toFile)
+      val fileOpt =
+        if (theMethod.filename.nonEmpty) toFile(theMethod.filename)
+        else theMethod.typeDecl.headOption.flatMap(toFile)
 
       val codeUnitOpt = fileOpt.flatMap(file => cuFunction(fqName, file))
 
       codeUnitOpt match {
         case Some(cu) => return java.util.Optional.of(cu)
-        case None => // Fall through if no suitable CodeUnit could be created
+        case None     => // Fall through if no suitable CodeUnit could be created
       }
     }
 
@@ -942,17 +940,14 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     java.util.Optional.empty()
   }
 
-
-  /**
-   * Weighted PageRank at the class level. If seedClassWeights is non-empty,
-   * seeds are assigned according to those weights. Otherwise, all classes
-   * are seeded equally.
-   */
+  /** Weighted PageRank at the class level. If seedClassWeights is non-empty, seeds are assigned according to those
+    * weights. Otherwise, all classes are seeded equally.
+    */
   override def getPagerank(
-                            seedClassWeights: java.util.Map[String, java.lang.Double],
-                            k: Int,
-                            reversed: Boolean
-                          ): java.util.List[(CodeUnit, java.lang.Double)] = {
+    seedClassWeights: java.util.Map[String, java.lang.Double],
+    k: Int,
+    reversed: Boolean
+  ): java.util.List[(CodeUnit, java.lang.Double)] = {
     import scala.jdk.CollectionConverters.*
     val seedWeights = seedClassWeights.asScala.view.mapValues(_.doubleValue()).toMap
     // restrict to classes (FQCNs) that are in the graph
@@ -966,15 +961,15 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     val epsilon = 1e-4
     val maxIter = 50
 
-    val scores = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0) *)
-    val nextScores = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0) *)
+    val scores      = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0)*)
+    val nextScores  = TrieMap[String, Double](classesForPagerank.toSeq.map(_ -> 0.0)*)
     val totalWeight = seedWeights.values.sum
     validSeeds.foreach { c =>
       scores(c) = seedWeights.getOrElse(c, 0.0) / (if (totalWeight == 0) 1 else totalWeight)
     }
 
     var iteration = 0
-    var diffSum = Double.MaxValue
+    var diffSum   = Double.MaxValue
 
     while (iteration < maxIter && diffSum > epsilon) {
       // zero nextScores
@@ -982,13 +977,16 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
       val localDiffs = classesForPagerank.par.map { node =>
         val (inMap, outMap) = if (reversed) (adjacency, reverseAdjacency) else (reverseAdjacency, adjacency)
-        val inboundSum = inMap.get(node).map { inboundMap =>
-          inboundMap.foldLeft(0.0) { case (acc, (u, weight)) =>
-            val outLinks = outMap(u)
-            val outWeight = outLinks.values.sum.max(1)
-            acc + (scores(u) * weight / outWeight)
+        val inboundSum = inMap
+          .get(node)
+          .map { inboundMap =>
+            inboundMap.foldLeft(0.0) { case (acc, (u, weight)) =>
+              val outLinks  = outMap(u)
+              val outWeight = outLinks.values.sum.max(1)
+              acc + (scores(u) * weight / outWeight)
+            }
           }
-        }.getOrElse(0.0)
+          .getOrElse(0.0)
 
         var newScore = damping * inboundSum
         if (validSeeds.contains(node)) {
@@ -1024,9 +1022,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     // Coalesce inner classes: if both parent and inner class are present, keep only the parent.
     // Operates on a buffer of (CodeUnit, Double) tuples.
     def coalesceInnerClasses(initial: List[(CodeUnit, Double)], limit: Int): mutable.Buffer[(CodeUnit, Double)] = {
-      var results = initial.take(limit).toBuffer
-      var offset = limit
-      var changed = true
+      var results     = initial.take(limit).toBuffer
+      var offset      = limit
+      var changed     = true
       val initialFqns = initial.map(_._1.fqName()).toSet // For quick lookups during addition
 
       while (changed) {
@@ -1045,12 +1043,12 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         }
         // Add new candidates until the limit is reached
         while (results.size < limit && offset < initial.size) {
-          val candidate@(cu, _) = initial(offset)
+          val candidate @ (cu, _) = initial(offset)
           offset += 1
           // Add if not already present (by FQN) and not marked for removal
           if (!results.exists(_._1.fqName() == cu.fqName()) && !fqnsToRemove.contains(cu.fqName())) {
             // Also ensure its potential parent isn't already in initialFqns if it's an inner class
-            val isInner = cu.fqName().contains('$')
+            val isInner      = cu.fqName().contains('$')
             val parentFqnOpt = if (isInner) Some(cu.fqName().substring(0, cu.fqName().lastIndexOf('$'))) else None
             if (!isInner || parentFqnOpt.forall(p => !initialFqns.contains(p))) {
               results += candidate
@@ -1065,7 +1063,7 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     // Map sorted FQCNs to CodeUnit tuples, filtering out those without files
     val sortedCodeUnits = filteredSortedAll.flatMap { case (fqcn, score) =>
       getFileFor(fqcn).toScala.flatMap { file => // Use flatMap here
-        cuClass(fqcn, file).map((_, score)) // Use cuClass
+        cuClass(fqcn, file).map((_, score))      // Use cuClass
       }
     }
 
@@ -1084,14 +1082,16 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     cpg.typeDecl
       .filenameExact(file.toString())
       .filterNot { td => // Filter out synthetic/internal TypeDecls
-        val name = td.name
+        val name     = td.name
         val fullName = td.fullName
         name == "<global>" || // Joern's pseudo-class for file-scope items
-          (name.startsWith("<") && name.endsWith(">") && name != "<global>") || // e.g. <operator>, <lambda>, but not file's <global> TypeDecl
-          fullName.contains(":") || // Filter fullNames like "ns:func_type()"
-          fullName.contains("(") || // Filter fullNames like "ns:func_type(int)"
-          fullName.contains("<lambda>") || // Lambda TypeDecls by fullName
-          fullName.startsWith("<operator>") // Operator TypeDecls by fullName
+        (name.startsWith("<") && name.endsWith(
+          ">"
+        ) && name != "<global>") ||       // e.g. <operator>, <lambda>, but not file's <global> TypeDecl
+        fullName.contains(":") ||         // Filter fullNames like "ns:func_type()"
+        fullName.contains("(") ||         // Filter fullNames like "ns:func_type(int)"
+        fullName.contains("<lambda>") ||  // Lambda TypeDecls by fullName
+        fullName.startsWith("<operator>") // Operator TypeDecls by fullName
       }
       .foreach { td => // td is now a presumably valid user-defined type
         // Additional check: ensure the short name of the TypeDecl is also not problematic
@@ -1099,7 +1099,9 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         if (!td.name.contains(":") && !td.name.contains("(") && !(td.name.startsWith("<") && td.name.endsWith(">"))) {
           cuClass(td.fullName, file).foreach(declarations.add)
         } else {
-          logger.debug(s"Skipping TypeDecl in getDeclarationsInFile due to problematic short name: ${td.name} (fullName: ${td.fullName})")
+          logger.debug(
+            s"Skipping TypeDecl in getDeclarationsInFile due to problematic short name: ${td.name} (fullName: ${td.fullName})"
+          )
         }
 
         td.method
@@ -1123,17 +1125,17 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
       }
       .filterNot { m => // Filter out methods whose parent TypeDecl would have been filtered
         Option(m.astParent).collect { case td: TypeDecl => td }.exists { parentTd =>
-          val name = parentTd.name
+          val name     = parentTd.name
           val fullName = parentTd.fullName
           // These are conditions that would filter out the parent TypeDecl.
           // We don't want to add methods of such synthetic/bogus classes independently.
           // Note: parentTd.name == "<global>" is NOT filtered here because methods within
           // the file's true global scope (often represented by a TypeDecl named <global>) are legitimate.
           (name.startsWith("<") && name.endsWith(">") && name != "<global>") ||
-            name.contains(":") ||
-            name.contains("(") ||
-            fullName.contains("<lambda>") ||
-            fullName.startsWith("<operator>")
+          name.contains(":") ||
+          name.contains("(") ||
+          fullName.contains("<lambda>") ||
+          fullName.startsWith("<operator>")
         }
       }
       .foreach { m =>
@@ -1144,10 +1146,10 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
         val fqnForCu =
           // Heuristic to create a package-like prefix for global functions if FQN is simple (no ns/class separators)
           if (!baseFqn.contains(".") && !baseFqn.contains("::") && !baseFqn.contains(":")) then {
-            val fileName = Path.of(file.toString).getFileName.toString
-            val dot = fileName.lastIndexOf('.')
+            val fileName    = Path.of(file.toString).getFileName.toString
+            val dot         = fileName.lastIndexOf('.')
             val (stem, ext) = if (dot > 0) (fileName.substring(0, dot), fileName.substring(dot + 1)) else (fileName, "")
-            val pkg = if (ext.nonEmpty) s"${stem}_${ext}" else stem // e.g., "myFile_cpp"
+            val pkg         = if (ext.nonEmpty) s"${stem}_${ext}" else stem // e.g., "myFile_cpp"
             s"$pkg.$baseFqn" // Results in "myFile_cpp.myGlobalFunc"
           } else {
             baseFqn // Handles "namespace::func" or "file.cpp:func" directly
@@ -1158,36 +1160,25 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
     declarations.toSet.asJava
   }
 
-
-  /**
-   * Write the underlying CPG to the specified path.
-   */
-  def writeCpg(path: Path): Unit = {
-    Serialization.writeGraph(cpg.graph, path)
-  }
-
   override def close(): Unit = cpg.close()
 
-  /**
-   * Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
-   *
-   * This implementation queries the Code Property Graph (CPG) to find parent-child
-   * relationships between code elements. The relationships are determined by the
-   * semantic structure of the analyzed code.
-   *
-   * '''CPG-based Child Resolution:'''
-   *  - '''Classes:''' Children include methods and fields from the CPG TypeDecl
-   *    - Filters out constructors (`<init>`), static initializers (`<clinit>`), and operators
-   *    - Excludes synthetic fields like `outerClass`
-   *    - Uses `resolveMethodName` for proper method name resolution
-   *  - '''Modules:''' Children include all other declarations in the same source file
-   *    - Useful for languages with file-based module systems
-   *  - '''Functions/Fields:''' No children (return empty list)
-   */
+  /** Returns the immediate children of the given CodeUnit based on Joern CPG analysis.
+    *
+    * This implementation queries the Code Property Graph (CPG) to find parent-child relationships between code
+    * elements. The relationships are determined by the semantic structure of the analyzed code.
+    *
+    * '''CPG-based Child Resolution:'''
+    *   - '''Classes:''' Children include methods and fields from the CPG TypeDecl
+    *     - Filters out constructors (`<init>`), static initializers (`<clinit>`), and operators
+    *     - Excludes synthetic fields like `outerClass`
+    *     - Uses `resolveMethodName` for proper method name resolution
+    *   - '''Modules:''' Children include all other declarations in the same source file
+    *     - Useful for languages with file-based module systems
+    *   - '''Functions/Fields:''' No children (return empty list)
+    */
   override def directChildren(cu: CodeUnit): java.util.List[CodeUnit] =
 
-    if cu == null then
-      return java.util.List.of()
+    if cu == null then return java.util.List.of()
 
     // Check cache first to avoid expensive CPG queries
     directChildrenCache.computeIfAbsent(cu, _ => computeDirectChildren(cu))
@@ -1234,52 +1225,4 @@ abstract class JoernAnalyzer protected(sourcePath: Path, private[brokk] val cpg:
 
       // Functions, fields, etc. have no children
       case _ => java.util.List.of()
-}
-
-trait GraphPassApplier {
-
-  /**
-   * Runs the necessary "base" passes over an existing or new CPG generated by Joern. Think of this as fine-tuned
-   * "base passes" that turn an AST to a CPG.
-   *
-   * @param cpg some updated or new CPG to apply passes to. This CPG will be mutated.
-   */
-  protected def applyPasses(cpg: Cpg): Unit = {
-    // These are separated as we may want to insert our own custom, framework-specific passes
-    // in between these at some point in the future. For now, these resemble the default Joern
-    // pass ordering and strategy minus CFG.
-    (basePasses(cpg) ++ typeRelationsPasses(cpg) ++ callGraphPasses(cpg)).foreach(_.createAndApply())
-  }
-
-  private def basePasses(cpg: Cpg): Iterator[CpgPassBase] = {
-    Iterator(
-      new FileCreationPass(cpg),
-      new NamespaceCreator(cpg),
-      new TypeDeclStubCreator(cpg),
-      new MethodStubCreator(cpg),
-      new ParameterIndexCompatPass(cpg),
-      new MethodDecoratorPass(cpg),
-      new AstLinkerPass(cpg),
-      new ContainsEdgePass(cpg),
-      new TypeRefPass(cpg),
-      new TypeEvalPass(cpg),
-    )
-  }
-
-  private def typeRelationsPasses(cpg: Cpg): Iterator[CpgPassBase] = {
-    Iterator(
-      new TypeHierarchyPass(cpg),
-      new AliasLinkerPass(cpg),
-      new FieldAccessLinkerPass(cpg),
-    )
-  }
-
-  private def callGraphPasses(cpg: Cpg): Iterator[CpgPassBase] = {
-    Iterator(
-      new MethodRefLinker(cpg),
-      new StaticCallLinker(cpg),
-      new DynamicCallLinker(cpg)
-    )
-  }
-
 }

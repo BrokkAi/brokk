@@ -9,7 +9,7 @@ import java.nio.file.Path;
  * A BrokkFile that represents a file not relative to any repo, just specified by its absolute path.
  */
 public class ExternalFile implements BrokkFile {
-    private transient Path path;
+    private final transient Path path;
 
     // Constructor validation
     @JsonCreator

@@ -37,6 +37,7 @@ import java.util.concurrent.ExecutionException;
 
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+import static java.util.Objects.requireNonNull;
 
 
 public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.ContextListener {
@@ -85,12 +86,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     private JLabel backgroundStatusLabel;
     private JLabel systemMessageLabel;
     private final List<String> systemMessages = new ArrayList<>();
-    private JPanel bottomPanel;
+    private final JPanel bottomPanel;
 
-    private JSplitPane mainHorizontalSplitPane;
-    private JSplitPane leftVerticalSplitPane;
+    private final JSplitPane mainHorizontalSplitPane;
+    private final JSplitPane leftVerticalSplitPane;
     @Nullable private JSplitPane rightVerticalSplitPane; // Can be null if no git
-    private HistoryOutputPanel historyOutputPanel;
+    private final HistoryOutputPanel historyOutputPanel;
 
     // Panels:
     private final WorkspacePanel workspacePanel;
@@ -98,8 +99,12 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     private final GitPanel gitPanel; // Null when no git repo is present
 
+    // Reference to Tools ▸ BlitzForge… menu item so we can enable/disable it
+    @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
+    private JMenuItem blitzForgeMenuItem;
+
     // Command input panel is now encapsulated in InstructionsPanel.
-    private InstructionsPanel instructionsPanel;
+    private final InstructionsPanel instructionsPanel;
 
     /**
      * Default constructor sets up the UI.
@@ -109,13 +114,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         this.contextManager = contextManager;
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
-        // Initialize fields that are part of buildMainPanel or buildStatusLabels
-        this.instructionsPanel = new InstructionsPanel(this);
-        this.historyOutputPanel = new HistoryOutputPanel(this, contextManager, instructionsPanel);
-        this.bottomPanel = new JPanel(new BorderLayout());
-        this.systemMessageLabel = new JLabel(SYSMSG_EMPTY);
-        this.backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
-
         // 2) Build main window
         frame = newFrame("Brokk: Code Intelligence for AI");
         frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -123,7 +121,45 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         frame.setLayout(new BorderLayout());
 
         // 3) Main panel (top area + bottom area)
-        frame.add(buildMainPanel(), BorderLayout.CENTER); // instructionsPanel is created here
+        var mainPanel = new JPanel(new BorderLayout());
+
+        var contentPanel = new JPanel(new GridBagLayout());
+        var gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weightx = 1.0;
+        gbc.gridx = 0;
+        gbc.insets = new Insets(2, 2, 2, 2);
+
+        // Create instructions panel and history/output panel
+        instructionsPanel = new InstructionsPanel(this);
+        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager, instructionsPanel);
+
+        // Bottom Area: Context/Git + Status
+        bottomPanel = new JPanel(new BorderLayout());
+        // Status labels at the very bottom
+        // System message label (left side)
+        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
+        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
+
+        // Background status label (right side)
+        backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
+        backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
+
+        // Panel to hold both labels
+        var statusPanel = new JPanel(new BorderLayout());
+        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
+        statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
+
+        var statusLabels = (JComponent) statusPanel;
+        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
+        // Center of bottomPanel will be filled in onComplete based on git presence
+
+        gbc.weighty = 1.0;
+        gbc.gridy = 0;
+        contentPanel.add(bottomPanel, gbc);
+
+        mainPanel.add(contentPanel, BorderLayout.CENTER);
+        frame.add(mainPanel, BorderLayout.CENTER); // instructionsPanel is created here
 
         // Initialize global undo/redo actions now that instructionsPanel is available
         // contextManager is also available (passed in constructor)
@@ -378,41 +414,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         switchTheme(isDark);
     }
 
-    /**
-     * Build the main panel that includes:
-     * - InstructionsPanel
-     * - HistoryOutputPane
-     * - the bottom area (context/git panel + status label)
-     */
-    private JPanel buildMainPanel() {
-        var panel = new JPanel(new BorderLayout());
-
-        var contentPanel = new JPanel(new GridBagLayout());
-        var gbc = new GridBagConstraints();
-        gbc.fill = GridBagConstraints.BOTH;
-        gbc.weightx = 1.0;
-        gbc.gridx = 0;
-        gbc.insets = new Insets(2, 2, 2, 2);
-
-        // Create instructions panel and history/output panel
-        instructionsPanel = new InstructionsPanel(this);
-        historyOutputPanel = new HistoryOutputPanel(this, contextManager, instructionsPanel);
-
-        // Bottom Area: Context/Git + Status
-        bottomPanel = new JPanel(new BorderLayout());
-        // Status labels at the very bottom
-        var statusLabels = buildStatusLabels();
-        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
-        // Center of bottomPanel will be filled in onComplete based on git presence
-
-        gbc.weighty = 1.0;
-        gbc.gridy = 0;
-        contentPanel.add(bottomPanel, gbc);
-
-        panel.add(contentPanel, BorderLayout.CENTER);
-        return panel;
-    }
-
 
     /**
      * Lightweight method to preview a context without updating history
@@ -487,23 +488,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
         }
     }
 
-    private JComponent buildStatusLabels() {
-        // System message label (left side)
-        systemMessageLabel = new JLabel(SYSMSG_EMPTY);
-        systemMessageLabel.setBorder(new EmptyBorder(V_GLUE, H_PAD, V_GLUE, H_GAP));
-
-        // Background status label (right side)
-        backgroundStatusLabel = new JLabel(BGTASK_EMPTY);
-        backgroundStatusLabel.setBorder(new EmptyBorder(V_GLUE, H_GAP, V_GLUE, H_PAD));
-
-        // Panel to hold both labels
-        var statusPanel = new JPanel(new BorderLayout());
-        statusPanel.add(systemMessageLabel, BorderLayout.CENTER);
-        statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
-
-        return statusPanel;
-    }
-
     /**
      * Retrieves the current text from the command input.
      */
@@ -513,18 +497,27 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     @Override
     public void disableActionButtons() {
-        instructionsPanel.disableButtons();
-        if (gitPanel != null) {
-            gitPanel.getCommitTab().disableButtons();
-        }
+        SwingUtil.runOnEdt(() -> {
+            disableHistoryPanel();
+            instructionsPanel.disableButtons();
+            if (gitPanel != null) {
+                gitPanel.getCommitTab().disableButtons();
+            }
+            blitzForgeMenuItem.setEnabled(false);
+            blitzForgeMenuItem.setToolTipText("Waiting for current action to complete");
+        });
     }
 
     @Override
     public void enableActionButtons() {
-        instructionsPanel.enableButtons();
-        if (gitPanel != null) {
-            gitPanel.getCommitTab().enableButtons();
-        }
+        SwingUtil.runOnEdt(() -> {
+            instructionsPanel.enableButtons();
+            if (gitPanel != null) {
+                gitPanel.getCommitTab().enableButtons();
+            }
+            blitzForgeMenuItem.setEnabled(true);
+            blitzForgeMenuItem.setToolTipText(null);
+        });
     }
 
     @Override
@@ -1233,6 +1226,13 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     @Nullable
     public GitPanel getGitPanel() { // Made public for WorkspacePanel access
         return gitPanel;
+    }
+
+    /**
+     * Called by MenuBar after constructing the BlitzForge menu item.
+     */
+    public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
+        this.blitzForgeMenuItem = requireNonNull(blitzForgeMenuItem);
     }
 
     public void showFileInProjectTree(ProjectFile projectFile) {

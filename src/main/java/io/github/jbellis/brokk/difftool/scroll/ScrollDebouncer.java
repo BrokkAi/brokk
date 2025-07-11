@@ -15,6 +15,7 @@ import java.util.function.Consumer;
 public final class ScrollDebouncer {
     private final int debounceMs;
     private final AtomicReference<Timer> currentTimer = new AtomicReference<>();
+    private final AtomicReference<Object> currentToken = new AtomicReference<>();
     private final ReentrantLock lock = new ReentrantLock();
 
     public ScrollDebouncer(int debounceMs) {
@@ -41,17 +42,25 @@ public final class ScrollDebouncer {
                 existing.stop();
             }
 
+            // Create a unique token for this request to prevent race conditions
+            var token = new Object();
+            currentToken.set(token);
+
             // Create new timer for this request
             var newTimer = new Timer(debounceMs, e -> {
-                try {
-                    request.action().accept(request.data());
-                    var onComplete = request.onComplete();
-                    if (onComplete != null) {
-                        onComplete.run();
+                // Check if this timer is still the current one before executing
+                if (currentToken.get() == token && currentTimer.get() == e.getSource()) {
+                    try {
+                        request.action().accept(request.data());
+                        var onComplete = request.onComplete();
+                        if (onComplete != null) {
+                            onComplete.run();
+                        }
+                    } finally {
+                        // Clear the timer reference after execution
+                        currentTimer.compareAndSet((Timer) e.getSource(), null);
+                        currentToken.compareAndSet(token, null);
                     }
-                } finally {
-                    // Clear the timer reference after execution
-                    currentTimer.compareAndSet((Timer) e.getSource(), null);
                 }
             });
 
@@ -67,6 +76,7 @@ public final class ScrollDebouncer {
         lock.lock();
         try {
             var existing = currentTimer.getAndSet(null);
+            currentToken.set(null);
             if (existing != null) {
                 existing.stop();
             }

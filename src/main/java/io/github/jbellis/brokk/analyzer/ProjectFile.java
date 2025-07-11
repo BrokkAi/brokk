@@ -15,8 +15,8 @@ import java.util.Objects;
  * or may not be absolute, or may be relative to the jvm root rather than the repo root.
  */
 public class ProjectFile implements BrokkFile {
-    private transient Path root;
-    private transient Path relPath;
+    private final transient Path root;
+    private final transient Path relPath;
 
     /**
      * root must be pre-normalized; we will normalize relPath if it is not already

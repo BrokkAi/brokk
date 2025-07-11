@@ -783,10 +783,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                 continue;
             }
 
-
             String signature = buildSignatureString(node, simpleName, src, primaryCaptureName, modifierKeywords, file);
             log.trace("Built signature for '{}': [{}]", simpleName, signature.isBlank() ? "BLANK" : signature.lines().findFirst().orElse("EMPTY"));
 
+            if (file.getFileName().equals("vars.py") && primaryCaptureName.equals("field.definition")) {
+                log.trace("[vars.py DEBUG] Processing entry for vars.py field: Node Type='{}', SimpleName='{}', CaptureName='{}', PackageName='{}', ClassChain='{}'",
+                         node.getType(), simpleName, primaryCaptureName, packageName, classChain);
+                log.trace("[vars.py DEBUG] CU created: {}, Signature: [{}]", cu, signature.isBlank() ? "BLANK_SIG" : signature.lines().findFirst().orElse("EMPTY_SIG"));
+            }
 
             if (signature.isBlank()) {
                 // buildSignatureString might legitimately return blank for some nodes that don't form part of a textual skeleton but create a CU.
@@ -1294,7 +1298,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                      profile.bodyFieldName(), funcNode.getType(), functionName);
         }
 
-/* <<<<<<< HEAD */
         // exportPrefix already contains all modifiers including 'async' if present.
         // The asyncPrefix logic is removed as it's now part of the unified exportPrefix.
         String paramsText = formatParameterList(paramsNode, src);
@@ -1378,7 +1381,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     /** Extracts a substring from the source code based on node boundaries. */
     protected String textSlice(TSNode node, String src) {
         if (node.isNull()) return "";
-
         // Get the byte array representation of the source
         // This may be cached for better performance in a real implementation
         byte[] bytes;

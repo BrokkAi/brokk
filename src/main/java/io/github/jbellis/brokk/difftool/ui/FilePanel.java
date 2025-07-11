@@ -76,7 +76,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
 
     // Track if updates were deferred during typing and need to be applied
     private final AtomicBoolean hasDeferredUpdates = new AtomicBoolean(false);
-    
+
     // Track when typing state was last set to detect stuck states
     private volatile long lastTypingStateChange = System.currentTimeMillis();
 
@@ -131,7 +131,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         typingStateTimer = new Timer(PerformanceConstants.TYPING_STATE_TIMEOUT_MS, e -> {
             try {
                 lastTypingStateChange = System.currentTimeMillis();
-                
+
                 // Trigger comprehensive update after typing stops to ensure diff and highlights are current
                 if (initialSetupComplete && hasDeferredUpdates.getAndSet(false)) {
                     SwingUtilities.invokeLater(() -> {
@@ -179,7 +179,21 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      * This enables the editor to work with GenericSearchBar.
      */
     public SearchableComponent createSearchableComponent() {
-        return RTextAreaSearchableComponent.wrap(getEditor());
+        var searchableComponent = RTextAreaSearchableComponent.wrap(getEditor());
+
+        // Set up navigation callback to trigger scroll synchronization
+        searchableComponent.setSearchNavigationCallback(caretPosition -> {
+            var bufferDoc = getBufferDocument();
+            if (bufferDoc != null) {
+                int currentLine = bufferDoc.getLineForOffset(caretPosition);
+                var scrollSync = diffPanel.getScrollSynchronizer();
+                if (scrollSync != null) {
+                    scrollSync.scrollToLineAndSync(FilePanel.this, currentLine);
+                }
+            }
+        });
+
+        return searchableComponent;
     }
 
     @Nullable
@@ -273,7 +287,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             hasDeferredUpdates.set(true); // Mark that we have updates to apply later
             return;
         }
-        
+
         // Check if we have deferred updates to apply
         if (hasDeferredUpdates.get()) {
             hasDeferredUpdates.set(false);
@@ -318,7 +332,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             paintAllDeltas(patch);
             return;
         }
-        
+
         // For right side, also check if paired left side is navigating
         if (BufferDocumentIF.REVISED.equals(name)) {
             try {
@@ -446,7 +460,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public void invalidateViewportCache() {
         viewportCache.set(null);
     }
-    
+
     /**
      * Force invalidation of viewport cache for both sides to ensure consistency
      */
@@ -454,7 +468,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         invalidateViewportCache();
         // Also invalidate the paired panel's cache to ensure both sides recalculate together
         try {
-            var pairedPanel = diffPanel.getFilePanel(BufferDocumentIF.REVISED.equals(name) ? 
+            var pairedPanel = diffPanel.getFilePanel(BufferDocumentIF.REVISED.equals(name) ?
                 BufferDiffPanel.PanelSide.LEFT : BufferDiffPanel.PanelSide.RIGHT);
             if (pairedPanel != null && pairedPanel != this) {
                 pairedPanel.invalidateViewportCache();
@@ -470,20 +484,20 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
     public boolean isActivelyTyping() {
         return isActivelyTyping.get();
     }
-    
+
     /**
      * Force reset typing state - used for recovery from stuck states
      */
     public void forceResetTypingState() {
         boolean wasTyping = isActivelyTyping.getAndSet(false);
         boolean hadDeferred = hasDeferredUpdates.getAndSet(false);
-        
+
         if (wasTyping || hadDeferred) {
-            
+
             if (typingStateTimer != null && typingStateTimer.isRunning()) {
                 typingStateTimer.stop();
             }
-            
+
             // Apply any deferred updates
             if (hadDeferred && initialSetupComplete) {
                 SwingUtilities.invokeLater(() -> {
@@ -491,7 +505,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                         diffPanel.diff();
                         reDisplayInternal();
                     } catch (Exception e) {
-                        logger.warn("{}: Error applying deferred updates after force reset: {}", 
+                        logger.warn("{}: Error applying deferred updates after force reset: {}",
                                    name, e.getMessage());
                     }
                 });
@@ -504,11 +518,11 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
      */
     public void setNavigatingToDiff(boolean navigating) {
         boolean wasNavigating = isNavigatingToDiff.getAndSet(navigating);
-        
+
         if (navigating) {
             // Invalidate viewport cache for both sides to ensure consistent full highlighting
             invalidateViewportCacheForBothSides();
-            
+
             // Force immediate repaint when starting navigation to ensure highlights appear
             SwingUtilities.invokeLater(() -> {
                 if (isNavigatingToDiff.get()) { // Check if still navigating
@@ -520,23 +534,23 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             SwingUtilities.invokeLater(this::reDisplayInternal);
         }
     }
-    
+
     /**
      * Check if this panel is currently navigating to a diff
      */
     public boolean isNavigatingToDiff() {
         return isNavigatingToDiff.get();
     }
-    
+
     /**
      * Set navigation state for both panels simultaneously to ensure consistency
      */
     public void setNavigatingToDiffForBothSides(boolean navigating) {
         setNavigatingToDiff(navigating);
-        
+
         // Also set navigation state for the paired panel
         try {
-            var pairedPanel = diffPanel.getFilePanel(BufferDocumentIF.REVISED.equals(name) ? 
+            var pairedPanel = diffPanel.getFilePanel(BufferDocumentIF.REVISED.equals(name) ?
                 BufferDiffPanel.PanelSide.LEFT : BufferDiffPanel.PanelSide.RIGHT);
             if (pairedPanel != null && pairedPanel != this) {
                 pairedPanel.setNavigatingToDiff(navigating);
@@ -597,24 +611,24 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 logger.trace("Skipping highlight: bufferDocument is null for {}", this.getClass().getSimpleName());
                 return;
             }
-            
+
             // Retrieve the chunk relevant to this side
             var chunk = getChunk(delta);
             if (chunk == null) {
-                logger.warn("Skipping highlight: chunk is null for {} delta type {}", 
+                logger.warn("Skipping highlight: chunk is null for {} delta type {}",
                            this.getClass().getSimpleName(), delta.getType());
                 return;
             }
-                        
+
             var fromOffset = bufferDocument.getOffsetForLine(chunk.getPosition());
             if (fromOffset < 0) {
-                logger.warn("{}: invalid fromOffset {} for line {}", 
+                logger.warn("{}: invalid fromOffset {} for line {}",
                            this.getClass().getSimpleName(), fromOffset, chunk.getPosition());
                 return;
             }
             var toOffset = bufferDocument.getOffsetForLine(chunk.getPosition() + chunk.size());
             if (toOffset < 0) {
-                logger.warn("{}: invalid toOffset {} for line {}", 
+                logger.warn("{}: invalid toOffset {} for line {}",
                            this.getClass().getSimpleName(), toOffset, chunk.getPosition() + chunk.size());
                 return;
             }
@@ -770,7 +784,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         try {
             // First, update the diff (this may change the patch)
             diffPanel.diff();
-            
+
             // Invalidate viewport cache for both sides to ensure consistent highlighting
             invalidateViewportCacheForBothSides();
 
@@ -808,7 +822,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             if (!wasTyping) {
                 lastTypingStateChange = System.currentTimeMillis();
             }
-            
+
             if (typingStateTimer != null && typingStateTimer.isRunning()) {
                 typingStateTimer.restart();
             } else if (typingStateTimer != null) {
@@ -1308,7 +1322,6 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
         }
     }
 
-
     public void doPreviousSearch() {
         SearchHits sh = getSearchHits();
         sh.previous();
@@ -1322,7 +1335,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             int line = currentHit.getLine();
             var scrollSync = diffPanel.getScrollSynchronizer();
             if (scrollSync != null) {
-                scrollSync.scrollToLine(fp, line);
+                scrollSync.scrollToLineAndSync(fp, line);
             }
             diffPanel.setSelectedLine(line);
         }

@@ -31,6 +31,7 @@ public class GitRepoRemoteMergeTest {
     private GitRepo localRepo;
     private Git localGit;
     private Git remoteGit;
+    private final String n = System.lineSeparator();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -59,15 +60,7 @@ public class GitRepoRemoteMergeTest {
 
     @AfterEach
     void tearDown() {
-        if (localRepo != null) {
-            localRepo.close();
-        }
-        if (localGit != null) {
-            localGit.close();
-        }
-        if (remoteGit != null) {
-            remoteGit.close();
-        }
+        GitTestCleanupUtil.cleanupGitResources(localRepo, localGit, remoteGit);
     }
 
     @Test
@@ -95,7 +88,7 @@ public class GitRepoRemoteMergeTest {
 
         // Verify the feature file exists
         assertTrue(Files.exists(featureFile));
-        assertEquals("feature content\n", Files.readString(featureFile, StandardCharsets.UTF_8));
+        assertEquals(String.format("feature content%s", n), Files.readString(featureFile, StandardCharsets.UTF_8));
     }
 
     @Test
@@ -138,7 +131,7 @@ public class GitRepoRemoteMergeTest {
         // Verify both files exist
         assertTrue(Files.exists(featureFile));
         assertTrue(Files.exists(masterFile));
-        assertEquals("feature content\nupdated\n", Files.readString(featureFile, StandardCharsets.UTF_8));
+        assertEquals(String.format("feature content%supdated%s", n, n), Files.readString(featureFile, StandardCharsets.UTF_8));
     }
 
     @Test
@@ -170,8 +163,8 @@ public class GitRepoRemoteMergeTest {
         // Verify both files exist
         assertTrue(Files.exists(featureFile));
         assertTrue(Files.exists(masterFile));
-        assertEquals("feature content\n", Files.readString(featureFile, StandardCharsets.UTF_8));
-        assertEquals("master content\n", Files.readString(masterFile, StandardCharsets.UTF_8));
+        assertEquals(String.format("feature content%s", n), Files.readString(featureFile, StandardCharsets.UTF_8));
+        assertEquals(String.format("master content%s", n), Files.readString(masterFile, StandardCharsets.UTF_8));
     }
 
     @Test

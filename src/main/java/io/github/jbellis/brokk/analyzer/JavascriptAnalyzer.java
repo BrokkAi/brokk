@@ -115,7 +115,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // 1. It's an exported function/component starting with an uppercase letter (common React convention).
         // OR
         // 2. It's a method named "render" (classic React class component method).
-        boolean isExported = exportPrefix.contains("export");
+        boolean isExported = !exportPrefix.trim().isEmpty();
         boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
         boolean isRenderMethod = "render".equals(functionName);
 
@@ -194,18 +194,11 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             // Ensure cursor is handled if it were AutoCloseable.
             TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
             TSQueryCursor cursor = new TSQueryCursor();
-            try {
-                cursor.exec(returnJsxQuery, bodyNode);
-                TSQueryMatch match = new TSQueryMatch(); // Reusable match object
-                if (cursor.nextMatch(match)) {
+            cursor.exec(returnJsxQuery, bodyNode);
+            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
+            if (cursor.nextMatch(match)) {
                     return true; // Found a JSX return
                 }
-            } finally {
-                // Manually close cursor if underlying native resource needs it,
-                // though the current TreeSitter binding might not require explicit closing for TSQueryCursor.
-                // For safety and future-proofing, if a close method were available, it would be called here.
-                // cursor.close(); // Example if TSQueryCursor had a close method
-            }
         } catch (TSQueryException e) {
             // Log specific query exceptions, which usually indicate a problem with the query string itself.
             log.error("Invalid TSQuery for JSX return type inference: {}", e.getMessage(), e);
@@ -265,7 +258,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
-        
+
         TSNode parent = node.getParent();
         if (parent != null && !parent.isNull()) {
             // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
@@ -287,7 +280,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 if (exportStatementNode != null && !exportStatementNode.isNull() && "export_statement".equals(exportStatementNode.getType())) {
                     exportStr = "export ";
                 }
-                
+
                 // Combine export prefix and keyword
                 // e.g., "export const ", "let ", "var "
                 StringBuilder prefixBuilder = new StringBuilder();

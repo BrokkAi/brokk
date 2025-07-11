@@ -10,6 +10,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.MergeResult;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
@@ -18,18 +19,12 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.awt.Color;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
-import java.awt.GridBagConstraints;
-import java.awt.GridBagLayout;
-import java.awt.Insets;
-import javax.swing.JCheckBox;
-import javax.swing.JOptionPane;
-import org.jetbrains.annotations.Nullable;
 
 public class GitWorktreeTab extends JPanel {
     private static final Logger logger = LogManager.getLogger(GitWorktreeTab.class);
@@ -821,13 +816,46 @@ public class GitWorktreeTab extends JPanel {
         logger.debug("Adding worktree for branch '{}' at path {}", branchForWorktree, newWorktreePath);
         gitRepo.addWorktree(branchForWorktree, newWorktreePath);
 
+        // Copy (prefer hard-link) existing language CPG caches to the new worktree
+        var enabledLanguages = parentProject.getAnalyzerLanguages();
+        for (var lang : enabledLanguages) {
+            if (!lang.isCpg()) {
+                continue;
+            }
+            var srcCpg = lang.getCpgPath(parentProject);
+            if (!Files.exists(srcCpg)) {
+                continue;
+            }
+            try {
+                var relative = parentProject.getRoot().relativize(srcCpg);
+                var destCpg = newWorktreePath.resolve(relative);
+                Files.createDirectories(destCpg.getParent());
+                try {
+                    Files.createLink(destCpg, srcCpg);  // Try hard-link first
+                    logger.debug("Hard-linked CPG cache from {} to {}", srcCpg, destCpg);
+                } catch (UnsupportedOperationException | IOException linkEx) {
+                    Files.copy(srcCpg, destCpg, StandardCopyOption.REPLACE_EXISTING);
+                    logger.debug("Copied CPG cache from {} to {}", srcCpg, destCpg);
+                }
+            } catch (IOException copyEx) {
+                logger.warn("Failed to replicate CPG cache for language {}: {}", lang.name(), copyEx.getMessage(), copyEx);
+            }
+        }
+
         return new WorktreeSetupResult(newWorktreePath, branchForWorktree);
     }
 
     private void showMergeDialog() {
         var project = contextManager.getProject();
+        if (!(project instanceof WorktreeProject worktreeProject)) {
+            // This should not happen if the merge button is only available in worktree views.
+            logger.warn("Merge dialog opened for a non-worktree project: {}", project.getRoot());
+            return;
+        }
+        var parentProject = worktreeProject.getParent();
+
         String worktreeBranchName = "";
-        if (project instanceof WorktreeProject && project.getRepo() instanceof GitRepo gitRepo) {
+        if (project.getRepo() instanceof GitRepo gitRepo) {
             try {
                 worktreeBranchName = gitRepo.getCurrentBranch();
             } catch (GitAPIException e) {
@@ -862,34 +890,29 @@ public class GitWorktreeTab extends JPanel {
         gbc.gridwidth = GridBagConstraints.REMAINDER;
         gbc.weightx = 1.0;
         JComboBox<GitRepo.MergeMode> mergeModeComboBox = new JComboBox<>(GitRepo.MergeMode.values());
-        mergeModeComboBox.setSelectedItem(GitRepo.MergeMode.MERGE_COMMIT);
+        var lastMergeMode = parentProject.getLastMergeMode().orElse(GitRepo.MergeMode.MERGE_COMMIT);
+        mergeModeComboBox.setSelectedItem(lastMergeMode);
+        mergeModeComboBox.addActionListener(MergeBranchDialogPanel.createMergeModePersistenceListener(mergeModeComboBox, parentProject));
         dialogPanel.add(mergeModeComboBox, gbc);
         gbc.weightx = 0;
 
         // Populate targetBranchComboBox
-        if (project instanceof WorktreeProject wp) {
-            MainProject parentProject = wp.getParent();
-            IGitRepo iParentRepo = parentProject.getRepo();
-            if (iParentRepo instanceof GitRepo parentGitRepo) {
-                try {
-                    List<String> localBranches = parentGitRepo.listLocalBranches();
-                    localBranches.forEach(targetBranchComboBox::addItem);
-                    String currentParentBranch = parentGitRepo.getCurrentBranch();
-                    targetBranchComboBox.setSelectedItem(currentParentBranch);
-                } catch (GitAPIException e) {
-                    logger.error("Failed to get parent project branches", e);
-                    targetBranchComboBox.addItem("Error loading branches");
-                    targetBranchComboBox.setEnabled(false);
-                }
-            } else {
-                logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
-                targetBranchComboBox.addItem("Unsupported parent repo type");
+        IGitRepo iParentRepo = parentProject.getRepo();
+        if (iParentRepo instanceof GitRepo parentGitRepo) {
+            try {
+                List<String> localBranches = parentGitRepo.listLocalBranches();
+                localBranches.forEach(targetBranchComboBox::addItem);
+                String currentParentBranch = parentGitRepo.getCurrentBranch();
+                targetBranchComboBox.setSelectedItem(currentParentBranch);
+            } catch (GitAPIException e) {
+                logger.error("Failed to get parent project branches", e);
+                targetBranchComboBox.addItem("Error loading branches");
                 targetBranchComboBox.setEnabled(false);
             }
         } else {
-            // This case should ideally not happen if showMergeDialog is only called from worktree windows
-            logger.warn("showMergeDialog called on a non-worktree project type: {}", project.getClass().getSimpleName());
-            targetBranchComboBox.addItem("Not a worktree project");
+            logger.warn("Parent repository is not a GitRepo instance, cannot populate target branches for merge.");
+            targetBranchComboBox.addItem("Unsupported parent repo type");
+            targetBranchComboBox.setEnabled(false);
         }
 
 

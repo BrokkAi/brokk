@@ -1,21 +1,22 @@
 <component name="ProjectCodeStyleConfiguration">
-  <code_scheme name="Project" version="173">
-    <JavaCodeStyleSettings>
-      <option name="ALIGN_MULTILINE_TEXT_BLOCKS" value="true" />
-    </JavaCodeStyleSettings>
-    <ScalaCodeStyleSettings>
-      <option name="MULTILINE_STRING_CLOSING_QUOTES_ON_NEW_LINE" value="true" />
-    </ScalaCodeStyleSettings>
-    <codeStyleSettings language="JAVA">
-      <option name="CLASS_BRACE_STYLE" value="5" />
-      <option name="METHOD_BRACE_STYLE" value="5" />
-      <option name="ALIGN_MULTILINE_PARAMETERS_IN_CALLS" value="true" />
-      <option name="ALIGN_MULTILINE_BINARY_OPERATION" value="true" />
-      <option name="ALIGN_MULTILINE_TERNARY_OPERATION" value="true" />
-      <option name="ALIGN_THROWS_KEYWORD" value="true" />
-      <option name="ALIGN_MULTILINE_PARENTHESIZED_EXPRESSION" value="true" />
-      <option name="BINARY_OPERATION_SIGN_ON_NEXT_LINE" value="true" />
-      <option name="IF_BRACE_FORCE" value="3" />
-    </codeStyleSettings>
-  </code_scheme>
+    <code_scheme name="Project" version="173">
+        <JavaCodeStyleSettings>
+            <option name="ALIGN_MULTILINE_TEXT_BLOCKS" value="true"/>
+        </JavaCodeStyleSettings>
+        <ScalaCodeStyleSettings>
+            <option name="FORMATTER" value="1"/>
+            <option name="MULTILINE_STRING_CLOSING_QUOTES_ON_NEW_LINE" value="true"/>
+        </ScalaCodeStyleSettings>
+        <codeStyleSettings language="JAVA">
+            <option name="CLASS_BRACE_STYLE" value="5"/>
+            <option name="METHOD_BRACE_STYLE" value="5"/>
+            <option name="ALIGN_MULTILINE_PARAMETERS_IN_CALLS" value="true"/>
+            <option name="ALIGN_MULTILINE_BINARY_OPERATION" value="true"/>
+            <option name="ALIGN_MULTILINE_TERNARY_OPERATION" value="true"/>
+            <option name="ALIGN_THROWS_KEYWORD" value="true"/>
+            <option name="ALIGN_MULTILINE_PARENTHESIZED_EXPRESSION" value="true"/>
+            <option name="BINARY_OPERATION_SIGN_ON_NEXT_LINE" value="true"/>
+            <option name="IF_BRACE_FORCE" value="3"/>
+        </codeStyleSettings>
+    </code_scheme>
 </component>

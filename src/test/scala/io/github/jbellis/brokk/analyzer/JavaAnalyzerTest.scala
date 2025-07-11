@@ -1,12 +1,11 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.github.jbellis.brokk.analyzer.{CodeUnit, JavaAnalyzer}
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.semanticcpg.language.*
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertThrows, assertTrue}
 import org.junit.jupiter.api.Test
 
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 import java.util.Optional
 import scala.jdk.OptionConverters.RichOptional
 import scala.jdk.javaapi.*
@@ -14,11 +13,12 @@ import scala.jdk.javaapi.CollectionConverters.asScala
 
 class JavaAnalyzerTest {
   implicit val callResolver: ICallResolver = NoResolve
+  private val n                            = System.lineSeparator
 
   @Test
   def callerTest(): Unit = {
     val analyzer = getAnalyzer
-    val callOut = analyzer.cpg.method.call.l
+    val callOut  = analyzer.cpg.method.call.l
     assert(callOut.nonEmpty)
     val callIn = analyzer.cpg.method.caller.l
     assert(callIn.nonEmpty)
@@ -35,10 +35,10 @@ class JavaAnalyzerTest {
 
   @Test
   def extractMethodSource(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A.method2")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """    public String method2(String input) {
@@ -48,37 +48,37 @@ class JavaAnalyzerTest {
         |    public String method2(String input, int otherInput) {
         |        // overload of method2
         |        return "prefix_" + input + " " + otherInput;
-        |    }""".stripMargin
+        |    }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
 
   @Test
   def extractMethodSourceNested(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("A$AInner$AInnerInner.method7")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """            public void method7() {
         |                System.out.println("hello");
-        |            }""".stripMargin
+        |            }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
 
   @Test
   def extractMethodSourceConstructor(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer                    = getAnalyzer
     val sourceOpt: Optional[String] = analyzer.getMethodSource("B.<init>")
     assertTrue(sourceOpt.isPresent)
-    val source = sourceOpt.get()
+    val source = sourceOpt.get().replace(n, "\n").stripIndent()
 
     val expected =
       """    public B() {
         |        System.out.println("B constructor");
-        |    }""".stripMargin
+        |    }""".stripMargin.stripIndent
 
     assertEquals(expected, source)
   }
@@ -86,7 +86,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("A")
+    val source   = analyzer.getClassSource("A")
 
     // Verify the source contains class definition and methods
     assertTrue(source.contains("class A {"))
@@ -97,7 +97,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNestedTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("A$AInner")
+    val source   = analyzer.getClassSource("A$AInner")
 
     // Verify the source contains inner class definition
     assertTrue(source.contains("class AInner {"))
@@ -107,7 +107,7 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val source = analyzer.getClassSource("NonExistentClass")
+    val source   = analyzer.getClassSource("NonExistentClass")
     assertEquals(null, source)
   }
 
@@ -120,23 +120,29 @@ class JavaAnalyzerTest {
     assertEquals("String[]", analyzer.sanitizeType("java.lang.String[]"))
 
     // Generic types
-    assertEquals("Function<Integer, Integer>",
-      analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>"))
+    assertEquals(
+      "Function<Integer, Integer>",
+      analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
+    )
 
     // Nested generic types
-    assertEquals("Map<String, List<Integer>>",
-      analyzer.sanitizeType("java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>"))
+    assertEquals(
+      "Map<String, List<Integer>>",
+      analyzer.sanitizeType("java.util.Map<java.lang.String, java.util.List<java.lang.Integer>>")
+    )
 
     // Method return type with generics
-    assertEquals("Function<Integer, Integer>",
-      analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>"))
+    assertEquals(
+      "Function<Integer, Integer>",
+      analyzer.sanitizeType("java.util.function.Function<java.lang.Integer, java.lang.Integer>")
+    )
   }
 
   @Test
   def getSkeletonTestA(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("A")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     // https://github.com/joernio/joern/issues/5297
     //    |  public Function<Integer, Integer> method3() {...}
     val expected =
@@ -159,7 +165,7 @@ class JavaAnalyzerTest {
         |  class A$AInnerStatic {
         |    public void <init>() {...}
         |  }
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
@@ -167,7 +173,7 @@ class JavaAnalyzerTest {
   def getSkeletonTestD(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeleton("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     val expected =
       """class D {
         |  public void methodD1() {...}
@@ -181,7 +187,7 @@ class JavaAnalyzerTest {
         |  class D$DSub {
         |    public void <init>(D outerClass) {...}
         |  }
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
@@ -189,25 +195,25 @@ class JavaAnalyzerTest {
   def getGetSkeletonHeaderTest(): Unit = {
     val skeletonOpt = getAnalyzer.getSkeletonHeader("D")
     assertTrue(skeletonOpt.isPresent)
-    val skeleton = skeletonOpt.get()
+    val skeleton = skeletonOpt.get().replace(n, "\n").stripIndent()
     val expected =
       """class D {
         |  public int field1;
         |  private String field2;
         |  [... methods not shown ...]
-        |}""".stripMargin
+        |}""".stripMargin.stripIndent
     assertEquals(expected, skeleton)
   }
 
   @Test
   def getAllClassesTest(): Unit = {
     val analyzer = getAnalyzer
-    val classes = analyzer.getAllDeclarations
+    val classes  = analyzer.getAllDeclarations
   }
 
   @Test
   def getCallgraphToTest(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer  = getAnalyzer
     val callgraph = analyzer.getCallgraphTo("A.method1", 5)
 
     // Convert to a more convenient form for testing
@@ -216,13 +222,14 @@ class JavaAnalyzerTest {
     // Expect A.method1 -> [B.callsIntoA, D.methodD1]
     assertTrue(callsites.contains("A.method1"), "Should contain A.method1 as a key")
 
-    val callers = callsites.get("A.method1").map(sites => asScala(sites).map(_.target().fqName).toSet).getOrElse(Set.empty)
+    val callers =
+      callsites.get("A.method1").map(sites => asScala(sites).map(_.target().fqName).toSet).getOrElse(Set.empty)
     assertEquals(Set("B.callsIntoA", "D.methodD1"), callers)
   }
 
   @Test
   def getCallgraphFromTest(): Unit = {
-    val analyzer = getAnalyzer
+    val analyzer  = getAnalyzer
     val callgraph = analyzer.getCallgraphFrom("B.callsIntoA", 5)
 
     // Convert to a more convenient form for testing
@@ -231,7 +238,8 @@ class JavaAnalyzerTest {
     // Expect B.callsIntoA -> [A.method1, A.method2]
     assertTrue(callsites.contains("B.callsIntoA"), "Should contain B.callsIntoA as a key")
 
-    val callees = callsites.get("B.callsIntoA").map(sites => asScala(sites).map(_.target().fqName).toSet).getOrElse(Set.empty)
+    val callees =
+      callsites.get("B.callsIntoA").map(sites => asScala(sites).map(_.target().fqName).toSet).getOrElse(Set.empty)
     assertTrue(callees.contains("A.method1"), "Should call A.method1")
     assertTrue(callees.contains("A.method2"), "Should call A.method2")
   }
@@ -241,7 +249,7 @@ class JavaAnalyzerTest {
     val analyzer = getAnalyzer
     import scala.jdk.javaapi.*
 
-    val seeds = CollectionConverters.asJava(Map("D" -> (1.0: java.lang.Double)))
+    val seeds  = CollectionConverters.asJava(Map("D" -> (1.0: java.lang.Double)))
     val ranked = analyzer.getPagerank(seeds, 3, false)
 
     // D calls A and B
@@ -256,7 +264,7 @@ class JavaAnalyzerTest {
     import scala.jdk.javaapi.*
 
     // Seed with CamelClass, which has no connections
-    val seeds = CollectionConverters.asJava(Map("CamelClass" -> (1.0: java.lang.Double)))
+    val seeds  = CollectionConverters.asJava(Map("CamelClass" -> (1.0: java.lang.Double)))
     val ranked = analyzer.getPagerank(seeds, 5, false)
 
     // Expect an empty list because CamelClass has few connections,
@@ -266,8 +274,8 @@ class JavaAnalyzerTest {
 
   @Test
   def getDeclarationsInFileTest(): Unit = {
-    val analyzer = getAnalyzer
-    val file = analyzer.toFile("D.java").get
+    val analyzer     = getAnalyzer
+    val file         = analyzer.toFile("D.java").get
     val declarations = analyzer.getDeclarationsInFile(file)
     val expected = Set(
       // Classes
@@ -289,8 +297,8 @@ class JavaAnalyzerTest {
 
   @Test
   def declarationsInPackagedFileTest(): Unit = {
-    val analyzer = getAnalyzer
-    val file = analyzer.toFile("Packaged.java").get
+    val analyzer     = getAnalyzer
+    val file         = analyzer.toFile("Packaged.java").get
     val declarations = analyzer.getDeclarationsInFile(file)
     val expected = Set(
       // Class
@@ -307,30 +315,30 @@ class JavaAnalyzerTest {
   @Test
   def getUsesMethodExistingTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "A.method2"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "A.method2"
+    val usages   = analyzer.getUses(symbol)
 
     // Expect references in B.callsIntoA() because it calls a.method2("test")
     val actualMethodRefs = asScala(usages).filter(_.isFunction).map(_.fqName).toSet
-    val actualRefs = asScala(usages).map(_.fqName).toSet
+    val actualRefs       = asScala(usages).map(_.fqName).toSet
     assertEquals(Set("B.callsIntoA", "AnonymousUsage.foo"), actualRefs)
   }
 
   @Test
   def getUsesMethodNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "A.noSuchMethod:java.lang.String()"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    val symbol   = "A.noSuchMethod:java.lang.String()"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
     assertTrue(ex.getMessage.contains("not found as a method, field, or class"))
   }
 
   @Test
   def getUsesFieldExistingTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "D.field1" // fully qualified field name
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "D.field1" // fully qualified field name
+    val usages   = analyzer.getUses(symbol)
 
-    val file = analyzer.toFile("D.java").get
+    val file       = analyzer.toFile("D.java").get
     val actualRefs = asScala(usages).map(_.fqName).toSet
     assertEquals(Set("D.methodD2", "E.dMethod"), actualRefs)
   }
@@ -338,8 +346,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesFieldNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "D.notAField"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    val symbol   = "D.notAField"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
     assertTrue(ex.getMessage.contains("not found"))
   }
 
@@ -355,8 +363,8 @@ class JavaAnalyzerTest {
 
     // Get the usages of each type
     val functionRefs = asScala(usages).filter(_.isFunction).map(_.fqName).toSet
-    val fieldRefs = asScala(usages).filter(cu => !cu.isFunction && !cu.isClass).map(_.fqName).toSet
-    val classRefs = asScala(usages).filter(_.isClass).map(_.fqName).toSet
+    val fieldRefs    = asScala(usages).filter(cu => !cu.isFunction && !cu.isClass).map(_.fqName).toSet
+    val classRefs    = asScala(usages).filter(_.isClass).map(_.fqName).toSet
 
     // There should be function usages in these methods
     assertEquals(Set("B.callsIntoA", "D.methodD1", "AnonymousUsage.foo"), functionRefs)
@@ -368,9 +376,11 @@ class JavaAnalyzerTest {
   @Test
   def getUsesClassNonexistentTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "NoSuchClass"
-    val ex = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
-    assertTrue(ex.getMessage.contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class"))
+    val symbol   = "NoSuchClass"
+    val ex       = assertThrows(classOf[IllegalArgumentException], () => analyzer.getUses(symbol))
+    assertTrue(
+      ex.getMessage.contains("Symbol 'NoSuchClass' (resolved: 'NoSuchClass') not found as a method, field, or class")
+    )
   }
 
   @Test
@@ -384,17 +394,17 @@ class JavaAnalyzerTest {
 
     // Find classes matching "*E"
     val classMatches = analyzer.searchDefinitions(".*e")
-    val classRefs = asScala(classMatches).filter(_.isClass).map(_.fqName).toSet
+    val classRefs    = asScala(classMatches).filter(_.isClass).map(_.fqName).toSet
     assertEquals(Set("E", "UseE", "AnonymousUsage"), classRefs)
 
     // Find methods matching "method*"
     val methodMatches = analyzer.searchDefinitions("method.*1")
-    val methodRefs = asScala(methodMatches).map(_.fqName).toSet
+    val methodRefs    = asScala(methodMatches).map(_.fqName).toSet
     assertEquals(Set("A.method1", "D.methodD1"), methodRefs)
 
     // Find fields matching "field.*"
     val fieldMatches = analyzer.searchDefinitions(".*field.*")
-    val fieldRefs = asScala(fieldMatches).map(_.fqName).toSet
+    val fieldRefs    = asScala(fieldMatches).map(_.fqName).toSet
     assertEquals(Set("D.field1", "D.field2", "E.iField", "E.sField"), fieldRefs)
   }
 
@@ -432,12 +442,11 @@ class JavaAnalyzerTest {
     assertFalse(nonExistentOpt.isPresent, "Should not find definition for NonExistentSymbol")
   }
 
-
   @Test
   def getUsesClassWithStaticMembersTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "E"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "E"
+    val usages   = analyzer.getUses(symbol)
 
     val refs = asScala(usages).map(_.fqName).toSet
     // Now includes field reference UseE.e as a FIELD type
@@ -447,8 +456,8 @@ class JavaAnalyzerTest {
   @Test
   def getUsesClassInheritanceTest(): Unit = {
     val analyzer = getAnalyzer
-    val symbol = "BaseClass"
-    val usages = analyzer.getUses(symbol)
+    val symbol   = "BaseClass"
+    val usages   = analyzer.getUses(symbol)
 
     val refs = asScala(usages).map(_.fqName).toSet
 
@@ -466,7 +475,10 @@ class JavaAnalyzerTest {
     assertTrue(classRefs.exists(name => name.contains("XExtendsY")), classErrorMsg)
 
     // New test: Methods returning BaseClass should be included (e.g. MethodReturner.getBase)
-    assertTrue(refs.exists(name => name.contains("MethodReturner.getBase")), "Expected MethodReturner.getBase to be included in BaseClass usages")
+    assertTrue(
+      refs.exists(name => name.contains("MethodReturner.getBase")),
+      "Expected MethodReturner.getBase to be included in BaseClass usages"
+    )
   }
 
   @Test
@@ -480,26 +492,54 @@ class JavaAnalyzerTest {
 
     // Static Methods
     assertEquals("java.lang.Integer.valueOf", analyzer.resolveMethodName("java.lang.Integer.valueOf"))
-    assertEquals("java.nio.file.Files.createDirectories", analyzer.resolveMethodName("java.nio.file.Files.createDirectories"))
-    assertEquals("java.util.Collections.unmodifiableList", analyzer.resolveMethodName("java.util.Collections.unmodifiableList"))
-    assertEquals("org.apache.cassandra.utils.FBUtilities.waitOnFuture", analyzer.resolveMethodName("org.apache.cassandra.utils.FBUtilities.waitOnFuture"))
+    assertEquals(
+      "java.nio.file.Files.createDirectories",
+      analyzer.resolveMethodName("java.nio.file.Files.createDirectories")
+    )
+    assertEquals(
+      "java.util.Collections.unmodifiableList",
+      analyzer.resolveMethodName("java.util.Collections.unmodifiableList")
+    )
+    assertEquals(
+      "org.apache.cassandra.utils.FBUtilities.waitOnFuture",
+      analyzer.resolveMethodName("org.apache.cassandra.utils.FBUtilities.waitOnFuture")
+    )
 
     // Inner Class Methods
-    assertEquals("org.apache.cassandra.db.ClusteringPrefix$Kind.ordinal", analyzer.resolveMethodName("org.apache.cassandra.db.ClusteringPrefix$Kind.ordinal"))
-    assertEquals("org.apache.cassandra.io.sstable.format.big.BigTableWriter$IndexWriter.prepareToCommit",
-      analyzer.resolveMethodName("org.apache.cassandra.io.sstable.format.big.BigTableWriter$IndexWriter.prepareToCommit"))
-    assertEquals("org.apache.cassandra.index.sai.disk.v1.kdtree.BKDReader$IteratorState.getMinLeafBlockFP",
-      analyzer.resolveMethodName("org.apache.cassandra.index.sai.disk.v1.kdtree.BKDReader$IteratorState.getMinLeafBlockFP"))
-    assertEquals("org.apache.cassandra.repair.consistent.ConsistentSession$State.transitions",
-      analyzer.resolveMethodName("org.apache.cassandra.repair.consistent.ConsistentSession$State.transitions"))
+    assertEquals(
+      "org.apache.cassandra.db.ClusteringPrefix$Kind.ordinal",
+      analyzer.resolveMethodName("org.apache.cassandra.db.ClusteringPrefix$Kind.ordinal")
+    )
+    assertEquals(
+      "org.apache.cassandra.io.sstable.format.big.BigTableWriter$IndexWriter.prepareToCommit",
+      analyzer.resolveMethodName(
+        "org.apache.cassandra.io.sstable.format.big.BigTableWriter$IndexWriter.prepareToCommit"
+      )
+    )
+    assertEquals(
+      "org.apache.cassandra.index.sai.disk.v1.kdtree.BKDReader$IteratorState.getMinLeafBlockFP",
+      analyzer.resolveMethodName(
+        "org.apache.cassandra.index.sai.disk.v1.kdtree.BKDReader$IteratorState.getMinLeafBlockFP"
+      )
+    )
+    assertEquals(
+      "org.apache.cassandra.repair.consistent.ConsistentSession$State.transitions",
+      analyzer.resolveMethodName("org.apache.cassandra.repair.consistent.ConsistentSession$State.transitions")
+    )
 
     // Anonymous Inner Classes used in a method
-    assertEquals("org.apache.cassandra.repair.RepairJob.run",
-      analyzer.resolveMethodName("org.apache.cassandra.repair.RepairJob.run.FutureCallback$0.set"))
-    assertEquals("org.apache.cassandra.db.lifecycle.View.updateCompacting",
-      analyzer.resolveMethodName("org.apache.cassandra.db.lifecycle.View.updateCompacting.Function$0.all"))
-    assertEquals("org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal",
-      analyzer.resolveMethodName("org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal.Selector$1.any"))
+    assertEquals(
+      "org.apache.cassandra.repair.RepairJob.run",
+      analyzer.resolveMethodName("org.apache.cassandra.repair.RepairJob.run.FutureCallback$0.set")
+    )
+    assertEquals(
+      "org.apache.cassandra.db.lifecycle.View.updateCompacting",
+      analyzer.resolveMethodName("org.apache.cassandra.db.lifecycle.View.updateCompacting.Function$0.all")
+    )
+    assertEquals(
+      "org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal",
+      analyzer.resolveMethodName("org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal.Selector$1.any")
+    )
 
     // Anonymous inner classes used in a field
     //    assertEquals("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>",
@@ -509,28 +549,49 @@ class JavaAnalyzerTest {
 
     // Constructors
     assertEquals("java.util.HashMap.<init>", analyzer.resolveMethodName("java.util.HashMap.<init>"))
-    assertEquals("org.apache.cassandra.db.marshal.UserType.<init>", analyzer.resolveMethodName("org.apache.cassandra.db.marshal.UserType.<init>"))
+    assertEquals(
+      "org.apache.cassandra.db.marshal.UserType.<init>",
+      analyzer.resolveMethodName("org.apache.cassandra.db.marshal.UserType.<init>")
+    )
 
     // Enum-related Methods
-    assertEquals("org.apache.cassandra.db.ConsistencyLevel.valueOf", analyzer.resolveMethodName("org.apache.cassandra.db.ConsistencyLevel.valueOf"))
-    assertEquals("org.apache.cassandra.repair.consistent.ConsistentSession$State.ordinal",
-      analyzer.resolveMethodName("org.apache.cassandra.repair.consistent.ConsistentSession$State.ordinal"))
+    assertEquals(
+      "org.apache.cassandra.db.ConsistencyLevel.valueOf",
+      analyzer.resolveMethodName("org.apache.cassandra.db.ConsistencyLevel.valueOf")
+    )
+    assertEquals(
+      "org.apache.cassandra.repair.consistent.ConsistentSession$State.ordinal",
+      analyzer.resolveMethodName("org.apache.cassandra.repair.consistent.ConsistentSession$State.ordinal")
+    )
 
     // Interface Methods
-    assertEquals("org.apache.cassandra.io.IVersionedSerializer.deserialize",
-      analyzer.resolveMethodName("org.apache.cassandra.io.IVersionedSerializer.deserialize"))
-    assertEquals("io.github.jbellis.jvector.graph.GraphIndex.ramBytesUsed",
-      analyzer.resolveMethodName("io.github.jbellis.jvector.graph.GraphIndex.ramBytesUsed"))
+    assertEquals(
+      "org.apache.cassandra.io.IVersionedSerializer.deserialize",
+      analyzer.resolveMethodName("org.apache.cassandra.io.IVersionedSerializer.deserialize")
+    )
+    assertEquals(
+      "io.github.jbellis.jvector.graph.GraphIndex.ramBytesUsed",
+      analyzer.resolveMethodName("io.github.jbellis.jvector.graph.GraphIndex.ramBytesUsed")
+    )
     assertEquals("java.util.Comparator.comparing", analyzer.resolveMethodName("java.util.Comparator.comparing"))
-    assertEquals("org.apache.cassandra.dht.RingPosition.compareTo", analyzer.resolveMethodName("org.apache.cassandra.dht.RingPosition.compareTo"))
-    assertEquals("com.google.common.collect.SortedSetMultimap.values", analyzer.resolveMethodName("com.google.common.collect.SortedSetMultimap.values"))
+    assertEquals(
+      "org.apache.cassandra.dht.RingPosition.compareTo",
+      analyzer.resolveMethodName("org.apache.cassandra.dht.RingPosition.compareTo")
+    )
+    assertEquals(
+      "com.google.common.collect.SortedSetMultimap.values",
+      analyzer.resolveMethodName("com.google.common.collect.SortedSetMultimap.values")
+    )
 
     // Operator-related Methods
     assertEquals("<operator>.assignmentDivision", analyzer.resolveMethodName("<operator>.assignmentDivision"))
     assertEquals("<operator>.not", analyzer.resolveMethodName("<operator>.not"))
     assertEquals("<operator>.plus", analyzer.resolveMethodName("<operator>.plus"))
     assertEquals("<operators>.assignmentModulo", analyzer.resolveMethodName("<operators>.assignmentModulo"))
-    assertEquals("<operators>.assignmentLogicalShiftRight", analyzer.resolveMethodName("<operators>.assignmentLogicalShiftRight"))
+    assertEquals(
+      "<operators>.assignmentLogicalShiftRight",
+      analyzer.resolveMethodName("<operators>.assignmentLogicalShiftRight")
+    )
   }
 
   @Test
@@ -540,17 +601,22 @@ class JavaAnalyzerTest {
     val location = analyzer.getFunctionLocation("A.method2", java.util.List.of("input"))
     assertTrue(location.startLine > 0, "Start line should be positive")
     assertTrue(location.endLine >= location.startLine, "End line should not precede start line")
-    assertTrue(location.code.contains("public String method2(String input)"),
-      s"Method code should contain signature for 'method2(String)'; got:\n${location.code}")
+    assertTrue(
+      location.code.contains("public String method2(String input)"),
+      s"Method code should contain signature for 'method2(String)'; got:\n${location.code}"
+    )
   }
 
   @Test
   def getFunctionLocationMissingParamTest(): Unit = {
     val analyzer = getAnalyzer
     // "A.method2" has two overloads, but neither takes zero parameters
-    assertThrows(classOf[SymbolNotFoundException], () => {
-      analyzer.getFunctionLocation("A.method2", java.util.Collections.emptyList())
-    })
+    assertThrows(
+      classOf[SymbolNotFoundException],
+      () => {
+        analyzer.getFunctionLocation("A.method2", java.util.Collections.emptyList())
+      }
+    )
   }
 
   @Test
@@ -563,18 +629,24 @@ class JavaAnalyzerTest {
   def getFunctionLocationParamMismatchTest(): Unit = {
     val analyzer = getAnalyzer
     // "A.method2" has overloads, but none with param name "bogusParam"
-    assertThrows(classOf[SymbolNotFoundException], () => {
-      analyzer.getFunctionLocation("A.method2", java.util.List.of("bogusParam"))
-    })
+    assertThrows(
+      classOf[SymbolNotFoundException],
+      () => {
+        analyzer.getFunctionLocation("A.method2", java.util.List.of("bogusParam"))
+      }
+    )
   }
 
   @Test
   def getFunctionLocationNoSuchMethodTest(): Unit = {
     val analyzer = getAnalyzer
     // "A.noSuchMethod" does not exist at all
-    assertThrows(classOf[SymbolNotFoundException], () => {
-      analyzer.getFunctionLocation("A.noSuchMethod", java.util.Collections.emptyList())
-    })
+    assertThrows(
+      classOf[SymbolNotFoundException],
+      () => {
+        analyzer.getFunctionLocation("A.noSuchMethod", java.util.Collections.emptyList())
+      }
+    )
   }
 
   @Test
@@ -589,7 +661,7 @@ class JavaAnalyzerTest {
   @Test
   def codeUnitShortNameTest(): Unit = {
     val analyzer = getAnalyzer
-    val file = analyzer.toFile("A.java").get
+    val file     = analyzer.toFile("A.java").get
 
     // Class
     val classA = CodeUnit.cls(file, "", "A")
@@ -623,7 +695,7 @@ class JavaAnalyzerTest {
 
     // Field in class with package
     val filePackaged = analyzer.toFile("Packaged.java").get
-    val fieldF = CodeUnit.field(filePackaged, "io.github.jbellis.brokk", "Foo.f")
+    val fieldF       = CodeUnit.field(filePackaged, "io.github.jbellis.brokk", "Foo.f")
     assertEquals("Foo.f", fieldF.shortName())
     assertEquals("io.github.jbellis.brokk.Foo.f", fieldF.fqName())
     assertEquals("f", fieldF.identifier())
@@ -631,7 +703,7 @@ class JavaAnalyzerTest {
     assertTrue(fieldF.classUnit().toScala.contains(fieldFClass))
 
     // Field in class without package
-    val fileD = analyzer.toFile("D.java").get
+    val fileD  = analyzer.toFile("D.java").get
     val field1 = CodeUnit.field(fileD, "", "D.field1")
     assertEquals("D.field1", field1.shortName())
     assertEquals("D.field1", field1.fqName())
@@ -642,15 +714,23 @@ class JavaAnalyzerTest {
 
   /** Helper to get a prebuilt analyzer */
   private def getAnalyzer = {
-    JavaAnalyzer(Path.of("src/test/resources/testcode-java"))
+    val tempFile = Files.createTempFile("brokk-java-cpg-", ".bin")
+    tempFile.toFile.deleteOnExit()
+    JavaAnalyzer(Path.of("src/test/resources/testcode-java"), java.util.Collections.emptySet[String](), tempFile)
   }
 
   @Test
   def parseFqNameDirectTest(): Unit = {
     val analyzer = getAnalyzer
 
-    def check(fqn: String, expectedType: CodeUnitType, expectedPkg: String, expectedCls: String, expectedMem: String): Unit = {
-      val result = analyzer.parseFqName(fqn, expectedType) // Call protected method directly
+    def check(
+      fqn: String,
+      expectedType: CodeUnitType,
+      expectedPkg: String,
+      expectedCls: String,
+      expectedMem: String
+    ): Unit = {
+      val result     = analyzer.parseFqName(fqn, expectedType) // Call protected method directly
       val typeString = if (expectedType != null) expectedType.toString else "null"
       assertEquals(expectedPkg, result._1(), s"Package name mismatch for FQN [$fqn] with type [$typeString]")
       assertEquals(expectedCls, result._2(), s"Class name mismatch for FQN [$fqn] with type [$typeString]")
@@ -686,7 +766,13 @@ class JavaAnalyzerTest {
 
     // === Fallback Heuristic Tests (for FQNs not in CPG or unresolvable parts) ===
     // Synthetic member (e.g. enum's $values - typically a method)
-    check("org.fife.ui.autocomplete.AutoCompletionEvent$Type.$values", CodeUnitType.FUNCTION, "org.fife.ui.autocomplete", "AutoCompletionEvent$Type", "$values")
+    check(
+      "org.fife.ui.autocomplete.AutoCompletionEvent$Type.$values",
+      CodeUnitType.FUNCTION,
+      "org.fife.ui.autocomplete",
+      "AutoCompletionEvent$Type",
+      "$values"
+    )
 
     // Simple class, default package
     check("NonCpgClass", CodeUnitType.CLASS, "", "NonCpgClass", "")
@@ -701,12 +787,30 @@ class JavaAnalyzerTest {
     // Constructor (fallback)
     check("noncpg.package.SomeClass.<init>", CodeUnitType.FUNCTION, "noncpg.package", "SomeClass", "<init>")
     // Method with '$' in class name (fallback)
-    check("noncpg.package.My$ProdClass.factory$Method", CodeUnitType.FUNCTION, "noncpg.package", "My$ProdClass", "factory$Method")
+    check(
+      "noncpg.package.My$ProdClass.factory$Method",
+      CodeUnitType.FUNCTION,
+      "noncpg.package",
+      "My$ProdClass",
+      "factory$Method"
+    )
     // Method with '$' in method name (fallback)
-    check("noncpg.package.MyClass.method$WithDollar", CodeUnitType.FUNCTION, "noncpg.package", "MyClass", "method$WithDollar")
+    check(
+      "noncpg.package.MyClass.method$WithDollar",
+      CodeUnitType.FUNCTION,
+      "noncpg.package",
+      "MyClass",
+      "method$WithDollar"
+    )
 
     // Unconventional FQN: all lowercase package and class, expecting method
-    check("lower.case.package.lowerclass.methodName", CodeUnitType.FUNCTION, "lower.case.package", "lowerclass", "methodName")
+    check(
+      "lower.case.package.lowerclass.methodName",
+      CodeUnitType.FUNCTION,
+      "lower.case.package",
+      "lowerclass",
+      "methodName"
+    )
     // Unconventional FQN: class only, all lowercase, expecting method
     check("lowerclass.methodName", CodeUnitType.FUNCTION, "", "lowerclass", "methodName")
     // Unconventional FQN: class only, all lowercase, expecting class

@@ -271,6 +271,9 @@ public class MenuBar {
         });
         upgradeAgentItem.setEnabled(true);
         toolsMenu.add(upgradeAgentItem);
+
+        // Let Chrome manage this item’s enabled state during long-running actions
+        chrome.setBlitzForgeMenuItem(upgradeAgentItem);
         if (toolsMenu.getItemCount() > 0) {
             menuBar.add(toolsMenu);
         }
@@ -364,6 +367,12 @@ public class MenuBar {
             dialog.setVisible(true);
         });
         helpMenu.add(sendFeedbackItem);
+
+        var joinDiscordItem = new JMenuItem("Join Discord");
+        joinDiscordItem.addActionListener(e -> {
+            io.github.jbellis.brokk.util.Environment.openInBrowser("https://discord.gg/QjhQDK8kAj", chrome.getFrame());
+        });
+        helpMenu.add(joinDiscordItem);
 
         var aboutItem = new JMenuItem("About");
         aboutItem.addActionListener(e -> {

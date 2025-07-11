@@ -123,13 +123,13 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> getSingleFileMessages(String styleGuide,
-                                                         EditBlockParser parser,
-                                                         List<ChatMessage> readOnlyMessages,
-                                                         List<ChatMessage> taskMessages,
-                                                         UserMessage request,
-                                                         Set<ProjectFile> changedFiles,
-                                                         List<ChatMessage> originalWorkspaceEditableMessages)
+    public final List<ChatMessage> getSingleFileCodeMessages(String styleGuide,
+                                                             EditBlockParser parser,
+                                                             List<ChatMessage> readOnlyMessages,
+                                                             List<ChatMessage> taskMessages,
+                                                             UserMessage request,
+                                                             Set<ProjectFile> changedFiles,
+                                                             List<ChatMessage> originalWorkspaceEditableMessages)
     {
         var messages = new ArrayList<ChatMessage>();
 
@@ -153,7 +153,44 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    public final List<ChatMessage> collectAskMessages(ContextManager cm, String input) throws InterruptedException {
+    public final List<ChatMessage> getSingleFileAskMessages(IContextManager cm,
+                                                        ProjectFile file,
+                                                        List<ChatMessage> readOnlyMessages,
+                                                        String question)
+    {
+        var messages = new ArrayList<ChatMessage>();
+
+        var systemPrompt = """
+          <instructions>
+          %s
+          </instructions>
+          <style_guide>
+          %s
+          </style_guide>
+          """.stripIndent().formatted(systemIntro(""), cm.getProject().getStyleGuide()).trim();
+        messages.add(new SystemMessage(systemPrompt));
+
+        messages.addAll(readOnlyMessages);
+
+        String fileContent = null;
+        try {
+            fileContent = """
+                              <file path="%s">
+                              %s
+                              </file>
+                              """.stripIndent().formatted(file.toString(), file.read());
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        messages.add(new UserMessage(fileContent));
+        messages.add(new AiMessage("Thank you for the file."));
+
+        messages.add(askRequest(question));
+
+        return messages;
+    }
+
+    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
 
         messages.add(systemMessage(cm, ""));

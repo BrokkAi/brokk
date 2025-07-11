@@ -6,9 +6,12 @@ import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Modal dialog that gathers feedback details from the user and sends
@@ -21,6 +24,9 @@ public class FeedbackDialog extends JDialog {
     private final JCheckBox includeDebugLogCheckBox;
     private final JCheckBox includeScreenshotCheckBox;
     private final JButton sendButton;
+    @Nullable
+    private final BufferedImage screenshotImage;
+    private final JLabel screenshotPreviewLabel;
 
     private record CategoryItem(String displayName, String value) {
         @Override
@@ -53,6 +59,39 @@ public class FeedbackDialog extends JDialog {
         var cancelButton = new JButton("Cancel");
         cancelButton.setMnemonic(KeyEvent.VK_C);
         cancelButton.addActionListener(e -> dispose());
+
+        // Capture screenshot before the dialog is displayed
+        BufferedImage captured = null;
+        try {
+            captured = captureScreenshotImage(chrome.getFrame());
+        } catch (Exception ex) {
+            chrome.toolError("Could not take screenshot: " + ex.getMessage());
+        }
+        screenshotImage = captured;
+
+        // Build thumbnail preview
+        screenshotPreviewLabel = new JLabel();
+        if (screenshotImage != null) {
+            var thumb = screenshotImage.getScaledInstance(
+                    Math.min(200, screenshotImage.getWidth() / 4),
+                    -1,
+                    Image.SCALE_SMOOTH);
+            screenshotPreviewLabel.setIcon(new ImageIcon(thumb));
+            // Add a thin border that matches the current Look & Feel's focus color
+            var focusColor = UIManager.getColor("Focus.color");
+            if (focusColor == null) {
+                focusColor = new Color(0x8ab4f8); // fallback color
+            }
+            screenshotPreviewLabel.setBorder(BorderFactory.createLineBorder(focusColor));
+            screenshotPreviewLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            screenshotPreviewLabel.setToolTipText("Click to view screenshot");
+            screenshotPreviewLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    showScreenshotDialog();
+                }
+            });
+        }
 
         buildLayout(cancelButton);
 
@@ -91,6 +130,10 @@ public class FeedbackDialog extends JDialog {
         gbc.gridy = 3;
         form.add(includeScreenshotCheckBox, gbc);
 
+        // Thumbnail preview
+        gbc.gridy = 4;
+        form.add(screenshotPreviewLabel, gbc);
+
         // Buttons
         var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         buttons.add(cancelButton);
@@ -126,12 +169,13 @@ public class FeedbackDialog extends JDialog {
 
         SwingUtilities.invokeLater(() -> {
             final File screenshotFile;
-            if (includeScreenshot) {
+            if (includeScreenshot && screenshotImage != null) {
                 File tmp = null;
                 try {
-                    tmp = captureScreenshot(chrome.getFrame());
+                    tmp = File.createTempFile("brokk_screenshot_", ".png");
+                    ImageIO.write(screenshotImage, "png", tmp);
                 } catch (IOException ex) {
-                    chrome.toolError("Could not take screenshot: " + ex.getMessage());
+                    chrome.toolError("Could not save screenshot: " + ex.getMessage());
                 }
                 screenshotFile = tmp;
             } else {
@@ -167,16 +211,43 @@ public class FeedbackDialog extends JDialog {
     }
 
     /**
-     * Captures a screenshot of the given frame into a temporary PNG file.
+     * Capture the current frame as a BufferedImage.
      */
-    private File captureScreenshot(Frame frame) throws IOException {
+    private static BufferedImage captureScreenshotImage(Frame frame) {
         var img = new BufferedImage(frame.getWidth(), frame.getHeight(), BufferedImage.TYPE_INT_RGB);
         var g2 = img.createGraphics();
         frame.paint(g2);
         g2.dispose();
+        return img;
+    }
 
-        var tmp = File.createTempFile("brokk_screenshot_", ".png");
-        ImageIO.write(img, "png", tmp);
-        return tmp;
+    /**
+     * Show the captured screenshot in a modal dialog at 50% scale.
+     */
+    private void showScreenshotDialog() {
+        if (screenshotImage == null) {
+            return;
+        }
+        var dialog = new JDialog(this, "Screenshot Preview", true);
+        var scaled = screenshotImage.getScaledInstance(
+                screenshotImage.getWidth() / 2,
+                screenshotImage.getHeight() / 2,
+                Image.SCALE_SMOOTH);
+        var imgLabel = new JLabel(new ImageIcon(scaled));
+        var focusColor = UIManager.getColor("Focus.color");
+        if (focusColor == null) {
+            focusColor = UIManager.getColor("nimbusFocus");
+        }
+        if (focusColor == null) {
+            focusColor = UIManager.getLookAndFeelDefaults().getColor("nimbusFocus");
+        }
+        if (focusColor == null) {
+            focusColor = new Color(0x8ab4f8);
+        }
+        imgLabel.setBorder(BorderFactory.createLineBorder(focusColor));
+        dialog.getContentPane().add(new JScrollPane(imgLabel));
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 }

@@ -258,7 +258,7 @@ class SimplePerformanceTest {
 
             cachedRange = calculator.get();
             cachedKey = key;
-            lastUpdate = now;
+            lastUpdate = System.currentTimeMillis(); // record time *after* calculation completes
             return cachedRange;
         }
     }

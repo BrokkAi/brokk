@@ -20,6 +20,8 @@ import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.revwalk.RevObject;
+import org.eclipse.jgit.revwalk.RevTag;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.PushResult;
@@ -40,6 +42,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.time.Instant;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -776,14 +779,45 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * List all tags in the repository.
+     * List all tags in the repository, sorted by their commit/tag date
+     * in descending order (newest first).
      */
     public List<String> listTags() throws GitAPIException {
-        var tags = new ArrayList<String>();
-        for (var ref : git.tagList().call()) {
-            tags.add(ref.getName().replaceFirst("^refs/tags/", ""));
+        try (var revWalk = new RevWalk(repository)) {
+            record TagInfo(String name, Instant date) {}
+            var tagInfos = new ArrayList<TagInfo>();
+
+            for (var ref : git.tagList().call()) {
+                String tagName = ref.getName().replaceFirst("^refs/tags/", "");
+                Instant date = Instant.EPOCH;
+
+                try {
+                    // Handle annotated vs lightweight tags
+                    var objId = (ref.getPeeledObjectId() != null)
+                                ? ref.getPeeledObjectId()
+                                : ref.getObjectId();
+                    var revObj = revWalk.parseAny(objId);
+
+                    if (revObj instanceof RevCommit commit) {
+                        date = commit.getCommitterIdent().getWhenAsInstant();
+                    } else if (revObj instanceof RevTag tag) {
+                        if (tag.getTaggerIdent() != null) {
+                            date = tag.getTaggerIdent().getWhenAsInstant();
+                        }
+                    }
+                } catch (Exception e) {
+                    // If we cannot resolve the tag date, leave it as Instant.EPOCH
+                    logger.debug("Could not resolve date for tag '{}': {}", tagName, e.getMessage());
+                }
+
+                tagInfos.add(new TagInfo(tagName, date));
+            }
+
+            return tagInfos.stream()
+                           .sorted((a, b) -> b.date().compareTo(a.date())) // newest first
+                           .map(TagInfo::name)
+                           .collect(Collectors.toList());
         }
-        return tags;
     }
 
     /**
@@ -1272,7 +1306,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // Add each file path to the checkout command
         for (ProjectFile file : files) {
-            var relativePath = file.toString();
+            var relativePath = toRepoRelativePath(file);
             checkoutCommand.addPath(relativePath);
             logger.trace("Adding file to checkout: {}", relativePath);
         }
@@ -1635,14 +1669,10 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitStateException("Files to stash are not actually uncommitted!?");
         }
 
-        Set<String> filesToStashPaths = filesToStash.stream()
-                .map(ProjectFile::toString)
-                .collect(Collectors.toSet());
-
         // Files NOT to stash
         var filesToCommit = allUncommittedFilesWithStatus.stream()
-                .filter(mfs -> !filesToStashPaths.contains(mfs.file().toString()))
                 .map(ModifiedFile::file)
+                .filter(file -> !filesToStash.contains(file))
                 .collect(Collectors.toList());
 
         if (filesToCommit.isEmpty()) {
@@ -1810,9 +1840,22 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Get the commit history for a specific file
-     */
-    public List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
+      * Returns the full (multi-line) commit message for the given commit id.
+      */
+     public String getCommitFullMessage(String commitId) throws GitAPIException {
+         var objId = resolve(commitId);
+         try (var revWalk = new RevWalk(repository)) {
+             var commit = revWalk.parseCommit(objId);
+             return commit.getFullMessage();
+         } catch (IOException e) {
+             throw new GitWrappedIOException(e);
+         }
+     }
+ 
+     /**
+      * Get the commit history for a specific file
+      */
+     public List<CommitInfo> getFileHistory(ProjectFile file) throws GitAPIException {
         var commits = new ArrayList<CommitInfo>();
         for (var commit : git.log().addPath(toRepoRelativePath(file)).call()) {
             // Use factory method

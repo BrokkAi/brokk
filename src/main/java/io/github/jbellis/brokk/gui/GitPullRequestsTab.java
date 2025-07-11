@@ -1027,8 +1027,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 String forkInfo = "";
                 try {
                     if (pr.getUser() != null) author = pr.getUser().getLogin();
-                    if (pr.getUpdatedAt() != null)
-                        formattedUpdated = gitPanel.formatCommitDate(pr.getUpdatedAt(), today);
+                    if (pr.getUpdatedAt() != null) {
+                        Date date = pr.getUpdatedAt();
+                        formattedUpdated = GitUiUtil.formatRelativeDate(date.toInstant(), today);
+                    }
                     var headRepo = pr.getHead().getRepository();
                     if (headRepo != null && headRepo.isFork()) forkInfo = headRepo.getFullName();
                 } catch (IOException ex) {

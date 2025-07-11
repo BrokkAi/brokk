@@ -7,37 +7,36 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
+import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
+import io.github.jbellis.brokk.gui.util.ScaledIcon;
+import io.github.jbellis.brokk.prompts.CodePrompts;
+import io.github.jbellis.brokk.util.Messages;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-
-import io.github.jbellis.brokk.gui.util.ScaledIcon;
-import io.github.jbellis.brokk.prompts.CodePrompts;
-import io.github.jbellis.brokk.util.Messages;
-
-import static java.util.Objects.requireNonNull;
-
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.File;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
-
-import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
-
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import javax.swing.RowSorter;
+import javax.swing.SortOrder;
+import javax.swing.table.TableRowSorter;
 
-import static io.github.jbellis.brokk.gui.Constants.H_GLUE;
-import static io.github.jbellis.brokk.gui.Constants.H_GAP;
+import static io.github.jbellis.brokk.gui.Constants.*;
+import static java.util.Objects.requireNonNull;
 
 public class BlitzForgeDialog extends JDialog {
     private final Chrome chrome;
     private JTextArea instructionsArea;
     private JComboBox<Service.FavoriteModel> modelComboBox;
+    private JComboBox<String> actionComboBox;
     private JLabel tokenWarningLabel;
     private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
@@ -59,10 +58,12 @@ public class BlitzForgeDialog extends JDialog {
     private JTextField contextFilterTextField;
     private static final String ALL_LANGUAGES_OPTION = "All Languages";
     private static final int TOKEN_SAFETY_MARGIN = 32768;
+    private static final int MAX_BLITZ_HISTORY_ITEMS = 50;
+    private static final int HISTORY_TRUNCATION_LENGTH = 100;
 
     // Tracks the most recent cost estimate and user balance
     private volatile double estimatedCost = 0.0;
-    private volatile float userBalance    = Float.NaN;
+    private volatile float userBalance = Float.NaN;
 
     // Cache (file -> token count) to avoid recomputation on every UI refresh
     private final Map<ProjectFile, Long> tokenCountCache = new ConcurrentHashMap<>();
@@ -70,12 +71,14 @@ public class BlitzForgeDialog extends JDialog {
     private FileSelectionPanel fileSelectionPanel;
     private JTable selectedFilesTable;
     private javax.swing.table.DefaultTableModel tableModel;
+    private TableRowSorter<javax.swing.table.DefaultTableModel> selectedFilesSorter;
     private JRadioButton listFilesScopeRadioButton;
     private JTextArea listFilesTextArea;
     // Components for the raw-text “List Files” card
     private javax.swing.table.DefaultTableModel parsedTableModel;
     private JTable parsedFilesTable;
     private JLabel parsedFilesCountLabel;
+    private JLabel selectedFilesCountLabel;
     private JComboBox<String> listLanguageCombo;
     private JLabel entireProjectFileCountLabel;
 
@@ -100,11 +103,11 @@ public class BlitzForgeDialog extends JDialog {
      */
     private static final class ColorDotIcon implements Icon {
         private final Color color;
-        private final int   diameter;
+        private final int diameter;
 
         private ColorDotIcon(Color color, int diameter) {
-            this.color     = Objects.requireNonNull(color, "color");
-            this.diameter  = diameter;
+            this.color = Objects.requireNonNull(color, "color");
+            this.diameter = diameter;
         }
 
         @Override
@@ -116,9 +119,14 @@ public class BlitzForgeDialog extends JDialog {
         }
 
         @Override
-        public int getIconWidth()  { return diameter; }
+        public int getIconWidth() {
+            return diameter;
+        }
+
         @Override
-        public int getIconHeight() { return diameter; }
+        public int getIconHeight() {
+            return diameter;
+        }
     }
 
     public BlitzForgeDialog(Frame owner, Chrome chrome) {
@@ -147,6 +155,8 @@ public class BlitzForgeDialog extends JDialog {
 
         JPanel contentPanel = new JPanel();
         contentPanel.setLayout(new GridBagLayout());
+        // Initialize early so it is non-null when updateCostEstimate() is triggered during UI construction
+        selectedFilesCountLabel = new JLabel("0 files selected");
         contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.insets = new Insets(5, 5, 5, 5);
@@ -200,6 +210,7 @@ public class BlitzForgeDialog extends JDialog {
         entireProjectFileCountLabel = new JLabel(" ");
         entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
         entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
+        entireProjectFileCountLabel.setVisible(false);
 
         // Spacer to push content to the top (remaining vertical space)
         epGBC.gridx = 0;
@@ -223,7 +234,7 @@ public class BlitzForgeDialog extends JDialog {
                 __ -> {
                 },
                 true, // include project files in autocomplete
-                "Ctrl-Enter to add files to the list below."
+                "Ctrl-Enter to add files to the list on the right"
         );
         fileSelectionPanel = new FileSelectionPanel(fspConfig);
         var inputComponent = fileSelectionPanel.getFileInputComponent();
@@ -243,12 +254,22 @@ public class BlitzForgeDialog extends JDialog {
         // Side-by-side panels (50 % each) without a resizable splitter
         JPanel horizontalSplitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
 
-        // Left side: FileSelectionPanel
-        horizontalSplitPane.add(fileSelectionPanel);
+        // Left side: FileSelectionPanel with "Add Files" button underneath
+        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
+        leftPanel.add(fileSelectionPanel, BorderLayout.CENTER);
+        JButton addFilesButton = new JButton("Add Files");
+        addFilesButton.addActionListener(e -> addSelectedFilesToTable());
+        JPanel addButtonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        addButtonPanel.add(addFilesButton);
+        horizontalSplitPane.add(leftPanel);
 
         // Create the JTable and its scroll pane
         tableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0);
         selectedFilesTable = new JTable(tableModel);
+        // Persistent sorter (view ↔ model mapping)
+        selectedFilesSorter = new TableRowSorter<>(tableModel);
+        selectedFilesTable.setRowSorter(selectedFilesSorter);
+        selectedFilesSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
 
         JPopupMenu popupMenu = new JPopupMenu();
         JMenuItem removeItem = new JMenuItem("Remove");
@@ -297,7 +318,11 @@ public class BlitzForgeDialog extends JDialog {
         JButton removeButton = new JButton("Remove Selected");
         removeButton.addActionListener(e -> removeSelectedFilesFromTable());
         removeButtonPanel.add(removeButton);
-        selectFilesCardPanel.add(removeButtonPanel, BorderLayout.SOUTH);
+        // Combine Add Files and Remove Selected on a single bottom row
+        JPanel bottomButtonsPanel = new JPanel(new GridLayout(1, 2, H_GAP, 0));
+        bottomButtonsPanel.add(addButtonPanel);    // left side, right-aligned within its cell
+        bottomButtonsPanel.add(removeButtonPanel); // right side
+        selectFilesCardPanel.add(bottomButtonsPanel, BorderLayout.SOUTH);
 
         scopeCardsPanel.add(selectFilesCardPanel, "SELECT");
 
@@ -305,7 +330,7 @@ public class BlitzForgeDialog extends JDialog {
         JPanel listFilesCardPanel = new JPanel(new BorderLayout(5, 5));
         listFilesCardPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
-        // --- Left: raw-text area and its instructions ---
+        // Left: raw-text area and its instructions
         JPanel rawTextPanel = new JPanel(new BorderLayout(0, 5));
         JLabel listFilesInstructions = new JLabel("Raw text containing filenames");
 
@@ -320,31 +345,45 @@ public class BlitzForgeDialog extends JDialog {
 
         listFilesTextArea = new JTextArea(8, 40);
         listFilesTextArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updateParsedFilesTable(); }
+            @Override
+            public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
+
+            @Override
+            public void removeUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
+
+            @Override
+            public void changedUpdate(javax.swing.event.DocumentEvent e) {
+                updateParsedFilesTable();
+            }
         });
         JScrollPane rawTextScroll = new JScrollPane(listFilesTextArea);
         rawTextPanel.add(listFilesInstructions, BorderLayout.NORTH);
         rawTextPanel.add(rawTextScroll, BorderLayout.CENTER);
 
 
-        // --- Right: parsed-file table with language filter ---
+        // Right: parsed-file table with language filter
         parsedTableModel = new javax.swing.table.DefaultTableModel(new String[]{"File"}, 0) {
-            @Override public boolean isCellEditable(int row, int column) { return false; }
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return false;
+            }
         };
         parsedFilesTable = new JTable(parsedTableModel);
         JScrollPane parsedScroll = new JScrollPane(parsedFilesTable);
 
-        /* top-right panel: language combo */
+        // top-right panel: language combo
         JPanel rightTopPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, H_GAP, 0));
         rightTopPanel.add(new JLabel("Restrict to Language"));
         listLanguageCombo = new JComboBox<>();
         listLanguageCombo.addItem(ALL_LANGUAGES_OPTION);
         chrome.getProject().getAnalyzerLanguages().stream()
-              .map(Language::toString)
-              .sorted()
-              .forEach(listLanguageCombo::addItem);
+                .map(Language::toString)
+                .sorted()
+                .forEach(listLanguageCombo::addItem);
         listLanguageCombo.setSelectedItem(ALL_LANGUAGES_OPTION);
         listLanguageCombo.addActionListener(e -> {
             updateParsedFilesTable();
@@ -352,13 +391,14 @@ public class BlitzForgeDialog extends JDialog {
         });
         rightTopPanel.add(listLanguageCombo);
 
-        /* bottom-right: file count */
+        // bottom-right: file count
         parsedFilesCountLabel = new JLabel("0 files");
+        parsedFilesCountLabel.setVisible(false);
         parsedFilesCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0));
 
         JPanel rightPanel = new JPanel(new BorderLayout(0, 5));
         rightPanel.add(rightTopPanel, BorderLayout.NORTH);
-        rightPanel.add(parsedScroll,   BorderLayout.CENTER);
+        rightPanel.add(parsedScroll, BorderLayout.CENTER);
 
         // Side-by-side panels (50 % each) without a resizable splitter
         JPanel splitPane = new JPanel(new GridLayout(1, 2, H_GAP, 0));
@@ -372,9 +412,7 @@ public class BlitzForgeDialog extends JDialog {
         scopeCardsPanel.add(listFilesCardPanel, "LIST");
 
 
-        // ----------------------------------------------------
         // Context + Post-processing option panels
-        // ----------------------------------------------------
         gbc.gridy++;
         gbc.gridx = 0;
         gbc.gridwidth = 3;
@@ -383,12 +421,12 @@ public class BlitzForgeDialog extends JDialog {
         gbc.fill = GridBagConstraints.BOTH;
 
         JPanel combined = new JPanel(new GridLayout(1, 2, H_GAP, 0));
-        
+
         // ---- parallel processing panel --------------------------------
         JPanel parallelProcessingPanel = new JPanel(new GridBagLayout());
         var ppTitleBorder = BorderFactory.createTitledBorder("Parallel processing");
         parallelProcessingPanel.setBorder(BorderFactory.createCompoundBorder(ppTitleBorder,
-                                                                            BorderFactory.createEmptyBorder(5, 5, 5, 5)));
+                                                                             BorderFactory.createEmptyBorder(5, 5, 5, 5)));
         GridBagConstraints paraGBC = new GridBagConstraints();
         paraGBC.insets = new Insets(0, 0, 0, 0); // Removed per-cell insets
         paraGBC.fill = GridBagConstraints.HORIZONTAL;
@@ -402,9 +440,28 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.fill = GridBagConstraints.HORIZONTAL;
         paraGBC.anchor = GridBagConstraints.WEST;
 
-        var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // No horizontal gap for FlowLayout initially
-        instructionsPanel.add(new JLabel("Instructions:"));
-        instructionsPanel.add(Box.createHorizontalStrut(H_GAP)); // Manual H_GAP
+        var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // explicit H_GAP components
+        var instructionsLabel = new JLabel("Instructions:");
+        instructionsPanel.add(instructionsLabel);
+
+        // spacing between label and History button
+        instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
+
+        // History dropdown button (scaled to label height)
+        JButton blitzHistoryButton = new JButton("History ▼");
+        blitzHistoryButton.setToolTipText("Select a previous BlitzForge instruction");
+        blitzHistoryButton.addActionListener(ev -> showBlitzHistoryMenu(blitzHistoryButton));
+
+        var labelHeight = instructionsLabel.getPreferredSize().height;
+        var btnSize = blitzHistoryButton.getPreferredSize();
+        blitzHistoryButton.setMargin(new Insets(0, 5, 0, 5));   // small horizontal padding
+        Dimension newSize = new Dimension(btnSize.width, labelHeight - 4);
+        blitzHistoryButton.setPreferredSize(newSize);
+        blitzHistoryButton.setMinimumSize(newSize);
+        blitzHistoryButton.setMaximumSize(newSize);
+
+        instructionsPanel.add(blitzHistoryButton);
+        instructionsPanel.add(Box.createHorizontalStrut(H_GAP));
 
         var infoIcon = new JLabel(smallInfoIcon);
         infoIcon.setToolTipText("""
@@ -430,8 +487,29 @@ public class BlitzForgeDialog extends JDialog {
         JScrollPane instructionsScrollPane = new JScrollPane(instructionsArea);
         parallelProcessingPanel.add(instructionsScrollPane, paraGBC);
 
+
+        // Action Row
+        paraGBC.gridy++;
+        paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
+        paraGBC.gridx = 0;
+        paraGBC.gridwidth = 1;
+        paraGBC.weightx = 0.0;
+        paraGBC.weighty = 0;
+        paraGBC.fill = GridBagConstraints.NONE;
+        paraGBC.anchor = GridBagConstraints.EAST;
+        parallelProcessingPanel.add(new JLabel("Action"), paraGBC);
+
+        paraGBC.gridx = 2;
+        paraGBC.weightx = 0.0;
+        paraGBC.fill = GridBagConstraints.NONE;
+        paraGBC.anchor = GridBagConstraints.WEST;
+        actionComboBox = new JComboBox<>(new String[]{"Code", "Ask"});
+        actionComboBox.setSelectedItem("Code");
+        parallelProcessingPanel.add(actionComboBox, paraGBC);
+
         // Model Row
         paraGBC.gridy++;
+        paraGBC.insets = new Insets(V_GAP, H_GLUE, 0, 0);
         paraGBC.gridx = 0;
         paraGBC.gridwidth = 1;
         paraGBC.weightx = 0.0;
@@ -450,9 +528,9 @@ public class BlitzForgeDialog extends JDialog {
         // Add colored-dot speed indicator next to each model alias
         var service = chrome.getContextManager().getService();
         modelComboBox.setRenderer(new DefaultListCellRenderer() {
-            private final Icon redDot    = new ColorDotIcon(Color.RED,    10);
+            private final Icon redDot = new ColorDotIcon(Color.RED, 10);
             private final Icon yellowDot = new ColorDotIcon(Color.YELLOW, 10);
-            private final Icon greenDot  = new ColorDotIcon(new Color(0, 170, 0), 10); // deeper green for visibility
+            private final Icon greenDot = new ColorDotIcon(new Color(0, 170, 0), 10); // deeper green for visibility
 
             @Override
             public Component getListCellRendererComponent(JList<?> list,
@@ -469,23 +547,23 @@ public class BlitzForgeDialog extends JDialog {
                 panel.setBackground(getBackground());
 
                 // Determine metric + color
-                var model   = service.getModel(fav.modelName(), fav.reasoning());
+                var model = service.getModel(fav.modelName(), fav.reasoning());
                 Color color = Color.GRAY;
                 String tooltip = "unknown capacity";
                 if (model != null) {
                     Integer maxConc = service.getMaxConcurrentRequests(model);
                     if (maxConc != null) {
                         tooltip = "%,d max concurrent requests".formatted(maxConc);
-                        color   = (maxConc <= 5) ? Color.RED
-                                                 : (maxConc <= 50) ? Color.YELLOW
-                                                                   : new Color(0, 170, 0);
+                        color = (maxConc <= 5) ? Color.RED
+                                               : (maxConc <= 50) ? Color.YELLOW
+                                                                 : new Color(0, 170, 0);
                     } else {
                         Integer tpm = service.getTokensPerMinute(model);
                         if (tpm != null) {
                             tooltip = "%,d tokens/minute".formatted(tpm);
-                            color   = (tpm <= 1_000_000)  ? Color.RED
-                                                          : (tpm <= 10_000_000) ? Color.YELLOW
-                                                                                : new Color(0, 170, 0);
+                            color = (tpm <= 1_000_000) ? Color.RED
+                                                       : (tpm <= 10_000_000) ? Color.YELLOW
+                                                                             : new Color(0, 170, 0);
                         }
                     }
                 }
@@ -493,7 +571,7 @@ public class BlitzForgeDialog extends JDialog {
                 Icon dot = switch (color.getRGB()) {
                     case 0xFFFF0000 -> redDot;
                     case 0xFFFFFF00 -> yellowDot;
-                    default         -> greenDot;
+                    default -> greenDot;
                 };
 
                 panel.setToolTipText(tooltip);
@@ -525,6 +603,7 @@ public class BlitzForgeDialog extends JDialog {
         parallelProcessingPanel.add(tokenWarningLabel, paraGBC);
 
 
+        // Per-file command
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.anchor = GridBagConstraints.EAST;
@@ -552,6 +631,7 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.fill = GridBagConstraints.NONE;
         paraGBC.gridwidth = 1;
 
+        // Related files
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.weightx = 0;
@@ -569,6 +649,7 @@ public class BlitzForgeDialog extends JDialog {
         relatedClassesCombo.setSelectedItem("0");
         parallelProcessingPanel.add(relatedClassesCombo, paraGBC);
 
+        // Workspace
         paraGBC.gridy++;
         paraGBC.gridx = 0;
         paraGBC.anchor = GridBagConstraints.EAST;
@@ -582,7 +663,7 @@ public class BlitzForgeDialog extends JDialog {
         includeWorkspaceCheckbox = new JCheckBox();
         parallelProcessingPanel.add(includeWorkspaceCheckbox, paraGBC);
 
-        // ---- post-processing panel ------------------------
+        // Post-processing panel
         JPanel ppPanel = new JPanel(new GridBagLayout());
         var postTitleBorder = BorderFactory.createTitledBorder("Post-processing");
         ppPanel.setBorder(BorderFactory.createCompoundBorder(postTitleBorder,
@@ -592,7 +673,7 @@ public class BlitzForgeDialog extends JDialog {
         ppGBC.fill = GridBagConstraints.HORIZONTAL;
         ppGBC.anchor = GridBagConstraints.WEST;
 
-        // --- Instructions area at top ---
+        // Instructions area at top
         ppGBC.gridx = 0;
         ppGBC.gridy = 0;
         ppGBC.gridwidth = 3;
@@ -612,10 +693,7 @@ public class BlitzForgeDialog extends JDialog {
         ppGBC.fill = GridBagConstraints.HORIZONTAL;
         ppGBC.gridwidth = 1;
 
-        // --- run-choice ---
-        // ------------------------------------------------------------------
-        //  Action panel (runPostProcessCombo, model label, build checkbox)
-        // ------------------------------------------------------------------
+        // Action panel (runPostProcessCombo, model label, build checkbox)
         ppGBC.gridy++;
         ppGBC.gridx = 0;
         ppGBC.gridwidth = 3;
@@ -640,7 +718,7 @@ public class BlitzForgeDialog extends JDialog {
         iconGbc.weightx = 0.0;
         actionPanel.add(noneInfoIcon, iconGbc);
 
-        /* Combo box and Model label row */
+        // Combo box and Model label row
         runPostProcessCombo = new JComboBox<>(new String[]{"None", "Architect", "Ask"});
         postProcessingModelLabel = new JLabel(" ");
 
@@ -686,7 +764,7 @@ public class BlitzForgeDialog extends JDialog {
         comboModelGbc.weightx = 1.0; // Allow this panel to take horizontal space
         actionPanel.add(comboAndModelPanel, comboModelGbc);
 
-        /* build-first checkbox on its own row, aligned with column 1 */
+        // build-first checkbox on its own row, aligned with column 1
         GridBagConstraints buildCheckboxGbc = new GridBagConstraints();
         buildCheckboxGbc.insets = new Insets(5, 5, 5, 5);
         buildCheckboxGbc.anchor = GridBagConstraints.WEST;
@@ -695,16 +773,32 @@ public class BlitzForgeDialog extends JDialog {
         buildCheckboxGbc.gridy = 1; // This is now row 1 as combo/model are on row 0
         buildCheckboxGbc.weightx = 0.0;
         buildFirstCheckbox = new JCheckBox("Build project first");
-        buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+        buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing"); // Kept for when it IS enabled
         buildFirstCheckbox.setEnabled(false);
-        actionPanel.add(buildFirstCheckbox, buildCheckboxGbc);
+
+        // Build first info icon (only visible when no build command)
+        JLabel buildFirstInfoIcon = new JLabel(smallInfoIcon);
+        buildFirstInfoIcon.setToolTipText("No build/verification command available");
+        buildFirstInfoIcon.setVisible(false); // Initially hidden
+
+        JPanel buildFirstPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        buildFirstPanel.add(buildFirstCheckbox);
+
+        // Place the info icon in the first column, aligned under the Action icon
+        GridBagConstraints buildIconGbc = new GridBagConstraints();
+        buildIconGbc.insets = new Insets(5, 5, 5, 5);
+        buildIconGbc.anchor = GridBagConstraints.WEST;
+        buildIconGbc.fill = GridBagConstraints.NONE;
+        buildIconGbc.gridx = 0;
+        buildIconGbc.gridy = 1;
+        actionPanel.add(buildFirstInfoIcon, buildIconGbc);
+
+        actionPanel.add(buildFirstPanel, buildCheckboxGbc);
 
         ppPanel.add(actionPanel, ppGBC);
         ppGBC.gridwidth = 1;
 
-        // ------------------------------------------------------------------
-        //  Parallel-processing output panel (include radios + filter)
-        // ------------------------------------------------------------------
+        // Parallel-processing output panel (include radios + filter)
         ppGBC.gridy++;
         ppGBC.gridx = 0;
         ppGBC.gridwidth = 3;
@@ -715,7 +809,7 @@ public class BlitzForgeDialog extends JDialog {
         opGBC.anchor = GridBagConstraints.WEST;
         opGBC.fill = GridBagConstraints.NONE;
 
-        parallelOutputCombo = new JComboBox<>(new String[] {
+        parallelOutputCombo = new JComboBox<>(new String[]{
                 "Include none",
                 "Include all",
                 "Include changed files"
@@ -724,13 +818,13 @@ public class BlitzForgeDialog extends JDialog {
 
         int opRow = 0;
 
-        /* Combo */
+        // Combo
         opGBC.gridx = 0;
         opGBC.gridy = opRow++;
         opGBC.gridwidth = 3;
         outputPanel.add(parallelOutputCombo, opGBC);
 
-        /* Filter row – label */
+        // Filter row – label
         GridBagConstraints filterLabelGbc = new GridBagConstraints();
         filterLabelGbc.insets = new Insets(5, 5, 5, 5);
         filterLabelGbc.gridx = 0;
@@ -738,7 +832,7 @@ public class BlitzForgeDialog extends JDialog {
         filterLabelGbc.anchor = GridBagConstraints.EAST;
         outputPanel.add(new JLabel("Filter"), filterLabelGbc);
 
-        /* Filter row – info bubble */
+        // Filter row – info bubble
         GridBagConstraints filterInfoGbc = new GridBagConstraints();
         filterInfoGbc.insets = new Insets(5, H_GLUE, 5, 5);
         filterInfoGbc.gridx = 1;
@@ -748,7 +842,7 @@ public class BlitzForgeDialog extends JDialog {
         filterInfo.setToolTipText("Only include parallel processing for files whose output passes this natural language classifier");
         outputPanel.add(filterInfo, filterInfoGbc);
 
-        /* Filter row – input field */
+        // Filter row – input field
         GridBagConstraints filterFieldGbc = new GridBagConstraints();
         filterFieldGbc.insets = new Insets(5, H_GLUE, 5, 5);
         filterFieldGbc.gridx = 2;
@@ -771,35 +865,50 @@ public class BlitzForgeDialog extends JDialog {
             postProcessingInstructionsArea.setEnabled(!none);
             postProcessingScrollPane.setEnabled(!none);
 
-            if (ask) {
-                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                        .determineVerificationCommand(chrome.getContextManager());
-                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
-                buildFirstCheckbox.setEnabled(hasVerification);
-                buildFirstCheckbox.setSelected(false); // default off for Ask
-                if (!hasVerification) {
-                    buildFirstCheckbox.setToolTipText("No build/verification command available");
+            // Build-first checkbox handling
+            var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
+                    .determineVerificationCommand(chrome.getContextManager());
+            boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
+
+            if (!hasVerification) {
+                // No verify command -> always disabled & unselected
+                buildFirstCheckbox.setEnabled(false);
+                buildFirstCheckbox.setSelected(false);
+                // The tooltip is on the info icon, so no need to set it here specifically for the checkbox
+                // buildFirstCheckbox.setToolTipText("No build/verification command available"); // This line can be removed if desired
+                buildFirstInfoIcon.setVisible(true); // show the info icon
+            } else {
+                buildFirstCheckbox.setToolTipText("Run the project's build/verification command before invoking post-processing");
+                buildFirstInfoIcon.setVisible(false); // hide the info icon
+                switch (selectedOption) {
+                    case "Architect" -> {
+                        buildFirstCheckbox.setEnabled(true);
+                        buildFirstCheckbox.setSelected(true);
+                    }
+                    case "Ask" -> {
+                        buildFirstCheckbox.setEnabled(true);
+                        buildFirstCheckbox.setSelected(false);
+                    }
+                    default -> { // None
+                        buildFirstCheckbox.setEnabled(false);
+                        buildFirstCheckbox.setSelected(false);
+                    }
                 }
+            }
+
+            //Parallel-output combo defaults
+            if (ask) {
                 parallelOutputCombo.setSelectedItem("Include all");
             } else if (architect) {
-                var verificationCommand = io.github.jbellis.brokk.agents.BuildAgent
-                        .determineVerificationCommand(chrome.getContextManager());
-                boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
-                buildFirstCheckbox.setEnabled(hasVerification);
-                buildFirstCheckbox.setSelected(hasVerification);
-                if (!hasVerification) {
-                    buildFirstCheckbox.setToolTipText("No build/verification command available");
-                }
                 parallelOutputCombo.setSelectedItem("Include changed files");
                 if (postProcessingInstructionsArea.getText().trim().isEmpty()) {
                     postProcessingInstructionsArea.setText("Fix any build errors");
                 }
             } else { // None
-                buildFirstCheckbox.setEnabled(false);
-                buildFirstCheckbox.setSelected(false);
                 parallelOutputCombo.setSelectedItem("Include none");
             }
 
+            // Model label
             if (architect) {
                 String modelName = cm.getService().nameOf(cm.getArchitectModel());
                 postProcessingModelLabel.setText("Model: " + modelName);
@@ -814,7 +923,7 @@ public class BlitzForgeDialog extends JDialog {
         postProcessListener.actionPerformed(new java.awt.event.ActionEvent(runPostProcessCombo, java.awt.event.ActionEvent.ACTION_PERFORMED, ""));
 
 
-        // ---- add both panels ------------------------------
+        // Add both panels
         combined.add(parallelProcessingPanel);
         combined.add(ppPanel);
         contentPanel.add(combined, gbc);
@@ -846,6 +955,7 @@ public class BlitzForgeDialog extends JDialog {
 
         scopePanel.add(scopeRadioPanel, BorderLayout.NORTH);
         scopePanel.add(scopeCardsPanel, BorderLayout.CENTER);
+        scopePanel.add(selectedFilesCountLabel, BorderLayout.SOUTH);
 
         contentPanel.add(scopePanel, gbc);
 
@@ -889,17 +999,74 @@ public class BlitzForgeDialog extends JDialog {
         add(buttonPanel, BorderLayout.SOUTH);
     }
 
+    /**
+     * Display a dropdown menu containing recent BlitzForge instructions.
+     * Selecting an entry populates the Instructions and Post-processing fields.
+     */
+    private void showBlitzHistoryMenu(Component invoker)
+    {
+        var historyEntries = chrome.getProject().loadBlitzHistory();
+        JPopupMenu popup = new JPopupMenu();
+
+        if (historyEntries.isEmpty()) {
+            JMenuItem empty = new JMenuItem("(No history items)");
+            empty.setEnabled(false);
+            popup.add(empty);
+        } else {
+            for (int i = historyEntries.size() - 1; i >= 0; i--) {
+                var entry = historyEntries.get(i);
+                String firstLine = entry.isEmpty() ? "" : entry.get(0).replace('\n', ' ');
+                String display = firstLine.length() > HISTORY_TRUNCATION_LENGTH
+                                 ? firstLine.substring(0, HISTORY_TRUNCATION_LENGTH) + "..."
+                                 : firstLine;
+
+                JMenuItem item = new JMenuItem(display);
+
+                // Build tooltip with all saved lines
+                StringBuilder tooltip = new StringBuilder("<html><pre>");
+                for (var line : entry) {
+                    tooltip.append(line.replace("&", "&amp;")
+                                           .replace("<", "&lt;")
+                                           .replace(">", "&gt;")
+                                           .replace("\"", "&quot;"))
+                            .append("<br><br>");
+                }
+                tooltip.append("</pre></html>");
+                item.setToolTipText(tooltip.toString());
+
+                int idx = i; // capture for lambda
+                item.addActionListener(e -> {
+                    var selected = historyEntries.get(idx);
+                    if (!selected.isEmpty()) {
+                        instructionsArea.setText(selected.get(0));
+                        if (selected.size() > 1) {
+                            postProcessingInstructionsArea.setText(selected.get(1));
+                        }
+                    }
+                });
+                popup.add(item);
+            }
+        }
+
+        // Removed direct access to package-private field; popup will still work
+        popup.show(invoker, 0, invoker.getHeight());
+    }
+
     private void updateCostEstimate() {
-        var cm      = chrome.getContextManager();
+        var cm = chrome.getContextManager();
         var service = cm.getService();
-        var fav     = (Service.FavoriteModel) modelComboBox.getSelectedItem();
+        var fav = (Service.FavoriteModel) modelComboBox.getSelectedItem();
         requireNonNull(fav);
 
         var pricing = service.getModelPricing(fav.modelName());
 
         List<ProjectFile> files = getSelectedFilesForCost();
         int n = files.size();
-        if (n == 0) { costEstimateLabel.setText(" "); return; }
+        selectedFilesCountLabel.setText(n + " file" + (n == 1 ? "" : "s") + " selected");
+        if (n == 0) {
+            costEstimateLabel.setText(" ");
+            return;
+        }
 
         long tokensFiles = files.parallelStream()
                 .mapToLong(this::getTokenCount)
@@ -916,7 +1083,9 @@ public class BlitzForgeDialog extends JDialog {
         int relatedK = 0;
         try {
             var txt = Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
-            if (!txt.isEmpty()) relatedK = Integer.parseInt(txt);
+            if (!txt.isEmpty()) {
+                relatedK = Integer.parseInt(txt);
+            }
         } catch (NumberFormatException ex) {
             // Invalid number → treat as zero related classes
             relatedK = 0;
@@ -924,20 +1093,20 @@ public class BlitzForgeDialog extends JDialog {
         long relatedAdd = relatedK > 0 ? Math.round(n * relatedK * avgTokens * 0.1) : 0;
 
         long totalInput = tokensFiles + workspaceAdd + relatedAdd;
-        long estOutput  = Math.min(4000, totalInput / 2);
-        double cost     = pricing.estimateCost(totalInput, 0, estOutput);
-        estimatedCost   = cost;
+        long estOutput = Math.min(4000, totalInput / 2);
+        double cost = pricing.estimateCost(totalInput, 0, estOutput);
+        estimatedCost = cost;
 
         costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", cost));
     }
-    
+
     private void fetchUserBalance() {
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Fetch balance",
                                 () -> cm.getService().getUserBalance())
-          .thenAccept(balance -> userBalance = balance);
+                .thenAccept(balance -> userBalance = balance);
     }
-    
+
     /**
      * Returns the cached token count of a file, computing it once if necessary.
      */
@@ -950,7 +1119,7 @@ public class BlitzForgeDialog extends JDialog {
             }
         });
     }
-    
+
     /**
      * Gather the currently selected files (no validation).
      */
@@ -958,7 +1127,7 @@ public class BlitzForgeDialog extends JDialog {
         try {
             if (entireProjectScopeRadioButton.isSelected()) {
                 var files = chrome.getProject().getRepo().getTrackedFiles().stream()
-                                   .filter(ProjectFile::isText);
+                        .filter(ProjectFile::isText);
                 String langSel = Objects.toString(languageComboBox.getSelectedItem(), ALL_LANGUAGES_OPTION);
                 if (!ALL_LANGUAGES_OPTION.equals(langSel)) {
                     files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
@@ -970,15 +1139,19 @@ public class BlitzForgeDialog extends JDialog {
                 String text = listFilesTextArea.getText();
                 var projectFiles = chrome.getProject().getRepo().getTrackedFiles();
                 return projectFiles.parallelStream()
-                                   .filter(ProjectFile::isText)
-                                   .filter(pf -> {
-                                       boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                                       if (!nameMatch) return false;
-                                       String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                                       if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
-                                       return langSel.equals(pf.getLanguage().toString());
-                                   })
-                                   .toList();
+                        .filter(ProjectFile::isText)
+                        .filter(pf -> {
+                            boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
+                            if (!nameMatch) {
+                                return false;
+                            }
+                            String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
+                            if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                                return true;
+                            }
+                            return langSel.equals(pf.getLanguage().toString());
+                        })
+                        .toList();
             }
 
             // select-files scope
@@ -1001,7 +1174,7 @@ public class BlitzForgeDialog extends JDialog {
             files = files.filter(pf -> langSel.equals(pf.getLanguage().toString()));
         }
         long count = files.count();
-        entireProjectFileCountLabel.setText(count + " file" + (count == 1 ? "" : "s"));
+        selectedFilesCountLabel.setText(count + " file" + (count == 1 ? "" : "s") + " selected");
     }
 
     /* ---------------- existing method ------------------------------ */
@@ -1081,6 +1254,9 @@ public class BlitzForgeDialog extends JDialog {
                 }
             }
         }
+        // Sort the table model after adding new files
+        selectedFilesSorter.sort();
+
         fileSelectionPanel.setInputText("");
         updateCostEstimate();
     }
@@ -1089,8 +1265,10 @@ public class BlitzForgeDialog extends JDialog {
         int[] selectedRows = selectedFilesTable.getSelectedRows();
         // Remove rows in reverse order to prevent index shifting issues
         for (int i = selectedRows.length - 1; i >= 0; i--) {
-            tableModel.removeRow(selectedRows[i]);
+            int modelIndex = selectedFilesTable.convertRowIndexToModel(selectedRows[i]);
+            tableModel.removeRow(modelIndex);
         }
+        selectedFilesTable.clearSelection();
         updateCostEstimate();
     }
 
@@ -1109,19 +1287,30 @@ public class BlitzForgeDialog extends JDialog {
         String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
 
         List<ProjectFile> matches = tracked.parallelStream()
-                                           .filter(ProjectFile::isText)
-                                           .filter(pf -> {
-                                               boolean nameMatch = text.contains(pf.toString())
-                                                                 || text.contains(pf.getFileName());
-                                               if (!nameMatch) return false;
-                                               if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
-                                               return langSel.equals(pf.getLanguage().toString());
-                                           })
-                                           .sorted(Comparator.comparing(ProjectFile::toString))
-                                           .toList();
+                .filter(ProjectFile::isText)
+                .filter(pf -> {
+                    boolean nameMatch = text.contains(pf.toString())
+                                        || text.contains(pf.getFileName());
+                    if (!nameMatch) {
+                        return false;
+                    }
+                    if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                        return true;
+                    }
+                    return langSel.equals(pf.getLanguage().toString());
+                })
+                .sorted(Comparator.comparing(ProjectFile::toString))
+                .toList();
 
         matches.forEach(pf -> parsedTableModel.addRow(new Object[]{pf.getRelPath().toString()}));
-        parsedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s"));
+
+        // Sort the parsed table model
+        var parsedRowSorter = new TableRowSorter<>(parsedTableModel);
+        parsedFilesTable.setRowSorter(parsedRowSorter);
+        parsedRowSorter.setSortKeys(List.of(new RowSorter.SortKey(0, SortOrder.ASCENDING)));
+        parsedRowSorter.sort();
+
+        selectedFilesCountLabel.setText(matches.size() + " file" + (matches.size() == 1 ? "" : "s") + " selected");
         updateCostEstimate();
     }
 
@@ -1188,9 +1377,13 @@ public class BlitzForgeDialog extends JDialog {
                     .filter(ProjectFile::isText)
                     .filter(pf -> {
                         boolean nameMatch = text.contains(pf.toString()) || text.contains(pf.getFileName());
-                        if (!nameMatch) return false;
+                        if (!nameMatch) {
+                            return false;
+                        }
                         String langSel = Objects.toString(listLanguageCombo.getSelectedItem(), ALL_LANGUAGES_OPTION);
-                        if (ALL_LANGUAGES_OPTION.equals(langSel)) return true;
+                        if (ALL_LANGUAGES_OPTION.equals(langSel)) {
+                            return true;
+                        }
                         return langSel.equals(pf.getLanguage().toString());
                     })
                     .toList();
@@ -1243,11 +1436,11 @@ public class BlitzForgeDialog extends JDialog {
             case "Ask" -> PostProcessingOption.ASK;
             default -> PostProcessingOption.NONE;
         };
-        String selectedInclude = (String) parallelOutputCombo.getSelectedItem();
-        String parallelOutputMode = switch (selectedInclude) {
-            case "Include none"          -> "none";
-            case "Include changed files" -> "changed";
-            default                      -> "all";
+        var selectedInclude = (String) parallelOutputCombo.getSelectedItem();
+        var parallelOutputMode = switch (selectedInclude) {
+            case "Include none" -> ParallelOutputMode.NONE;
+            case "Include changed files" -> ParallelOutputMode.CHANGED;
+            default -> ParallelOutputMode.ALL;
         };
         boolean buildFirst = buildFirstCheckbox.isSelected();
         String contextFilter = contextFilterTextField.getText().trim();
@@ -1258,12 +1451,20 @@ public class BlitzForgeDialog extends JDialog {
             return;
         }
 
+        String action = (String) requireNonNull(actionComboBox.getSelectedItem());
+
+        // Persist Blitz-history entry
+        chrome.getProject().addToBlitzHistory(instructions,
+                                              postProcessingInstructions,
+                                              MAX_BLITZ_HISTORY_ITEMS);
+
         setVisible(false); // Hide this dialog
 
         // Show progress dialog
         var progressDialog = new BlitzForgeProgressDialog(
                 (Frame) getOwner(),
                 instructions,
+                action,
                 selectedFavorite,
                 filesToProcessList,
                 chrome,

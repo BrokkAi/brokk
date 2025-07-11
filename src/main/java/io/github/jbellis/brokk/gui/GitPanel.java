@@ -13,7 +13,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -339,27 +338,5 @@ public class GitPanel extends JPanel
     {
         int lastSlash = filePath.lastIndexOf('/');
         return (lastSlash >= 0) ? filePath.substring(lastSlash + 1) : filePath;
-    }
-
-    // This method needs to be accessible by GitPullRequestsTab
-    public String formatCommitDate(Date date, java.time.LocalDate today) {
-        try {
-            var zonedDateTime = date.toInstant().atZone(java.time.ZoneId.systemDefault());
-            var commitDate = zonedDateTime.toLocalDate();
-
-            if (commitDate.equals(today)) {
-                return "Today " + zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-            } else if (commitDate.equals(today.minusDays(1))) {
-                return "Yesterday " + zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
-            } else if (commitDate.getYear() == today.getYear()) {
-                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("MMM dd HH:mm"));
-            } else {
-                return zonedDateTime.format(java.time.format.DateTimeFormatter.ofPattern("yyyy MMM dd"));
-            }
-        } catch (Exception e) {
-            // Log or handle potential timezone/conversion errors if necessary
-            logger.warn("Error formatting commit date: {}", date, e);
-            return date.toInstant().toString(); // Fallback
-        }
     }
 }

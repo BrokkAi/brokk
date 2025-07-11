@@ -169,14 +169,14 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
-        
+
         // In C#, only actual field declarations need semicolons, not properties
         // Properties look like: public string Name { get; set; }
         // Fields look like: public string name;
         if ("field_declaration".equals(fieldNode.getType()) && !fullSignature.endsWith(";")) {
             fullSignature += ";";
         }
-        
+
         return baseIndent + fullSignature;
     }
 

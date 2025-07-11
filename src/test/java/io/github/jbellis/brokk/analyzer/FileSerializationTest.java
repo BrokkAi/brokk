@@ -4,6 +4,7 @@ import io.github.jbellis.brokk.util.Json;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -181,7 +182,7 @@ public class FileSerializationTest {
         assertTrue(jsonMap.containsKey("root"));
         assertTrue(jsonMap.containsKey("relPath"));
         assertEquals(root.toString(), jsonMap.get("root"));
-        assertEquals("src/Test.java", jsonMap.get("relPath"));
+        assertEquals(String.format("src%sTest.java", File.separator), jsonMap.get("relPath"));
         
         // Test ExternalFile structure
         Path externalPath = tempDir.resolve("external.txt").toAbsolutePath().normalize();
