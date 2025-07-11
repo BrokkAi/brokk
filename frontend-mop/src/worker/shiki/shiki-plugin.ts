@@ -1,19 +1,18 @@
-import type {Plugin} from 'svelte-exmarkdown';
 import rehypeShikiFromHighlighter from '@shikijs/rehype/core';
-import {createHighlighterCore} from 'shiki/core';
+import {createCssVariablesTheme, createHighlighterCore} from 'shiki/core';
 import {createJavaScriptRegexEngine} from 'shiki/engine/javascript';
-import {createCssVariablesTheme} from 'shiki/core';
-import {langLoaders} from './shiki-lang-loaders';
+import bash from 'shiki/langs/bash.mjs';
+import java from 'shiki/langs/java.mjs';
 
 // Initial languages to pre-load
 import js from 'shiki/langs/javascript.mjs';
-import ts from 'shiki/langs/typescript.mjs';
-import python from 'shiki/langs/python.mjs';
-import java from 'shiki/langs/java.mjs';
-import bash from 'shiki/langs/bash.mjs';
 import json from 'shiki/langs/json.mjs';
-import yaml from 'shiki/langs/yaml.mjs';
 import markdown from 'shiki/langs/markdown.mjs';
+import python from 'shiki/langs/python.mjs';
+import ts from 'shiki/langs/typescript.mjs';
+import yaml from 'shiki/langs/yaml.mjs';
+import type {Plugin} from 'svelte-exmarkdown';
+import {langLoaders} from './shiki-lang-loaders';
 
 // Define a CSS variables theme
 const cssVarsTheme = createCssVariablesTheme({
@@ -22,17 +21,6 @@ const cssVarsTheme = createCssVariablesTheme({
     variableDefaults: {},
     fontStyle: true
 });
-
-// Custom transformer to add data-language attribute dynamically
-const languageAttributeTransformer = {
-    name: 'add-language-attributes',
-    pre(node) {
-        node.properties = node.properties || {};
-        node.properties['data-language'] = this.options.lang;
-        console.log('shiki lang detedted:', this.options.lang);
-        return node;
-    }
-};
 
 // Singleton promise for the Shiki highlighter
 export const highlighterPromise = createHighlighterCore({
@@ -44,8 +32,20 @@ export const highlighterPromise = createHighlighterCore({
     }),
     langAlias: {
         svelte: 'html'
-    },
+    }
 });
+
+export const languageAttributeTransformer = {
+    name: 'add-language-attributes',
+    pre(node: any) {
+        const lang = (this.options.lang ?? '').toLowerCase();
+        if (lang) {
+            node.properties ??= {};
+            node.properties['data-language'] = lang;
+        }
+        return node;
+    }
+};
 
 // Singleton promise for the Shiki plugin
 export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highlighter => ({
@@ -55,31 +55,54 @@ export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highl
         {
             theme: 'css-vars',
             colorsRendering: 'css-vars',
-            transformers: [languageAttributeTransformer],
+            transformers: [languageAttributeTransformer]
         }
     ]
 }));
 
-// Function to dynamically load additional languages
-export async function ensureLang(langId: string): Promise<void> {
-    const highlighter = await highlighterPromise;
+const langPromiseCache = new Map<string, Promise<void>>();
+
+/**
+ * Ensures `langId` is available in the highlighter.
+ *
+ * • Completely idempotent: call it as many times as you like.
+ * • If several calls race on the same lang they all await the same promise.
+ * • Returns *immediately* resolved promise if the language is already loaded.
+ */
+export function ensureLang(langId: string): Promise<void> {
     langId = langId.toLowerCase();
-
-    if (highlighter.getLoadedLanguages().includes(langId)) {
-        return;
+    if (!langId) {
+        return Promise.resolve();
     }
 
-    const loader = langLoaders[langId];
-    if (!loader) {
-        console.warn('[Shiki] No loader for language:', langId);
-        return;
+    // Return cached promise if a load is already in flight.
+    if (langPromiseCache.has(langId)) {
+        return langPromiseCache.get(langId)!;
     }
 
-    try {
-        const mod = await loader();
-        await highlighter.loadLanguage(mod.default ?? mod);
-        console.debug('[Shiki] Loaded language:', langId);
-    } catch (e) {
-        console.error('[Shiki] Failed to load language:', langId, e);
-    }
+    const p = highlighterPromise.then(async highlighter => {
+        if (highlighter.getLoadedLanguages().includes(langId)) {
+            return;
+        }
+
+        const loader = langLoaders[langId];
+        if (!loader) {
+            console.warn('[Shiki] No loader registered for:', langId);
+            return;
+        }
+
+        try {
+            const mod = await loader();
+            await highlighter.loadLanguage(mod.default ?? mod);
+            console.log('[Shiki] Language loaded:', langId);
+        } catch (e) {
+            console.error('[Shiki] Language load failed:', langId, e);
+            // On failure, remove from cache so we can retry.
+            langPromiseCache.delete(langId);
+        }
+    });
+
+    // Cache the promise *before* returning it to dedupe races.
+    langPromiseCache.set(langId, p);
+    return p;
 }

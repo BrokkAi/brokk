@@ -10,5 +10,5 @@ export type InboundToWorker = ChunkMsg | ClearMsg | ParseMsg;
 import type { Root as HastRoot } from 'hast';
 export interface ResultMsg { type: 'result'; tree: HastRoot; seq: Seq; }
 export interface ErrorMsg { type: 'error'; message: string; seq: Seq; }
-export interface ShikiReadyMsg { type: 'shiki-ready'; }
-export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiReadyMsg;
+export interface ShikiLangsReadyMsg { type: 'shiki-langs-ready'; }
+export type OutboundFromWorker = ResultMsg | ErrorMsg | ShikiLangsReadyMsg;

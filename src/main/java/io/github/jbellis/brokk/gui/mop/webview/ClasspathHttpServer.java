@@ -136,7 +136,7 @@ public final class ClasspathHttpServer {
 
     private static String guessContentType(String path) {
         if (path.endsWith(".html")) return "text/html; charset=UTF-8";
-        if (path.endsWith(".js")) return "application/javascript; charset=UTF-8";
+        if (path.endsWith(".js") || path.endsWith(".mjs")) return "application/javascript; charset=UTF-8";
         if (path.endsWith(".css")) return "text/css; charset=UTF-8";
         if (path.endsWith(".json")) return "application/json; charset=UTF-8";
         if (path.endsWith(".png")) return "image/png";

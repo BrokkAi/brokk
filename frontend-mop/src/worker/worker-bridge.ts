@@ -21,7 +21,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
   const msg = e.data;
 
   switch (msg.type) {
-    case 'shiki-ready':
+    case 'shiki-langs-ready':
       onShikiReady();
       break;
     case 'result':
