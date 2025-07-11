@@ -44,7 +44,7 @@ public class SerialByKeyExecutor {
      * @return a CompletableFuture representing the pending completion of the task
      */
     public <T> CompletableFuture<T> submit(String key, Callable<T> task) {
-        Supplier<T> supplier = toSupplier(() -> {
+        var supplier = toSupplier(() -> {
             try {
                 return task.call();
             } catch (Exception e) {
@@ -53,32 +53,42 @@ public class SerialByKeyExecutor {
             }
         });
 
-        // The compute() operation is atomic, ensuring that even concurrent submissions
-        // with the same key will be properly chained together for serial execution
-        CompletableFuture<?> future = activeFutures.compute(key, (var k, @Nullable var existingFuture) -> {
-            CompletableFuture<T> taskFuture;
-            if (existingFuture == null) {
-                // First task for this key - execute immediately
-                taskFuture = CompletableFuture.supplyAsync(supplier, executor);
-            } else {
-                // Chain this task to execute after the existing future completes.
-                // We use handle() to ensure that the next task runs even if the previous one fails.
-                taskFuture = existingFuture
-                        .handle((r, e) -> null)
-                        .thenComposeAsync(ignored -> CompletableFuture.supplyAsync(supplier, executor), executor);
-            }
+        /*
+         * We insert a *placeholder* future into the map first.  The real work is executed
+         * afterwards; once it finishes we (1) remove the map entry and (2) complete the
+         * placeholder.  Thus, by the time callers observe completion, the key has already
+         * been cleaned up.
+         */
+        @SuppressWarnings("unchecked")
+        CompletableFuture<T> placeholder = (CompletableFuture<T>) activeFutures.compute(
+                key,
+                (String k, @Nullable CompletableFuture<?> previous) -> {
+                    var resultFuture = new CompletableFuture<T>();
 
-            // When the task completes, remove it from the map if it's the most recent one for this key.
-            taskFuture.whenComplete((res, err) -> {
-                activeFutures.remove(k, taskFuture);
-            });
+                    Runnable scheduleTask = () -> CompletableFuture
+                            .supplyAsync(supplier, executor)
+                            .whenComplete((T res, @Nullable Throwable err) -> {
+                                // guarantee cleanup precedes observable completion
+                                activeFutures.remove(k, resultFuture);
+                                if (err != null) {
+                                    resultFuture.completeExceptionally(err);
+                                } else {
+                                    resultFuture.complete(res);
+                                }
+                            });
 
-            return taskFuture;
-        });
+                    if (previous == null) {
+                        // no pending work: execute immediately
+                        scheduleTask.run();
+                    } else {
+                        // chain after the previous placeholder, regardless of its outcome
+                        previous.whenComplete((r, e) -> scheduleTask.run());
+                    }
 
-        @SuppressWarnings({"unchecked"})
-        CompletableFuture<T> result = (CompletableFuture<T>) future;
-        return result;
+                    return resultFuture;
+                });
+
+        return placeholder;
     }
 
     /**

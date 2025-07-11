@@ -51,7 +51,7 @@ class ScrollDebouncerTest
 
         // Wait for execution
         assertTrue(latch.await(200, TimeUnit.MILLISECONDS), "Should execute within timeout");
-        
+
         assertEquals(1, executeCount.get(), "Should execute exactly once");
         assertEquals("test-value", lastValue.get(), "Should pass correct value");
         assertFalse(debouncer.hasPending(), "Should not have pending action after execution");
@@ -70,12 +70,12 @@ class ScrollDebouncerTest
         );
         debouncer.submit(firstRequest);
 
-        // Small delay to ensure first request is queued
-        Thread.sleep(10);
+        // Verify first request is pending
+        assertTrue(debouncer.hasPending(), "First request should be pending");
 
         // Submit second request before first executes (should cancel first)
         var secondRequest = new ScrollDebouncer.DebounceRequest<>(
-            "second", 
+            "second",
             value -> executeCount.incrementAndGet(),
             executionLatch::countDown
         );
@@ -83,10 +83,10 @@ class ScrollDebouncerTest
 
         // Only second should execute
         assertTrue(executionLatch.await(300, TimeUnit.MILLISECONDS), "Second request should execute");
-        
+
         // Give some extra time to see if first executes (it shouldn't)
         Thread.sleep(100);
-        
+
         assertEquals(1, executeCount.get(), "Should execute exactly once (second request only)");
         assertFalse(debouncer.hasPending(), "Should not have pending action");
     }
@@ -107,14 +107,14 @@ class ScrollDebouncerTest
                 i == 9 ? latch::countDown : null // Only count down on last submission
             );
             debouncer.submit(request);
-            
+
             // Small delay to simulate rapid user input
             Thread.sleep(5);
         }
 
         // Wait for final execution
         assertTrue(latch.await(200, TimeUnit.MILLISECONDS), "Should execute final request");
-        
+
         // Should only execute the last request
         assertEquals(Integer.valueOf(9), lastValue.get(), "Should execute with last submitted value");
         assertFalse(debouncer.hasPending(), "Should not have pending action");
@@ -149,7 +149,7 @@ class ScrollDebouncerTest
     void disposeCleanup()
     {
         AtomicInteger executeCount = new AtomicInteger(0);
-        
+
         var request = new ScrollDebouncer.DebounceRequest<>(
             "test",
             value -> executeCount.incrementAndGet()
@@ -167,7 +167,7 @@ class ScrollDebouncerTest
     {
         AtomicInteger executeCount = new AtomicInteger(0);
         AtomicReference<String> value = new AtomicReference<>();
-        
+
         // Create request without onComplete callback
         var request = new ScrollDebouncer.DebounceRequest<>("test", val -> {
             executeCount.incrementAndGet();
@@ -175,14 +175,53 @@ class ScrollDebouncerTest
         });
 
         debouncer.submit(request);
-        
+
         // Wait for execution (no latch to wait on, so use polling)
         long start = System.currentTimeMillis();
         while (executeCount.get() == 0 && System.currentTimeMillis() - start < 200) {
             Thread.sleep(10);
         }
-        
+
         assertEquals(1, executeCount.get(), "Should execute without onComplete");
         assertEquals("test", value.get(), "Should pass correct value");
+    }
+
+    @Test
+    void rapidCancellationStressTest() throws InterruptedException
+    {
+        // This test specifically targets the race condition that was causing flaky behavior
+        AtomicInteger executeCount = new AtomicInteger(0);
+        AtomicReference<String> lastExecutedValue = new AtomicReference<>();
+        CountDownLatch finalExecutionLatch = new CountDownLatch(1);
+
+        // Submit many requests in rapid succession to stress-test the token mechanism
+        for (int i = 0; i < 20; i++) {
+            final String value = "request-" + i;
+            final boolean isLast = (i == 19);
+
+            var request = new ScrollDebouncer.DebounceRequest<>(
+                value,
+                val -> {
+                    executeCount.incrementAndGet();
+                    lastExecutedValue.set(val);
+                },
+                isLast ? finalExecutionLatch::countDown : null
+            );
+
+            debouncer.submit(request);
+
+            // No sleep here - submit as rapidly as possible to maximize race condition chance
+        }
+
+        // Wait for the final execution
+        assertTrue(finalExecutionLatch.await(600, TimeUnit.MILLISECONDS), "Final request should execute");
+
+        // Give extra time to see if any other executions happen (they shouldn't)
+        Thread.sleep(500);
+
+        // Only the last request should have executed
+        assertEquals(1, executeCount.get(), "Should execute exactly once despite rapid submissions");
+        assertEquals("request-19", lastExecutedValue.get(), "Should execute the last submitted request");
+        assertFalse(debouncer.hasPending(), "Should not have pending action");
     }
 }

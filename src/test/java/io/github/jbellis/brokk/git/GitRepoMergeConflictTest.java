@@ -45,12 +45,7 @@ public class GitRepoMergeConflictTest {
 
     @AfterEach
     void tearDown() {
-        if (gitRepo != null) {
-            gitRepo.close();
-        }
-        if (git != null) {
-            git.close();
-        }
+        GitTestCleanupUtil.cleanupGitResources(gitRepo, git);
     }
 
     @Test

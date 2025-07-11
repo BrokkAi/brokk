@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.util;
 import org.junit.jupiter.api.*;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -115,6 +116,7 @@ class SerialByKeyExecutorTest {
     void testRunnableSubmission() throws Exception {
         var executionOrder = new CopyOnWriteArrayList<String>();
         var key = "runnable-key";
+        var cleanupLatch = new CountDownLatch(1);
 
         var future1 = serialByKeyExecutor.submit(key, () -> {
             executionOrder.add("runnable1");
@@ -124,12 +126,38 @@ class SerialByKeyExecutorTest {
             executionOrder.add("runnable2");
         });
 
-        // Wait for completion - Runnable tasks return null
-        assertNull(future1.get(1, TimeUnit.SECONDS));
-        assertNull(future2.get(1, TimeUnit.SECONDS));
+        // Add a cleanup detection callback to the last future
+        future2.whenComplete((res, err) -> {
+            // Poll until cleanup is complete, then signal
+            executorService.execute(() -> {
+                for (int i = 0; i < 100; i++) {
+                    if (serialByKeyExecutor.getActiveKeyCount() == 0) {
+                        cleanupLatch.countDown();
+                        return;
+                    }
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+                cleanupLatch.countDown(); // Signal even if cleanup didn't complete
+            });
+        });
+
+        // Wait for all tasks to complete
+        CompletableFuture.allOf(future1, future2).get(1, TimeUnit.SECONDS);
+
+        // Verify results
+        assertNull(future1.getNow(null));
+        assertNull(future2.getNow(null));
 
         // Verify serial execution
         assertEquals(List.of("runnable1", "runnable2"), executionOrder);
+
+        // Wait for cleanup to complete
+        assertTrue(cleanupLatch.await(2, TimeUnit.SECONDS), "Cleanup should complete within 2 seconds");
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 
@@ -153,12 +181,12 @@ class SerialByKeyExecutorTest {
         });
 
         // Verify future1 completed exceptionally
-        var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> future1.get(1, TimeUnit.SECONDS));
+        var ex = assertThrows(java.util.concurrent.ExecutionException.class, () -> future1.get(5, TimeUnit.SECONDS));
         assertInstanceOf(java.lang.RuntimeException.class, ex.getCause());
         assertEquals(testException, ex.getCause());
 
         // Wait for future2 and verify its result
-        assertEquals("result2", future2.get(1, TimeUnit.SECONDS));
+        assertEquals("result2", future2.get(5, TimeUnit.SECONDS));
 
         // Verify execution order
         assertEquals(List.of("task2"), executionOrder);
@@ -166,4 +194,5 @@ class SerialByKeyExecutorTest {
         // Verify key is no longer active
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
+
 }

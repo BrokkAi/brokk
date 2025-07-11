@@ -60,15 +60,7 @@ public class GitRepoRemoteMergeTest {
 
     @AfterEach
     void tearDown() {
-        if (localRepo != null) {
-            localRepo.close();
-        }
-        if (localGit != null) {
-            localGit.close();
-        }
-        if (remoteGit != null) {
-            remoteGit.close();
-        }
+        GitTestCleanupUtil.cleanupGitResources(localRepo, localGit, remoteGit);
     }
 
     @Test
