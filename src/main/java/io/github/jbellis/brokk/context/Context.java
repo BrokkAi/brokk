@@ -778,6 +778,10 @@ public class Context {
      * @return A new Context instance with dynamic fragments frozen
      */
     public Context freeze() {
+        if (!containsDynamicFragments()) {
+            return this;
+        }
+
         return freezeAndCleanup().frozenContext;
     }
 
