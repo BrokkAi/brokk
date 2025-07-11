@@ -124,7 +124,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     if (visitedNodes.contains(cur)) return visitedNodes
     visitedNodes.addOne(cur)
 
-    (if (inSuperDirection) cpg.typeDecl.fullNameExact(cur.fullName)._typeViaInheritsFromOut.referencedTypeDecl
+    (if (inSuperDirection) cpg.typeDecl.fullNameExact(cur.fullName).derivedTypeDecl
      else cpg.typ.fullNameExact(cur.fullName).inheritsFromIn)
       .collectAll[TypeDecl]
       .to(mutable.LinkedHashSet) match {
@@ -140,7 +140,7 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   private def staticLookup(subclass: String, method: Method): Option[String] = {
     typeMap.get(subclass) match {
       case Some(sc) =>
-        sc._methodViaAstOut
+        sc.method
           .nameExact(method.name)
           .and(_.signatureExact(method.signature))
           .map(_.fullName)
@@ -150,28 +150,32 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   }
 
   private def resolveCallInSuperClasses(call: Call): Boolean = {
-    if (!call.methodFullName.contains(":")) return false
+    def registerEntry(caller: String, callees: Seq[String]): Unit = {
+      val entries =
+        validM.getOrElse(call.methodFullName, mutable.LinkedHashSet.empty) ++ mutable.LinkedHashSet.from(callees)
+      validM.put(caller, entries)
+    }
 
-    def split(str: String, n: Int) = (str.take(n), str.drop(n + 1))
-
-    val (fullName, signature) = split(call.methodFullName, call.methodFullName.lastIndexOf(":"))
-    val typeDeclFullName      = fullName.replace(s".${call.name}", "")
-    val candidateInheritedMethods =
-      cpg.typeDecl
-        .fullNameExact(allSuperClasses(typeDeclFullName).toIndexedSeq*)
-        .astChildren
-        .isMethod
+    val inheritedMethodsWithMatchingName =
+      call.receiver.typ.derivedTypeTransitive.referencedTypeDecl.method
         .nameExact(call.name)
-        .and(_.signatureExact(signature))
-        .fullName
         .l
-    if (candidateInheritedMethods.nonEmpty) {
-      validM.put(
-        call.methodFullName,
-        validM.getOrElse(call.methodFullName, mutable.LinkedHashSet.empty) ++ mutable.LinkedHashSet.from(
-          candidateInheritedMethods
-        )
-      )
+
+    val inheritedMethodsWithMatchingSignatures =
+      inheritedMethodsWithMatchingName.filter {
+        case m if m.parameter.where(_.isVariadic).hasNext =>
+          // next, we would want to check types, but this should be fine for now
+          true
+        case m => m.parameter.size == call.argument.size
+      }
+
+    if inheritedMethodsWithMatchingSignatures.nonEmpty then {
+      // First the most precise
+      registerEntry(call.methodFullName, inheritedMethodsWithMatchingSignatures.fullName.toSeq)
+      true
+    } else if (inheritedMethodsWithMatchingName.nonEmpty) {
+      // Since some frontends may not have great signature support for calls sites, fall back to just names
+      registerEntry(call.methodFullName, inheritedMethodsWithMatchingName.fullName.toSeq)
       true
     } else {
       false
@@ -186,18 +190,15 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
 
     validM.get(call.methodFullName) match {
       case Some(tgts) =>
-        val callsOut = call._callOut.cast[Method].fullName.toSetImmutable
+        val callsOut = call.callee(NoResolve).fullName.toSetImmutable
         val tgtMs    = tgts.flatMap(destMethod => methodFullNameToNode(destMethod)).toSet
         // Non-overridden methods linked as external stubs should be excluded if they are detected
         val (externalMs, internalMs) = tgtMs.partition(_.isExternal)
-        (if (externalMs.nonEmpty && internalMs.nonEmpty) internalMs else tgtMs)
-          .foreach { tgtM =>
-            if (!callsOut.contains(tgtM.fullName)) {
-              dstGraph.addEdge(call, tgtM, EdgeTypes.CALL)
-            } else {
-              fallbackToStaticResolution(call, dstGraph)
-            }
-          }
+        val callees                  = if (externalMs.nonEmpty && internalMs.nonEmpty) internalMs else tgtMs
+
+        callees
+          .filterNot(tgtM => callsOut.contains(tgtM.fullName))
+          .foreach(dstGraph.addEdge(call, _, EdgeTypes.CALL))
       case None =>
         fallbackToStaticResolution(call, dstGraph)
     }
