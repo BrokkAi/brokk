@@ -1,8 +1,8 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
-  import { highlighterPromise, ensureLang } from '../shiki-plugin';
+  import { highlighterPromise, ensureLang } from '../worker/shiki/shiki-plugin';
   import { buildUnifiedDiff, detectLang } from '../lib/diff-utils';
-  import { transformerDiffLines } from '../shiki-diff-transformer';
+  import { transformerDiffLines } from '../worker/shiki/shiki-diff-transformer';
 
   let {
     filename = '?',

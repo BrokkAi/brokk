@@ -4,7 +4,7 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import remarkRehype from 'remark-rehype';
-import {shikiPluginPromise} from '../shiki-plugin';
+import {shikiPluginPromise} from './shiki/shiki-plugin';
 import type {OutboundFromWorker, ShikiReadyMsg} from './shared';
 
 function post(msg: OutboundFromWorker) {
@@ -24,13 +24,13 @@ let currentProcessor: Processor = baseProcessor;
 
 export function initProcessor() {
     // Asynchronously initialize Shiki and create a new processor with it.
-    console.log('load shiki...');
+    console.log('[shiki] loading lib...');
     shikiPluginPromise
         .then(({rehypePlugin}) => {
             const [pluginFn, highlighter, opts] = rehypePlugin as any;
             const shikiProcessor = createBaseProcessor().use(pluginFn, highlighter, opts);
             currentProcessor = shikiProcessor;
-            console.log('load shiki done');
+            console.log('[shiki] loaded!');
             post(<ShikiReadyMsg>{type: 'shiki-ready'});
         })
         .catch(e => {
