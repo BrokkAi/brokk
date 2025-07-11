@@ -128,8 +128,6 @@ class CallGraphTest extends CpgTestFixture[c2cpg.Config] {
       inside(cpg.call.nameExact("greet").l) { case greetCall :: Nil =>
         greetCall.method.name shouldBe "doGreet"
         greetCall.dispatchType shouldBe DispatchTypes.DYNAMIC_DISPATCH
-        // There is a bug in the frontend caused by `Greeter*` to be interpreted literally with the * resulting in
-        // no matched types
         greetCall.callee.fullName.l should contain theSameElementsAs List(
           "Greeter.greet:ANY()",
           "EnglishGreeter.greet:string()",
