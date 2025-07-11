@@ -1,10 +1,16 @@
 /// <reference lib="webworker" />
 
-import { parseMarkdown } from './parse-markdown';
+import type { Root as HastRoot } from 'hast';
+import { initProcessor, parseMarkdown } from './processor';
 import type {
-  InboundToWorker, OutboundFromWorker,
-  ResultMsg, ErrorMsg
+  InboundToWorker,
+  OutboundFromWorker,
+  ResultMsg,
+  ErrorMsg
 } from './shared';
+
+// Initialize the processor, which will asynchronously load Shiki.
+initProcessor();
 
 let buffer = '';
 let busy = false;
@@ -12,11 +18,11 @@ let dirty = false;
 let seq = 0; // keeps echo of main-thread seq
 
 self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
-  const m = ev.data;
+  const m: InboundToWorker = ev.data;
   switch (m.type) {
     case 'parse':
       try {
-        const tree = parseMarkdown(m.text);
+        const tree = parseMarkdown(m.text, m.fast);
         post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
       } catch (e) {
         post(<ErrorMsg>{ type: 'error', message: String(e), seq: m.seq });

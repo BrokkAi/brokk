@@ -1,5 +1,5 @@
-import type {InboundToWorker, OutboundFromWorker, ResultMsg} from './shared';
-import { onWorkerResult } from '../stores/bubblesStore';
+import type {InboundToWorker, OutboundFromWorker} from './shared';
+import { onWorkerResult, onShikiReady } from '../stores/bubblesStore';
 
 const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
 
@@ -8,8 +8,8 @@ export function pushChunk(text: string, seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'chunk', text, seq });
 }
 
-export function parse(text: string, seq: number) {
-  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq });
+export function parse(text: string, seq: number, fast = false) {
+  worker.postMessage(<InboundToWorker>{ type: 'parse', text, seq, fast });
 }
 
 export function clear(seq: number) {
@@ -19,8 +19,16 @@ export function clear(seq: number) {
 /* inbound ----------------------------------------------------------- */
 worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
   const msg = e.data;
-  if (msg.type === 'error') {
-    console.error('[md-worker]', msg.message);
+
+  switch (msg.type) {
+    case 'shiki-ready':
+      onShikiReady();
+      break;
+    case 'result':
+      onWorkerResult(msg);
+      break;
+    case 'error':
+      console.error('[md-worker]', msg.message);
+      break;
   }
-  onWorkerResult(e.data as ResultMsg);
 };

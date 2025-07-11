@@ -59,7 +59,7 @@
   })();
   // Mock Java bridge for dev mode
   window.javaBridge = {
-    onAck: (epoch) => console.log('Mock ACK for epoch:', epoch)
+    onAck: (epoch) => {}
   };
 
   function simulateEvent(type, data = {}) {

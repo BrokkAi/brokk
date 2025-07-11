@@ -29,6 +29,7 @@ const languageAttributeTransformer = {
   pre(node) {
     node.properties = node.properties || {};
     node.properties['data-language'] = this.options.lang;
+    console.log('shiki lang detedted:', this.options.lang);
     return node;
   }
 };
@@ -51,12 +52,7 @@ export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highl
     {
       theme: 'css-vars',
       colorsRendering: 'css-vars',
-      // lazy: true,
       transformers: [languageAttributeTransformer],
-      async getLanguage(lang) {
-        await ensureLang(lang);
-        return lang;
-      }
     }
   ]
 }));
