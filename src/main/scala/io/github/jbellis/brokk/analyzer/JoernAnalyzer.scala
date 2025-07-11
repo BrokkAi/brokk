@@ -12,6 +12,7 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
@@ -50,6 +51,9 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
   // Cache for directChildren to avoid expensive CPG queries
   private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
+
+  // The class path separators that may be found in this language's path notation
+  protected def fullNameSeparators: Seq[String] = Seq(".")
 
   initializePageRank()
 
@@ -152,11 +156,45 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
     if (sources.isEmpty) Optional.empty() else Optional.of(sources.mkString("\n\n"))
   }
 
-  override def getClassSource(fqcn: String): String = cpg.typeDecl
-    .fullNameExact(fqcn)
-    .flatMap(_.content)
-    .headOption
-    .orNull
+  override def getClassSource(fqcn: String): String = {
+
+    val separatorsRegexGroup      = fullNameSeparators.map(Pattern.quote).mkString("|")
+    lazy val simpleClassNameParts = fqcn.split(s"($separatorsRegexGroup)")
+    lazy val simpleClassName      = simpleClassNameParts.last
+    lazy val simpleClassNameMatches = cpg.typeDecl
+      .nameExact(simpleClassName)
+      .l
+
+    def attemptSimpleName: Option[String] = {
+      simpleClassNameMatches match {
+        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.content.headOption
+        case _                           => None
+      }
+    }
+
+    def clearMetaCharacters: Option[String] = {
+      val dotClassName = fqcn.replace('$', '.')
+      simpleClassNameMatches
+        .filter(td => td.fullName.replace('$', '.') == dotClassName)
+        .flatMap(_.content) match {
+        case exactDotMatch :: Nil => Option(exactDotMatch)
+        case _                    => None
+      }
+    }
+
+    def attemptAnyPartMatch: Option[String] =
+      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).content).headOption
+
+    cpg.typeDecl
+      .fullNameExact(fqcn)
+      .flatMap(_.content)
+      .headOption
+      // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
+      .orElse(attemptSimpleName)
+      .orElse(clearMetaCharacters)
+      .orElse(attemptAnyPartMatch)
+      .orNull
+  }
 
   /** Recursively builds a structural "skeleton" for a given TypeDecl. Language-specific details like method signatures
     * and filtering rules are handled by the concrete implementation.

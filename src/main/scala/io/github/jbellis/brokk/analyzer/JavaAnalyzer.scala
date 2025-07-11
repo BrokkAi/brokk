@@ -29,6 +29,8 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
 
   override def isCpg: Boolean = true
 
+  override val fullNameSeparators: Seq[String] = Seq(".", "$")
+
   /** Java-specific method signature builder.
     */
   override protected def methodSignature(m: Method): String = {
@@ -353,43 +355,6 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     Try(CodeUnit.field(file, pkg, s"$className.$fieldName")).toOption
   }
   // -----------------------------------------------------
-
-  override def getClassSource(fqcn: String): String = {
-
-    lazy val simpleClassNameParts = fqcn.split("[.$]")
-    lazy val simpleClassName      = simpleClassNameParts.last
-    lazy val simpleClassNameMatches = cpg.typeDecl
-      .nameExact(simpleClassName)
-      .l
-
-    def attemptSimpleName: Option[String] = {
-      simpleClassNameMatches match {
-        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.content.headOption
-        case _                           => None
-      }
-    }
-
-    def clearMetaCharacters: Option[String] = {
-      val dotClassName = fqcn.replace('$', '.')
-      simpleClassNameMatches
-        .filter(td => td.fullName.replace('$', '.') == dotClassName)
-        .flatMap(_.content) match {
-        case exactDotMatch :: Nil => Option(exactDotMatch)
-        case _                    => None
-      }
-    }
-
-    def attemptAnyPartMatch: Option[String] =
-      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).content).headOption
-
-    Option(super.getClassSource(fqcn))
-      // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
-      .orElse(attemptSimpleName)
-      .orElse(clearMetaCharacters)
-      .orElse(attemptAnyPartMatch)
-      .orNull
-  }
-
 }
 
 object JavaAnalyzer {

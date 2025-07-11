@@ -32,6 +32,8 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
 
   override def isCpg: Boolean = true
 
+  override val fullNameSeparators: Seq[String] = Seq(".", "::")
+
   // ---------------------------------------------------------------------
   // Language-specific helpers
   // ---------------------------------------------------------------------
