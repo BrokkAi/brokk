@@ -158,7 +158,6 @@ public class SkeletonPrinter {
         return switch (languageStr) {
             case "typescript", "ts" -> Language.TYPESCRIPT;
             case "javascript", "js" -> Language.JAVASCRIPT;
-            case "java" -> Language.JAVA;
             case "python", "py" -> Language.PYTHON;
             default -> null;
         };
@@ -244,7 +243,6 @@ public class SkeletonPrinter {
         return switch (language.name()) {
             case "TYPESCRIPT" -> new TypescriptAnalyzer(project);
             case "JAVASCRIPT" -> new JavascriptAnalyzer(project);
-            case "JAVA" -> new JavaAnalyzer(project.getRoot());
             case "PYTHON" -> new PythonAnalyzer(project);
             default -> null;
         };

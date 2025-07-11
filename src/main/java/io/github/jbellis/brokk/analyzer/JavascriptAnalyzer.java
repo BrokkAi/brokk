@@ -115,7 +115,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // 1. It's an exported function/component starting with an uppercase letter (common React convention).
         // OR
         // 2. It's a method named "render" (classic React class component method).
-        boolean isExported = !exportPrefix.trim().isEmpty();
+        boolean isExported = exportPrefix.trim().startsWith("export");
         boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
         boolean isRenderMethod = "render".equals(functionName);
 
