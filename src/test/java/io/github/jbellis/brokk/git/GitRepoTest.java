@@ -506,40 +506,20 @@ public class GitRepoTest {
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.MERGE_COMMIT);
         assertNotNull(result, "Should be a conflict for MERGE_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt");
+        // Verify that the original worktree is untouched
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
         org.eclipse.jgit.lib.RepositoryState stateMerge = repo.getGit().getRepository().getRepositoryState();
-        assertFalse(stateMerge == org.eclipse.jgit.lib.RepositoryState.MERGING || stateMerge == org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED, "Repository should not be in merging state");
+        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, stateMerge, "Repository should not be in a merging state after conflict check");
     }
 
     @Test
     void testCheckMergeConflicts_NoConflict_RebaseMerge() throws Exception {
         setupBranchesForNoConflictTest_MainAhead(); // main has C1_main, feature is at Initial
-        // Rebase feature (at Initial) onto main (at C1_main). No new commits on feature, so it should be fast-forward or up-to-date like.
         String currentMainBranch = repo.getCurrentBranch();
         String result = repo.checkMergeConflicts("feature", currentMainBranch, GitRepo.MergeMode.REBASE_MERGE);
-        if (io.github.jbellis.brokk.util.Environment.isWindows()) {
-            // JGit may issue an UNCOMMITTED_CHANGES status on Windows even when no real conflicts exist
-            assertTrue(result == null || result.contains("UNCOMMITTED_CHANGES"),
-                      "Unexpected conflict result on Windows: " + result);
-        } else {
-            assertNull(result, "Should be no conflict for REBASE_MERGE when feature is ancestor: " + result);
-        }
+        assertNull(result, "Should be no conflict for REBASE_MERGE when feature is ancestor: " + result);
         assertEquals(currentMainBranch, repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertFalse(repo.getGit().getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
-
-        // Test with feature having its own commits that don't conflict
-        tearDown(); setUp(); // Reset repo
-        setupBranchesForNoConflictTest_FeatureAhead(); // feature has C1, C2; main is at Initial + main_base
-        currentMainBranch = repo.getCurrentBranch();
-        result = repo.checkMergeConflicts("feature", currentMainBranch, GitRepo.MergeMode.REBASE_MERGE);
-        if (io.github.jbellis.brokk.util.Environment.isWindows()) {
-            assertTrue(result == null || result.contains("UNCOMMITTED_CHANGES"),
-                      "Unexpected conflict result on Windows: " + result);
-        } else {
-            assertNull(result, "Should be no conflict for REBASE_MERGE with non-conflicting feature commits: " + result);
-        }
-        assertEquals(currentMainBranch, repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertFalse(repo.getGit().getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
+        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a rebasing state");
     }
 
     @Test
@@ -547,15 +527,9 @@ public class GitRepoTest {
         setupBranchesForConflictTest();
         String result = repo.checkMergeConflicts("feature", repo.getCurrentBranch(), GitRepo.MergeMode.REBASE_MERGE);
         assertNotNull(result, "Should be a conflict for REBASE_MERGE: " + result);
-        // JGit's RebaseResult with STOPPED status might not always populate getConflicts().
-        // The method returns a generic message in that case.
-        // We accept either the specific file mention or the generic "stopped/conflicted" message.
-        boolean mentionsSpecificFile = result.contains("common.txt");
-        boolean isGenericStoppedMessage = result.contains("Rebase stopped or conflicted, but no specific files reported by JGit");
-        assertTrue(mentionsSpecificFile || isGenericStoppedMessage,
-                   "Conflict message should either mention 'common.txt' or be the generic 'stopped/conflicted' message. Actual: " + result);
+        assertTrue(result.contains("Rebase conflicts detected"), "Conflict message should indicate rebase conflict. Actual: " + result);
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        assertFalse(repo.getGit().getRepository().getRepositoryState().isRebasing(), "Repository should not be in rebasing state");
+        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a rebasing state");
     }
 
     @Test
@@ -575,8 +549,41 @@ public class GitRepoTest {
         assertNotNull(result, "Should be a conflict for SQUASH_COMMIT");
         assertTrue(result.contains("common.txt"), "Conflict message should mention common.txt for squash: " + result);
         assertEquals(repo.getCurrentBranch(), repo.getGit().getRepository().getBranch(), "Repository should remain on original branch");
-        org.eclipse.jgit.lib.RepositoryState stateSquashConflict = repo.getGit().getRepository().getRepositoryState();
-        assertFalse(stateSquashConflict == org.eclipse.jgit.lib.RepositoryState.MERGING || stateSquashConflict == org.eclipse.jgit.lib.RepositoryState.MERGING_RESOLVED, "Repository should not be in merging state after squash conflict");
+        assertEquals(org.eclipse.jgit.lib.RepositoryState.SAFE, repo.getGit().getRepository().getRepositoryState(), "Repository should not be in a merging state after squash conflict check");
+    }
+
+    @Test
+    void testSquashMergeIntoHead_FailsWithDirtyWorktree_Staged() throws Exception {
+        setupBranchesForNoConflictTest_FeatureAhead();
+        Files.writeString(projectRoot.resolve("staged_file.txt"), "staged content");
+        repo.getGit().add().addFilepattern("staged_file.txt").call();
+
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
+                             () -> repo.squashMergeIntoHead("feature"));
+        assertTrue(e.getMessage().contains("staged changes"));
+    }
+
+    @Test
+    void testSquashMergeIntoHead_FailsWithDirtyWorktree_Modified() throws Exception {
+        setupBranchesForNoConflictTest_FeatureAhead();
+        // Modify a tracked file without staging
+        Files.writeString(projectRoot.resolve("main_base.txt"), "modified content");
+
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
+                             () -> repo.squashMergeIntoHead("feature"));
+        assertTrue(e.getMessage().contains("modified but uncommitted files"));
+    }
+
+    @Test
+    void testSquashMergeIntoHead_FailsWithConflictingUntrackedFile() throws Exception {
+        setupBranchesForNoConflictTest_FeatureAhead();
+        // Create an untracked file that the merge would add
+        Files.writeString(projectRoot.resolve("file1.txt"), "untracked conflicting content");
+
+        var e = assertThrows(GitRepo.WorktreeDirtyException.class,
+                             () -> repo.squashMergeIntoHead("feature"));
+        assertTrue(e.getMessage().contains("untracked working tree files would be overwritten"));
+        assertTrue(e.getMessage().contains("file1.txt"));
     }
 
     @Test

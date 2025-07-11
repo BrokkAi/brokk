@@ -1078,45 +1078,26 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.trace("Untracked files: {}", status.getUntracked());
         logger.trace("Conflicting files: {}", status.getConflicting());
 
-        // Check for staged changes that might interfere with merge, but first try to reset any phantom staged changes
+        // Check for staged changes, modified tracked files, or conflicting untracked files
         if (!status.getAdded().isEmpty() || !status.getChanged().isEmpty()) {
-            String stagedFiles = Stream.concat(status.getAdded().stream(), status.getChanged().stream())
-                    .collect(Collectors.joining(", "));
-            logger.info("Resetting phantom staged changes: {}", stagedFiles);
+            throw new WorktreeDirtyException("Cannot perform squash merge with staged changes. Please commit or reset them first.");
+        }
+        if (!status.getModified().isEmpty()) {
+            throw new WorktreeDirtyException("Cannot perform squash merge with modified but uncommitted files. Please commit or stash them first.");
+        }
 
-            // Try to reset the index to match HEAD to clear any phantom staged changes
-            try {
-                git.reset().call();
+        // Check for untracked files in the target worktree that would be overwritten by the merge
+        var changedFiles = listFilesChangedBetweenBranches(branchName, targetBranch).stream()
+                                                                                    .map(mf -> mf.file().toString())
+                                                                                    .collect(Collectors.toSet());
+        var untrackedFiles = status.getUntracked();
+        var conflictingUntracked = untrackedFiles.stream()
+                                                 .filter(changedFiles::contains)
+                                                 .collect(Collectors.toSet());
 
-                // Re-check status after reset
-                var newStatus = git.status().call();
-                logger.debug("Status after reset - Added: {}, Changed: {}, Modified: {}",
-                           newStatus.getAdded(), newStatus.getChanged(), newStatus.getModified());
-
-                if (!newStatus.getAdded().isEmpty() || !newStatus.getChanged().isEmpty()) {
-                    String remainingStagedFiles = Stream.concat(newStatus.getAdded().stream(), newStatus.getChanged().stream())
-                            .collect(Collectors.joining(", "));
-                    throw new GitAPIException("Cannot perform squash merge with staged changes. Please commit or reset the following files first: " + remainingStagedFiles) {};
-                }
-
-                // Also check for unstaged changes that might interfere
-                if (!newStatus.getModified().isEmpty()) {
-                    logger.info("Stashing unstaged changes: {}", newStatus.getModified());
-                    try {
-                        var stashResult = git.stashCreate().call();
-                        if (stashResult != null) {
-                            logger.trace("Stashed changes: {}", stashResult.getName());
-                        }
-                    } catch (GitAPIException stashException) {
-                        logger.error("Failed to stash unstaged changes: {}", stashException.getMessage());
-                        throw new GitAPIException("Cannot perform squash merge with unstaged changes in: " + String.join(", ", newStatus.getModified()) +
-                                                ". Please commit or stash these changes first.") {};
-                    }
-                }
-            } catch (GitAPIException resetException) {
-                logger.error("Failed to reset index: {}", resetException.getMessage());
-                throw new GitAPIException("Cannot perform squash merge with staged changes and failed to reset them. Please commit or reset the following files first: " + stagedFiles) {};
-            }
+        if (!conflictingUntracked.isEmpty()) {
+            throw new WorktreeDirtyException("The following untracked working tree files would be overwritten by merge: "
+                                           + String.join(", ", conflictingUntracked));
         }
 
         // Perform squash merge
@@ -1937,6 +1918,31 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Clones a Git repository from a given URL into a specified directory.
+     *
+     * @param url The URL of the repository to clone.
+     * @param directory The local directory to clone into.
+     * @param depth The depth for a shallow clone. If 0, a full clone is performed.
+     * @throws GitAPIException if a Git error occurs during the clone operation.
+     */
+    public static void cloneRepo(String url, Path directory, int depth) throws GitAPIException {
+        logger.info("Cloning Git repository from {} to {}", url, directory);
+        CloneCommand clone = Git.cloneRepository()
+                                .setURI(url)
+                                .setDirectory(directory.toFile());
+
+        if (depth > 0) {
+            logger.debug("Performing shallow clone with depth {}", depth);
+            clone.setDepth(depth);
+            clone.setNoTags(); // Recommended for shallow clones
+        }
+
+        var repo = clone.call();
+        // let the normal Brokk project infrastructure reopen the repo
+        repo.close();
+    }
+
+    /**
      * Initializes a new Git repository in the specified root directory.
      * Creates a .gitignore file with a .brokk/ entry if it doesn't exist or if .brokk/ is missing.
      *
@@ -1948,7 +1954,10 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.info("Initializing new Git repository at {}", root);
         Git.init().setDirectory(root.toFile()).call();
         logger.info("Git repository initialized at {}.", root);
+        ensureBrokkIgnored(root);
+    }
 
+    private static void ensureBrokkIgnored(Path root) throws IOException {
         Path gitignorePath = root.resolve(".gitignore");
         String brokkDirEntry = ".brokk/";
 
@@ -1962,7 +1971,7 @@ public class GitRepo implements Closeable, IGitRepo {
             if (!entryExists) {
                 // Append with a newline ensuring not to add multiple blank lines if file ends with one
                 String contentToAppend = (lines.isEmpty() || lines.getLast().isBlank()) ? brokkDirEntry + "\n" : "\n" + brokkDirEntry + "\n";
-                Files.writeString(gitignorePath, contentToAppend, StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+                Files.writeString(gitignorePath, contentToAppend, StandardCharsets.UTF_8, StandardOpenOption.APPEND);
                 logger.info("Appended '{}' entry to existing .gitignore file at {}.", brokkDirEntry, gitignorePath);
             } else {
                 logger.debug("'{}' entry already exists in .gitignore file at {}.", brokkDirEntry, gitignorePath);
@@ -1979,6 +1988,12 @@ public class GitRepo implements Closeable, IGitRepo {
     public static class WorktreeNeedsForceException extends GitRepoException {
         public WorktreeNeedsForceException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    public static class WorktreeDirtyException extends GitAPIException {
+        public WorktreeDirtyException(String message) {
+            super(message);
         }
     }
 
@@ -2454,152 +2469,93 @@ public class GitRepo implements Closeable, IGitRepo {
         return createTempBranchName("brokk_temp_rebase_" + sanitized);
     }
 
+    /**
+     * Checks for historical conflicts between two branches by performing a simulation in a temporary worktree.
+     * This method does NOT check for conflicts with the current (dirty) worktree state.
+     *
+     * @return A string describing the conflict, or null if no historical conflicts are found.
+     * @throws WorktreeDirtyException if the target branch has uncommitted changes preventing simulation.
+     */
     @Override
     public @Nullable String checkMergeConflicts(String worktreeBranchName, String targetBranchName, MergeMode mode) throws GitAPIException {
-        ObjectId worktreeBranchId = resolve(worktreeBranchName); // Can throw GitAPIException
-        ObjectId targetBranchId = resolve(targetBranchName); // Can throw GitAPIException
+        // This check is a safeguard. If the target branch has uncommitted changes,
+        // `git worktree add` might fail. This gives a cleaner error to the user.
+        var status = git.status().call();
 
-        String originalBranch = null;
+        // A worktree is considered “dirty” for merge-simulation purposes ONLY if
+        //   • the index contains staged additions / changes, OR
+        //   • any *tracked* file is modified, missing, or staged for removal.
+        // Untracked/ignored files are allowed; they will be checked separately
+        // against the list of paths the merge would touch.
+        boolean indexDirty =
+                !status.getAdded().isEmpty() ||
+                !status.getChanged().isEmpty();
+
+        boolean trackedWTDirty =
+                !status.getModified().isEmpty() ||
+                !status.getMissing().isEmpty() ||
+                !status.getRemoved().isEmpty();
+
+        if (indexDirty || trackedWTDirty) {
+            throw new WorktreeDirtyException("Target worktree has uncommitted changes.");
+        }
+
+        ObjectId worktreeBranchId = resolve(worktreeBranchName);
+        ObjectId targetBranchId = resolve(targetBranchName);
+
+        // Create a unique temporary directory for the worktree inside .git/worktrees
+        // to avoid cross-device issues and for easier cleanup.
+        Path worktreesDir = getGitTopLevel().resolve(".git").resolve("worktrees");
+        Path tempWorktreePath;
+        try {
+            Files.createDirectories(worktreesDir);
+            tempWorktreePath = Files.createTempDirectory(worktreesDir, "brokk_merge_check_");
+        } catch (IOException e) {
+            throw new GitRepoException("Failed to create temporary directory for merge check", e);
+        }
+
+        logger.debug("Performing merge conflict simulation in temporary worktree: {}", tempWorktreePath);
 
         try {
-            originalBranch = getCurrentBranch();
+            // Add a detached worktree on the target branch
+            var addCommand = String.format("git worktree add --detach %s %s", tempWorktreePath.toAbsolutePath(), targetBranchId.getName());
+            Environment.instance.runShellCommand(addCommand, getGitTopLevel(), out -> {});
 
-            if (mode == MergeMode.REBASE_MERGE) {
-                String tempRebaseBranchName = createTempBranchName("brokk_temp_rebase_check");
-                logger.debug("Checking rebase conflicts: {} onto {} (using temp branch {})", worktreeBranchName, targetBranchName, tempRebaseBranchName);
-
-                try {
-                    git.branchCreate().setName(tempRebaseBranchName).setStartPoint(worktreeBranchId.getName()).call();
-                    git.checkout().setName(tempRebaseBranchName).call();
-
-                    RebaseResult rebaseResult = git.rebase().setUpstream(targetBranchId.getName()).call();
-                    RebaseResult.Status status = rebaseResult.getStatus();
-                    logger.debug("Rebase simulation result: {}", status);
-                    logger.debug("Rebase result conflicts: {}", rebaseResult.getConflicts());
-
-                    if (status == RebaseResult.Status.CONFLICTS || status == RebaseResult.Status.STOPPED) {
-                        // Get conflicts before aborting, just in case abort clears them from the result object
-                        List<String> conflictingFiles = rebaseResult.getConflicts() == null ? List.of() : rebaseResult.getConflicts();
-                        try {
-                            git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
-                        } catch (GitAPIException e) {
-                            // Log the abort failure but proceed with conflict reporting if possible
-                            logger.warn("Failed to abort rebase while reporting conflicts: {}", e.getMessage(), e);
-                        }
-
-                        if (!conflictingFiles.isEmpty()) {
-                            return "Rebase conflicts detected in: " + String.join(", ", conflictingFiles);
-                        } else {
-                            // If status is CONFLICTS or STOPPED but getConflicts() is empty,
-                            // it's still a conflict/stop situation.
-                            return "Rebase stopped or conflicted, but no specific files reported by JGit. Manual intervention likely needed.";
-                        }
-                    } else if (status == RebaseResult.Status.FAILED || status == RebaseResult.Status.UNCOMMITTED_CHANGES) {
-                        if (repository.getRepositoryState().isRebasing()) {
-                            try {
-                                git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
-                            } catch (GitAPIException e) {
-                                logger.warn("Error aborting rebase after FAILED/UNCOMMITTED_CHANGES status: {}", e.getMessage());
-                            }
-                        }
-                        return "Rebase pre-check failed: " + status.toString() + ". Ensure working directory is clean.";
+            // Create a GitRepo instance for the temporary worktree to run the simulation
+            try (GitRepo tempRepo = new GitRepo(tempWorktreePath)) {
+                if (mode == MergeMode.REBASE_MERGE) {
+                    var rebaseResult = tempRepo.git.rebase().setUpstream(worktreeBranchId).call();
+                    if (rebaseResult.getStatus() == RebaseResult.Status.CONFLICTS || rebaseResult.getStatus() == RebaseResult.Status.STOPPED) {
+                        return "Rebase conflicts detected.";
+                    } else if (!isRebaseSuccessful(rebaseResult)) {
+                        return "Rebase pre-check failed: " + rebaseResult.getStatus();
                     }
-                    return null; // OK, FAST_FORWARD, UP_TO_DATE etc.
-                } finally {
-                    if (repository.getRepositoryState().isRebasing()) {
-                        logger.warn("Rebase was still active during cleanup for {}. Aborting.", tempRebaseBranchName);
-                        try {
-                            git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
-                        } catch (GitAPIException e) {
-                            logger.error("Failed to abort rebase during cleanup", e);
-                        }
-                    }
-                    if (!originalBranch.equals(getCurrentBranch())) {
-                        git.checkout().setName(originalBranch).call();
-                    }
-                    try {
-                        git.branchDelete().setBranchNames(tempRebaseBranchName).setForce(true).call();
-                    } catch (GitAPIException e) {
-                        logger.warn("Could not delete temporary rebase branch {}: {}", tempRebaseBranchName, e.getMessage());
-                    }
-                }
-            } else { // MERGE_COMMIT or SQUASH_COMMIT
-                String tempMergeBranchName = createTempBranchName("brokk_temp_merge_check");
-                logger.debug("Checking merge conflicts: {} into {} (using temp branch {}) with mode {}", worktreeBranchName, targetBranchName, tempMergeBranchName, mode);
-
-                try {
-                    git.branchCreate().setName(tempMergeBranchName).setStartPoint(targetBranchId.getName()).call();
-                    git.checkout().setName(tempMergeBranchName).call();
-
-                    MergeCommand mergeCmd = git.merge().include(worktreeBranchId);
-                    mergeCmd.setCommit(false); // Ensure no commit (and thus no signing) during conflict check
-
+                } else { // MERGE_COMMIT or SQUASH_COMMIT
+                    MergeCommand mergeCmd = tempRepo.git.merge().include(worktreeBranchId);
                     if (mode == MergeMode.SQUASH_COMMIT) {
                         mergeCmd.setSquash(true);
-                    } else { // MERGE_COMMIT
-                        mergeCmd.setSquash(false);
-                        // Do NOT force NO_FF during conflict-check simulation —
-                        // allowing a fast-forward here avoids JGit reporting
-                        // MergeStatus.FAILED when a fast-forward would succeed.
-                        // The real merge (performMerge) still sets NO_FF so the
-                        // actual operation behaves as expected.
                     }
+                    mergeCmd.setCommit(false); // Don't create a commit during simulation
                     MergeResult mergeResult = mergeCmd.call();
-                    MergeResult.MergeStatus status = mergeResult.getMergeStatus();
-                    logger.debug("Merge simulation result: {}", status);
-                    logger.debug("Merge result conflicts map: {}", mergeResult.getConflicts());
-                    logger.debug("Merge result failing paths: {}", mergeResult.getFailingPaths());
-                    logger.debug("Merge result checkout conflicts: {}", mergeResult.getCheckoutConflicts());
 
-                    if (status == MergeResult.MergeStatus.CONFLICTING) {
-                        var conflicts = requireNonNull(mergeResult.getConflicts());
-                        return "Merge conflicts detected in: " + String.join(", ", conflicts.keySet());
-                    } else if (isMergeSuccessful(mergeResult, mode)) {
-                        return null; // MERGED, FAST_FORWARD, MERGED_SQUASHED, ALREADY_UP_TO_DATE
-                    } else {
-                        return "Merge pre-check failed: " + status.toString();
-                    }
-                } finally {
-                    RepositoryState repoState = repository.getRepositoryState();
-                    if (repoState == RepositoryState.MERGING || repoState == RepositoryState.MERGING_RESOLVED) {
-                        logger.warn("Merge was still active during cleanup for {}. Resetting HARD.", tempMergeBranchName);
-                        try {
-                            // A merge operation that was set with .setCommit(false) should not leave the repo in MERGING state
-                            // if it was successful. If it's CONFLICTING, it might.
-                            // However, a reset is a safe cleanup if the state is unexpected.
-                            git.reset().setMode(ResetCommand.ResetType.HARD).call();
-                        } catch (GitAPIException e) {
-                            logger.error("Failed to reset hard during merge cleanup", e);
-                        }
-                    }
-                    if (!originalBranch.equals(getCurrentBranch())) {
-                        git.checkout().setName(originalBranch).call();
-                    }
-                    try {
-                        git.branchDelete().setBranchNames(tempMergeBranchName).setForce(true).call();
-                    } catch (GitAPIException e) {
-                        logger.warn("Could not delete temporary merge branch {}: {}", tempMergeBranchName, e.getMessage());
+                    if (hasConflicts(mergeResult)) {
+                        return "Merge conflicts detected in: " + String.join(", ", mergeResult.getConflicts().keySet());
+                    } else if (!isMergeSuccessful(mergeResult, mode)) {
+                        return "Merge pre-check failed: " + mergeResult.getMergeStatus();
                     }
                 }
             }
-        } catch (GitAPIException e) {
-            logger.error("GitAPIException during checkMergeConflicts: {}", e.getMessage(), e);
-            if (originalBranch != null) {
-                try {
-                    RepositoryState state = repository.getRepositoryState();
-                    if (state.isRebasing()) {
-                        git.rebase().setOperation(RebaseCommand.Operation.ABORT).call();
-                    } else if (state == RepositoryState.MERGING || state == RepositoryState.MERGING_RESOLVED) {
-                        git.reset().setMode(ResetCommand.ResetType.HARD).call();
-                    }
-                    if (!originalBranch.equals(getCurrentBranch())) {
-                        git.checkout().setName(originalBranch).call();
-                    }
-                } catch (GitAPIException cleanupEx) {
-                    logger.warn("Failed to restore original branch or cleanup after overarching error in checkMergeConflicts", cleanupEx);
-                }
+            return null; // No conflicts found
+        } catch (Environment.SubprocessException | InterruptedException e) {
+            throw new GitRepoException("Failed to execute command for temporary worktree", e);
+        } finally {
+            // Forcefully remove the temporary worktree and its directory
+            try {
+                var removeCommand = String.format("git worktree remove --force %s", tempWorktreePath.toAbsolutePath());
+                Environment.instance.runShellCommand(removeCommand, getGitTopLevel(), out -> {});
+            } catch (Exception e) {
+                logger.error("Failed to clean up temporary worktree at {}", tempWorktreePath, e);
             }
-            throw e;
         }
     }
 
