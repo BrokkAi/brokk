@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import io.github.jbellis.brokk.git.CommitInfo;
 
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 
@@ -940,5 +941,41 @@ public class GitRepoTest {
                   "Should preserve valid characters: " + result);
         assertTrue(result.startsWith("brokk_temp_rebase_feature_branch-name123_"),
                   "Should maintain valid branch name components: " + result);
+    }
+    
+    @Test
+    void testCloneRepo_Shallow() throws Exception {
+        // 1. Create an origin repository with a single commit
+        Path originDir = tempDir.resolve("origin");
+        Files.createDirectories(originDir);
+        try (Git originGit = Git.init().setDirectory(originDir.toFile()).call()) {
+            Path readme = originDir.resolve("README.md");
+            Files.writeString(readme, "origin readme");
+            originGit.add().addFilepattern("README.md").call();
+            originGit.commit().setAuthor("Origin", "origin@example.com")
+                              .setMessage("Initial origin commit")
+                              .setSign(false)
+                              .call();
+        }
+
+        // 2. Clone it (depth = 1)
+        Path cloneDir = tempDir.resolve("clone");
+        GitRepo clonedRepo = null;
+        try {
+            clonedRepo = GitRepo.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
+
+            assertNotNull(clonedRepo, "Clone should return a GitRepo instance");
+            assertEquals(cloneDir.toRealPath(), clonedRepo.getGitTopLevel(),
+                         "Git top-level should match clone directory");
+
+            String branch = clonedRepo.getCurrentBranch();
+            List<CommitInfo> commits = clonedRepo.listCommitsDetailed(branch);
+            assertEquals(1, commits.size(),
+                         "Shallow clone (depth=1) should contain exactly one commit");
+        } finally {
+            if (clonedRepo != null) {
+                GitTestCleanupUtil.cleanupGitResources(clonedRepo);
+            }
+        }
     }
 }

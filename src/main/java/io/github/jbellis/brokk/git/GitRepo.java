@@ -1918,31 +1918,6 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Clones a Git repository from a given URL into a specified directory.
-     *
-     * @param url The URL of the repository to clone.
-     * @param directory The local directory to clone into.
-     * @param depth The depth for a shallow clone. If 0, a full clone is performed.
-     * @throws GitAPIException if a Git error occurs during the clone operation.
-     */
-    public static void cloneRepo(String url, Path directory, int depth) throws GitAPIException {
-        logger.info("Cloning Git repository from {} to {}", url, directory);
-        CloneCommand clone = Git.cloneRepository()
-                                .setURI(url)
-                                .setDirectory(directory.toFile());
-
-        if (depth > 0) {
-            logger.debug("Performing shallow clone with depth {}", depth);
-            clone.setDepth(depth);
-            clone.setNoTags(); // Recommended for shallow clones
-        }
-
-        var repo = clone.call();
-        // let the normal Brokk project infrastructure reopen the repo
-        repo.close();
-    }
-
-    /**
      * Initializes a new Git repository in the specified root directory.
      * Creates a .gitignore file with a .brokk/ entry if it doesn't exist or if .brokk/ is missing.
      *
@@ -1977,6 +1952,57 @@ public class GitRepo implements Closeable, IGitRepo {
                 logger.debug("'{}' entry already exists in .gitignore file at {}.", brokkDirEntry, gitignorePath);
             }
         }
+    }
+
+    /**
+     * Clones a remote repository into {@code directory}.
+     * If {@code depth} &gt; 0 a shallow clone of that depth is performed,
+     * otherwise a full clone is made.
+     *
+     * If the URL looks like a plain GitHub HTTPS repo without “.git”
+     * (e.g. https://github.com/Owner/Repo) we automatically append “.git”.
+     */
+    public static GitRepo cloneRepo(String remoteUrl, Path directory, int depth) throws GitAPIException {
+        requireNonNull(remoteUrl, "remoteUrl");
+        requireNonNull(directory, "directory");
+
+        String effectiveUrl = normalizeRemoteUrl(remoteUrl);
+
+        // Ensure the target directory is empty (or doesn’t yet exist)
+        if (Files.exists(directory) &&
+            directory.toFile().list() != null &&
+            directory.toFile().list().length > 0)
+        {
+            throw new IllegalArgumentException("Target directory " + directory + " must be empty or not yet exist");
+        }
+
+        try {
+            var cloneCmd = Git.cloneRepository()
+                              .setURI(effectiveUrl)
+                              .setDirectory(directory.toFile())
+                              .setCloneAllBranches(depth <= 0);
+            if (depth > 0) {
+                cloneCmd.setDepth(depth);
+                cloneCmd.setNoTags();
+            }
+            // Perform clone and immediately close the returned Git handle
+            try (var ignored = cloneCmd.call()) {
+                // nothing – resources closed via try-with-resources
+            }
+            return new GitRepo(directory);
+        } catch (GitAPIException e) {
+            logger.error("Failed to clone {} into {}: {}", effectiveUrl, directory, e.getMessage(), e);
+            throw e;
+        }
+    }
+
+    /** Adds “.git” to simple GitHub HTTPS URLs when missing. */
+    private static String normalizeRemoteUrl(String remoteUrl)
+    {
+        var pattern = Pattern.compile("^https://github\\.com/[^/]+/[^/]+$");
+        return pattern.matcher(remoteUrl).matches() && !remoteUrl.endsWith(".git")
+               ? remoteUrl + ".git"
+               : remoteUrl;
     }
 
     public static class GitRepoException extends GitAPIException {
