@@ -356,7 +356,8 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
 
   override def getClassSource(fqcn: String): String = {
 
-    lazy val simpleClassName = fqcn.split("[.$]").last
+    lazy val simpleClassNameParts = fqcn.split("[.$]")
+    lazy val simpleClassName = simpleClassNameParts.last
     lazy val simpleClassNameMatches = cpg.typeDecl
       .nameExact(simpleClassName)
       .l
@@ -377,11 +378,15 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
         case _                    => None
       }
     }
+    
+    def attemptAnyPartMatch: Option[String] = 
+      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).content).headOption
 
     Option(super.getClassSource(fqcn))
       // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
       .orElse(attemptSimpleName)
       .orElse(clearMetaCharacters)
+      .orElse(attemptAnyPartMatch) 
       .orNull
   }
 
