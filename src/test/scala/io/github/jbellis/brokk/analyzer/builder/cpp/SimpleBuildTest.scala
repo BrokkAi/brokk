@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.analyzer.builder.cpp
 import io.github.jbellis.brokk.analyzer.builder.CpgTestFixture
 import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.joern.c2cpg.Config
-import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.{Identifier, Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.NamespaceTraversal
 
@@ -37,9 +37,45 @@ class SimpleBuildTest extends CpgTestFixture[Config] {
             globalMethod.name shouldBe NamespaceTraversal.globalNamespaceName
         }
       }
-
     }
+  }
 
+  "a C++ pointer parameter" should {
+    withTestConfig { config =>
+      val cpg = project(
+        config,
+        """
+            |#pragma once
+            |#include <stdio.h>
+            |#include <string>
+            |
+            |class Greeter {
+            |public:
+            |  virtual std::string greet() = 0;
+            |  virtual ~Greeter() = default;
+            |};
+            |
+            |int foo(Greeter* greeter) {
+            |    std::cout << greeter->greet();
+            |    return 0;
+            |}
+            |""".stripMargin,
+        "Foo.cpp"
+      ).buildAndOpen
+
+      "evaluate to its underlying type" in {
+        val fooMethod = cpg.method("foo").head
+        inside(fooMethod.parameter.l) { case greeter :: Nil =>
+          greeter.typ.fullName shouldBe "Greeter"
+          greeter.typ.referencedTypeDecl.isExternal.head shouldBe false
+        }
+
+        inside(fooMethod.call.nameExact("greet").receiver.l) { case (greeterRcv: Identifier) :: Nil =>
+          greeterRcv.typ.fullName.head shouldBe "Greeter"
+          greeterRcv.typ.referencedTypeDecl.isExternal.head shouldBe false
+        }
+      }
+    }
   }
 
 }
