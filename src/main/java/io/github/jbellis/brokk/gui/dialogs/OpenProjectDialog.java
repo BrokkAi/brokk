@@ -22,13 +22,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.Optional;
 
 public class OpenProjectDialog extends JDialog
 {
     private static final Pattern GITHUB_URL_PATTERN = Pattern.compile("https://github.com/([^/]+)/([^/\\s]+)");
-    private final Frame parentFrame;
+    private final @Nullable Frame parentFrame;
+    private @Nullable Path selectedProjectPath = null;
 
-    public OpenProjectDialog(Frame parent)
+    public OpenProjectDialog(@Nullable Frame parent)
     {
         super(parent, "Open Project", true);
         this.parentFrame = parent;
@@ -51,6 +53,12 @@ public class OpenProjectDialog extends JDialog
         {
             var originalIcon = new ImageIcon(iconUrl);
             var image = originalIcon.getImage().getScaledInstance(128, 128, Image.SCALE_SMOOTH);
+            var projectsLabel = new JLabel("Projects");
+            projectsLabel.setFont(projectsLabel.getFont().deriveFont(Font.BOLD, 24f));
+            projectsLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+            leftPanel.add(projectsLabel);
+            leftPanel.add(Box.createVerticalStrut(20)); // Add some space
+
             var iconLabel = new JLabel(new ImageIcon(image));
             iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
             leftPanel.add(iconLabel);
@@ -402,14 +410,20 @@ panel.add(buttonPanel, gbc);
             return;
         }
 
+        selectedProjectPath = projectPath;
         dispose();
-        if (Brokk.isProjectOpen(projectPath))
-        {
-            Brokk.focusProjectWindow(projectPath);
-        }
-        else
-        {
-            new Brokk.OpenProjectBuilder(projectPath).open();
-        }
+    }
+
+    /**
+     * Shows a modal dialog letting the user pick a project and returns it.
+     *
+     * @param owner the parent frame (may be {@code null})
+     * @return Optional containing the selected project path; empty if the user cancelled
+     */
+    public static Optional<Path> showDialog(@Nullable Frame owner)
+    {
+        var dlg = new OpenProjectDialog(owner);
+        dlg.setVisible(true);   // modal; blocks
+        return Optional.ofNullable(dlg.selectedProjectPath);
     }
 }

@@ -10,7 +10,8 @@ import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
-import io.github.jbellis.brokk.gui.dialogs.StartupDialog;
+import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
+import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -155,10 +156,9 @@ public class Brokk {
         return new ParsedArgs(noProjectFlag, noKeyFlag, projectPathArg);
     }
 
-    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag, @Nullable Path initialDialogPath)
+    private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag)
     {
         boolean keyIsValid = false;
-        Path currentDialogPath = initialDialogPath;
 
         // 1 – silent validation for an already-persisted key (unless --no-key).
         if (!noKeyFlag) {
@@ -184,30 +184,19 @@ public class Brokk {
         while (!keyIsValid) {
             SwingUtil.runOnEdt(Brokk::hideSplashScreen);
 
-            boolean haveProjectPath = currentDialogPath != null && isValidDirectory(currentDialogPath);
-            var dialogMode = haveProjectPath
-                             ? StartupDialog.DialogMode.REQUIRE_KEY_ONLY
-                             : StartupDialog.DialogMode.REQUIRE_BOTH;
-
-            final Path pathForDialog = currentDialogPath;    // capture for EDT lambda
-            Path projectPathFromDialog = SwingUtil.runOnEdt(
-                    () -> StartupDialog.showDialog(null,
-                                                   MainProject.getBrokkKey(),
-                                                   false,
-                                                   pathForDialog,
-                                                   dialogMode),
-                    null);
-
-            if (projectPathFromDialog == null) {             // user cancelled
-                logger.info("Startup dialog cancelled; shutting down.");
-                return new KeyValidationResult(false, pathForDialog);
+            String newKey = SwingUtil.runOnEdt(() -> BrokkKeyDialog.showDialog(null,
+                                                                               MainProject.getBrokkKey()),
+                                                null);
+            if (newKey == null) {           // user cancelled
+                logger.info("Key entry dialog cancelled; shutting down.");
+                return new KeyValidationResult(false, null);
             }
 
-            keyIsValid = true;                               // dialog guarantees key validity
-            currentDialogPath = projectPathFromDialog;       // may be newly chosen
+            // BrokkKeyDialog has already validated and persisted the key.
+            keyIsValid = true;
         }
 
-        return new KeyValidationResult(true, currentDialogPath);
+        return new KeyValidationResult(true, null);
     }
 
     private static List<Path> determineInitialProjectsToOpen(ParsedArgs parsedArgs, @Nullable Path dialogProjectPathFromKey) {
@@ -305,40 +294,38 @@ public class Brokk {
         // run this after we show the splash screen, it's expensive
         Thread.ofPlatform().start(Messages::init);
 
-        Path initialDialogPath = parsedArgs.projectPathArg != null ? Path.of(parsedArgs.projectPathArg).toAbsolutePath().normalize() : null;
-        KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag, initialDialogPath);
+KeyValidationResult keyResult = performKeyValidationLoop(parsedArgs.noKeyFlag);
+Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
 
         if (!keyResult.isValid()) {
             System.exit(0); // User cancelled key dialog or validation failed critically
         }
-        initialDialogPath = keyResult.dialogProjectPath(); // Path might have been selected during key validation
+        // dialogProjectPathFromKey is already set above
 
-        List<Path> projectsToAttemptOpen = determineInitialProjectsToOpen(parsedArgs, initialDialogPath);
-        Path currentDialogContextPath = initialDialogPath; // Path to suggest to StartupDialog if needed
+        List<Path> projectsToAttemptOpen = determineInitialProjectsToOpen(parsedArgs, dialogProjectPathFromKey);
 
-        boolean successfulOpenOccurred = false;
-        while (true) {
-            if (projectsToAttemptOpen.isEmpty()) {
-                SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Hide splash before project selection dialog
-                final Path dialogPathForLambda = currentDialogContextPath;
-                var selectedPath = SwingUtil.runOnEdt(() -> StartupDialog.showDialog(new JFrame(), MainProject.getBrokkKey(), true, dialogPathForLambda, StartupDialog.DialogMode.REQUIRE_PROJECT_ONLY), null);
-                if (selectedPath == null) { // User quit dialog
-                    logger.info("Startup dialog (project selection) was closed. Shutting down.");
-                    System.exit(0);
+        boolean successfulOpenOccurred = attemptOpenProjects(projectsToAttemptOpen);
+
+        if (!successfulOpenOccurred) {
+            // No projects auto-opened; give the user the Open-Project dialog.
+            SwingUtil.runOnEdt(Brokk::hideSplashScreen);
+
+            var selectedPathOpt = requireNonNull(SwingUtil.runOnEdt(
+                    () -> OpenProjectDialog.showDialog(new JFrame()),
+                    Optional.<Path>empty()));
+
+            selectedPathOpt.ifPresent(path -> {
+                try {
+                    // Wait synchronously until the project is fully opened
+                    new OpenProjectBuilder(path).open().get();
+                } catch (Exception e) {
+                    logger.error("Failed to open project selected via dialog: {}", path, e);
                 }
-                projectsToAttemptOpen.add(selectedPath);
-                currentDialogContextPath = selectedPath; // Update context for next potential dialog
-            }
+            });
 
-            successfulOpenOccurred = attemptOpenProjects(projectsToAttemptOpen);
-
-            if (successfulOpenOccurred) {
-                break; // At least one project opened, exit the startup loop
-            } else {
-                projectsToAttemptOpen.clear(); // All attempts failed, clear list to re-trigger dialog
-                logger.warn("No projects were successfully opened. Retrying with startup dialog.");
-                // currentDialogContextPath remains for the next dialog iteration.
-                // Key validation is not repeated here as it passed earlier.
+            if (openProjectWindows.isEmpty()) {
+                logger.info("User closed Open Project dialog without opening anything. Exiting.");
+                System.exit(0);
             }
         }
     }
