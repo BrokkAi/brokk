@@ -37,9 +37,6 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
   // decl we don't need to specify an addition map to wrap this in. LinkedHashSets are used here to preserve order in
   // the best interest of reproducibility during debugging.
   private val validM = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
-  // Used for dynamic programming as subtree's don't need to be recalculated later
-  private val subclassCache   = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
-  private val superclassCache = mutable.Map.empty[String, mutable.LinkedHashSet[String]]
   // Used for O(1) lookups on methods that will work without indexManager
   private val typeMap = mutable.Map.empty[String, TypeDecl]
   // For linking loose method stubs that cannot be resolved by crawling parent types
@@ -66,16 +63,13 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
     // func ptrs implementing N for C and its subclasses
     for {
       typeDecl <- cpg.typeDecl
-      method   <- typeDecl._methodViaAstOut
+      method   <- typeDecl.method
     } {
       val methodName = method.fullName
-      val candidates = allSubclasses(typeDecl.fullName).flatMap {
-        staticLookup(_, method)
-      }
-      validM.put(methodName, candidates)
+      val candidates =
+        (typeDecl :: typeDecl.derivedTypeDeclTransitive.l).fullName.flatMap(staticLookup(_, method)).toSeq
+      validM.put(methodName, mutable.LinkedHashSet.from(candidates))
     }
-
-    subclassCache.clear()
 
     cpg.call.filter(_.dispatchType == DispatchTypes.DYNAMIC_DISPATCH).foreach { call =>
       try {
@@ -84,54 +78,6 @@ class DynamicCallLinker(cpg: Cpg) extends CpgPass(cpg) {
         case exception: Exception =>
           throw new RuntimeException(exception)
       }
-    }
-  }
-
-  /** Recursively returns all the sub-types of the given type declaration. Does account for circular hierarchies.
-    */
-  private def allSubclasses(typDeclFullName: String): mutable.LinkedHashSet[String] =
-    inheritanceTraversal(typDeclFullName, subclassCache, inSuperDirection = false)
-
-  /** Recursively returns all the super-types of the given type declaration. Does account for circular hierarchies.
-    */
-  private def allSuperClasses(typDeclFullName: String): mutable.LinkedHashSet[String] =
-    inheritanceTraversal(typDeclFullName, superclassCache, inSuperDirection = true)
-
-  private def inheritanceTraversal(
-    typDeclFullName: String,
-    cache: mutable.Map[String, mutable.LinkedHashSet[String]],
-    inSuperDirection: Boolean
-  ): mutable.LinkedHashSet[String] = {
-    cache.get(typDeclFullName) match {
-      case Some(superClasses) => superClasses
-      case None =>
-        val totalSuperclasses = (cpg.typeDecl
-          .fullNameExact(typDeclFullName)
-          .headOption match {
-          case Some(curr) => inheritTraversal(curr, inSuperDirection)
-          case None       => mutable.LinkedHashSet.empty
-        }).map(_.fullName)
-        cache.put(typDeclFullName, totalSuperclasses)
-        totalSuperclasses
-    }
-  }
-
-  private def inheritTraversal(
-    cur: TypeDecl,
-    inSuperDirection: Boolean,
-    visitedNodes: mutable.LinkedHashSet[TypeDecl] = mutable.LinkedHashSet.empty
-  ): mutable.LinkedHashSet[TypeDecl] = {
-    if (visitedNodes.contains(cur)) return visitedNodes
-    visitedNodes.addOne(cur)
-
-    (if (inSuperDirection) cpg.typeDecl.fullNameExact(cur.fullName).derivedTypeDecl
-     else cpg.typ.fullNameExact(cur.fullName).inheritsFromIn)
-      .collectAll[TypeDecl]
-      .to(mutable.LinkedHashSet) match {
-      case classesToEval if classesToEval.isEmpty => visitedNodes
-      case classesToEval =>
-        classesToEval.flatMap(t => inheritTraversal(t, inSuperDirection, visitedNodes))
-        visitedNodes
     }
   }
 
