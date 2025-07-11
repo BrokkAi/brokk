@@ -18,11 +18,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             /* classLikeNodeTypes  */ Set.of("impl_item", "trait_item", "struct_item", "enum_item"),
             /* functionLikeNodes   */ Set.of("function_item", "function_signature_item"),
             /* fieldLikeNodes      */ Set.of("field_declaration", "const_item", "static_item", "enum_variant"),
-            /* decoratorNodes      */ Set.of("attribute_item"),
-            /* identifierFieldName */ "name",
-            /* bodyFieldName       */ "body",
-            /* parametersFieldName */ "parameters",
-            /* returnTypeFieldName */ "return_type",
+            /* decoratorNodes      */ Set.of("attribute_item"), // Rust attributes like #[derive(...)]
+            /* identifierFieldName */ "name", // Common field name for identifiers
+            /* bodyFieldName       */ "body", // e.g., function_item.body, impl_item.body
+            /* parametersFieldName */ "parameters", // e.g., function_item.parameters
+            /* returnTypeFieldName */ "return_type", // e.g., function_item.return_type
+            /* typeParametersFieldName */ "type_parameters", // Rust generics
             /* capture → Skeleton  */ Map.of(
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "impl.definition", SkeletonType.CLASS_LIKE,
@@ -195,12 +196,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                                                String exportPrefix,
                                                String asyncPrefix,
                                                String functionName,
+                                               String typeParamsText,
                                                String paramsText,
                                                String returnTypeText,
                                                String indent) {
         String rt = returnTypeText.isBlank() ? "" : " -> " + returnTypeText;
         // exportPrefix is from getVisibilityPrefix. asyncPrefix from base class logic.
-        String header = String.format("%s%s%sfn %s%s%s", indent, exportPrefix, asyncPrefix, functionName, paramsText, rt).stripLeading();
+        String header = String.format("%s%s%sfn %s%s%s%s", indent, exportPrefix, asyncPrefix, functionName, typeParamsText, paramsText, rt).stripLeading();
 
         TSNode bodyNode = fnNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (!bodyNode.isNull()) {
@@ -289,5 +291,17 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             throw new IllegalStateException("super.extractSimpleName (from RustAnalyzer) failed to find a name for " + errorContext);
         }
         return nameFromSuper;
+    }
+
+    @Override
+    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        // Rust fields like "pub x: i32," and "const ORIGIN: Point = ..." should not have semicolons added in skeleton format
+        return baseIndent + fullSignature;
+    }
+
+    @Override
+    protected boolean requiresSemicolons() {
+        return false; // Rust fields like "pub x: i32," should not have semicolons added
     }
 }

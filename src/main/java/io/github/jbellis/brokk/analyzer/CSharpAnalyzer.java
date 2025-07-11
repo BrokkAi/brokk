@@ -21,6 +21,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "body",
             "parameters",
             "type",
+            "type_parameter_list", // typeParametersFieldName (C# generics)
             java.util.Map.of(
                 "class.definition", SkeletonType.CLASS_LIKE,
                 "function.definition", SkeletonType.FUNCTION_LIKE,
@@ -109,7 +110,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
+        // The 'indent' parameter is now "" when called from buildSignatureString.
         TSNode body = funcNode.getChildByFieldName("body");
         String signature;
 
@@ -163,4 +165,19 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return CS_SYNTAX_PROFILE;
     }
+
+    @Override
+    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+
+        // In C#, only actual field declarations need semicolons, not properties
+        // Properties look like: public string Name { get; set; }
+        // Fields look like: public string name;
+        if ("field_declaration".equals(fieldNode.getType()) && !fullSignature.endsWith(";")) {
+            fullSignature += ";";
+        }
+
+        return baseIndent + fullSignature;
+    }
+
 }

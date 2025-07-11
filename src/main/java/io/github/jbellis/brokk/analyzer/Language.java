@@ -513,6 +513,35 @@ public interface Language {
         @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
     };
 
+    Language TYPESCRIPT = new Language() {
+        private final List<String> extensions = List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
+        @Override public List<String> getExtensions() { return extensions; }
+        @Override public String name() { return "TYPESCRIPT"; }
+
+        @Override
+        public String internalName() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
+            return new TypescriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
+        }
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
+        @Override public String toString() { return name(); }
+        // TODO: Implement getDependencyCandidates for TypeScript (e.g. node_modules, similar to JAVASCRIPT)
+        /*@Override public List<Path> getDependencyCandidates(Project project) {
+            // Leveraging JAVASCRIPT's logic for node_modules as a starting point
+            return JAVASCRIPT.getDependencyCandidates(project);
+        }*/
+        // TODO: Refine isAnalyzed for TypeScript
+    };
+
     List<Language> ALL_LANGUAGES = List.of(C_SHARP,
                                            JAVA,
                                            JAVASCRIPT,
@@ -521,6 +550,7 @@ public interface Language {
                                            GO,
                                            RUST,
                                            PHP,
+                                           TYPESCRIPT, // Now TYPESCRIPT is declared before this list
                                            SQL, // SQL is now defined and can be included
                                            NONE);
 

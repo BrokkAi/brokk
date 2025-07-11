@@ -71,9 +71,7 @@ public final class CSharpAnalyzerTest {
     @Test
     void testCSharpMixedScopesAndNestedNamespaces() {
         TestProject project = TestProject.createTestProject("testcode-cs", io.github.jbellis.brokk.analyzer.Language.C_SHARP);
-        IAnalyzer ana = new CSharpAnalyzer(project);
-        assertInstanceOf(CSharpAnalyzer.class, ana);
-        CSharpAnalyzer analyzer = (CSharpAnalyzer) ana;
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
 
         ProjectFile mixedScopeFile = new ProjectFile(project.getRoot(), "MixedScope.cs");
         var skelMixed = analyzer.getSkeletons(mixedScopeFile); // Triggers parsing and populates internal maps
