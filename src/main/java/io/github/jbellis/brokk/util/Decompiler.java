@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayDeque;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -54,67 +53,6 @@ public class Decompiler {
     }
 
     /**
-     * Fallback heuristic to extract Maven coordinates by parsing the jar's path inside a Maven repository.
-     */
-    private static Optional<String> getMavenCoordinatesFromPath(Path jarPath) {
-        // Expects a path like .../repository/group/id/artifact/version/artifact-version.jar
-        try {
-            var path = jarPath;
-            var name = path.getFileName().toString();
-
-            Path versionDir = path.getParent();
-            if (versionDir == null) {
-                logger.debug("JAR path has no parent directory: {}", path);
-                return Optional.empty();
-            }
-            var version = versionDir.getFileName().toString();
-
-            Path artifactDir = versionDir.getParent();
-            if (artifactDir == null) {
-                logger.debug("JAR path has no artifact directory: {}", path);
-                return Optional.empty();
-            }
-            var artifactId = artifactDir.getFileName().toString();
-
-            // check for consistency
-            if (!name.startsWith(artifactId + "-" + version) || !name.endsWith(".jar")) {
-                logger.debug("JAR file name {} does not match expected pattern for artifactId {} and version {}", name, artifactId, version);
-                return Optional.empty();
-            }
-
-            var groupIdPath = artifactDir.getParent();
-            if (groupIdPath == null) {
-                logger.debug("JAR path has no group ID directory: {}", path);
-                return Optional.empty();
-            }
-            var groupIdParts = new ArrayDeque<String>();
-            var current = groupIdPath;
-            // walk up until we find a directory named "repository" or we hit the root
-            while (current != null && current.getFileName() != null) {
-                String part = current.getFileName().toString();
-                if (part.equals("repository")) {
-                    break;
-                }
-                groupIdParts.addFirst(part);
-                current = current.getParent();
-            }
-
-            if (groupIdParts.isEmpty()) {
-                logger.debug("Could not determine groupId from path {}", jarPath);
-                return Optional.empty();
-            }
-
-            var groupId = String.join(".", groupIdParts);
-            var coords = String.format("%s:%s:%s", groupId, artifactId, version);
-            logger.debug("Determined Maven coordinates for {} as {} from path heuristic", jarPath, coords);
-            return Optional.of(coords);
-        } catch (Exception e) {
-            logger.warn("Failed to determine Maven coordinates from path {}: {}", jarPath, e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    /**
      * Performs the decompilation of the selected JAR file.
      * This method assumes jarPath is a valid JAR file.
      * @param io The Chrome instance for UI feedback
@@ -132,8 +70,7 @@ public class Decompiler {
 
         runner.submit("Importing " + jarName, () -> {
             // Attempt to download sources if we can determine Maven coordinates
-            var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath)
-                                  .or(() -> getMavenCoordinatesFromPath(jarPath));
+            var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
 
             Optional<Path> sourcesJarPathOpt = Optional.empty();
             if (coordsOpt.isPresent()) {
@@ -146,7 +83,7 @@ public class Decompiler {
             // If not downloaded, check for a local sibling
             if (sourcesJarPathOpt.isEmpty()) {
                 if (coordsOpt.isEmpty()) {
-                    logger.info("Could not determine Maven coordinates for {}. Checking for local sources before decompiling.", jarPath.getFileName());
+                    logger.info("No pom.properties found in {}. Checking for local *-sources.jar before decompiling.", jarPath.getFileName());
                 }
                 Path localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
                 if (Files.exists(localSources)) {
