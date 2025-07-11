@@ -354,6 +354,37 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   }
   // -----------------------------------------------------
 
+  override def getClassSource(fqcn: String): String = {
+
+    lazy val simpleClassName = fqcn.split("[.$]").last
+    lazy val simpleClassNameMatches = cpg.typeDecl
+      .nameExact(simpleClassName)
+      .l
+
+    def attemptSimpleName: Option[String] = {
+      simpleClassNameMatches match {
+        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.content.headOption
+        case _                           => None
+      }
+    }
+
+    def clearMetaCharacters: Option[String] = {
+      val dotClassName = fqcn.replace('$', '.')
+      simpleClassNameMatches
+        .filter(td => td.fullName.replace('$', '.') == dotClassName)
+        .flatMap(_.content) match {
+        case exactDotMatch :: Nil => Option(exactDotMatch)
+        case _                    => None
+      }
+    }
+
+    Option(super.getClassSource(fqcn))
+      // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
+      .orElse(attemptSimpleName)
+      .orElse(clearMetaCharacters)
+      .orNull
+  }
+
 }
 
 object JavaAnalyzer {
@@ -378,6 +409,7 @@ object JavaAnalyzer {
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
+      .withDisableFileContent(false) // lets us use `.content` on most AST nodes
       .buildAndThrow
       .open
   }

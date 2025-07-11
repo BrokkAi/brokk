@@ -97,11 +97,35 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNestedTest(): Unit = {
     val analyzer = getAnalyzer
-    val source   = analyzer.getClassSource("A$AInner")
-
+    val source   = analyzer.getClassSource("A$AInner").replace(n, "\n").stripIndent()
     // Verify the source contains inner class definition
-    assertTrue(source.contains("class AInner {"))
-    assertTrue(source.contains("class AInnerInner {"))
+    val expected =
+      """
+        |   public class AInner {
+        |        public class AInnerInner {
+        |            public void method7() {
+        |                System.out.println("hello");
+        |            }
+        |        }
+        |    }
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceTwiceNestedTest(): Unit = {
+    val analyzer = getAnalyzer
+    val source = analyzer.getClassSource("A$AInner$AInnerInner").replace(n, "\n").stripIndent()
+    // Verify the source contains inner class definition
+    val expected =
+      """
+        |        public class AInnerInner {
+        |            public void method7() {
+        |                System.out.println("hello");
+        |            }
+        |        }
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
   }
 
   @Test

@@ -151,34 +151,12 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
     if (sources.isEmpty) Optional.empty() else Optional.of(sources.mkString("\n\n"))
   }
-
-  override def getClassSource(fqcn: String): String = {
-    var classNodes = cpg.typeDecl.fullNameExact(fqcn).l
-
-    // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
-    if (classNodes.isEmpty) {
-      // Attempt by simple name
-      val simpleClassName = fqcn.split("[.$]").last
-      val nameMatches     = cpg.typeDecl.name(simpleClassName).l
-
-      if (nameMatches.size == 1) {
-        classNodes = nameMatches
-      } else if (nameMatches.size > 1) {
-        // Second attempt: try replacing $ with .
-        val dotClassName = fqcn.replace('$', '.')
-        val dotMatches   = nameMatches.filter(td => td.fullName.replace('$', '.') == dotClassName)
-        if (dotMatches.size == 1) classNodes = dotMatches
-      }
-    }
-    if (classNodes.isEmpty) return null
-
-    val td      = classNodes.head
-    val fileOpt = toFile(td.filename)
-    if (fileOpt.isEmpty) return null
-
-    val file = fileOpt.get
-    scala.util.Using(Source.fromFile(file.absPath().toFile))(_.mkString).toOption.orNull
-  }
+  
+  override def getClassSource(fqcn: String): String = cpg.typeDecl
+    .fullNameExact(fqcn)
+    .flatMap(_.content)
+    .headOption
+    .orNull
 
   /** Recursively builds a structural "skeleton" for a given TypeDecl. Language-specific details like method signatures
     * and filtering rules are handled by the concrete implementation.
