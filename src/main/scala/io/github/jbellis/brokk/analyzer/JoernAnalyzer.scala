@@ -151,7 +151,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
     if (sources.isEmpty) Optional.empty() else Optional.of(sources.mkString("\n\n"))
   }
-  
+
   override def getClassSource(fqcn: String): String = cpg.typeDecl
     .fullNameExact(fqcn)
     .flatMap(_.content)
