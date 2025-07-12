@@ -97,11 +97,45 @@ class JavaAnalyzerTest {
   @Test
   def getClassSourceNestedTest(): Unit = {
     val analyzer = getAnalyzer
-    val source   = analyzer.getClassSource("A$AInner")
-
+    val source   = analyzer.getClassSource("A$AInner").replace(n, "\n").stripIndent()
     // Verify the source contains inner class definition
-    assertTrue(source.contains("class AInner {"))
-    assertTrue(source.contains("class AInnerInner {"))
+    val expected =
+      """
+        |   public class AInner {
+        |        public class AInnerInner {
+        |            public void method7() {
+        |                System.out.println("hello");
+        |            }
+        |        }
+        |    }
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceTwiceNestedTest(): Unit = {
+    val analyzer = getAnalyzer
+    val source   = analyzer.getClassSource("A$AInner$AInnerInner").replace(n, "\n").stripIndent()
+    // Verify the source contains inner class definition
+    val expected =
+      """
+        |        public class AInnerInner {
+        |            public void method7() {
+        |                System.out.println("hello");
+        |            }
+        |        }
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceFallbackTest(): Unit = {
+    val analyzer = getAnalyzer
+    val source   = analyzer.getClassSource("A$NonExistent").replace(n, "\n").stripIndent()
+    // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
+    assertTrue(source.contains("class A {"))
+    assertTrue(source.contains("public void method1()"))
+    assertTrue(source.contains("public String method2(String input)"))
   }
 
   @Test

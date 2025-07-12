@@ -12,6 +12,7 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
+import java.util.regex.Pattern
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
@@ -50,6 +51,9 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
   // Cache for directChildren to avoid expensive CPG queries
   private val directChildrenCache = new ConcurrentHashMap[CodeUnit, java.util.List[CodeUnit]]()
+
+  // The class path separators that may be found in this language's path notation
+  protected def fullNameSeparators: Seq[String] = Seq(".")
 
   initializePageRank()
 
@@ -153,31 +157,43 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
   }
 
   override def getClassSource(fqcn: String): String = {
-    var classNodes = cpg.typeDecl.fullNameExact(fqcn).l
 
-    // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
-    if (classNodes.isEmpty) {
-      // Attempt by simple name
-      val simpleClassName = fqcn.split("[.$]").last
-      val nameMatches     = cpg.typeDecl.name(simpleClassName).l
+    val separatorsRegexGroup      = fullNameSeparators.map(Pattern.quote).mkString("|")
+    lazy val simpleClassNameParts = fqcn.split(s"($separatorsRegexGroup)")
+    lazy val simpleClassName      = simpleClassNameParts.last
+    lazy val simpleClassNameMatches = cpg.typeDecl
+      .nameExact(simpleClassName)
+      .l
 
-      if (nameMatches.size == 1) {
-        classNodes = nameMatches
-      } else if (nameMatches.size > 1) {
-        // Second attempt: try replacing $ with .
-        val dotClassName = fqcn.replace('$', '.')
-        val dotMatches   = nameMatches.filter(td => td.fullName.replace('$', '.') == dotClassName)
-        if (dotMatches.size == 1) classNodes = dotMatches
+    def attemptSimpleName: Option[String] = {
+      simpleClassNameMatches match {
+        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.content.headOption
+        case _                           => None
       }
     }
-    if (classNodes.isEmpty) return null
 
-    val td      = classNodes.head
-    val fileOpt = toFile(td.filename)
-    if (fileOpt.isEmpty) return null
+    def clearMetaCharacters: Option[String] = {
+      val dotClassName = fqcn.replace('$', '.')
+      simpleClassNameMatches
+        .filter(td => td.fullName.replace('$', '.') == dotClassName)
+        .flatMap(_.content) match {
+        case exactDotMatch :: Nil => Option(exactDotMatch)
+        case _                    => None
+      }
+    }
 
-    val file = fileOpt.get
-    scala.util.Using(Source.fromFile(file.absPath().toFile))(_.mkString).toOption.orNull
+    def attemptAnyPartMatch: Option[String] =
+      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).content).headOption
+
+    cpg.typeDecl
+      .fullNameExact(fqcn)
+      .flatMap(_.content)
+      .headOption
+      // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
+      .orElse(attemptSimpleName)
+      .orElse(clearMetaCharacters)
+      .orElse(attemptAnyPartMatch)
+      .orNull
   }
 
   /** Recursively builds a structural "skeleton" for a given TypeDecl. Language-specific details like method signatures
