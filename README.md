@@ -27,6 +27,8 @@ Brokk uses sbt (Scala Build Tool) since it has a Scala component. To build Brokk
 2. Run the sbt repl: `sbt` (with JDK 21 or newer)
 3. In the sbt repl, run individual commands: `run`, `clean`, `test`, `assembly`, etc.
 
+If using IntelliJ, open this as an SBT project, not a BSP project.
+
 ### Checking the PATH Brokk Sees
 
 To debug PATH issues, inspect the environment from the shell Brokk uses.
