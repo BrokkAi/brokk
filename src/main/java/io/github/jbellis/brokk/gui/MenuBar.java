@@ -378,7 +378,7 @@ public class MenuBar {
                 icon = new ImageIcon(scaledImage);
             }
             JOptionPane.showMessageDialog(chrome.getFrame(),
-                                          "Brokk Version %s\n\nCopyright (c) 2025 Brokk, Inc.".formatted(BuildInfo.version()),
+                                          "Brokk Version %s\n\nCopyright (c) 2025 Brokk, Inc.".formatted(BuildInfo.version),
                                           "About Brokk",
                                           JOptionPane.INFORMATION_MESSAGE,
                                           icon);

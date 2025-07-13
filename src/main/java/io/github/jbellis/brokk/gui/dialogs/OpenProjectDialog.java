@@ -63,7 +63,7 @@ public class OpenProjectDialog extends JDialog
             iconLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
             leftPanel.add(iconLabel);
 
-            var versionLabel = new JLabel("Brokk " + io.github.jbellis.brokk.BuildInfo.version());
+            var versionLabel = new JLabel("Brokk " + io.github.jbellis.brokk.BuildInfo.version);
             versionLabel.setFont(versionLabel.getFont().deriveFont(Font.PLAIN, 12f));
             versionLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
             leftPanel.add(Box.createVerticalStrut(10)); // Add some space
