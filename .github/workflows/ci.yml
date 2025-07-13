@@ -23,15 +23,36 @@ jobs:
       with:
         java-version: '21'
         distribution: 'temurin'
-        cache: sbt
+        cache: gradle
 
-    - uses: sbt/setup-sbt@v1
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v4
 
     - name: Run tests
-      run: sbt test
+      run: ./gradlew test
 
     - name: Build assembly
-      run: sbt assembly
+      run: ./gradlew shadowJar
+
+  build:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run build
+        run: ./gradlew build
 
   formatting:
     continue-on-error: true
@@ -42,17 +63,19 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Set up JDK
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
-          cache: sbt
+          cache: gradle
 
-      - uses: sbt/setup-sbt@v1
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Check formatting
-        run: sbt scalafmtCheck Test/scalafmtCheck
+        run: ./gradlew checkScalafmtAll --no-configuration-cache
 
-      - run: echo "Previous step failed because code is not formatted. Run 'sbt scalafmt Test/scalafmt'"
+      - run: echo "Previous step failed because code is not formatted. Run './gradlew scalafmtAll'"
         if: ${{ failure() }}
+
