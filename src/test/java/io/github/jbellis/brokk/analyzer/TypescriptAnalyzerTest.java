@@ -620,6 +620,7 @@ public class TypescriptAnalyzerTest {
         // Test with Point interface from Hello.ts
         String pointSource = normalize.apply(analyzer.getClassSource("Point"));
         assertNotNull(pointSource);
+        System.out.println(pointSource);
         assertTrue(pointSource.startsWith("export interface Point"));
         assertTrue(pointSource.contains("x: number;"));
         assertTrue(pointSource.contains("move(dx: number, dy: number): void;"));
