@@ -113,4 +113,4 @@ treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitt
 errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
 shadow = { id = "com.github.johnrengelman.shadow", version = "8.1.1" }
 buildconfig = { id = "com.github.gmazzo.buildconfig", version = "5.3.5" }
-scalafmt = { id = "com.diffplug.spotless", version = "6.25.0" }
+spotless = { id = "com.diffplug.spotless", version = "6.25.0" }

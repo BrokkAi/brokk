@@ -30,7 +30,14 @@
 - **Optimal performance**: Single fork overhead instead of per-test or per-suite forking
 
 ### Code Formatting
-Note: Scalafmt plugin is not currently configured in this build. For now, follow the existing code style manually.
+- `./gradlew spotlessCheck` - Check Scala code formatting
+- `./gradlew spotlessApply` - Auto-format all Scala code
+- `./gradlew spotlessScalaCheck` - Check only Scala files
+- `./gradlew spotlessScalaApply` - Format only Scala files
+
+Configuration is in `.scalafmt.conf` - uses Scalafmt 3.8.3 with project-specific settings.
+
+**Tip**: Run `./gradlew spotlessApply` before committing to ensure proper formatting.
 
 The build system uses aggressive multi-level caching for optimal performance:
 

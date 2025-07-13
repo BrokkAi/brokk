@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.errorprone)
     alias(libs.plugins.shadow)
     alias(libs.plugins.buildconfig)
+    alias(libs.plugins.spotless)
 }
 
 group = "io.github.jbellis"
@@ -119,6 +120,13 @@ buildConfig {
     buildConfigField("String", "version", "\"${project.version}\"")
     packageName("io.github.jbellis.brokk")
     className("BuildInfo")
+}
+
+spotless {
+    scala {
+        target("src/**/*.scala")
+        scalafmt("3.8.1").configFile(".scalafmt.conf")
+    }
 }
 
 sourceSets {
@@ -285,6 +293,23 @@ tasks.named("compileScala") {
 
 tasks.build {
     dependsOn(tasks.shadowJar)
+}
+
+// Fix task dependencies for application distribution
+tasks.named("distZip") {
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.named("distTar") {
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.named("startScripts") {
+    dependsOn(tasks.shadowJar)
+}
+
+tasks.named("startShadowScripts") {
+    dependsOn(tasks.jar)
 }
 
 // Get the version from the latest git tag and current version
