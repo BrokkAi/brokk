@@ -610,7 +610,7 @@ public class TypescriptAnalyzerTest {
     @Test
     void testGetClassSource() throws IOException {
         // Test with Greeter class from Hello.ts
-        String greeterSource = analyzer.getClassSource("Greeter");
+        String greeterSource = normalize.apply(analyzer.getClassSource("Greeter"));
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
         assertTrue(greeterSource.contains("greeting: string;"));
@@ -618,7 +618,7 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface from Hello.ts
-        String pointSource = analyzer.getClassSource("Point");
+        String pointSource = normalize.apply(analyzer.getClassSource("Point"));
         assertNotNull(pointSource);
         assertTrue(pointSource.startsWith("export interface Point"));
         assertTrue(pointSource.contains("x: number;"));
