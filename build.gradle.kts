@@ -57,6 +57,7 @@ java {
 
 application {
     mainClass.set("io.github.jbellis.brokk.Brokk")
+    applicationDefaultJvmArgs = commonJvmArgs
 }
 
 dependencies {
@@ -160,9 +161,12 @@ tasks.withType<JavaCompile> {
     if (name == "compileJava") {
         // Force forked compilation with advanced JVM options
         options.isFork = true
-        options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs)
+        options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
+            "-J-Xmx2g",  // Increase compiler heap size
+            "-J-XX:+UseG1GC"  // Use G1 GC for compiler
+        ))
 
-        // Additional javac options
+        // Optimized javac options for performance
         options.compilerArgs.addAll(listOf(
             "-parameters",  // Preserve method parameter names
             "-g:source,lines,vars",  // Generate full debugging information
@@ -170,8 +174,7 @@ tasks.withType<JavaCompile> {
             "-XDcompilePolicy=simple",  // Error Prone compilation policy
             "--should-stop=ifError=FLOW",  // Stop compilation policy
             "-Werror",  // Treat warnings as errors
-            "-Xlint:deprecation",  // Deprecation warnings
-            "-Xlint:unchecked"  // Unchecked warnings
+            "-Xlint:deprecation,unchecked"  // Combined lint warnings for efficiency
         ))
 
         // Enhanced ErrorProne configuration with NullAway
@@ -291,25 +294,36 @@ tasks.named("compileScala") {
     dependsOn("generateBuildConfig")
 }
 
-tasks.build {
-    dependsOn(tasks.shadowJar)
-}
-
-// Fix task dependencies for application distribution
+// Disable distribution tasks by default - only use shadowJar for distribution
 tasks.named("distZip") {
-    dependsOn(tasks.shadowJar)
+    enabled = false
 }
 
 tasks.named("distTar") {
-    dependsOn(tasks.shadowJar)
+    enabled = false
 }
 
 tasks.named("startScripts") {
-    dependsOn(tasks.shadowJar)
+    enabled = false
 }
 
 tasks.named("startShadowScripts") {
-    dependsOn(tasks.jar)
+    enabled = false
+}
+
+tasks.named("shadowDistTar") {
+    enabled = false
+}
+
+tasks.named("shadowDistZip") {
+    enabled = false
+}
+
+// Only run shadowJar when explicitly requested or in CI
+tasks.shadowJar {
+    enabled = project.hasProperty("enableShadowJar") || 
+              System.getenv("CI") == "true" ||
+              gradle.startParameter.taskNames.contains("shadowJar")
 }
 
 // Get the version from the latest git tag and current version
@@ -336,4 +350,5 @@ fun getVersionFromGit(): String {
         "0.0.0-UNKNOWN"
     }
 }
+
 

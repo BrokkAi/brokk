@@ -10,7 +10,8 @@
 ### Development Workflow
 - `./gradlew compileScala` - Compile main source code only
 - `./gradlew clean` - Clean build artifacts
-- `./gradlew shadowJar` - Create fat JAR for distribution
+- `./gradlew shadowJar` - Create fat JAR for distribution (explicit only)
+- `./gradlew classes` - Compile all main sources (fastest for development)
 
 ### Testing
 - `./gradlew test` - Run all tests (includes TreeSitter and regular tests)
@@ -27,7 +28,11 @@
 - **Unified test suite**: All tests run together in a single forked JVM
 - **Single fork strategy**: One JVM fork for the entire test run
 - **Native library isolation**: TreeSitter tests safely isolated while maintaining good performance
-- **Optimal performance**: Single fork overhead instead of per-test or per-suite forking
+
+#### Test Reports
+After running tests, detailed reports are automatically generated:
+- **HTML Report**: `build/reports/tests/test/index.html` - Interactive test results with timing and failure details
+- **Console Output**: Real-time test progress with pass/fail/skip status
 
 ### Code Formatting
 - `./gradlew spotlessCheck` - Check Scala code formatting
@@ -35,9 +40,7 @@
 - `./gradlew spotlessScalaCheck` - Check only Scala files
 - `./gradlew spotlessScalaApply` - Format only Scala files
 
-Configuration is in `.scalafmt.conf` - uses Scalafmt 3.8.3 with project-specific settings.
-
-**Tip**: Run `./gradlew spotlessApply` before committing to ensure proper formatting.
+Configuration is in `.scalafmt.conf` - uses Scalafmt 3.8.1 with project-specific settings.
 
 The build system uses aggressive multi-level caching for optimal performance:
 
@@ -51,6 +54,8 @@ The build system uses aggressive multi-level caching for optimal performance:
 - **First build**: ~30-60 seconds (everything compiled)
 - **No-change build**: ~1-3 seconds (all tasks `UP-TO-DATE`)
 - **Incremental build**: ~5-15 seconds (only affected tasks run)
+- **Development build** (`classes`): ~3-10 seconds (compile only)
+- **JAR creation** (`shadowJar`): +10-30 seconds when explicitly requested
 
 ### Cache Management
 - `./gradlew clean` - Clear build outputs (keeps Gradle caches)
@@ -58,9 +63,18 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Manual cache clearing: `rm -rf ~/.gradle/caches/` (nuclear option)
 
 ### Performance Tips
-- Keep Gradle daemon running (`gradle.properties` enables this)
-- Use `./gradlew assemble` for development (skips tests)
+- Keep Gradle daemon running (`gradle.properties` enables this with 6GB heap)
+- Use `./gradlew classes` for fastest development (compile only)
+- Use `./gradlew assemble` for development (skips tests, no JARs)
 - Configuration cache automatically optimizes repeated builds
+- Compiler uses 2GB heap with G1GC for faster compilation
+- File system watching enabled for better incremental builds
+
+### JAR Creation
+- **Development builds** (`build`, `assemble`) skip JAR creation for speed
+- **Explicit JAR creation**: `./gradlew shadowJar` when needed
+- **CI/Release builds**: `CI=true ./gradlew build` includes JAR automatically
+- **Force JAR in build**: `./gradlew -PenableShadowJar build`
 
 ## Versioning
 
@@ -71,18 +85,7 @@ The project uses automatic versioning based on git tags. Version numbers are der
 - **Development Build**: `0.12.1-30-g77dcc897` (30 commits after tag 0.12.1, commit hash 77dcc897)
 - **Dirty Working Directory**: `0.12.1-30-g77dcc897-SNAPSHOT` (uncommitted changes present)
 - **No Git Available**: `0.0.0-UNKNOWN` (fallback for CI environments without git)
-
-### How It Works
-The build automatically calls `git describe --tags` to determine the version:
-1. **On exact tag**: Returns clean version number (e.g., `0.12.1`)
-2. **Between tags**: Returns tag + commit count + hash (e.g., `0.12.1-30-g77dcc897`)
-3. **With uncommitted changes**: Adds `-SNAPSHOT` suffix
-4. **Error fallback**: Uses `0.0.0-UNKNOWN` if git is unavailable
-
-### Version Usage
-- **JAR files**: Get correct version in filename (e.g., `brokk-0.12.1-30-g77dcc897-SNAPSHOT.jar`)
 - **BuildInfo class**: Contains `version` field with current version string
-- **Runtime access**: Use `BuildInfo.version` in code to get current version
 
 ### Creating Releases
 To create a new release:

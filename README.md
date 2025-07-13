@@ -27,4 +27,4 @@ Brokk uses Gradle with Scala support. To build Brokk,
 2. Run Gradle commands directly: `./gradlew <command>`
 3. Available commands: `run`, `clean`, `test`, `build`, `shadowJar`, etc.
 
-There are documents on specific aspects of the code in [src/main](https://github.com/BrokkAi/brokk/tree/master/src/main).
+There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/src/main/development.md).
