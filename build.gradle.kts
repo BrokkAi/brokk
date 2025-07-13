@@ -1,5 +1,6 @@
 import net.ltgt.gradle.errorprone.errorprone
 import java.time.Duration
+import java.io.ByteArrayOutputStream
 
 plugins {
     java
@@ -11,7 +12,7 @@ plugins {
 }
 
 group = "io.github.jbellis"
-version = "0.12.1"
+version = getVersionFromGit()
 description = "Brokk - Semantic code assistant with agent-based architecture"
 
 repositories {
@@ -112,13 +113,6 @@ dependencies {
     "errorprone"(libs.nullaway)
     compileOnly(libs.jsr305)
     compileOnly(libs.checker.qual)
-
-    // Add local Error Prone JARs
-    "errorprone"(files("errorprone/error_prone_core-brokk_build-with-dependencies.jar"))
-    "errorprone"(files("errorprone/dataflow-errorprone-3.49.3-eisop1.jar"))
-    "errorprone"(files("errorprone/nullaway-0.12.7.jar"))
-    "errorprone"(files("errorprone/dataflow-nullaway-3.49.3.jar"))
-    "errorprone"(files("errorprone/checker-qual-3.49.3.jar"))
 }
 
 buildConfig {
@@ -154,7 +148,7 @@ tasks.withType<Jar> {
 // Enable incremental compilation for better performance
 tasks.withType<JavaCompile> {
     options.isIncremental = true
-    
+
     if (name == "compileJava") {
         // Force forked compilation with advanced JVM options
         options.isFork = true
@@ -237,30 +231,30 @@ tasks.withType<JavaExec> {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    
+
     // Use a single forked JVM for all tests (for TreeSitter native library isolation)
     maxParallelForks = 1
     forkEvery = 0  // Never fork new JVMs during test execution
-    
+
     jvmArgs = commonJvmArgs + listOf(
         // Additional test-specific JVM arguments
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=./build/test-heap-dumps/"
     )
-    
+
     // Test execution settings
     testLogging {
         events("passed", "skipped", "failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showStandardStreams = false
     }
-    
+
     // Fail fast on first test failure
     failFast = false
-    
+
     // Test timeout
     timeout.set(Duration.ofMinutes(30))
-    
+
     // System properties for tests
     systemProperty("brokk.test.mode", "true")
     systemProperty("java.awt.headless", "true")
@@ -270,16 +264,16 @@ tasks.shadowJar {
     archiveClassifier.set("")
     mergeServiceFiles()
     isZip64 = true  // Enable zip64 for large archives
-    
+
     // Assembly merge strategy equivalent
     transform(com.github.jengelman.gradle.plugins.shadow.transformers.Log4j2PluginsCacheFileTransformer::class.java)
-    
+
     // Exclude signature files
     exclude("META-INF/*.SF")
     exclude("META-INF/*.DSA")
     exclude("META-INF/*.RSA")
     exclude("META-INF/MANIFEST.MF")
-    
+
     manifest {
         attributes["Main-Class"] = "io.github.jbellis.brokk.Brokk"
     }
@@ -292,3 +286,29 @@ tasks.named("compileScala") {
 tasks.build {
     dependsOn(tasks.shadowJar)
 }
+
+// Get the version from the latest git tag and current version
+fun getVersionFromGit(): String {
+    return try {
+        // First, try to get exact tag match
+        val exactTagProcess = ProcessBuilder("git", "describe", "--tags", "--exact-match", "HEAD")
+            .directory(rootDir)
+            .start()
+        exactTagProcess.waitFor()
+
+        if (exactTagProcess.exitValue() == 0) {
+            // On exact tag - clean release version
+            exactTagProcess.inputStream.bufferedReader().readText().trim()
+        } else {
+            // Not on exact tag - get development version
+            val devVersionProcess = ProcessBuilder("git", "describe", "--tags", "--always", "--dirty=-SNAPSHOT")
+                .directory(rootDir)
+                .start()
+            devVersionProcess.waitFor()
+            devVersionProcess.inputStream.bufferedReader().readText().trim()
+        }
+    } catch (e: Exception) {
+        "0.0.0-UNKNOWN"
+    }
+}
+

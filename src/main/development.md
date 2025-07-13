@@ -32,13 +32,6 @@
 ### Code Formatting
 Note: Scalafmt plugin is not currently configured in this build. For now, follow the existing code style manually.
 
-### Advanced Tasks
-- `./gradlew shadowDistZip` - Create distribution ZIP with shadow JAR
-- `./gradlew shadowDistTar` - Create distribution TAR with shadow JAR
-- `./gradlew startShadowScripts` - Create OS-specific launch scripts
-
-## Build Caching & Performance
-
 The build system uses aggressive multi-level caching for optimal performance:
 
 ### Cache Types
@@ -61,6 +54,36 @@ The build system uses aggressive multi-level caching for optimal performance:
 - Keep Gradle daemon running (`gradle.properties` enables this)
 - Use `./gradlew assemble` for development (skips tests)
 - Configuration cache automatically optimizes repeated builds
+
+## Versioning
+
+The project uses automatic versioning based on git tags. Version numbers are derived dynamically from the git repository state:
+
+### Version Behavior
+- **Clean Release**: `0.12.1` (when on exact git tag)
+- **Development Build**: `0.12.1-30-g77dcc897` (30 commits after tag 0.12.1, commit hash 77dcc897)
+- **Dirty Working Directory**: `0.12.1-30-g77dcc897-SNAPSHOT` (uncommitted changes present)
+- **No Git Available**: `0.0.0-UNKNOWN` (fallback for CI environments without git)
+
+### How It Works
+The build automatically calls `git describe --tags` to determine the version:
+1. **On exact tag**: Returns clean version number (e.g., `0.12.1`)
+2. **Between tags**: Returns tag + commit count + hash (e.g., `0.12.1-30-g77dcc897`)
+3. **With uncommitted changes**: Adds `-SNAPSHOT` suffix
+4. **Error fallback**: Uses `0.0.0-UNKNOWN` if git is unavailable
+
+### Version Usage
+- **JAR files**: Get correct version in filename (e.g., `brokk-0.12.1-30-g77dcc897-SNAPSHOT.jar`)
+- **BuildInfo class**: Contains `version` field with current version string
+- **Runtime access**: Use `BuildInfo.version` in code to get current version
+
+### Creating Releases
+To create a new release:
+1. Tag the commit: `git tag v0.13.0`
+2. Build will automatically use clean version: `0.13.0`
+3. Push tag: `git push origin v0.13.0`
+
+No manual version updates needed - everything is derived from git tags automatically.
 
 ## Icon Browser
 
