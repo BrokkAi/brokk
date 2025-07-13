@@ -215,25 +215,14 @@ tasks.withType<JavaCompile> {
 
 // Enhanced Scala compiler options
 tasks.withType<ScalaCompile> {
-    if (name == "compileScala") {
-        scalaCompileOptions.additionalParameters = listOf(
-            "-Xfatal-warnings",           // Treat warnings as errors (strict quality)
-            "-print-lines",               // Print source line numbers with messages
-            "-encoding", "UTF-8",         // Explicit UTF-8 encoding
-            "-language:reflectiveCalls",  // Enable reflective calls language feature
-            "-feature",                   // Warn about misused language features
-            "-Wunused:imports"            // Warn about unused imports
-        )
-    } else if (name == "compileTestScala") {
-        // Test compilation should not have -Xfatal-warnings due to deprecation warnings
-        scalaCompileOptions.additionalParameters = listOf(
-            "-print-lines",               // Print source line numbers with messages
-            "-encoding", "UTF-8",         // Explicit UTF-8 encoding
-            "-language:reflectiveCalls",  // Enable reflective calls language feature
-            "-feature",                   // Warn about misused language features
-            "-Wunused:imports"            // Warn about unused imports
-        )
-    }
+    scalaCompileOptions.additionalParameters = listOf(
+        "-Xfatal-warnings",           // Treat warnings as errors (strict quality)
+        "-print-lines",               // Print source line numbers with messages
+        "-encoding", "UTF-8",         // Explicit UTF-8 encoding
+        "-language:reflectiveCalls",  // Enable reflective calls language feature
+        "-feature",                   // Warn about misused language features
+        "-Wunused:imports"            // Warn about unused imports
+    )
 }
 
 tasks.withType<JavaExec> {
@@ -321,7 +310,7 @@ tasks.named("shadowDistZip") {
 
 // Only run shadowJar when explicitly requested or in CI
 tasks.shadowJar {
-    enabled = project.hasProperty("enableShadowJar") || 
+    enabled = project.hasProperty("enableShadowJar") ||
               System.getenv("CI") == "true" ||
               gradle.startParameter.taskNames.contains("shadowJar")
 }
