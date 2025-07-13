@@ -965,7 +965,7 @@ public class GitRepoTest {
             clonedRepo = GitRepo.cloneRepo(originDir.toUri().toString(), cloneDir, 1);
 
             assertNotNull(clonedRepo, "Clone should return a GitRepo instance");
-            assertEquals(cloneDir.toRealPath(), clonedRepo.getGitTopLevel(),
+            assertEquals(cloneDir.toRealPath(), clonedRepo.getGitTopLevel().toRealPath(),
                          "Git top-level should match clone directory");
 
             String branch = clonedRepo.getCurrentBranch();
