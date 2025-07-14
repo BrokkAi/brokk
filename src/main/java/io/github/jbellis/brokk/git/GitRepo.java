@@ -1325,6 +1325,11 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             var branch = repository.getBranch();
             if (branch == null) {
+                // Check for detached HEAD state by resolving HEAD directly
+                ObjectId head = repository.resolve("HEAD");
+                if (head != null) {
+                    return head.getName(); // Return the commit SHA in detached HEAD state
+                }
                 throw new GitRepoException("Repository has no HEAD", new NullPointerException());
             }
             return branch;
@@ -1357,6 +1362,45 @@ public class GitRepo implements Closeable, IGitRepo {
      * A record to hold a modified file and its status.
      */
     public record ModifiedFile(ProjectFile file, String status) {
+    }
+
+    public record RemoteInfo(String url, List<String> branches, List<String> tags, @Nullable String defaultBranch) {
+    }
+
+    /**
+     * Lists branches and tags from a remote repository URL.
+     *
+     * @param url The URL of the remote repository.
+     * @return A RemoteInfo record containing the branches, tags, and default branch.
+     * @throws GitAPIException if the remote is inaccessible or another Git error occurs.
+     */
+    public static RemoteInfo listRemoteRefs(String url) throws GitAPIException {
+        var remoteRefs = Git.lsRemoteRepository()
+                            .setHeads(true)
+                            .setTags(true)
+                            .setRemote(url)
+                            .call();
+
+        var branches = new ArrayList<String>();
+        var tags = new ArrayList<String>();
+        String defaultBranch = null;
+
+        for (var ref : remoteRefs) {
+            String name = ref.getName();
+            if (name.startsWith("refs/heads/")) {
+                branches.add(name.substring("refs/heads/".length()));
+            } else if (name.startsWith("refs/tags/")) {
+                tags.add(name.substring("refs/tags/".length()));
+            } else if (name.equals("HEAD")) {
+                @Nullable var target = ref.getTarget();
+                if (target != null && target.isSymbolic() && target.getName().startsWith("refs/heads/")) {
+                    defaultBranch = target.getName().substring("refs/heads/".length());
+                }
+            }
+        }
+        Collections.sort(branches);
+        Collections.sort(tags);
+        return new RemoteInfo(url, branches, tags, defaultBranch);
     }
 
     /**
