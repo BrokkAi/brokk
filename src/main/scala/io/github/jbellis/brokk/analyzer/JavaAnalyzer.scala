@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.analyzer
 
+import io.github.jbellis.brokk.FileChangeEvent
 import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
+import io.github.jbellis.brokk.analyzer.implicits.FileChangeEventExt.*
 import io.joern.javasrc2cpg.Config
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
@@ -14,6 +16,7 @@ import java.util.Optional
 import scala.io.Source
 import scala.util.boundary.break
 import scala.util.matching.Regex
+import scala.jdk.OptionConverters.*
 import scala.util.{Try, Using, boundary}
 
 /** A concrete analyzer for Java source code, extending AbstractAnalyzer with Java-specific logic for building the CPG,
@@ -24,8 +27,13 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
 
-  def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
-    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
+  def this(
+    sourcePath: Path,
+    excludedFiles: java.util.Set[String],
+    cpgPath: Path,
+    maybeChangedFiles: Optional[java.util.List[FileChangeEvent]]
+  ) =
+    this(sourcePath, JavaAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath, maybeChangedFiles.toScala))
 
   override def isCpg: Boolean = true
 
@@ -363,7 +371,12 @@ object JavaAnalyzer {
 
   import scala.jdk.CollectionConverters.*
 
-  private def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
+  private def createNewCpgForSource(
+    sourcePath: Path,
+    excludedFiles: java.util.Set[String],
+    cpgPath: Path,
+    maybeChangedFiles: Option[java.util.List[FileChangeEvent]]
+  ): Cpg = {
     val absPath = sourcePath.toAbsolutePath.toRealPath()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
@@ -380,7 +393,7 @@ object JavaAnalyzer {
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
-      .buildAndThrow
+      .buildAndThrow(maybeChangedFiles.map(_.toScala))
       .open
   }
 

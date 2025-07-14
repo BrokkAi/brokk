@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
-import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
+import io.github.jbellis.brokk.analyzer.builder.{CpgBuilder, FileChange}
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 
@@ -26,15 +26,16 @@ object X2CpgConfigExt {
       * @return
       *   this configuration.
       */
-    def build(using builder: CpgBuilder[R]): Try[R] = withNewOrExistingCpg { cpg =>
-      builder.build(cpg, config)
-      config
-    }
+    def build(updatedFiles: Option[List[FileChange]] = None)(using builder: CpgBuilder[R]): Try[R] =
+      withNewOrExistingCpg { cpg =>
+        builder.build(cpg, config, updatedFiles)
+        config
+      }
 
     /** Alias for [[build]] where exceptions are thrown if one occurs.
       */
-    def buildAndThrow(using builder: CpgBuilder[R]): R = {
-      build.failed.foreach(e => throw e)
+    def buildAndThrow(updatedFiles: Option[List[FileChange]] = None)(using builder: CpgBuilder[R]): R = {
+      build(updatedFiles).failed.foreach(e => throw e)
       config
     }
 

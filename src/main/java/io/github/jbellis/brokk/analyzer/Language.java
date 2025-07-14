@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer;
 
+import io.github.jbellis.brokk.FileChangeEvent;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.util.Environment;
 import org.apache.logging.log4j.LogManager;
@@ -23,6 +24,7 @@ public interface Language {
     String name(); // Human-friendly
     String internalName(); // Filesystem-safe
     IAnalyzer createAnalyzer(IProject project);
+    IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles);
     IAnalyzer loadAnalyzer(IProject project);
 
     /**
@@ -66,6 +68,9 @@ public interface Language {
         @Override public String internalName() { return "C_SHARP"; }
         @Override public String toString() { return name(); } // For compatibility
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
@@ -78,9 +83,14 @@ public interface Language {
         @Override public String name() { return "Java"; }
         @Override public String internalName() { return "JAVA"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             var cpgPath = getCpgPath(project);
-            return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
+            return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath, maybeChangedFiles);
         }
 
         @Override public JavaAnalyzer loadAnalyzer(IProject project) {
@@ -189,9 +199,15 @@ public interface Language {
         @Override public String name() { return "JavaScript"; }
         @Override public String internalName() { return "JAVASCRIPT"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
         @Override
@@ -254,9 +270,15 @@ public interface Language {
         @Override public String name() { return "Python"; }
         @Override public String internalName() { return "PYTHON"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project,  Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
 
         private List<Path> findVirtualEnvs(@Nullable Path root) {
@@ -389,9 +411,14 @@ public interface Language {
         @Override public String name() { return "C/C++"; }
         @Override public String internalName() { return "C_CPP"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             var cpgPath = getCpgPath(project);
-            return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
+            return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath, maybeChangedFiles);
         }
 
         @Override public CppAnalyzer loadAnalyzer(IProject project) {
@@ -409,6 +436,9 @@ public interface Language {
         @Override public String internalName() { return "GO"; }
         @Override public String toString() { return name(); }
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
@@ -422,9 +452,15 @@ public interface Language {
         @Override public String name() { return "Rust"; }
         @Override public String internalName() { return "RUST"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
         @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
@@ -455,9 +491,15 @@ public interface Language {
         @Override public String name() { return "None"; }
         @Override public String internalName() { return "NONE"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
             return new DisabledAnalyzer();
         }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
+            return new DisabledAnalyzer();
+        }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
     };
 
@@ -469,9 +511,15 @@ public interface Language {
         @Override public String name() { return "PHP"; }
         @Override public String internalName() { return "PHP"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) { return createAnalyzer(project); }
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
         @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
@@ -500,15 +548,22 @@ public interface Language {
         @Override public String name() { return "SQL"; }
         @Override public String internalName() { return "SQL"; }
         @Override public String toString() { return name(); }
+        
         @Override public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+        
+        @Override public IAnalyzer createAnalyzer(IProject project,Optional<List<FileChangeEvent>> maybeChangedFiles) {
             var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
             var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
+        
         @Override public IAnalyzer loadAnalyzer(IProject project) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
         }
+        
         @Override public boolean isCpg() { return false; }
         @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
     };
@@ -525,6 +580,11 @@ public interface Language {
 
         @Override
         public IAnalyzer createAnalyzer(IProject project) {
+            return createAnalyzer(project, Optional.empty());
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project, Optional<List<FileChangeEvent>> maybeChangedFiles) {
             return new TypescriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
 

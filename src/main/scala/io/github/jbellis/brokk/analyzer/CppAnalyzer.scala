@@ -1,7 +1,9 @@
 package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.FileChangeEvent
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
+import io.github.jbellis.brokk.analyzer.implicits.FileChangeEventExt.*
 import io.joern.c2cpg.Config as CConfig
 import io.joern.x2cpg.Defines as X2CpgDefines
 import io.shiftleft.codepropertygraph.generated.Cpg
@@ -12,6 +14,7 @@ import org.slf4j.LoggerFactory
 import java.nio.file.{Files, Path, Paths}
 import java.util.Optional
 import scala.collection.mutable
+import scala.jdk.OptionConverters.*
 import scala.io.Source
 import scala.util.matching.Regex
 import scala.util.{Try, Using} // Added for mutable.ListBuffer
@@ -23,10 +26,15 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
     this(sourcePath, io.joern.joerncli.CpgBasedTool.loadFromFile(preloadedPath.toString))
 
   def this(sourcePath: Path, excludedFiles: java.util.Set[String]) =
-    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin")))
+    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, Paths.get("cpg.bin"), None))
 
-  def this(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path) =
-    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath))
+  def this(
+    sourcePath: Path,
+    excludedFiles: java.util.Set[String],
+    cpgPath: Path,
+    maybeChangedFiles: Optional[java.util.List[FileChangeEvent]]
+  ) =
+    this(sourcePath, CppAnalyzer.createNewCpgForSource(sourcePath, excludedFiles, cpgPath, maybeChangedFiles.toScala))
 
   def this(sourcePath: Path) = this(sourcePath, java.util.Collections.emptySet[String]())
 
@@ -824,7 +832,12 @@ object CppAnalyzer {
 
   import scala.jdk.CollectionConverters.*
 
-  def createNewCpgForSource(sourcePath: Path, excludedFiles: java.util.Set[String], cpgPath: Path): Cpg = {
+  def createNewCpgForSource(
+    sourcePath: Path,
+    excludedFiles: java.util.Set[String],
+    cpgPath: Path,
+    maybeChangedFiles: Option[java.util.List[FileChangeEvent]]
+  ): Cpg = {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
@@ -838,7 +851,7 @@ object CppAnalyzer {
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
       .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
-      .buildAndThrow
+      .buildAndThrow(maybeChangedFiles.map(_.toScala))
       .open
   }
 

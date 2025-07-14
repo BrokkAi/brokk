@@ -38,16 +38,19 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     *   the CPG to be built or updated.
     * @param config
     *   the language-specific configuration object containing the input path of source files to re-build from.
+    * @param changedFiles
+    *   an optional list of specific files to use for the incremental build.
     * @return
     *   the same CPG reference as given.
     */
-  def build(cpg: Cpg, config: R): Cpg = {
+  def build(cpg: Cpg, config: R, changedFiles: Option[List[FileChange]] = None): Cpg = {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(
           s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!"
         )
-      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, config, sourceFileExtensions)
+      val fileChanges =
+        changedFiles.getOrElse(IncrementalUtils.determineChangedFiles(cpg, config, sourceFileExtensions))
       debugChanges(fileChanges)
 
       cpg
