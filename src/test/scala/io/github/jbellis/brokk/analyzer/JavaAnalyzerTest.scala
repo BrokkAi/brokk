@@ -611,6 +611,24 @@ class JavaAnalyzerTest {
   }
 
   @Test
+  def getParentMethodNameTest(): Unit = {
+    val analyzer = getAnalyzer
+    val cpg      = analyzer.cpg
+
+    // Basic dynamic dispatched call
+    val methodD1Call = cpg.method.fullName("D\\.methodD2.*").call.nameExact("methodD1").head
+    assertEquals("D.methodD2", analyzer.parentMethodName(methodD1Call))
+
+    // Call within a lambda "Runnable"
+    val method2Call = cpg.method.fullName("AnonymousUsage\\.foo.*").call.nameExact("method2").head
+    assertEquals("AnonymousUsage.foo", analyzer.parentMethodName(method2Call)) // AnonymousUsage.foo.Runnable$0.run
+
+    // Call within a method in a nested class
+    val printlnInMethod7Call = cpg.method.fullName(".*AInnerInner\\.method7.*").call.nameExact("println").head
+    assertEquals("A$AInner$AInnerInner.method7", analyzer.parentMethodName(printlnInMethod7Call))
+  }
+
+  @Test
   def getFunctionLocationSingleMatchTest(): Unit = {
     val analyzer = getAnalyzer
     // This method has exactly one parameter (String input) and so exactly one matching overload

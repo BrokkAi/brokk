@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.javasrc2cpg.Config
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.{Expression, Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
@@ -95,6 +95,9 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     val tokens = methodName.split('.').toList
     resolve(tokens, Nil).mkString(".")
   }
+
+  override private[brokk] def parentMethodName(expression: Expression): String =
+    resolveMethodName(super.parentMethodName(expression))
 
   override private[brokk] def sanitizeType(t: String): String = {
     def processType(input: String): String = {
