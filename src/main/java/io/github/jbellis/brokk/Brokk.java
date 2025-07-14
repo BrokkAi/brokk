@@ -321,26 +321,39 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
 
         if (!successfulOpenOccurred) {
             // No projects auto-opened; give the user the Open-Project dialog.
-            SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-
-            var selectedPathOpt = requireNonNull(SwingUtil.runOnEdt(
-                    () -> OpenProjectDialog.showDialog(new JFrame()),
-                    Optional.<Path>empty()));
-
-            selectedPathOpt.ifPresent(path -> {
-                try {
-                    // Wait synchronously until the project is fully opened
-                    new OpenProjectBuilder(path).open().get();
-                } catch (Exception e) {
-                    logger.error("Failed to open project selected via dialog: {}", path, e);
-                }
-            });
-
-            if (openProjectWindows.isEmpty()) {
-                logger.info("User closed Open Project dialog without opening anything. Exiting.");
-                System.exit(0);
-            }
+            promptAndOpenProject(null)
+                    .thenAccept(opened -> {
+                        if (!opened && openProjectWindows.isEmpty()) {
+                            logger.info("User closed Open Project dialog without opening anything. Exiting.");
+                            System.exit(0);
+                        }
+                    });
         }
+    }
+
+    /**
+     * Shows a modal dialog letting the user pick a project and opens it.
+     * If the user cancels the dialog, no project is opened.
+     *
+     * @param owner The parent frame (may be {@code null}).
+     * @return a CompletableFuture that completes with true if a project was opened, false otherwise.
+     */
+    public static CompletableFuture<Boolean> promptAndOpenProject(@Nullable Frame owner) {
+        SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Ensure splash screen is hidden before dialog
+        var selectedPathOpt = requireNonNull(SwingUtil.runOnEdt(
+                () -> OpenProjectDialog.showDialog(owner),
+                Optional.<Path>empty()));
+
+        if (selectedPathOpt.isEmpty()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return new OpenProjectBuilder(selectedPathOpt.get())
+                .open()
+                .exceptionally(ex -> {
+                    logger.error("Failed to open project selected via dialog: {}", selectedPathOpt.get(), ex);
+                    return false;
+                });
     }
 
     private static void showSplashScreen() {

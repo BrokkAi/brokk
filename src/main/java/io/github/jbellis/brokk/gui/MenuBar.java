@@ -36,10 +36,7 @@ public class MenuBar {
         var fileMenu = new JMenu("File");
 
         var openProjectItem = new JMenuItem("Open Project...");
-        openProjectItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            var dialog = new OpenProjectDialog(chrome.frame);
-            dialog.setVisible(true);
-        }));
+        openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
         fileMenu.add(openProjectItem);
 
         JMenuItem reopenProjectItem;
