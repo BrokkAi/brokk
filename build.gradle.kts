@@ -243,10 +243,45 @@ tasks.withType<Test> {
 
     // Test execution settings
     testLogging {
-        events("passed", "skipped", "failed")
+        events("passed", "skipped")  // Only show passed/skipped during execution
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = false
+        showCauses = false
+        showStackTraces = false
         showStandardStreams = false
     }
+
+    // Collect failed tests for end summary
+    val failedTests = mutableListOf<String>()
+
+    // Capture individual test failures for later reporting
+    afterTest(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+        if (result.resultType == TestResult.ResultType.FAILURE) {
+            val errorMessage = result.exception?.message ?: "Unknown error"
+            val stackTrace = result.exception?.stackTrace?.joinToString("\n") { "      at $it" } ?: ""
+            failedTests.add("❌ ${desc.className}.${desc.name}\n   Error: $errorMessage\n$stackTrace")
+        }
+    }))
+
+    // Show all failures grouped at the end
+    afterSuite(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+        if (desc.parent == null) { // Only execute once for the root suite
+            if (result.failedTestCount > 0) {
+                println("\n" + "=".repeat(80))
+                println("FAILED TESTS SUMMARY")
+                println("=".repeat(80))
+                failedTests.forEach { failure ->
+                    println("\n$failure")
+                }
+                println("\n" + "=".repeat(80))
+                println("Total tests: ${result.testCount}")
+                println("Passed: ${result.successfulTestCount}")
+                println("Failed: ${result.failedTestCount}")
+                println("Skipped: ${result.skippedTestCount}")
+                println("=".repeat(80))
+            }
+        }
+    }))
 
     // Fail fast on first test failure
     failFast = false
