@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
+import io.github.jbellis.brokk.gui.dialogs.ManageDependenciesDialog;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
@@ -76,16 +76,6 @@ public class MenuBar {
             openSettingsDialog(chrome);
         });
         fileMenu.add(settingsItem);
-
-        fileMenu.addSeparator();
-
-        var openDependencyItem = new JMenuItem("Import Dependency...");
-        openDependencyItem.setEnabled(true);
-        openDependencyItem.addActionListener(e -> {
-            // Ensure this action is run on the EDT as it might interact with Swing components immediately
-            SwingUtilities.invokeLater(() -> ImportDependencyDialog.show(chrome));
-        });
-        fileMenu.add(openDependencyItem);
 
         menuBar.add(fileMenu);
 
@@ -255,6 +245,10 @@ public class MenuBar {
         // Tools menu
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
+
+        var manageDependenciesItem = new JMenuItem("Manage Dependencies...");
+        manageDependenciesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
+        toolsMenu.add(manageDependenciesItem);
 
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
