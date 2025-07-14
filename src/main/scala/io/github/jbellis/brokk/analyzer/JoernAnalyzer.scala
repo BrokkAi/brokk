@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
-import io.shiftleft.codepropertygraph.generated.nodes.{Expression, Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.{Call, Expression, Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
@@ -99,7 +99,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
   /** Obtains the full name of the next surrounding non-lambda method.
     */
-  private[brokk] def parentMethodName(expression: Expression): String = {
+  private[brokk] def parentMethodName(expressionOrMethod: Expression | Method): String = {
 
     @tailrec
     def _parentMethodName(method: Method): String = {
@@ -118,15 +118,17 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       else {
         method.typeDecl match {
           case Some(definingTypeDecl) => s"${definingTypeDecl.fullName}.${method.name}"
-          case None =>
-            throw new SchemaViolationException(
-              s"No defining type declaration for method '${method.fullName}' found while resolving method name!"
-            )
+          case None                   =>
+            // external method stubs do not have parent type declarations, fall back to normal resolution
+            resolveMethodName(method.fullName)
         }
       }
     }
 
-    _parentMethodName(expression.method)
+    expressionOrMethod match {
+      case expression: Expression => _parentMethodName(expression.method)
+      case method: Method         => _parentMethodName(method)
+    }
   }
 
   /** Possibly remove package names from a type string, or do other language-specific cleanup.
@@ -733,7 +735,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
     if (startMethods.isEmpty) return result
 
     val visited          = mutable.Set[String]()
-    val startMethodNames = startMethods.map(m => resolveMethodName(chopColon(m.fullName))).toSet
+    val startMethodNames = startMethods.map(parentMethodName).toSet
     visited ++= startMethodNames
 
     def shouldIncludeMethod(methodName: String): Boolean = {
@@ -758,43 +760,33 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       val nextMethods = mutable.ListBuffer[Method]()
 
       methods.foreach { method =>
-        val methodName = resolveMethodName(chopColon(method.fullName))
+        val methodName = parentMethodName(method)
         val calls      = if (isIncoming) method.callIn.l else method.call.l
+
+        def addCallerCalleeEdge(method: Method, caller: Call): Unit = {
+          val callerOrCalleeName = parentMethodName(method)
+          if (!visited.contains(callerOrCalleeName) && shouldIncludeMethod(callerOrCalleeName)) {
+            method.file.name.flatMap(toFile).foreach { file =>
+              cuFunction(callerOrCalleeName, file).foreach { cu =>
+                addCallSite(methodName, CallSite(cu, getSourceLine(caller)))
+                visited += methodName
+                nextMethods += method
+              }
+            }
+          }
+        }
 
         calls.foreach { call =>
           if (isIncoming) {
             // The caller is the next method
             val callerMethod = call.method
-            val callerName   = resolveMethodName(chopColon(callerMethod.fullName))
-
-            if (!visited.contains(callerName) && shouldIncludeMethod(callerName)) {
-              val callerFileOpt = callerMethod.typeDecl.headOption.flatMap(toFile)
-              callerFileOpt.foreach { file =>
-                cuFunction(callerName, file).foreach { cu =>
-                  addCallSite(methodName, CallSite(cu, getSourceLine(call)))
-                  visited += callerName
-                  nextMethods += callerMethod
-                }
-              }
-            }
+            addCallerCalleeEdge(callerMethod, call)
           } else {
-            // The callee is the next method
-            val calleeFullName = chopColon(call.methodFullName)
-            val calleeName     = resolveMethodName(calleeFullName)
-
-            if (!visited.contains(calleeName) && shouldIncludeMethod(calleeName)) {
-              val calleePattern = s"^${Regex.quote(calleeFullName)}.*"
-              val calleeMethods = cpg.method.fullName(calleePattern).l
-              if (calleeMethods.nonEmpty) {
-                calleeMethods.head.typeDecl.headOption.flatMap(toFile).foreach { file =>
-                  cuFunction(calleeName, file).foreach { cu =>
-                    addCallSite(methodName, CallSite(cu, getSourceLine(call)))
-                    visited += calleeName
-                    nextMethods ++= calleeMethods
-                  }
-                }
-              }
+            // The callee is the next method (multiple callees in the case of dynamic dispatch)
+            call.callee.foreach { callee =>
+              addCallerCalleeEdge(callee, call)
             }
+
           }
         }
       }

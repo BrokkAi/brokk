@@ -96,7 +96,7 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     resolve(tokens, Nil).mkString(".")
   }
 
-  override private[brokk] def parentMethodName(expression: Expression): String =
+  override private[brokk] def parentMethodName(expression: Expression | Method): String =
     resolveMethodName(super.parentMethodName(expression))
 
   override private[brokk] def sanitizeType(t: String): String = {
