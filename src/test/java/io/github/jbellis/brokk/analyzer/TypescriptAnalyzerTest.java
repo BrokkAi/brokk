@@ -609,7 +609,9 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testGetClassSource() throws IOException {
-        // Test with Greeter class from Hello.ts
+        var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        var analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
+
         String greeterSource = normalize.apply(analyzer.getClassSource("Greeter"));
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
