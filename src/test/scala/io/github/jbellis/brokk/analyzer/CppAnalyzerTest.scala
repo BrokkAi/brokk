@@ -30,6 +30,7 @@ object CppAnalyzerTest {
 class CppAnalyzerTest {
   // Use the analyzer from the companion object
   private def an: CppAnalyzer = CppAnalyzerTest.analyzer
+  private val n               = System.lineSeparator
 
   private val testProjectPath =
     Path.of("src/test/resources/testcode-cpp").toAbsolutePath() // Keep for ProjectFile creation
@@ -364,5 +365,58 @@ class CppAnalyzerTest {
       s"Skeletons map does not contain expected key '$expectedKey'. Actual keys: ${skeletons.keySet().asScala.mkString(", ")}"
     )
     assertEquals(expectedSkeleton, skeletons.get(expectedKey), "Skeleton content mismatch.")
+  }
+
+  @Test
+  def getClassSourceTest(): Unit = {
+    val source = an.getClassSource("shapes.Circle").replace(n, "\n").stripIndent()
+    val expected =
+      """
+        |  class Circle {
+        |  public:
+        |    Circle(double r);
+        |    double getArea();
+        |    static int getObjectType();
+        |  private:
+        |    double radius;
+        |  }
+        |
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceNestedTest(): Unit = {
+    val source = an.getClassSource("Outer::Inner").replace(n, "\n").stripIndent()
+    // Verify the source contains inner class definition
+    val expected =
+      """class Inner {
+        |    public:
+        |        void show() {}
+        |    }
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceFallbackTest(): Unit = {
+    val source = an.getClassSource("Outer::NonExistent").replace(n, "\n").stripIndent()
+    // Verify that the class fallback works if subclasses (or anonymous classes) aren't resolved
+    val expected =
+      """class Outer {
+        |public:
+        |    class Inner {
+        |    public:
+        |        void show() {}
+        |    };
+        |}
+        |""".stripMargin.stripIndent.strip
+    assertEquals(expected, source)
+  }
+
+  @Test
+  def getClassSourceNonexistentTest(): Unit = {
+    val source = an.getClassSource("NonExistentClass")
+    assertEquals(null, source)
   }
 }

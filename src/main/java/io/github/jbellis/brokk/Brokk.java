@@ -365,7 +365,7 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
             panel.add(iconLabel, BorderLayout.WEST);
         }
 
-        var label = new JLabel("Brokk " + BuildInfo.version(), SwingConstants.LEFT); // Align text left
+        var label = new JLabel("Brokk " + BuildInfo.version, SwingConstants.LEFT); // Align text left
         label.setFont(label.getFont().deriveFont(Font.BOLD, 18f)); // Larger font
         panel.add(label, BorderLayout.CENTER);
 

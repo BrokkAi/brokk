@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer.builder
 
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
+import io.github.jbellis.brokk.analyzer.builder.passes.base.FileContentClearing
 import io.github.jbellis.brokk.analyzer.builder.passes.incremental.{HashFilesPass, PruneTypesPass}
 import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
 import io.joern.x2cpg.X2CpgConfig
@@ -158,6 +159,7 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
 
   protected def basePasses(cpg: Cpg): Iterator[CpgPassBase] = {
     Iterator(
+      new FileContentClearing(cpg),
       // Stub creators are moved up as these create nodes that interact with [File|Namespace]CreationPass
       new MethodStubCreator(cpg),
       new TypeDeclStubCreator(cpg),

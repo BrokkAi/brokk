@@ -13,7 +13,7 @@ object StringExt {
     }
 
     private def digestString(string: String, messageDigest: MessageDigest): String =
-      string.getBytes(StandardCharsets.UTF_8).map("%02x".format(_)).mkString
+      messageDigest.digest(string.getBytes(StandardCharsets.UTF_8)).map("%02x".format(_)).mkString
 
   }
 

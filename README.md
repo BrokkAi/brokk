@@ -22,37 +22,9 @@ Brokk documentation is at https://brokk.ai/documentation/.
 
 # Contributing
 
-Brokk uses sbt (Scala Build Tool) since it has a Scala component. To build Brokk,
-1. Install sbt (e.g. with sdkman)
-2. Run the sbt repl: `sbt` (with JDK 21 or newer)
-3. In the sbt repl, run individual commands: `run`, `clean`, `test`, `assembly`, etc.
+Brokk uses Gradle with Scala support. To build Brokk,
+1. Ensure you have JDK 21 or newer
+2. Run Gradle commands directly: `./gradlew <command>`
+3. Available commands: `run`, `clean`, `test`, `build`, `shadowJar`, etc.
 
-### Checking the PATH Brokk Sees
-
-To debug PATH issues, inspect the environment from the shell Brokk uses.
-
-- **On Linux/macOS (`/bin/sh`)**
-  ```bash
-  /bin/sh -c env
-  ```
-
-- **On Windows (`cmd`)**
-  ```cmd
-  cmd /C set
-  ```
-
-> If you're using WSL or Git Bash on Windows, you may still be using a Unix-like shell, and `/bin/sh -c env` would apply.
-
-If `sbt` does not appear in the output of these commands, Brokk won't be able to find it during execution.
-
-We recommend using the [official sbt installer](https://www.scala-sbt.org/download.html), as it configures the PATH correctly on most systems.
-
-There are documents on specific aspects of the code in [src/main](https://github.com/BrokkAi/brokk/tree/master/src/main).
-
-## Icon Browser
-
-To explore available Look and Feel icons for UI development:
-- GUI browser: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil icons"`
-- Console list: `sbt "runMain io.github.jbellis.brokk.gui.SwingIconUtil"`
-
-Use `SwingUtil.uiIcon("IconName")` to safely load icons with automatic fallbacks.
+There are documents on specific aspects of the code in [development.md](https://github.com/BrokkAi/brokk/tree/master/src/main/development.md).

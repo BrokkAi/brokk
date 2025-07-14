@@ -118,7 +118,7 @@ public class MenuBar {
 
         copyMenuItem = new JMenuItem(chrome.getGlobalCopyAction());
         pasteMenuItem = new JMenuItem(chrome.getGlobalPasteAction());
-        
+
         copyMenuItem.setText("Copy");
         copyMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         editMenu.add(copyMenuItem);
@@ -159,7 +159,7 @@ public class MenuBar {
         });
         readFilesItem.setEnabled(true);
         contextMenu.add(readFilesItem);
-    
+
     var viewFileItem = new JMenuItem("View File");
     // On Mac, use Cmd+O; on Windows/Linux, use Ctrl+N
     viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
@@ -371,7 +371,6 @@ public class MenuBar {
         var aboutItem = new JMenuItem("About");
         aboutItem.addActionListener(e -> AboutDialog.showAboutDialog(chrome.getFrame()));
         helpMenu.add(aboutItem);
-
         menuBar.add(helpMenu);
 
         return menuBar;
