@@ -10,7 +10,9 @@ import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
@@ -290,6 +292,17 @@ public class Brokk {
 
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
+
+        // Register native macOS “About” handler (only if running on macOS)
+        if (Environment.isMacOs()) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null));
+                } catch (UnsupportedOperationException ignored) {
+                    // AboutHandler not supported on this platform/JVM – safe to ignore
+                }
+            });
+        }
 
         // run this after we show the splash screen, it's expensive
         Thread.ofPlatform().start(Messages::init);
