@@ -43,6 +43,7 @@ public class ManageDependenciesDialog extends JDialog {
     private final Map<String, ProjectFile> dependencyProjectFileMap = new HashMap<>();
     private final JLabel totalFilesLabel;
     private final JLabel totalLocLabel;
+    private final Set<ProjectFile> initialFiles;
     private boolean isUpdatingTotals = false;
 
     private static class NumberRenderer extends DefaultTableCellRenderer {
@@ -62,6 +63,7 @@ public class ManageDependenciesDialog extends JDialog {
     public ManageDependenciesDialog(Chrome chrome) {
         super(chrome.getFrame(), "Manage Dependencies", true);
         this.chrome = chrome;
+        this.initialFiles = chrome.getProject().getAllFiles();
 
         var contentPanel = new JPanel(new BorderLayout());
 
@@ -220,12 +222,27 @@ public class ManageDependenciesDialog extends JDialog {
                     // We need the top-level directory of the dependency, not its full relative path
                     // which is like .brokk/dependencies/dep-name. We want just the dep-name part as Path.
                     var depTopLevelDir = chrome.getProject().getMasterRootPathForConfig()
-                            .resolve(".brokk").resolve("dependencies").resolve(pf.getRelPath().getFileName());
+                                               .resolve(".brokk").resolve("dependencies").resolve(pf.getRelPath().getFileName());
                     newLiveDependencyTopLevelDirs.add(depTopLevelDir);
                 }
             }
         }
         chrome.getProject().saveLiveDependencies(newLiveDependencyTopLevelDirs);
+
+        var newFiles = chrome.getProject().getAllFiles();
+
+        var addedFiles = new HashSet<>(newFiles);
+        addedFiles.removeAll(initialFiles);
+
+        var removedFiles = new HashSet<>(initialFiles);
+        removedFiles.removeAll(newFiles);
+
+        var changedFiles = new HashSet<>(addedFiles);
+        changedFiles.addAll(removedFiles);
+
+        if (!changedFiles.isEmpty()) {
+            chrome.getContextManager().getAnalyzerWrapper().updateFiles(changedFiles);
+        }
     }
 
     /**
