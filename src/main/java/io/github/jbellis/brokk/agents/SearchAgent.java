@@ -1173,13 +1173,18 @@ public class SearchAgent {
         combinedNames.addAll(trackedClassNames);
         logger.debug("Combined tracked and LLM classes before normalize/coalesce: {}", combinedNames);
 
-        var codeUnits = combinedNames.stream()
-                .flatMap(name -> analyzer.getDefinition(name).stream())
-                .flatMap(cu -> cu.classUnit().stream())
-                .collect(Collectors.toSet());
-        var coalesced = AnalyzerUtil.coalesceInnerClasses(codeUnits);
-
-        logger.debug("Final sources identified (files): {}", coalesced.stream().map(CodeUnit::source).toList());
+        Set<CodeUnit> coalesced;
+        if (analyzer.isEmpty()) {
+            coalesced = Set.of();
+            logger.debug("Empty analyzer, no sources identified");
+        } else {
+            var codeUnits = combinedNames.stream()
+                    .flatMap(name -> analyzer.getDefinition(name).stream())
+                    .flatMap(cu -> cu.classUnit().stream())
+                    .collect(Collectors.toSet());
+            coalesced = AnalyzerUtil.coalesceInnerClasses(codeUnits);
+            logger.debug("Final sources identified (files): {}", coalesced.stream().map(CodeUnit::source).toList());
+        }
 
         io.llmOutput("\n# Answer\n%s".formatted(explanationText), ChatMessageType.AI);
         var sessionName = "Search: " + query;

@@ -27,6 +27,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             "body",                                                                  // bodyFieldName (applies to functions/methods, class body is declaration_list)
             "parameters",                                                            // parametersFieldName
             "return_type",                                                           // returnTypeFieldName (for return type declaration)
+            "",                                                                      // typeParametersFieldName (PHP doesn't have generics)
             java.util.Map.of(                                                        // captureConfiguration
                     "class.definition", SkeletonType.CLASS_LIKE,
                     "interface.definition", SkeletonType.CLASS_LIKE,
@@ -38,10 +39,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             "",                                                                      // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of("visibility_modifier", "static_modifier", "abstract_modifier", "final_modifier", NODE_TYPE_READONLY_MODIFIER) // modifierNodeTypes
     );
-    
+
     @Nullable
     private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
-    
+
     @Nullable
     private final ThreadLocal<TSQuery> phpNamespaceQuery;
 
@@ -144,7 +145,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 // Check capture name using query's method
                 if ("nsname".equals(currentPhpNamespaceQuery.getCaptureNameForId(capture.getIndex()))) {
                     TSNode nameNode = capture.getNode();
-                    if (nameNode != null) { 
+                    if (nameNode != null) {
                         return textSlice(nameNode, src).replace('\\', '.');
                     }
                 }
@@ -230,18 +231,18 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         TSNode bodyNode = classNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         boolean isEmptyBody = (bodyNode == null || bodyNode.getNamedChildCount() == 0); // bodyNode.isNull() check removed
         String suffix = isEmptyBody ? " { }" : " {";
-        
+
         return signatureText.stripTrailing() + suffix;
     }
 
     @Override
     protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix,
-                                               String functionName, String paramsText, String returnTypeText, String indent) {
+                                               String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
         // Attributes that are children of the funcNode (e.g., PHP attributes on methods)
         // are collected by extractModifiers.
         // exportPrefix and asyncPrefix are "" for PHP. indent is also "" at this stage from base.
         String modifiers = extractModifiers(funcNode, src);
-        
+
         String ampersand = "";
         TSNode referenceModifierNode = null;
         // Iterate children to find reference_modifier, as its position can vary slightly.
@@ -263,15 +264,15 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             formattedReturnType = ": " + returnTypeText.strip();
         }
 
-        String ampersandPart = ampersand.isEmpty() ? "" : ampersand; 
+        String ampersandPart = ampersand.isEmpty() ? "" : ampersand;
 
         String mainSignaturePart = String.format("%sfunction %s%s%s%s",
                                          modifiers,
-                                         ampersandPart, 
+                                         ampersandPart,
                                          functionName,
-                                         paramsText, 
+                                         paramsText,
                                          formattedReturnType).stripTrailing();
-        
+
         TSNode bodyNode = funcNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         // If bodyNode is null or not a compound statement, it's an abstract/interface method.
         if (bodyNode != null && !bodyNode.isNull() && NODE_TYPE_COMPOUND_STATEMENT.equals(bodyNode.getType())) {
@@ -299,4 +300,5 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // attribute.definition is handled by decorator logic in base class.
         return Set.of("namespace.definition", "namespace.name", "attribute.definition");
     }
+
 }

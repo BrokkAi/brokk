@@ -23,6 +23,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             "body",        // bodyFieldName
             "parameters",  // parametersFieldName
             "return_type", // returnTypeFieldName
+            "",            // typeParametersFieldName (Python doesn't have explicit type parameters)
             java.util.Map.of( // captureConfiguration
                 "class.definition", SkeletonType.CLASS_LIKE,
                 "function.definition", SkeletonType.FUNCTION_LIKE,
@@ -109,7 +110,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
         String pyReturnTypeSuffix = !returnTypeText.isEmpty() ? " -> " + returnTypeText : "";
         // The 'indent' parameter is now "" when called from buildSignatureString,
         // so it's effectively ignored here for constructing the stored signature.
@@ -187,5 +188,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return PY_SYNTAX_PROFILE;
+    }
+
+    @Override
+    protected boolean requiresSemicolons() {
+        return false;
     }
 }

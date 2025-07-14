@@ -1062,12 +1062,15 @@ public class GitWorktreeTab extends JPanel {
                 if (finalSelectedTargetBranch.equals(worktreeBranchName)) {
                     conflictResultString = "Cannot merge a branch into itself.";
                 } else {
-                    conflictResultString = gitRepo.checkMergeConflicts(
-                            worktreeBranchName,
-                        finalSelectedTargetBranch,
-                        finalSelectedMergeMode
-                    );
+                    // This checks for historical conflicts in a clean, temporary worktree
+                    conflictResultString = gitRepo.checkMergeConflicts(worktreeBranchName,
+                                                                       finalSelectedTargetBranch,
+                                                                       finalSelectedMergeMode);
                 }
+            } catch (GitRepo.WorktreeDirtyException e) {
+                // uncommitted changes that would prevent even starting a simulation.
+                logger.warn("Conflict check aborted because target worktree is dirty: {}", e.getMessage());
+                conflictResultString = "Target branch has uncommitted changes that must be stashed or committed first.";
             } catch (GitAPIException e) {
                 logger.error("GitAPIException during conflict check", e);
                 conflictResultString = "Error checking conflicts: " + e.getMessage();

@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
 import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
+import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
@@ -34,18 +35,10 @@ public class MenuBar {
         var fileMenu = new JMenu("File");
 
         var openProjectItem = new JMenuItem("Open Project...");
-        openProjectItem.addActionListener(e -> {
-            // Use a directory chooser
-            var chooser = new JFileChooser();
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("Select a project directory");
-            int result = chooser.showOpenDialog(chrome.frame);
-            if (result == JFileChooser.APPROVE_OPTION) {
-                var dir = chooser.getSelectedFile().toPath();
-                // Opening from menu is a user action, not internal, and has no explicit parent.
-                new Brokk.OpenProjectBuilder(dir).open();
-            }
-        });
+        openProjectItem.addActionListener(e -> SwingUtilities.invokeLater(() -> {
+            var dialog = new OpenProjectDialog(chrome.frame);
+            dialog.setVisible(true);
+        }));
         fileMenu.add(openProjectItem);
 
         JMenuItem reopenProjectItem;

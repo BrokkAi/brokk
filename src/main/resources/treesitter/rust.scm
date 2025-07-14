@@ -1,6 +1,7 @@
 
 ;; Struct definitions
 (struct_item
+  (visibility_modifier)? @keyword.modifier
   name: (type_identifier) @class.name
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
@@ -8,6 +9,7 @@
 
 ;; Enum definitions
 (enum_item
+  (visibility_modifier)? @keyword.modifier
   name: (type_identifier) @class.name
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
@@ -15,6 +17,7 @@
 
 ;; Trait definitions
 (trait_item
+  (visibility_modifier)? @keyword.modifier
   name: (type_identifier) @class.name
   ; type_parameters: (_) @class.type_parameters ; optional
   ; where_clause: (_) @class.where_clause ; optional
@@ -39,6 +42,7 @@
 
 ;; Free functions and methods within impl blocks
 (function_item
+  (visibility_modifier)? @keyword.modifier
   name: (identifier) @function.name
   ; parameters: (parameters) @function.parameters
   ; return_type: (_)? @function.return_type
@@ -47,6 +51,7 @@
 
 ;; Method signatures within trait definitions (no body)
 (function_signature_item
+  (visibility_modifier)? @keyword.modifier
   name: (identifier) @function.name
   ; parameters: (parameters) @function.parameters
   ; return_type: (_)? @function.return_type
@@ -56,6 +61,7 @@
 (struct_item
   body: (field_declaration_list
     (field_declaration
+      (visibility_modifier)? @keyword.modifier
       name: (field_identifier) @field.name
       ; type: (_) @field.type
     ) @field.definition
@@ -64,6 +70,7 @@
 
 ;; Top-level constants
 (const_item
+  (visibility_modifier)? @keyword.modifier
   name: (identifier) @field.name
   ; type: (_) @field.type
   ; value: (_) @field.value
@@ -71,6 +78,7 @@
 
 ;; Top-level static items
 (static_item
+  (visibility_modifier)? @keyword.modifier
   name: (identifier) @field.name
   ; type: (_) @field.type
   ; value: (_) @field.value
@@ -83,6 +91,30 @@
       name: (identifier) @field.name
       ; parameters: (_)? @field.parameters ; For tuple-like variants, e.g., Variant(u32, String)
       ; body: (field_declaration_list)? @field.body ; For struct-like variants, e.g., Variant { field1: u32 }
+    ) @field.definition
+  )
+)
+
+;; Associated constants within impl blocks
+(impl_item
+  body: (declaration_list
+    (const_item
+      (visibility_modifier)? @keyword.modifier
+      name: (identifier) @field.name
+      ; type: (_) @field.type
+      ; value: (_) @field.value
+    ) @field.definition
+  )
+)
+
+;; Associated constants within trait definitions
+(trait_item
+  body: (declaration_list
+    (const_item
+      (visibility_modifier)? @keyword.modifier
+      name: (identifier) @field.name
+      ; type: (_) @field.type
+      ; value: (_) @field.value
     ) @field.definition
   )
 )

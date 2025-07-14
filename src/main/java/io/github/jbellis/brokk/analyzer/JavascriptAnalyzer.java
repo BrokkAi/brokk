@@ -27,6 +27,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
             "body",       // bodyFieldName
             "parameters", // parametersFieldName
             "",           // returnTypeFieldName (JS doesn't have a standard named child for return type)
+            "",           // typeParametersFieldName (JS doesn't have type parameters)
             java.util.Map.of( // captureConfiguration
                 "class.definition", SkeletonType.CLASS_LIKE,
                 "function.definition", SkeletonType.FUNCTION_LIKE,
@@ -101,7 +102,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String paramsText, String returnTypeText, String indent) {
+    protected String renderFunctionDeclaration(TSNode funcNode, String src, String exportPrefix, String asyncPrefix, String functionName, String typeParamsText, String paramsText, String returnTypeText, String indent) {
         // The 'indent' parameter is now "" when called from buildSignatureString.
         String inferredReturnType = returnTypeText;
         // ProjectFile currentFile = null; // Unused variable removed
@@ -114,7 +115,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         // 1. It's an exported function/component starting with an uppercase letter (common React convention).
         // OR
         // 2. It's a method named "render" (classic React class component method).
-        boolean isExported = !exportPrefix.trim().isEmpty();
+        boolean isExported = exportPrefix.trim().startsWith("export");
         boolean isComponentName = !functionName.isEmpty() && Character.isUpperCase(functionName.charAt(0));
         boolean isRenderMethod = "render".equals(functionName);
 
@@ -131,7 +132,20 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
         String nodeType = funcNode.getType();
 
         if ("arrow_function".equals(nodeType)) {
-             signature = String.format("%s%s%s%s%s =>", exportPrefix, asyncPrefix, functionName, paramsText, tsReturnTypeSuffix);
+            // For arrow functions, we need to strip const/let/var from the exportPrefix
+            String cleanedExportPrefix = exportPrefix;
+            if (exportPrefix.contains("const")) {
+                cleanedExportPrefix = exportPrefix.replace("const", "").trim();
+                if (!cleanedExportPrefix.isEmpty() && !cleanedExportPrefix.endsWith(" ")) {
+                    cleanedExportPrefix += " ";
+                }
+            } else if (exportPrefix.contains("let")) {
+                cleanedExportPrefix = exportPrefix.replace("let", "").trim();
+                if (!cleanedExportPrefix.isEmpty() && !cleanedExportPrefix.endsWith(" ")) {
+                    cleanedExportPrefix += " ";
+                }
+            }
+            signature = String.format("%s%s%s%s%s =>", cleanedExportPrefix, asyncPrefix, functionName, paramsText, tsReturnTypeSuffix);
         } else { // Assumes "function_declaration", "method_definition" etc.
              signature = String.format("%s%sfunction %s%s%s", exportPrefix, asyncPrefix, functionName, paramsText, tsReturnTypeSuffix);
         }
@@ -244,6 +258,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected String getVisibilityPrefix(TSNode node, String src) {
+
         TSNode parent = node.getParent();
         if (parent != null && !parent.isNull()) {
             // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
@@ -265,7 +280,7 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
                 if (exportStatementNode != null && !exportStatementNode.isNull() && "export_statement".equals(exportStatementNode.getType())) {
                     exportStr = "export ";
                 }
-                
+
                 // Combine export prefix and keyword
                 // e.g., "export const ", "let ", "var "
                 StringBuilder prefixBuilder = new StringBuilder();
@@ -344,7 +359,15 @@ public class JavascriptAnalyzer extends TreeSitterAnalyzer {
     // For now, assume main query captures are sufficient for JS CUs.
 
     @Override
+    protected String formatFieldSignature(TSNode fieldNode, String src, String exportPrefix, String signatureText, String baseIndent, ProjectFile file) {
+        // JavaScript field signatures shouldn't have semicolons
+        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        return baseIndent + fullSignature;
+    }
+
+    @Override
     protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
         return JS_SYNTAX_PROFILE;
     }
+
 }
