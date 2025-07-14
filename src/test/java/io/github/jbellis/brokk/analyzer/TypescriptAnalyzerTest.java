@@ -8,9 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Map;
-import java.util.Optional;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -618,12 +616,11 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.endsWith("}"));
 
         // Test with Point interface from Hello.ts
-        String pointSource = normalize.apply(analyzer.getClassSource("Point"));
+        final String pointSource = normalize.apply(analyzer.getClassSource("Point"));
         assertNotNull(pointSource);
-        System.out.println(pointSource);
-        assertTrue(pointSource.startsWith("export interface Point"));
+        assertTrue(pointSource.startsWith("export interface Point"), () -> String.format("'%s' did not start with the expected prefix.", pointSource));
         assertTrue(pointSource.contains("x: number;"));
         assertTrue(pointSource.contains("move(dx: number, dy: number): void;"));
-        assertTrue(pointSource.endsWith("}"));
+        assertTrue(pointSource.endsWith("}"), () -> String.format("'%s' did not end with the expected prefix.", pointSource));
     }
 }
