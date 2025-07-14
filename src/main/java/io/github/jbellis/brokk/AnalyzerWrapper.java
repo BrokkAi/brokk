@@ -5,7 +5,6 @@ import io.github.jbellis.brokk.analyzer.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.xnio.FileChangeEvent;
 
 import javax.swing.*;
 import java.awt.KeyboardFocusManager;
@@ -13,7 +12,6 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -666,10 +664,6 @@ public class AnalyzerWrapper implements AutoCloseable {
         resume(); // Ensure any waiting thread is woken up to exit
     }
 
-    public record CodeWithSource(String code, Set<CodeUnit> sources) {
-    }
-    
-    // Internal event representation to replace DirectoryChangeEvent
     private enum EventType {
         CREATE, MODIFY, DELETE, OVERFLOW
     }

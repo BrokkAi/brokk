@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 public class AnalyzerUtil {
     private static final Logger logger = LogManager.getLogger(AnalyzerUtil.class);
 
-    public static AnalyzerWrapper.CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
+    public static CodeWithSource processUsages(IAnalyzer analyzer, List<CodeUnit> uses) {
         StringBuilder code = new StringBuilder();
         Set<CodeUnit> sources = new HashSet<>();
 
@@ -69,7 +69,7 @@ public class AnalyzerUtil {
             }
         }
 
-        return new AnalyzerWrapper.CodeWithSource(code.toString(), sources);
+        return new CodeWithSource(code.toString(), sources);
     }
 
     public static List<CodeUnit> combinedPagerankFor(IAnalyzer analyzer, Map<String, Double> weightedSeeds) {
@@ -306,5 +306,8 @@ public class AnalyzerUtil {
         }
         // Return the map containing formatted sources for all found classes
         return sources;
+    }
+
+    public record CodeWithSource(String code, Set<CodeUnit> sources) {
     }
 }
