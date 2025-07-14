@@ -32,6 +32,8 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
 
   override def isCpg: Boolean = true
 
+  override val fullNameSeparators: Seq[String] = Seq(".", "::")
+
   // ---------------------------------------------------------------------
   // Language-specific helpers
   // ---------------------------------------------------------------------
@@ -835,6 +837,7 @@ object CppAnalyzer {
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
+      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
       .buildAndThrow
       .open
   }
