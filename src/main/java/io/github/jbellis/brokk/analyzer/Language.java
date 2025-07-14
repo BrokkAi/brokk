@@ -196,55 +196,12 @@ public interface Language {
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
-            logger.debug("Scanning for JavaScript dependency candidates in project: {}", project.getRoot());
-            var results = new ArrayList<Path>();
-            Path nodeModules = project.getRoot().resolve("node_modules");
-
-            if (Files.isDirectory(nodeModules)) {
-                logger.debug("Scanning node_modules directory: {}", nodeModules);
-                try (DirectoryStream<Path> ds = Files.newDirectoryStream(nodeModules)) {
-                    for (Path entry : ds) {
-                        String name = entry.getFileName().toString();
-                        if (name.equals(".bin")) continue;  // skip executables
-                        if (name.startsWith("@")) {        // scoped pkgs
-                            logger.debug("Found scoped package directory: {}", entry);
-                            try (DirectoryStream<Path> scoped = Files.newDirectoryStream(entry)) {
-                                for (Path scopedPkg : scoped) {
-                                    if (Files.isDirectory(scopedPkg)) {
-                                        logger.debug("Found JS dependency candidate (scoped): {}", scopedPkg);
-                                        results.add(scopedPkg);
-                                    }
-                                }
-                            }
-                        } else if (Files.isDirectory(entry)) {
-                            logger.debug("Found JS dependency candidate: {}", entry);
-                            results.add(entry);
-                        }
-                    }
-                } catch (IOException e) {
-                    logger.warn("Error scanning node_modules directory {}: {}", nodeModules, e.getMessage());
-                }
-            } else {
-                logger.debug("node_modules directory not found at: {}", nodeModules);
-            }
-
-            logger.debug("Found {} JavaScript dependency candidates.", results.size());
-            return results;
+            return NodeJsDependencyHelper.getDependencyCandidates(project);
         }
 
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
-            assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
-            Path projectRoot = project.getRoot();
-            Path normalizedPathToImport = pathToImport.normalize();
-
-            if (!normalizedPathToImport.startsWith(projectRoot)) {
-                return false; // Not part of this project
-            }
-
-            // Check if the path is node_modules or inside node_modules directly under project root
-            Path nodeModulesPath = projectRoot.resolve("node_modules");
-            return !normalizedPathToImport.startsWith(nodeModulesPath);
+            return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
         }
     };
 
@@ -534,12 +491,16 @@ public interface Language {
         }
 
         @Override public String toString() { return name(); }
-        // TODO: Implement getDependencyCandidates for TypeScript (e.g. node_modules, similar to JAVASCRIPT)
-        /*@Override public List<Path> getDependencyCandidates(Project project) {
-            // Leveraging JAVASCRIPT's logic for node_modules as a starting point
-            return JAVASCRIPT.getDependencyCandidates(project);
-        }*/
-        // TODO: Refine isAnalyzed for TypeScript
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return NodeJsDependencyHelper.getDependencyCandidates(project);
+        }
+
+        @Override
+        public boolean isAnalyzed(IProject project, Path pathToImport) {
+            return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
+        }
     };
 
     List<Language> ALL_LANGUAGES = List.of(C_SHARP,

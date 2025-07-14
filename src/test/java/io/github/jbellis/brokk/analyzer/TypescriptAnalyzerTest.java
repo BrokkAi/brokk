@@ -680,5 +680,224 @@ public class TypescriptAnalyzerTest {
                 "Should start with interface declaration");
     }
 
+    @Test
+    void testTypescriptDependencyCandidates() throws IOException {
+        // Create a temporary test project with a node_modules directory
+        Path tempDir = Files.createTempDirectory("typescript-dep-test");
+        try {
+            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+
+            // Create a node_modules directory structure
+            Path nodeModules = tempDir.resolve("node_modules");
+            Files.createDirectories(nodeModules);
+
+            // Create some mock dependencies
+            Path reactDir = nodeModules.resolve("react");
+            Path lodashDir = nodeModules.resolve("lodash");
+            Path binDir = nodeModules.resolve(".bin");
+            Files.createDirectories(reactDir);
+            Files.createDirectories(lodashDir);
+            Files.createDirectories(binDir);
+
+            // Add TypeScript files (.ts, .d.ts) that should be analyzed
+            Files.writeString(reactDir.resolve("index.d.ts"), "export = React;");
+            Files.writeString(lodashDir.resolve("index.d.ts"), "export = _;");
+            Files.writeString(reactDir.resolve("react.ts"), "interface ReactComponent {}");
+
+            // Add JavaScript files that should be ignored by TypeScript analyzer
+            Files.writeString(reactDir.resolve("index.js"), "module.exports = React;");
+            Files.writeString(reactDir.resolve("component.jsx"), "export const Component = () => <div/>;");
+            Files.writeString(lodashDir.resolve("lodash.js"), "module.exports = _;");
+
+            // Test getDependencyCandidates
+            List<Path> candidates = Language.TYPESCRIPT.getDependencyCandidates(tsProject);
+
+            // Should find react and lodash but not .bin
+            assertEquals(2, candidates.size(), "Should find 2 dependency candidates");
+            assertTrue(candidates.contains(reactDir), "Should find react dependency");
+            assertTrue(candidates.contains(lodashDir), "Should find lodash dependency");
+            assertFalse(candidates.contains(binDir), "Should not include .bin directory");
+
+            // Now test that TypeScript analyzer only processes .ts/.tsx files from dependencies
+            // Check which file extensions TypeScript language recognizes
+            assertTrue(Language.TYPESCRIPT.getExtensions().contains("ts"),
+                    "TypeScript should recognize .ts files");
+            assertTrue(Language.TYPESCRIPT.getExtensions().contains("tsx"),
+                    "TypeScript should recognize .tsx files");
+            assertFalse(Language.TYPESCRIPT.getExtensions().contains("js"),
+                    "TypeScript should NOT recognize .js files");
+            assertFalse(Language.TYPESCRIPT.getExtensions().contains("jsx"),
+                    "TypeScript should NOT recognize .jsx files");
+
+            // Verify that Language.fromExtension correctly routes files
+            assertEquals(Language.TYPESCRIPT, Language.fromExtension("ts"),
+                    ".ts files should be handled by TypeScript analyzer");
+            assertEquals(Language.TYPESCRIPT, Language.fromExtension("tsx"),
+                    ".tsx files should be handled by TypeScript analyzer");
+            assertEquals(Language.JAVASCRIPT, Language.fromExtension("js"),
+                    ".js files should be handled by JavaScript analyzer");
+            assertEquals(Language.JAVASCRIPT, Language.fromExtension("jsx"),
+                    ".jsx files should be handled by JavaScript analyzer");
+
+        } finally {
+            // Clean up
+            deleteRecursively(tempDir);
+        }
+    }
+
+    @Test
+    void testTypescriptDependencyCandidatesNoDeps() throws IOException {
+        // Test with project that has no node_modules
+        Path tempDir = Files.createTempDirectory("typescript-nodeps-test");
+        try {
+            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+
+            List<Path> candidates = Language.TYPESCRIPT.getDependencyCandidates(tsProject);
+
+            assertTrue(candidates.isEmpty(), "Should return empty list when no node_modules exists");
+
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    @Test
+    void testTypescriptIsAnalyzed() throws IOException {
+        // Create a temporary test project
+        Path tempDir = Files.createTempDirectory("typescript-analyzed-test");
+        try {
+            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+
+            // Create a node_modules directory
+            Path nodeModules = tempDir.resolve("node_modules");
+            Files.createDirectories(nodeModules);
+            Path reactDir = nodeModules.resolve("react");
+            Files.createDirectories(reactDir);
+
+            // Create project source files
+            Path srcDir = tempDir.resolve("src");
+            Files.createDirectories(srcDir);
+            Path sourceFile = srcDir.resolve("app.ts");
+            Files.writeString(sourceFile, "console.log('hello');");
+
+            // Test isAnalyzed method
+
+            // Project source files should be analyzed
+            assertTrue(Language.TYPESCRIPT.isAnalyzed(tsProject, sourceFile),
+                    "Project source files should be considered analyzed");
+            assertTrue(Language.TYPESCRIPT.isAnalyzed(tsProject, srcDir),
+                    "Project source directories should be considered analyzed");
+
+            // node_modules should NOT be analyzed (as they are dependencies)
+            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, nodeModules),
+                    "node_modules directory should not be considered analyzed");
+            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, reactDir),
+                    "Individual dependency directories should not be considered analyzed");
+
+            // Files outside project should not be analyzed
+            Path outsideFile = Path.of("/tmp/outside.ts").toAbsolutePath();
+            assertFalse(Language.TYPESCRIPT.isAnalyzed(tsProject, outsideFile),
+                    "Files outside project should not be considered analyzed");
+
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    @Test
+    void testTypescriptIgnoresJavaScriptFiles() throws IOException {
+        // Create a test project with mixed TypeScript and JavaScript files
+        Path tempDir = Files.createTempDirectory("typescript-js-ignore-test");
+        try {
+            var tsProject = new TestProject(tempDir, Language.TYPESCRIPT);
+
+            // Create both TypeScript and JavaScript files in project root
+            Files.writeString(tempDir.resolve("component.ts"), """
+                    export class TypeScriptClass {
+                        method(): string { return "typescript"; }
+                    }
+                    """);
+
+            Files.writeString(tempDir.resolve("component.tsx"), """
+                    export const TsxComponent = () => <div>TSX</div>;
+                    """);
+
+            // Create JavaScript files that should be ignored
+            Files.writeString(tempDir.resolve("script.js"), """
+                    export class JavaScriptClass {
+                        method() { return "javascript"; }
+                    }
+                    """);
+
+            Files.writeString(tempDir.resolve("component.jsx"), """
+                    export const JsxComponent = () => <div>JSX</div>;
+                    """);
+
+            // Create TypeScript analyzer
+            var analyzer = new TypescriptAnalyzer(tsProject);
+
+            // Verify analyzer is not empty (it found TypeScript files)
+            assertFalse(analyzer.isEmpty(), "TypeScript analyzer should find TypeScript files");
+
+            // Get all top-level declarations
+            var declarations = analyzer.getTopLevelDeclarations();
+            var allDeclarations = declarations.values().stream()
+                    .flatMap(List::stream)
+                    .toList();
+
+            // Should find TypeScript symbols
+            assertTrue(allDeclarations.stream()
+                    .anyMatch(cu -> cu.fqName().contains("TypeScriptClass")),
+                    "Should find TypeScript class");
+            assertTrue(allDeclarations.stream()
+                    .anyMatch(cu -> cu.fqName().contains("TsxComponent")),
+                    "Should find TSX component");
+
+            // Should NOT find JavaScript symbols
+            assertFalse(allDeclarations.stream()
+                    .anyMatch(cu -> cu.fqName().contains("JavaScriptClass")),
+                    "Should NOT find JavaScript class");
+            assertFalse(allDeclarations.stream()
+                    .anyMatch(cu -> cu.fqName().contains("JsxComponent")),
+                    "Should NOT find JSX component");
+
+            // Test file-specific declarations
+            var tsFile = new ProjectFile(tempDir, "component.ts");
+            var tsxFile = new ProjectFile(tempDir, "component.tsx");
+            var jsFile = new ProjectFile(tempDir, "script.js");
+            var jsxFile = new ProjectFile(tempDir, "component.jsx");
+
+            // TypeScript files should have declarations
+            assertFalse(analyzer.getDeclarationsInFile(tsFile).isEmpty(),
+                    "TypeScript file should have declarations");
+            assertFalse(analyzer.getDeclarationsInFile(tsxFile).isEmpty(),
+                    "TSX file should have declarations");
+
+            // JavaScript files should have no declarations (empty because they're ignored)
+            assertTrue(analyzer.getDeclarationsInFile(jsFile).isEmpty(),
+                    "JavaScript file should have no declarations in TypeScript analyzer");
+            assertTrue(analyzer.getDeclarationsInFile(jsxFile).isEmpty(),
+                    "JSX file should have no declarations in TypeScript analyzer");
+
+        } finally {
+            deleteRecursively(tempDir);
+        }
+    }
+
+    private static void deleteRecursively(Path dir) throws IOException {
+        if (Files.exists(dir)) {
+            try (var stream = Files.walk(dir)) {
+                stream.sorted((a, b) -> b.compareTo(a)) // Delete children before parents
+                      .forEach(path -> {
+                          try {
+                              Files.delete(path);
+                          } catch (IOException e) {
+                              // Ignore cleanup errors
+                          }
+                      });
+            }
+        }
+    }
+
 
 }
