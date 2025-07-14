@@ -576,10 +576,16 @@ class JavaAnalyzerTest {
     )
 
     // Anonymous inner classes used in a field
-    //    assertEquals("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>",
-    //      analyzer.resolveMethodName("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>"))
-    //    assertEquals("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>",
-    //      analyzer.resolveMethodName("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>"))
+    assertEquals(
+      "org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>",
+      analyzer.resolveMethodName(
+        "org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>"
+      )
+    )
+    assertEquals(
+      "org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>",
+      analyzer.resolveMethodName("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>")
+    )
     assertEquals(
       "FileSelectionTree.loadTreeInBackground",
       analyzer.resolveMethodName(

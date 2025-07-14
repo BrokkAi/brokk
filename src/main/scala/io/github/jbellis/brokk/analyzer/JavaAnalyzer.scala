@@ -83,9 +83,10 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
         case lambdaPattern(parentMethod) :: _ =>
           (parentMethod :: acc).reverse
 
-        // 3. Recursive Case: The current token is an anonymous class, e.g., "MyClass$1".
-        //    This truncates the method name from this point, so we stop and return what we have accumulated.
-        case head :: _ if anonClassPattern.matches(head) =>
+        // 3. Recursive Case: The current token is an anonymous class, e.g., "MyClass$1". unless it's the constructor
+        //    for the anonymous class. This truncates the method name from this point, so we stop and return what we
+        //    have accumulated.
+        case head :: tail if anonClassPattern.matches(head) && !tail.headOption.contains("<init>") =>
           acc.reverse
 
         // 4. Recursive Case: A regular token. Add it to the accumulator and continue.
