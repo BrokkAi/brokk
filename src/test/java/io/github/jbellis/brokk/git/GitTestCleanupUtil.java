@@ -18,9 +18,10 @@ public class GitTestCleanupUtil {
 
     static {
         if (Environment.isWindows()) {
-            // Disable JGit's memory mapping on Windows to prevent file-locking
-            // issues that cause temp-dir deletion to fail in tests.
+            // Disable JGit's memory mapping and enable unlock-after-read on Windows
+            // to prevent file-locking issues that cause temp-dir deletion to fail in tests.
             System.setProperty("jgit.usemmap", "false");
+            System.setProperty("jgit.fs.unlockAfterRead", "true");
         }
     }
 
@@ -33,9 +34,7 @@ public class GitTestCleanupUtil {
     public static void cleanupGitResources(GitRepo gitRepo, Git... gitInstances) {
         // Close GitRepo first, which should close its internal Git and Repository instances
         closeWithErrorHandling("GitRepo", () -> {
-            if (gitRepo != null) {
-                gitRepo.close();
-            }
+            gitRepo.close();
         });
 
         // Close Git instances - may be redundant but ensures cleanup on Windows
@@ -43,15 +42,28 @@ public class GitTestCleanupUtil {
             var git = gitInstances[i];
             final int index = i;
             closeWithErrorHandling("Git[" + index + "]", () -> {
-                if (git != null) {
-                    git.close();
-                }
+                git.close();
             });
         }
 
         // Clear any cached JGit repositories to release mmapped pack files,
         // preventing Windows file-handle leaks that block temp-dir deletion.
         closeWithErrorHandling("RepositoryCache.clear", RepositoryCache::clear);
+        // Flush WindowCache (if JGit exposes it) so all pack/loose-object
+        // file handles are closed.  We use reflection to avoid a hard compile-time
+        // dependency on the internal classes.
+        // see https://github.com/eclipse-jgit/jgit/issues/155
+        closeWithErrorHandling("WindowCache.reconfigure", () -> {
+            try {
+                Class<?> cacheCls = Class.forName("org.eclipse.jgit.internal.storage.file.WindowCache");
+                Class<?> cfgCls   = Class.forName("org.eclipse.jgit.internal.storage.file.WindowCacheConfig");
+                Object  cfg       = cfgCls.getConstructor().newInstance();
+                cacheCls.getMethod("reconfigure", cfgCls).invoke(null, cfg);
+            } catch (Throwable ignored) {
+                // Either class not present or reflection failed – safe to ignore,
+                // the worst that happens is that some pack files stay open until GC.
+            }
+        });
 
         // Windows-specific cleanup: first trigger GC, then eagerly delete the
         // repository/work-tree directories to release any lingering mmapped pack
@@ -61,17 +73,13 @@ public class GitTestCleanupUtil {
 
             // Gather unique directories associated with the Git resources
             Set<Path> dirsToDelete = new HashSet<>();
-            if (gitRepo != null) {
-                dirsToDelete.add(gitRepo.getGitTopLevel());
-            }
+            dirsToDelete.add(gitRepo.getGitTopLevel());
             for (Git git : gitInstances) {
-                if (git != null) {
-                    var repo = git.getRepository();
-                    Path dir = repo.isBare()
+                var repo = git.getRepository();
+                Path dir = repo.isBare()
                              ? repo.getDirectory().toPath()
                              : repo.getWorkTree().toPath();
-                    dirsToDelete.add(dir);
-                }
+                dirsToDelete.add(dir);
             }
 
             // Attempt to remove each directory (best-effort, logged on failure)
