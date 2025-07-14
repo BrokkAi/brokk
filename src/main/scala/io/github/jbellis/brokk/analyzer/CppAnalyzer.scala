@@ -837,7 +837,7 @@ object CppAnalyzer {
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
       .withIncludeComments(false)
-      .withDisableFileContent(false) // lets us use `.content` on most AST nodes
+      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
       .buildAndThrow
       .open
   }

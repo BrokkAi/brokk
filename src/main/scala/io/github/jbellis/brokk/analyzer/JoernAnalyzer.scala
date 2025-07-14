@@ -3,6 +3,7 @@ package io.github.jbellis.brokk.analyzer
 import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
+import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
@@ -19,7 +20,7 @@ import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
 import scala.jdk.OptionConverters.RichOptional
-import scala.util.Try
+import scala.util.{Try, Using}
 import scala.util.matching.Regex
 
 /** An abstract base for language-specific analyzers. It implements the bulk of "IAnalyzer" using Joern's CPG, but
@@ -167,7 +168,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
 
     def attemptSimpleName: Option[String] = {
       simpleClassNameMatches match {
-        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.content.headOption
+        case exactSimpleNameMatch :: Nil => exactSimpleNameMatch.sourceCodeFromDisk
         case _                           => None
       }
     }
@@ -176,18 +177,18 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       val dotClassName = fqcn.replace('$', '.')
       simpleClassNameMatches
         .filter(td => td.fullName.replace('$', '.') == dotClassName)
-        .flatMap(_.content) match {
+        .flatMap(_.sourceCodeFromDisk) match {
         case exactDotMatch :: Nil => Option(exactDotMatch)
         case _                    => None
       }
     }
 
     def attemptAnyPartMatch: Option[String] =
-      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).content).headOption
+      simpleClassNameParts.reverse.flatMap(cpg.typeDecl.nameExact(_).sourceCodeFromDisk).headOption
 
     cpg.typeDecl
       .fullNameExact(fqcn)
-      .flatMap(_.content)
+      .flatMap(_.sourceCodeFromDisk)
       .headOption
       // This is called by the search agent, so be forgiving: if no exact match, try fuzzy matching
       .orElse(attemptSimpleName)

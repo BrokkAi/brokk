@@ -379,7 +379,7 @@ object JavaAnalyzer {
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-      .withDisableFileContent(false) // lets us use `.content` on most AST nodes
+      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
       .buildAndThrow
       .open
   }
