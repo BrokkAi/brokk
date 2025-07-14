@@ -2,9 +2,9 @@ package io.github.jbellis.brokk.analyzer
 
 import flatgraph.SchemaViolationException
 import io.github.jbellis.brokk.*
+import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
@@ -14,16 +14,16 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
-import scala.annotation.tailrec
 import java.util.regex.Pattern
+import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
 import scala.jdk.OptionConverters.RichOptional
-import scala.util.{Try, Using}
 import scala.util.matching.Regex
+import scala.util.{Try, Using}
 
 /** An abstract base for language-specific analyzers. It implements the bulk of "IAnalyzer" using Joern's CPG, but
   * delegates language-specific operations (like building a CPG or constructing method signatures) to concrete
