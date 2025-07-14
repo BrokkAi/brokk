@@ -546,6 +546,22 @@ class JavaAnalyzerTest {
     //      analyzer.resolveMethodName("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>"))
     //    assertEquals("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>",
     //      analyzer.resolveMethodName("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>"))
+    assertEquals(
+      "FileSelectionTree.loadTreeInBackground",
+      analyzer.resolveMethodName(
+        "FileSelectionTree.loadTreeInBackground.SwingWorker$0.addTreeWillExpandListener:void(javax.swing.event.TreeWillExpandListener"
+      )
+    )
+
+    // Lambdas at some call site
+    assertEquals(
+      "io.github.jbellis.brokk.gui.GitCommitTab.rollbackChangesWithUndo",
+      analyzer.resolveMethodName("io.github.jbellis.brokk.gui.GitCommitTab.lambda$rollbackChangesWithUndo$19")
+    )
+    assertEquals(
+      "io.github.jbellis.brokk.gui.GitCommitTab.rollbackChangesWithUndo",
+      analyzer.resolveMethodName("io.github.jbellis.brokk.gui.GitCommitTab.lambda$lambda$rollbackChangesWithUndo$19$20")
+    )
 
     // Constructors
     assertEquals("java.util.HashMap.<init>", analyzer.resolveMethodName("java.util.HashMap.<init>"))

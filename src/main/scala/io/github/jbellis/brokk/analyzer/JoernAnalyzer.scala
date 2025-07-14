@@ -1,10 +1,11 @@
 package io.github.jbellis.brokk.analyzer
 
+import flatgraph.SchemaViolationException
 import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
-import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.{Expression, Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
@@ -12,6 +13,7 @@ import java.io.Closeable
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
+import scala.annotation.tailrec
 import scala.collection.concurrent.TrieMap
 import scala.collection.mutable
 import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
@@ -94,6 +96,38 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
   /** Transform method node fullName to a stable "resolved" name (e.g. removing lambda suffixes).
     */
   private[brokk] def resolveMethodName(methodName: String): String
+
+  /** Obtains the full name of the next surrounding non-lambda method.
+    */
+  private[brokk] def parentMethodName(expression: Expression): String = {
+
+    @tailrec
+    def _parentMethodName(method: Method): String = {
+      if method.isModule.hasNext then
+        // Module methods should not be present in Java, but let's handle this edge case anyway
+        method.fullName
+      else if method.isLambda.hasNext then
+        method.astParent match {
+          case parentMethod: Method => _parentMethodName(parentMethod)
+          case other: Expression    => _parentMethodName(other.method)
+          case unsupported =>
+            throw new SchemaViolationException(
+              s"Unexpected node type ${unsupported.getClass} encountered while resolving method name!"
+            )
+        }
+      else {
+        method.typeDecl match {
+          case Some(definingTypeDecl) => s"${definingTypeDecl.fullName}.${method.name}"
+          case None =>
+            throw new SchemaViolationException(
+              s"No defining type declaration for method '${method.fullName}' found while resolving method name!"
+            )
+        }
+      }
+    }
+
+    _parentMethodName(expression.method)
+  }
 
   /** Possibly remove package names from a type string, or do other language-specific cleanup.
     */
