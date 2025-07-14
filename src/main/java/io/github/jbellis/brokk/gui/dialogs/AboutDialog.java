@@ -48,7 +48,7 @@ public final class AboutDialog extends JDialog {
                      Version %s<br>
                      &copy; 2025 Brokk&nbsp;Inc.
                    </html>
-                   """.formatted(BuildInfo.version());
+                   """.formatted(BuildInfo.version);
         content.add(new JLabel(text), BorderLayout.CENTER);
 
         add(content);
