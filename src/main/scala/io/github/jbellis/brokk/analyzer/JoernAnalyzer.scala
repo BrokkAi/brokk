@@ -5,7 +5,7 @@ import io.github.jbellis.brokk.*
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
-import io.shiftleft.codepropertygraph.generated.nodes.{Call, Expression, Method, NamespaceBlock, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
@@ -105,7 +105,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
     def _parentMethodName(method: Method): String = {
       if method.isModule.hasNext then
         // Module methods should not be present in Java, but let's handle this edge case anyway
-        method.fullName
+        chopColon(method.fullName)
       else if method.isLambda.hasNext then
         method.astParent match {
           case parentMethod: Method => _parentMethodName(parentMethod)
@@ -116,12 +116,8 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
             )
         }
       else {
-        method.typeDecl match {
-          case Some(definingTypeDecl) => s"${definingTypeDecl.fullName}.${method.name}"
-          case None                   =>
-            // external method stubs do not have parent type declarations, fall back to normal resolution
-            resolveMethodName(method.fullName)
-        }
+        // The most language agnostic way to do this as C++ ASTs are vastly different to Java ones
+        chopColon(method.fullName)
       }
     }
 
@@ -363,8 +359,8 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
     if (excludeSelfRefs) {
       calls = calls.filterNot(call => partOfClass(selfSource, call.method.typeDecl.fullName.head))
     }
-    calls.method.fullName
-      .map(x => resolveMethodName(chopColon(x)))
+    calls.method
+      .map(parentMethodName)
       .distinct
       .l
   }
@@ -417,7 +413,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       .flatMap { m =>
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
-            val methodName = resolveMethodName(chopColon(m.fullName))
+            val methodName = parentMethodName(m)
             val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
@@ -443,7 +439,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       .flatMap { m =>
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
-            val methodName = resolveMethodName(chopColon(m.fullName))
+            val methodName = parentMethodName(m)
             val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
@@ -468,7 +464,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       .flatMap { m =>
         m.typeDecl.headOption.flatMap { td =>
           toFile(td).flatMap { file =>
-            val methodName = resolveMethodName(chopColon(m.fullName))
+            val methodName = parentMethodName(m)
             val lastDot    = methodName.lastIndexOf('.')
             if (lastDot > 0) {
               val fullClassPath = methodName.substring(0, lastDot)
@@ -571,16 +567,9 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
         val fileOpt =
           if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
         fileOpt.flatMap { file =>
-          val isGlobalMethod = cpgMethod.astParent match {
-            case parentNode: NamespaceBlock => true
-            case parentNode: TypeDecl       => parentNode.name.endsWith("<global>")
-            case _                          => false
-          }
-
           // For global methods, CPG fullName might be "filename.ext:funcname".
           // For class methods, it's "pkg.Cls.method:sig" or "Cls.method:sig".
-          // resolveMethodName(chopColon(...)) handles this.
-          val baseFqn = resolveMethodName(chopColon(cpgMethod.fullName))
+          val baseFqn = parentMethodName(cpgMethod)
 
           val fqnForCu =
             if !baseFqn.contains(".") && !baseFqn.contains(":") then
@@ -687,12 +676,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
       val fileOpt =
         if (cpgMethod.filename.nonEmpty) toFile(cpgMethod.filename) else cpgMethod.typeDecl.headOption.flatMap(toFile)
       fileOpt.flatMap { file =>
-        val isGlobalMethod = cpgMethod.astParent match {
-          case parentNode: NamespaceBlock => true
-          case parentNode: TypeDecl       => parentNode.name.endsWith("<global>")
-          case _                          => false
-        }
-        val fqnForCu = resolveMethodName(chopColon(cpgMethod.fullName))
+        val fqnForCu = parentMethodName(cpgMethod)
         cuFunction(fqnForCu, file)
       }
     }
@@ -709,7 +693,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
         fileOpt.flatMap { file =>
           // The fqnForCu should be the methodFqnString itself, as it's already resolved.
           // Or, re-resolve from CPG method to be absolutely sure it's canonical.
-          val fqnForCuFromCpg = resolveMethodName(chopColon(cpgMethod.fullName))
+          val fqnForCuFromCpg = parentMethodName(cpgMethod)
           cuFunction(fqnForCuFromCpg, file)
         }
       }
@@ -843,15 +827,9 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
         // For global methods, m.typeDecl might not be useful for file path, use m.filename
         val fileOpt = if (m.filename.nonEmpty) toFile(m.filename) else m.typeDecl.headOption.flatMap(toFile)
         fileOpt.flatMap { file =>
-          val isGlobalMethod = m.astParent match {
-            case parentNode: NamespaceBlock => true
-            case parentNode: TypeDecl       => parentNode.method.isEmpty && parentNode.member.isEmpty
-            case _                          => false
-          }
-
           // CPG method fullName is the source of truth. resolveMethodName cleans it up.
           // CppAnalyzer.parseFqName will handle "filename.ext:funcname" or "pkg.Cls.method" etc.
-          val baseFqn = resolveMethodName(chopColon(m.fullName))
+          val baseFqn = parentMethodName(m)
           val fqnForCu =
             if !baseFqn.contains(".") && !baseFqn.contains(":") then
               val fileName = Path.of(file.toString).getFileName.toString
@@ -1133,7 +1111,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
         td.method
           .filterNot(m => m.name == "<global>" || m.name.startsWith("<operator>")) // Filter unwanted methods
           .foreach { m =>
-            val methodFqn = resolveMethodName(chopColon(m.fullName))
+            val methodFqn = parentMethodName(m)
             cuFunction(methodFqn, file).foreach(declarations.add)
           }
 
@@ -1168,7 +1146,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
         // Deduplication is handled by the `declarations` Set.
         // This loop will add true global functions (parent is NamespaceBlock)
         // or methods within the file's <global> TypeDecl if not filtered above.
-        val baseFqn = resolveMethodName(chopColon(m.fullName))
+        val baseFqn = parentMethodName(m)
         val fqnForCu =
           // Heuristic to create a package-like prefix for global functions if FQN is simple (no ns/class separators)
           if (!baseFqn.contains(".") && !baseFqn.contains("::") && !baseFqn.contains(":")) then {
@@ -1226,7 +1204,7 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
                   td.method
                     .filterNot(m => m.name == "<init>" || m.name == "<clinit>" || m.name.startsWith("<operator>"))
                     .flatMap { m =>
-                      val fqn = resolveMethodName(chopColon(m.fullName))
+                      val fqn = parentMethodName(m)
                       cuFunction(fqn, file)
                     }
                     .l
