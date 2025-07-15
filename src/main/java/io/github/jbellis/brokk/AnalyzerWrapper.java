@@ -222,90 +222,102 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /**
-     * Caller is responsible for setting currentAnalyzer to the result of this method.
+     * Builds or loads an {@link IAnalyzer} for the project.
      *
-     * @param isInitialLoad     true if this is the very first load (triggers UNSET logic and watcher start).
-     * @param maybeChangedFiles the file changes relevant to the analyzer(s) if any are present.
+     * <p>All “loop over every language” work is now delegated to a single
+     * {@link Language} handle:
+     * <ul>
+     *   <li>If the project has exactly one concrete language, that language is used
+     *       directly.</li>
+     *   <li>If the project has several languages, a new
+     *       {@link Language.MultiLanguage} wrapper is created to fan‑out the work
+     *       behind the scenes.</li>
+     * </ul>
+     *
+     * <p>The <strong>cache / staleness</strong> checks that used to live in the
+     * helper method <code>loadSingleCachedAnalyzerForLanguage</code> are now
+     * performed here <em>before</em> we decide whether to call
+     * <code>langHandle.loadAnalyzer()</code> (use cache) or
+     * <code>langHandle.createAnalyzer()</code> (full rebuild).</p>
      */
-    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad, Optional<List<FileChangeEvent>> maybeChangedFiles) {
-        Set<Language> projectLangs = project.getAnalyzerLanguages();
-        logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
+    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad,
+                                                   Optional<List<FileChangeEvent>> maybeChangedFiles) {
+        /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
+        var projectLangs = project.getAnalyzerLanguages()
+                .stream()
+                .filter(l -> l != Language.NONE)
+                .collect(Collectors.toUnmodifiableSet());
 
-        if (projectLangs.isEmpty() || (projectLangs.size() == 1 && projectLangs.contains(Language.NONE))) {
+        logger.debug("Loading/creating analyzer for languages: {}",
+                     projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
+
+        if (projectLangs.isEmpty())
             return new DisabledAnalyzer();
-        }
 
-        if (listener != null) {
-            listener.beforeEachBuild();
-        }
+        Language langHandle = (projectLangs.size() == 1)
+                ? projectLangs.iterator().next()
+                : new Language.MultiLanguage(projectLangs);
 
-        BuildAgent.BuildDetails fetchedBuildDetails = project.awaitBuildDetails();
-        if (fetchedBuildDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
+        /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
+        if (listener != null) listener.beforeEachBuild();
+
+        BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
+        if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
-        }
 
-        long totalCreationTimeMs;
-        int totalDeclarations = 0;
-
-        boolean needsRebuild = false;
-
-        var delegateAnalyzers = new HashMap<Language, IAnalyzer>();
-        long longestLangCreationTimeMs = 0;
-
-        for (Language lang : projectLangs) {
-            if (lang == Language.NONE) continue;
-            Path cpgPath = lang.isCpg() ? lang.getCpgPath(project) : null;
-            IAnalyzer delegate;
-            long langStartTime = System.currentTimeMillis();
-
-            if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                delegate = lang.createAnalyzer(project, maybeChangedFiles);
-            } else {
-                var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
-                if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
-                    // Use cached analyzer if it exists and either this is initial load, or background rebuild with fresh cache
-                    delegate = cachedResult.analyzer;
-                    if (isInitialLoad) {
-                        needsRebuild = needsRebuild || cachedResult.needsRebuild;
-                    }
-                    logger.debug("Using {} cached {} analyzer", cachedResult.needsRebuild ? "stale" : "fresh", lang.name());
-                } else {
-                    // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
-                    String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
-                    logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
-                    delegate = lang.createAnalyzer(project, maybeChangedFiles);
+        /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        boolean needsRebuild = externalRebuildRequested;            // explicit user request wins
+        if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
+            for (Language lang : projectLangs) {
+                if (!lang.isCpg()) continue;                       // non‑CPG langs are rebuilt ad‑hoc
+                Path cpgPath = lang.getCpgPath(project);
+                if (!Files.exists(cpgPath)) {                      // no cache → rebuild
+                    needsRebuild = true;
+                    continue;
                 }
-            }
-            long langCreationTime = System.currentTimeMillis() - langStartTime;
-            longestLangCreationTimeMs = Math.max(longestLangCreationTimeMs, langCreationTime);
-            if (!delegate.isEmpty()) {
-                delegateAnalyzers.put(lang, delegate);
-                totalDeclarations += delegate.getAllDeclarations().size();
+                // Filter tracked files relevant to this language
+                List<ProjectFile> tracked = project.getAllFiles().stream()
+                        .filter(pf -> lang.getExtensions()
+                                .contains(com.google.common.io.Files.getFileExtension(pf.absPath().toString())))
+                        .toList();
+                if (isStale(lang, cpgPath, tracked))               // cache older than sources
+                    needsRebuild = true;
             }
         }
-        var loadedAnalyzer = switch (delegateAnalyzers.size()) {
-            case 0 -> new DisabledAnalyzer();
-            case 1 -> delegateAnalyzers.values().iterator().next();
-            default -> new MultiAnalyzer(delegateAnalyzers);
-        };
-        totalCreationTimeMs = longestLangCreationTimeMs; // Use longest for multi-analyzer setup time heuristic
-        logger.debug("Analyzer (re)build completed for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
-        // Notify listener after each build, once currentAnalyzer is set
-        if (listener != null) {
+        /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        long start = System.currentTimeMillis();
+        IAnalyzer analyzer;
+        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
+            logger.debug("Building fresh analyzer ({}st build, rebuild required: {})",
+                         isInitialLoad ? "fir" : "subsequent", needsRebuild);
+            analyzer = langHandle.createAnalyzer(project, maybeChangedFiles);
+        } else {
+            logger.debug("Loading cached analyzer(s)");
+            analyzer = langHandle.loadAnalyzer(project);
+        }
+        long durationMs = System.currentTimeMillis() - start;
+        int declarationCount = analyzer.getAllDeclarations().size();
+
+        /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
+        if (listener != null)
             listener.afterEachBuild(true, externalRebuildRequested);
+
+        /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
+        if (needsRebuild &&
+                project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL &&
+                !externalRebuildRequested) 
+        {
+            logger.debug("Scheduling background rebuild to refresh stale caches");
+            rebuild(maybeChangedFiles);
         }
 
-        // Schedule background rebuild if using stale cached analyzer
-        if (needsRebuild) {
-            logger.debug("Scheduling background rebuild for stale analyzer");
-            rebuild(maybeChangedFiles); // TODO: Is this a correct interpretation?
-        }
-
+        /* ── 6.  First‑build heuristics (unchanged logic) ───────────────────────────── */
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-            handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, projectLangs);
+            handleFirstBuildRefreshSettings(declarationCount, durationMs, projectLangs);
         }
-        return loadedAnalyzer;
+
+        return analyzer;
     }
 
     private void handleFirstBuildRefreshSettings(int totalDeclarations, long durationMs, Set<Language> languages) {
@@ -368,59 +380,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         if (currentAnalyzer == null) return false;
         return currentAnalyzer.isCpg();
     }
-
-    /**
-     * Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding.
-     */
-    private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, @Nullable Path analyzerPath) {
-        // ACHTUNG!
-        // LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call
-        // it outside of try/catch with recovery!
-
-        if (analyzerPath == null || !Files.exists(analyzerPath)) {
-            return new CachedAnalyzerResult(null, false);
-        }
-
-        // In MANUAL mode, always use cached data if it exists
-        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.MANUAL) {
-            logger.debug("MANUAL refresh mode for {} - using cached analyzer from {}", lang.name(), analyzerPath);
-            try {
-                return new CachedAnalyzerResult(lang.loadAnalyzer(project), externalRebuildRequested);
-            } catch (Throwable th) {
-                logger.info("Error loading {} analyzer from {}: {}", lang.name(), analyzerPath, th.getMessage());
-                return new CachedAnalyzerResult(null, false);
-            }
-        }
-
-        var trackedFiles = project.getAllFiles().stream() // Filter for files relevant to this language
-                .filter(pf -> {
-                    String ext = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
-                    return lang.getExtensions().contains(ext);
-                })
-                .toList();
-
-        if (trackedFiles.isEmpty() && lang.isCpg()) { // No files relevant to this language
-            logger.debug("No tracked files for language {}, skipping cached analyzer at {}", lang.name(), analyzerPath);
-            return new CachedAnalyzerResult(null, false);
-        }
-
-        boolean isStale = isStale(lang, analyzerPath, trackedFiles);
-
-        // Try to load the analyzer regardless of staleness
-        try {
-            IAnalyzer analyzer = lang.loadAnalyzer(project);
-            if (isStale) {
-                logger.debug("Using stale cached analyzer for {} from {} - will rebuild in background", lang.name(), analyzerPath);
-            } else {
-                logger.debug("Using up-to-date cached analyzer for {} from {}", lang.name(), analyzerPath);
-            }
-            return new CachedAnalyzerResult(analyzer, isStale);
-        } catch (Throwable th) {
-            logger.warn("Error loading cached {} analyzer from {}; falling back to full rebuild for this language: {}", lang.name(), analyzerPath, th.getMessage());
-            return new CachedAnalyzerResult(null, false);
-        }
-    }
-
+    
     /**
      * Determine whether the cached analyzer for the given language is stale relative to
      * its tracked source files and any user-requested rebuilds.

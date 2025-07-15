@@ -610,4 +610,110 @@ public interface Language {
         }
         throw new IllegalArgumentException("No language constant " + Language.class.getCanonicalName() + "." + name);
     }
+
+    /**
+     * A composite {@link Language} implementation that delegates all operations to the
+     * wrapped set of concrete languages and combines the results.
+     *
+     * <p>Only the operations that make sense for a multi‑language view are implemented.
+     * Methods tied to a single‐language identity ‑ such as {@link #internalName()} or
+     * {@link #getCpgPath(IProject)} ‑ throw {@link UnsupportedOperationException}.</p>
+     */
+    class MultiLanguage implements Language
+    {
+        private final Set<Language> languages;
+
+        public MultiLanguage(Set<Language> languages)
+        {
+            Objects.requireNonNull(languages, "languages set is null");
+            if (languages.isEmpty())
+                throw new IllegalArgumentException("languages set must not be empty");
+            if (languages.stream().anyMatch(l -> l instanceof MultiLanguage))
+                throw new IllegalArgumentException("cannot nest MultiLanguage inside itself");
+            // copy defensively to guarantee immutability and deterministic ordering
+            this.languages = languages.stream()
+                    .filter(l -> l != Language.NONE)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        @Override public List<String> getExtensions()
+        {
+            return languages.stream()
+                    .flatMap(l -> l.getExtensions().stream())
+                    .distinct()
+                    .toList();
+        }
+
+        @Override public String name()
+        {
+            return languages.stream().map(Language::name)
+                    .collect(java.util.stream.Collectors.joining("/"));
+        }
+
+        @Override public String internalName()
+        {
+            throw new UnsupportedOperationException("MultiLanguage has no single internalName()");
+        }
+
+        @Override public Path getCpgPath(IProject project)
+        {
+            throw new UnsupportedOperationException("MultiLanguage has no single CPG file");
+        }
+
+        @Override public boolean isCpg()
+        {
+            return languages.stream().anyMatch(Language::isCpg);
+        }
+
+        @Override public IAnalyzer createAnalyzer(IProject project)
+        {
+            return createAnalyzer(project, Optional.empty());
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project,
+                                        Optional<List<FileChangeEvent>> maybeChangedFiles)
+        {
+            var delegates = new java.util.HashMap<Language, IAnalyzer>();
+            for (var lang : languages)
+            {
+                var analyzer = lang.createAnalyzer(project, maybeChangedFiles);
+                if (!analyzer.isEmpty())
+                    delegates.put(lang, analyzer);
+            }
+            return delegates.size() == 1
+                    ? delegates.values().iterator().next()
+                    : new MultiAnalyzer(delegates);
+        }
+
+        @Override public IAnalyzer loadAnalyzer(IProject project)
+        {
+            var delegates = new java.util.HashMap<Language, IAnalyzer>();
+            for (var lang : languages)
+            {
+                var analyzer = lang.loadAnalyzer(project);
+                if (!analyzer.isEmpty())
+                    delegates.put(lang, analyzer);
+            }
+            return delegates.size() == 1
+                    ? delegates.values().iterator().next()
+                    : new MultiAnalyzer(delegates);
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project)
+        {
+            return languages.stream()
+                    .flatMap(l -> l.getDependencyCandidates(project).stream())
+                    .toList();
+        }
+
+        @Override
+        public boolean isAnalyzed(IProject project, Path path)
+        {
+            return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
+        }
+
+        @Override public String toString() { return "MultiLanguage" + languages; }
+    }
 }
