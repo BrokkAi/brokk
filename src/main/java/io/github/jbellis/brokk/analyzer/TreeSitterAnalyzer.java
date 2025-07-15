@@ -297,6 +297,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         return allClasses.stream().filter(CodeUnit::isClass).distinct().toList();
     }
 
+    /**
+     * Returns the top-level declarations organized by file.
+     * This method is primarily for testing to examine the raw declarations
+     * before they are filtered by getAllDeclarations().
+     *
+     * @return Map from ProjectFile to List of CodeUnits declared at the top level in that file
+     */
+    public Map<ProjectFile, List<CodeUnit>> getTopLevelDeclarations() {
+        return Map.copyOf(topLevelDeclarations);
+    }
+
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         List<CodeUnit> topCUs = topLevelDeclarations.getOrDefault(file, List.of());
