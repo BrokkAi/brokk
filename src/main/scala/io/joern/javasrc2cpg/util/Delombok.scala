@@ -137,7 +137,7 @@ object Delombok {
             .partition(containsLombokedJava(inputPath, _))
 
           logger.debug(
-            s"Found ${normalPackageRoots.size} packages without Lombok usage, and ${lombokedPackageRoots.size} that use Lombok. Given input path: $inputPath"
+            s"Found ${normalPackageRoots.size} packages without Lombok usage, and ${lombokedPackageRoots.size} that use Lombok."
           )
 
           // Delombok affected packages
