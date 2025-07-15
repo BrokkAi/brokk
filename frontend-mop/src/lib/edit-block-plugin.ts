@@ -300,14 +300,24 @@ function handleUnfencedBlock(node: Content, index: number, parent: Parent, tree:
 
 export function remarkEditBlock(): (tree: Root, file: VFile) => void {
     let id = 0;
+    // return (tree: Root, file: VFile) => {
+    //     visit<Root, Test>(tree, (n): n is RootContent => n.type !== 'inlineCode', (node: RootContent, index: number | undefined, parent: Parent | undefined) => {
+    //         if (index === undefined || parent === undefined) return;
+    //         if (node.type === 'code') {
+    //             return handleFencedBlock(node as Code, index, parent, tree, file, ++id);
+    //         } else {
+    //             return handleUnfencedBlock(node, index, parent, tree, file, ++id);
+    //         }
+    //     });
+    // };
+
     return (tree: Root, file: VFile) => {
         visit<Root, Test>(tree, (n): n is RootContent => n.type !== 'inlineCode', (node: RootContent, index: number | undefined, parent: Parent | undefined) => {
-            if (index === undefined || parent === undefined) return;
-            if (node.type === 'code') {
-                return handleFencedBlock(node as Code, index, parent, tree, file, ++id);
-            } else {
-                return handleUnfencedBlock(node, index, parent, tree, file, ++id);
+            if (node.type === 'editBlock') {
+                console.log('Node: ', node);
             }
+
+            return;
         });
     };
 }

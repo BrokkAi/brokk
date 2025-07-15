@@ -1,4 +1,5 @@
-import {editBlockPlugin, remarkEditBlock} from '../lib/edit-block-plugin';
+import {editBlockFromMarkdown, gfmEditBlock} from '../lib/micromark-edit-block';
+import {remarkEditBlock} from '../lib/edit-block-plugin';
 import type {Root as HastRoot} from 'hast';
 import type {Parent, Root, RootContent} from 'mdast';
 import remarkBreaks from 'remark-breaks';
@@ -19,6 +20,8 @@ function post(msg: OutboundFromWorker) {
 export function createBaseProcessor(): Processor {
     return unified()
         .use(remarkParse)
+        .data('micromarkExtensions', [gfmEditBlock()])
+        .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
         .use(remarkEditBlock)

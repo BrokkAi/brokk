@@ -391,7 +391,6 @@ test('detects edit blocks with conflict syntax', () => {
   const editBlocks = findEditBlocks(tree);
 
   expect(editBlocks.length).toBe(1);
-  console.log(editBlocks[0]);
 });
 
 test('detects multiple edit blocks for the same file in conflict syntax (unfenced)', () => {

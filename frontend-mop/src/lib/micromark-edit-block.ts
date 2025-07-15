@@ -1,10 +1,6 @@
-import {markdownLineEnding} from 'micromark-util-character';
-import {codes} from 'micromark-util-symbol';
-import type {Extension, TokenizeContext, Tokenizer} from 'micromark-util-types';
-
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
-import type { Extension, TokenizeContext, Tokenizer, Construct } from 'micromark-util-types';
+import type { Extension, TokenizeContext, Tokenizer, Construct, State, Code } from 'micromark-util-types';
 
 /**
  * Micromark extension to detect edit blocks in Markdown text.
@@ -14,57 +10,53 @@ export function gfmEditBlock(): Extension {
     return { flow: { [codes.lessThan]: editBlock } };
 }
 
+let _context: TokenizeContext
+let _effects: any
 
+let text;
+function dbg(msg: string, code?: number) {
+    const txt1 = `[micromark-edit-block] ${msg} at line ${_context.now().line}, col ${_context.now().column}`;
+    const txt2 = code !== undefined ? `char: ${String.fromCharCode(code)}` : '';
+    text += txt1 + ' ' + txt2 + '\n';
+    console.log(txt1, txt2);
+}
 
-/**
- * Initial tokenizer for edit block syntax.
- * Detects the pattern: "<<<<<<< SEARCH [filename]".
- */
-let text = '';
-const initialTokenize: Tokenizer = function (effects, ok, nok) {
-    const self = this;
+function safeConsume(code: number) {
+    dbg('consume', code);
+    _effects.consume(code);
+}
 
-    // Debug wrappers to log enter, exit, and consume operations
-    function dbg(msg: string, code?: number) {
-        const txt1 = `[micromark-edit-block] ${msg} at line ${self.now().line}, col ${self.now().column}`;
-        const txt2 = code !== undefined ? `char: ${String.fromCharCode(code)}` : '';
-        console.log(txt1, txt2);
-        text += txt1 + ' ' + txt2 + '\n';
-    }
+function safeEnter(name: string) {
+    dbg('enter ' + name);
+    _effects.enter(name);
+}
 
-    function safeConsume(code: number) {
-        dbg('consume', code);
-        effects.consume(code);
-    }
+function safeExit(name: string) {
+    dbg('exit  ' + name);
+    _effects.exit(name);
+}
 
-    function safeEnter(name: string) {
-        dbg('enter ' + name);
-        effects.enter(name);
-    }
-
-    function safeExit(name: string) {
-        dbg('exit  ' + name);
-        effects.exit(name);
-    }
-
+const tokenize: Tokenizer = function (effects, ok, nok) {
+    _context = this;
+    _effects = effects;
     return start;
 
-    function start(code: number): any {
+    function start(code: Code): State {
         if (code !== codes.lessThan) return nok(code);
+
         safeEnter('editBlock');
         safeEnter('editBlockHead');
         safeConsume(code);
-        let count = 1;
-        return checkHeadLessThan(count);
+        return checkHeadLessThan(1);
     }
 
-    function checkHeadLessThan(count: number): any {
-        return function(code: number): any {
+    function checkHeadLessThan(count: number): State {
+        return function(code: Code): State {
             if (code === codes.lessThan) {
                 safeConsume(code);
                 return checkHeadLessThan(count + 1);
             }
-            if (count < 6) {
+            if (count < 7) {
                 safeExit('editBlockHead');
                 safeExit('editBlock');
                 return nok(code);
@@ -81,8 +73,8 @@ const initialTokenize: Tokenizer = function (effects, ok, nok) {
         };
     }
 
-    function checkSearchKeyword(index: number): any {
-        return function(code: number): any {
+    function checkSearchKeyword(index: number): State {
+        return function(code: Code): State {
             const keyword = 'SEARCH';
             if (index < keyword.length) {
                 if (code !== keyword.charCodeAt(index)) {
@@ -91,131 +83,240 @@ const initialTokenize: Tokenizer = function (effects, ok, nok) {
                     return nok(code);
                 }
                 safeConsume(code);
-                if (index === keyword.length - 1) {
-                    safeExit('editBlockSearchKeyword');
-                    safeEnter('editBlockFilename');
-                }
                 return checkSearchKeyword(index + 1);
             }
-            if (markdownLineEnding(code) || code === codes.eof) {
-                safeConsume(code);
-                safeExit('editBlockFilename');
-                safeEnter('editBlockSearchContent');
-                // Initialize container state
-                self.containerState = { phase: 'search' };
-                return inSearch;
-            }
             safeConsume(code);
-            return checkSearchKeyword(index);
+            safeExit('editBlockSearchKeyword');
+            safeEnter('editBlockFilename');
+            return inFilename;
         };
     }
 
-    function inSearch(code: number): any {
-        if (code === codes.equalsTo) {
-            safeEnter('editBlockDivider');
-            safeConsume(code);
-            return checkDivider(1);
+    function inFilename(code: Code): State {
+        if (markdownLineEnding(code) || code === codes.eof) {
+            safeExit('editBlockFilename');
+            safeEnter('editBlockSearchContent');
+            return content(inSearch, afterDividerCheck)(code);
         }
         safeConsume(code);
-        return inSearch;
+        return inFilename;
     }
 
-    function checkDivider(count: number): any {
-        return function(code: number): any {
+    function afterDividerCheck(code: Code): State {
+        safeExit('editBlockSearchContent');
+        safeEnter('editBlockReplaceContent');
+        return content(inReplace, afterTailCheck)(code);
+    }
+
+    function afterTailCheck(code: Code): State {
+        safeExit('editBlockReplaceContent');
+        safeExit('editBlock');
+        return ok(code);
+    }
+
+    function content(next: State, transitionCheck: State): (code: Code) => State {
+        const contentChunk: State = (code) => {
+            safeEnter('chunk');
+            return contentContinue(code);
+        };
+
+        const contentContinue: State = (code) => {
+            if (code === codes.eof) {
+                safeExit('chunk');
+                return next(code);
+            }
+            if (markdownLineEnding(code)) {
+                safeConsume(code); // Consume newline while chunk is still open
+                safeExit('chunk');
+                return content(next, transitionCheck);
+            }
+            safeConsume(code);
+            return contentContinue;
+        }
+
+        return function(code: Code): State {
+            if (code === codes.eof) {
+                return next(code);
+            }
+            if (markdownLineEnding(code)) {
+                // We are already in a content consumer, so we handle the line ending directly.
+                return contentChunk(code);
+            }
+
+            if (next === inSearch && code === codes.equalsTo) {
+                return effects.attempt({tokenize: tokenizeDivider, partial: true}, transitionCheck, contentChunk)(code);
+            }
+            if (next === inReplace && code === codes.greaterThan) {
+                return effects.attempt({tokenize: tokenizeTail, partial: true}, transitionCheck, contentChunk)(code);
+            }
+
+            return contentChunk(code);
+        }
+    }
+
+    function inSearch(code: Code): State {
+        // This function is reached when we are at EOF, and we haven't found a divider.
+        safeExit('editBlockSearchContent');
+        safeExit('editBlock');
+        return ok(code);
+    }
+
+    function inReplace(code: Code): State {
+        // Reached at EOF without tail.
+        safeExit('editBlockReplaceContent');
+        safeExit('editBlock');
+        return ok(code);
+    }
+};
+
+const tokenizeDivider: Tokenizer = function(effects, ok, nok) {
+    return start;
+
+    function start(code: Code): State {
+        if (code !== codes.equalsTo) return nok(code);
+        safeEnter('editBlockDivider');
+        safeConsume(code);
+        return sequence(1);
+    }
+
+    function sequence(count: number): State {
+        return function(code: Code): State {
             if (code === codes.equalsTo) {
                 safeConsume(code);
-                return checkDivider(count + 1);
+                return sequence(count + 1);
             }
-            if (count < 6) {
+            if (count < 7) {
                 safeExit('editBlockDivider');
-                safeExit('editBlockSearchContent');
-                safeExit('editBlock');
                 return nok(code);
             }
             if (markdownLineEnding(code) || code === codes.eof) {
-                safeConsume(code);
                 safeExit('editBlockDivider');
-                safeExit('editBlockSearchContent');
-                safeEnter('editBlockReplaceContent');
-                self.containerState.phase = 'replace';
-                return inReplace;
+                return ok(code);
             }
-            safeConsume(code);
-            return checkDivider(count);
-        };
-    }
-
-    function inReplace(code: number): any {
-        if (code === codes.greaterThan) {
-            safeEnter('editBlockTail');
-            safeConsume(code);
-            return checkTailGreaterThan(1);
-        }
-        safeConsume(code);
-        return inReplace;
-    }
-
-    function checkTailGreaterThan(count: number): any {
-        return function(code: number): any {
-            if (code === codes.greaterThan) {
-                safeConsume(code);
-                return checkTailGreaterThan(count + 1);
-            }
-            if (count < 6) {
-                safeExit('editBlockTail');
-                safeExit('editBlockReplaceContent');
-                safeExit('editBlock');
-                return nok(code);
-            }
-            safeConsume(code);
-            safeEnter('editBlockTailKeyword');
-            return checkTailKeyword(0);
-        };
-    }
-
-    function checkTailKeyword(index: number): any {
-        return function(code: number): any {
-            const keyword = 'REPLACE';
-            if (index < keyword.length) {
-                if (code !== keyword.charCodeAt(index)) {
-                    safeExit('editBlockTailKeyword');
-                    safeExit('editBlockTail');
-                    safeExit('editBlockReplaceContent');
-                    safeExit('editBlock');
-                    return nok(code);
-                }
-                safeConsume(code);
-                return checkTailKeyword(index + 1);
-            }
-            if (markdownLineEnding(code) || code === codes.eof) {
-                safeConsume(code);
-                safeExit('editBlockTailKeyword');
-                safeExit('editBlockTail');
-                safeExit('editBlockReplaceContent');
-                safeExit('editBlock');
-                self.containerState.phase = 'done';
-                return ok;
-            }
-            safeConsume(code);
-            return checkTailKeyword(index);
+            // Some other content on divider line.
+            safeExit('editBlockDivider');
+            return nok(code);
         };
     }
 };
 
+const tokenizeTail: Tokenizer = function(effects, ok, nok) {
+    return start;
+
+    function start(code: Code): State {
+        if (code !== codes.greaterThan) return nok(code);
+        safeEnter('editBlockTail');
+        safeConsume(code);
+        return sequence(1);
+    }
+
+    function sequence(count: number): State {
+        return function(code: Code): State {
+            if (code === codes.greaterThan) {
+                safeConsume(code);
+                return sequence(count + 1);
+            }
+            if (count < 7) {
+                safeExit('editBlockTail');
+                return nok(code);
+            }
+            if (code === codes.space) {
+                safeConsume(code);
+            }
+            safeEnter('editBlockTailKeyword');
+            return keyword(0);
+        };
+    }
+
+    function keyword(index: number): State {
+        return function(code: Code): State {
+            const keywordText = 'REPLACE';
+            if (index < keywordText.length) {
+                if (code === keywordText.charCodeAt(index)) {
+                    safeConsume(code);
+                    return keyword(index + 1);
+                }
+                safeExit('editBlockTailKeyword');
+                safeExit('editBlockTail');
+                return nok(code);
+            }
+            if (markdownLineEnding(code) || code === codes.eof) {
+                safeExit('editBlockTailKeyword');
+                safeExit('editBlockTail');
+                return ok(code);
+            }
+            // Something else on the line.
+            safeExit('editBlockTailKeyword');
+            safeExit('editBlockTail');
+            return nok(code);
+        };
+    }
+};
+
+
 /**
- * Resolver to map micromark tokens to mdast nodes for edit blocks.
+ * mdast build logic for edit-blocks.
  */
 export function editBlockFromMarkdown() {
     return {
         enter: {
-            editBlock(tok: any) {
-                this.enter({type: 'editBlock', data: {}}, tok);
+            // Create the node and remember it.
+            editBlock(tok) {
+                console.log('enter editBlock');
+                const node = {
+                    type: 'editBlock',
+                    data: {
+                        filename: undefined as string | undefined,
+                        search: undefined as string | undefined,
+                        replace: undefined as string | undefined
+                    }
+                };
+                this.enter(node, tok);
+                this.data.currentEditBlock = node; // store a reference
             },
+
+            // Filename
+            editBlockFilename() {
+                console.log('enter editBlockFilename');
+                //this.buffer(); // start collecting raw filename
+            },
+
+            // Search text
+            editBlockSearchContent() {
+                console.log('enter editBlockSearchContent');
+                //this.buffer(); // start collecting *search* text
+            },
+
+            // Replace text
+            editBlockReplaceContent() {
+                console.log('enter editBlockReplaceContent');
+                // this.buffer(); // start collecting *replace* text
+            }
         },
         exit: {
-            editBlock(tok: any) {
-                this.exit(tok);
+            editBlockFilename(tok) {
+                console.log('exit editBlockFilename');
+                const node = this.data.currentEditBlock;
+                node.data.filename = this.sliceSerialize(tok);
             },
+
+            editBlockSearchContent(tok) {
+                console.log('exit editBlockSearchContent');
+                const node = this.data.currentEditBlock;
+                node.data.search = this.sliceSerialize(tok);
+            },
+
+            editBlockReplaceContent(tok) {
+                console.log('exit editBlockReplaceContent');
+                const node = this.data.currentEditBlock;
+                node.data.replace = this.sliceSerialize(tok);
+            },
+
+            editBlock(tok) {
+                console.log('exit editBlock');
+                delete this.data['currentEditBlock']; // clear helper
+                this.exit(tok); // close the node
+            }
         },
     };
 }
@@ -225,13 +326,6 @@ export function editBlockFromMarkdown() {
  */
 const editBlock: Construct = {
     name: 'editBlock',
-    tokenize: initialTokenize,
-    // continuation: {
-    //     tokenize: continuationTokenize
-    // },
-    exit: function(this: TokenizeContext, effects: any) {
-        // Optional cleanup or final token emission if needed
-        effects.exit('editBlock');
-    },
+    tokenize,
     concrete: true
 };
