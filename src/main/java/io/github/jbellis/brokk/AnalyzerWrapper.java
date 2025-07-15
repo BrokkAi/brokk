@@ -55,6 +55,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
             currentAnalyzer = loadOrCreateAnalyzerInternal(true);
+            startWatcher();
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
@@ -223,7 +224,6 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
         if (projectLangs.isEmpty() || (projectLangs.size() == 1 && projectLangs.contains(Language.NONE))) {
-            if (isInitialLoad) startWatcher(); // Watcher for git, etc.
             return new DisabledAnalyzer();
         }
 
@@ -296,9 +296,6 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
             handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, projectLangs);
-            startWatcher();
-        } else if (isInitialLoad) { // Not UNSET, but still initial load
-            startWatcher();
         }
         return loadedAnalyzer;
     }
@@ -548,7 +545,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         Thread watcherThread = new Thread(() -> beginWatching(root), "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
-    
+
     private void collectEventsFromKey(WatchKey key, WatchService watchService, Set<FileChangeEvent> batch)
     {
         for (WatchEvent<?> event : key.pollEvents()) {
@@ -675,7 +672,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     private enum EventType {
         CREATE, MODIFY, DELETE, OVERFLOW
     }
-    
+
     private record FileChangeEvent(EventType type, Path path) {
     }
 
