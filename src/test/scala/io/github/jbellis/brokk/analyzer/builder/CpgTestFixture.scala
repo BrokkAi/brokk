@@ -85,7 +85,7 @@ object CpgTestFixture {
       */
     def buildAndOpen(using builder: CpgBuilder[R]): Cpg = {
       writeFiles
-      config.build.failed.foreach(e => throw e)
+      config.build().failed.foreach(e => throw e)
       config.open
     }
 

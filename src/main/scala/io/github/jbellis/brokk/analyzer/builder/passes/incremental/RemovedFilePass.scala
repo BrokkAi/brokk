@@ -46,7 +46,11 @@ private[builder] class RemovedFilePass(cpg: Cpg, changedFiles: Seq[FileChange])
   }
 
   override def runOnPart(builder: DiffGraphBuilder, part: FileChange): Unit = {
-    logger.debug(s"Removing nodes associated with '${part.fullName}'")
+    Try(part.path) match {
+      case Success(path) => logger.debug(s"Removing nodes associated with '${cpg.projectRoot.relativize(path)}'")
+      case Failure(_)    => logger.debug(s"Removing nodes associated with '${part.fullName}'")
+    }
+
     pathToFileMap.get(part.fullName) match {
       case Some(fileNode) => obtainNodesToDelete(fileNode).foreach(builder.removeNode)
       case None           => logger.warn(s"Unable to match ${part.fullName} in the CPG, this is unexpected.")

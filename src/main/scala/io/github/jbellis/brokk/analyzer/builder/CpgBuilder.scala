@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder
 
+import io.github.jbellis.brokk.analyzer.ProjectFile
 import io.github.jbellis.brokk.analyzer.builder.IncrementalUtils.*
 import io.github.jbellis.brokk.analyzer.builder.passes.base.FileContentClearing
 import io.github.jbellis.brokk.analyzer.builder.passes.incremental.{HashFilesPass, PruneTypesPass}
@@ -16,6 +17,7 @@ import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.IOException
 import java.nio.file.Paths
+import java.util
 import scala.util.{Try, Using}
 
 /** A trait to be implemented by a language-specific incremental CPG builder.
@@ -38,16 +40,18 @@ trait CpgBuilder[R <: X2CpgConfig[R]] {
     *   the CPG to be built or updated.
     * @param config
     *   the language-specific configuration object containing the input path of source files to re-build from.
+    * @param maybeFileChanges
+    *   an optional list of specific files to use for the incremental build.
     * @return
     *   the same CPG reference as given.
     */
-  def build(cpg: Cpg, config: R): Cpg = {
+  def build(cpg: Cpg, config: R, maybeFileChanges: Option[util.Set[ProjectFile]] = None): Cpg = {
     if (cpg.metaData.nonEmpty) {
       if cpg.projectRoot != Paths.get(config.inputPath) then
         logger.warn(
           s"Project root in the CPG (${cpg.projectRoot}) does not match given path in config (${config.inputPath})!"
         )
-      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, config, sourceFileExtensions)
+      val fileChanges = IncrementalUtils.determineChangedFiles(cpg, config, sourceFileExtensions, maybeFileChanges)
       debugChanges(fileChanges)
 
       cpg

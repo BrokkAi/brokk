@@ -1,10 +1,12 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
+import io.github.jbellis.brokk.analyzer.ProjectFile
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.joern.x2cpg.X2CpgConfig
 import io.shiftleft.codepropertygraph.generated.Cpg
 
 import java.nio.file.Paths
+import java.util
 import scala.util.{Try, Using}
 
 object X2CpgConfigExt {
@@ -21,20 +23,30 @@ object X2CpgConfigExt {
       * the `outputPath` property of the config. The new or updated CPG will then be serialized to disk to ensure the
       * changes are fresh.
       *
+      * @param maybeFileChanges
+      *   specific file changes if any are present.
       * @param builder
       *   the builder associated with the frontend specified by the instance of 'config'.
       * @return
       *   this configuration.
       */
-    def build(using builder: CpgBuilder[R]): Try[R] = withNewOrExistingCpg { cpg =>
-      builder.build(cpg, config)
-      config
-    }
+    def build(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R]): Try[R] =
+      withNewOrExistingCpg { cpg =>
+        builder.build(cpg, config, maybeFileChanges)
+        config
+      }
 
     /** Alias for [[build]] where exceptions are thrown if one occurs.
+      *
+      * @param maybeFileChanges
+      *   specific file changes if any are present.
+      * @param builder
+      *   the builder associated with the frontend specified by the instance of 'config'.
+      * @return
+      *   this configuration.
       */
-    def buildAndThrow(using builder: CpgBuilder[R]): R = {
-      build.failed.foreach(e => throw e)
+    def buildAndThrow(maybeFileChanges: Option[util.Set[ProjectFile]] = None)(using builder: CpgBuilder[R]): R = {
+      build(maybeFileChanges).failed.foreach(e => throw e)
       config
     }
 
