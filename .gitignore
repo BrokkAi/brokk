@@ -4,16 +4,16 @@ target/
 !**/src/test/**/target/
 
 ### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/workspace.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-.idea/scala_settings.xml
-.idea/misc.xml
+.idea/
 *.iws
 *.iml
 *.ipr
+
+### Gradle files
+build/
+build-logic/.gradle/
+.gradle/
+
 
 ### Eclipse ###
 .apt_generated

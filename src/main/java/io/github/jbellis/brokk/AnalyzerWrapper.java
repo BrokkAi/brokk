@@ -660,6 +660,14 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.debug("Failed to (completely) register directory `{}` for watching", start);
     }
 
+    public void updateFiles(Set<ProjectFile> changedFiles) {
+        try {
+            future.get().updateFiles(changedFiles);
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Pause the file watching service.
      */
