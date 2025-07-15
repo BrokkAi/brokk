@@ -25,12 +25,13 @@ import io.shiftleft.semanticcpg.utils.FileUtil.*
 import io.shiftleft.semanticcpg.utils.{ExternalCommand, FileUtil}
 import org.slf4j.LoggerFactory
 
-import java.nio.file.{Files, Path, Paths}
+import java.nio.file.{Files, Path, Paths, StandardCopyOption}
 import java.util.concurrent.Executors
 import scala.collection.parallel.CollectionConverters.*
 import scala.collection.parallel.ExecutionContextTaskSupport
 import scala.concurrent.ExecutionContext
 import scala.util.{Failure, Success, Try, Using}
+import scala.jdk.StreamConverters.*
 
 object Delombok {
 
@@ -131,15 +132,68 @@ object Delombok {
         val cores = Runtime.getRuntime.availableProcessors()
         Using.resource(Executors.newFixedThreadPool(cores)) { executor =>
           val executorService = ExecutionContext.fromExecutorService(executor)
-          val parPackageRoots = PackageRootFinder.packageRootsFromFiles(inputPath, fileInfo).par
+          val (lombokedPackageRoots, normalPackageRoots) = PackageRootFinder
+            .packageRootsFromFiles(inputPath, fileInfo)
+            .partition(containsLombokedJava(inputPath, _))
 
+          logger.debug(
+            s"Found ${normalPackageRoots.size} packages without Lombok usage, and ${lombokedPackageRoots.size} that use Lombok. Given input path: $inputPath"
+          )
+
+          // Delombok affected packages
+          val parPackageRoots = lombokedPackageRoots.par
           parPackageRoots.tasksupport = new ExecutionContextTaskSupport(executorService)
           parPackageRoots.foreach { relativeRoot =>
             delombokPackageRoot(inputPath, relativeRoot, tempDir, analysisJavaHome)
           }
-        }
+          // Simply move "normal" Java code to temp directory
+          normalPackageRoots.foreach { relativeRoot =>
+            Try {
+              val sourceDir      = inputPath.resolve(relativeRoot)
+              val destinationDir = tempDir.resolve(relativeRoot)
 
+              Using.resource(Files.walk(sourceDir)) { walk =>
+                walk
+                  .toScala(Iterator)
+                  .filter(Files.isRegularFile(_))
+                  .foreach { sourcePath =>
+                    val destinationPath = destinationDir.resolve(sourceDir.relativize(sourcePath))
+                    val parentDir       = destinationPath.getParent
+                    if !Files.isDirectory(parentDir) then Files.createDirectories(parentDir)
+                    Files.copy(sourcePath, destinationPath, StandardCopyOption.REPLACE_EXISTING)
+                  }
+              }
+            }.failed.foreach { e =>
+              logger.error("Exception encountered while moving Java code to temporary directory!", e)
+            }
+          }
+        }
         DelombokRunResult(tempDir, true)
+    }
+  }
+
+  /** Performs a simple checks if any Java file within a given directory tree contains Lombok imports.
+    *
+    * @param inputPath
+    *   The root path of the given package.
+    * @param relativePackageRoot
+    *   The relative package directory of the package to scan.
+    * @return
+    *   `true` if a Java file with a Lombok import is found, `false` otherwise.
+    */
+  private def containsLombokedJava(inputPath: Path, relativePackageRoot: Path): Boolean = {
+    def checkFile(path: Path): Boolean =
+      Using.resource(Files.lines(path))(_.toScala(Iterator).exists(_.trim.startsWith("import lombok.")))
+
+    val packageRoot = inputPath.resolve(relativePackageRoot)
+    if !Files.isDirectory(packageRoot) then checkFile(packageRoot)
+    else {
+      Using.resource(Files.walk(packageRoot)) { walk =>
+        walk
+          .toScala(Iterator)
+          .filter(path => Files.isRegularFile(path) && path.toString.endsWith(".java"))
+          .exists(checkFile)
+      }
     }
   }
 
