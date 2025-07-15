@@ -13,12 +13,15 @@ import java.nio.file.*;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.*;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import static java.util.Objects.requireNonNull;
 import java.util.stream.Collectors;
+
+import static java.util.Objects.requireNonNull;
 
 public class AnalyzerWrapper implements AutoCloseable {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
@@ -30,9 +33,11 @@ public class AnalyzerWrapper implements AutoCloseable {
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
 
-    @Nullable private final AnalyzerListener listener; // can be null if no one is listening
+    @Nullable
+    private final AnalyzerListener listener; // can be null if no one is listening
     private final Path root;
-    @Nullable private final Path gitRepoRoot;
+    @Nullable
+    private final Path gitRepoRoot;
     private final ContextManager.TaskRunner runner;
     private final IProject project;
 
@@ -54,7 +59,8 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
-            currentAnalyzer = loadOrCreateAnalyzerInternal(true);
+            // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
+            currentAnalyzer = loadOrCreateAnalyzerInternal(true, Optional.empty());
             startWatcher();
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
@@ -150,10 +156,10 @@ public class AnalyzerWrapper implements AutoCloseable {
         if (this.gitRepoRoot != null) {
             Path actualGitMetaDir = this.gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
             needsGitRefresh = batch.stream().anyMatch(event ->
-                event.path.startsWith(actualGitMetaDir)
-                    && (event.type == EventType.CREATE
-                    || event.type == EventType.DELETE
-                    || event.type == EventType.MODIFY)
+                    event.path().startsWith(actualGitMetaDir)
+                            && (event.type() == FileChangeEvent.EventType.CREATE
+                            || event.type() == FileChangeEvent.EventType.DELETE
+                            || event.type() == FileChangeEvent.EventType.MODIFY)
             );
         }
 
@@ -171,7 +177,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 .map(ProjectFile::absPath)
                 .collect(Collectors.toSet());
         boolean trackedPathsChanged = batch.stream()
-                .anyMatch(event -> trackedPaths.contains(event.path));
+                .anyMatch(event -> trackedPaths.contains(event.path()));
 
         if (trackedPathsChanged) {
             // call listener (refreshes git panel)
@@ -184,27 +190,28 @@ public class AnalyzerWrapper implements AutoCloseable {
             // Only rebuild if the changed files are of a type relevant to the project's configured languages
             Set<Language> projectLanguages = project.getAnalyzerLanguages();
             boolean relevantFileChanged = batch.stream().anyMatch(event -> {
-                if (!trackedPaths.contains(event.path)) return false;
-                String extension = com.google.common.io.Files.getFileExtension(event.path.toString());
+                if (!trackedPaths.contains(event.path())) return false;
+                String extension = com.google.common.io.Files.getFileExtension(event.path().toString());
                 Language langOfFile = Language.fromExtension(extension);
                 return langOfFile != Language.NONE && projectLanguages.contains(langOfFile);
             });
 
             if (relevantFileChanged) {
                 if (project.getAnalyzerRefresh() == IProject.CpgRefresh.AUTO) {
+                    final var changedFiles = batch.stream()
+                            .filter(e -> trackedPaths.contains(e.path())).toList();
                     logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
-                                 batch.stream()
-                                         .filter(e -> trackedPaths.contains(e.path))
-                                         .filter(e -> {
-                                             String ext = com.google.common.io.Files.getFileExtension(e.path.toString());
-                                             Language lang = Language.fromExtension(ext);
-                                             return projectLanguages.contains(lang);
-                                         })
-                                         .distinct()
-                                         .map(e -> e.path.toString())
-                                         .collect(Collectors.joining(", "))
+                            changedFiles.stream()
+                                    .filter(e -> {
+                                        String ext = com.google.common.io.Files.getFileExtension(e.path().toString());
+                                        Language lang = Language.fromExtension(ext);
+                                        return projectLanguages.contains(lang);
+                                    })
+                                    .distinct()
+                                    .map(e -> e.path().toString())
+                                    .collect(Collectors.joining(", "))
                     );
-                    rebuild();
+                    rebuild(Optional.of(changedFiles));
                 }
             } else {
                 logger.trace("No tracked files relevant to configured languages changed; skipping analyzer rebuild");
@@ -217,9 +224,10 @@ public class AnalyzerWrapper implements AutoCloseable {
     /**
      * Caller is responsible for setting currentAnalyzer to the result of this method.
      *
-     * @param isInitialLoad true if this is the very first load (triggers UNSET logic and watcher start).
+     * @param isInitialLoad     true if this is the very first load (triggers UNSET logic and watcher start).
+     * @param maybeChangedFiles the file changes relevant to the analyzer(s) if any are present.
      */
-    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad) {
+    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad, Optional<List<FileChangeEvent>> maybeChangedFiles) {
         Set<Language> projectLangs = project.getAnalyzerLanguages();
         logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
@@ -251,7 +259,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             long langStartTime = System.currentTimeMillis();
 
             if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-                delegate = lang.createAnalyzer(project);
+                delegate = lang.createAnalyzer(project, maybeChangedFiles);
             } else {
                 var cachedResult = loadSingleCachedAnalyzerForLanguage(lang, cpgPath);
                 if (cachedResult.analyzer != null && (isInitialLoad || !cachedResult.needsRebuild)) {
@@ -265,7 +273,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                     // Create fresh analyzer if no cache, or if this is a background rebuild for a stale analyzer
                     String reason = cachedResult.analyzer == null ? "no cache" : "stale cache during background rebuild";
                     logger.debug("Creating fresh {} analyzer ({})", lang.name(), reason);
-                    delegate = lang.createAnalyzer(project);
+                    delegate = lang.createAnalyzer(project, maybeChangedFiles);
                 }
             }
             long langCreationTime = System.currentTimeMillis() - langStartTime;
@@ -291,7 +299,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // Schedule background rebuild if using stale cached analyzer
         if (needsRebuild) {
             logger.debug("Scheduling background rebuild for stale analyzer");
-            rebuild();
+            rebuild(maybeChangedFiles); // TODO: Is this a correct interpretation?
         }
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
@@ -304,9 +312,9 @@ public class AnalyzerWrapper implements AutoCloseable {
         var isEmpty = totalDeclarations > 0;
         String langNames = languages.stream().map(Language::name).collect(Collectors.joining("/"));
         String langExtensions = languages.stream()
-            .flatMap(l -> l.getExtensions().stream())
-            .distinct()
-            .collect(Collectors.joining(", "));
+                .flatMap(l -> l.getExtensions().stream())
+                .distinct()
+                .collect(Collectors.joining(", "));
 
         if (listener == null) { // Should not happen in normal flow, but good for safety
             logger.warn("AnalyzerListener is null during handleFirstBuildRefreshSettings, cannot call afterFirstBuild.");
@@ -327,29 +335,29 @@ public class AnalyzerWrapper implements AutoCloseable {
         } else if (durationMs > 3 * 6000) {
             project.setAnalyzerRefresh(IProject.CpgRefresh.MANUAL);
             var msg = """
-            Code Intelligence for %s found %d declarations in %,d ms.
-            Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
-            You can change this in the Settings -> Project dialog.
-            """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+                    Code Intelligence for %s found %d declarations in %,d ms.
+                    Since this was slow, code intelligence will only refresh when explicitly requested via the Context menu.
+                    You can change this in the Settings -> Project dialog.
+                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else if (durationMs > 5000) {
             project.setAnalyzerRefresh(IProject.CpgRefresh.ON_RESTART);
             var msg = """
-            Code Intelligence for %s found %d declarations in %,d ms.
-            Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
-            You can change this in the Settings -> Project dialog.
-            """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
+                    Code Intelligence for %s found %d declarations in %,d ms.
+                    Since this was slow, code intelligence will only refresh on restart, or when explicitly requested via the Context menu.
+                    You can change this in the Settings -> Project dialog.
+                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs);
             listener.afterFirstBuild(msg);
             logger.info(msg);
         } else {
             project.setAnalyzerRefresh(IProject.CpgRefresh.AUTO);
             var msg = """
-            Code Intelligence for %s found %d declarations in %,d ms.
-            If this is fewer than expected, it's probably because Brokk only looks for %s files.
-            If this is not a useful subset of your project, you can change it in the Settings -> Project
-            dialog, or disable Code Intelligence by setting the language(s) to NONE.
-            """.stripIndent().formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
+                    Code Intelligence for %s found %d declarations in %,d ms.
+                    If this is fewer than expected, it's probably because Brokk only looks for %s files.
+                    If this is not a useful subset of your project, you can change it in the Settings -> Project
+                    dialog, or disable Code Intelligence by setting the language(s) to NONE.
+                    """.stripIndent().formatted(langNames, totalDeclarations, durationMs, langExtensions, Language.NONE.name());
             listener.afterFirstBuild(msg);
             logger.info(msg);
         }
@@ -361,7 +369,9 @@ public class AnalyzerWrapper implements AutoCloseable {
         return currentAnalyzer.isCpg();
     }
 
-    /** Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding. */
+    /**
+     * Load a cached analyzer for a single language, returning both the analyzer and whether it needs rebuilding.
+     */
     private CachedAnalyzerResult loadSingleCachedAnalyzerForLanguage(Language lang, @Nullable Path analyzerPath) {
         // ACHTUNG!
         // LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call
@@ -383,43 +393,18 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         var trackedFiles = project.getAllFiles().stream() // Filter for files relevant to this language
-            .filter(pf -> {
-                String ext = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
-                return lang.getExtensions().contains(ext);
-            })
-            .toList();
+                .filter(pf -> {
+                    String ext = com.google.common.io.Files.getFileExtension(pf.absPath().toString());
+                    return lang.getExtensions().contains(ext);
+                })
+                .toList();
 
-        if (trackedFiles.isEmpty() && lang.isCpg()) { // No files for this CPG language, cache might be irrelevant or stale
-             logger.debug("No tracked files for language {}, considering cache {} stale.", lang.name(), analyzerPath);
-             return new CachedAnalyzerResult(null, false);
-        }
-
-        long cpgMTime;
-        try {
-            cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
-        } catch (IOException e) {
-            logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
+        if (trackedFiles.isEmpty() && lang.isCpg()) { // No files relevant to this language
+            logger.debug("No tracked files for language {}, skipping cached analyzer at {}", lang.name(), analyzerPath);
             return new CachedAnalyzerResult(null, false);
         }
 
-        boolean isStale = externalRebuildRequested;
-        for (ProjectFile rf : trackedFiles) {
-            try {
-                if (!Files.exists(rf.absPath())) continue; // File might have been deleted
-                long fileMTime = Files.getLastModifiedTime(rf.absPath()).toMillis();
-                if (fileMTime > cpgMTime) {
-                    logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
-                                 rf.absPath(), lang.name(), analyzerPath, fileMTime, cpgMTime);
-                    isStale = true;
-                    break; // Cache is stale, but we'll still try to load it
-                }
-            } catch (IOException e) {
-                logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
-                // If we can't check a file, assume cache might be stale to be safe
-                isStale = true;
-                break;
-            }
-        }
+        boolean isStale = isStale(lang, analyzerPath, trackedFiles);
 
         // Try to load the analyzer regardless of staleness
         try {
@@ -437,12 +422,64 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /**
+     * Determine whether the cached analyzer for the given language is stale relative to
+     * its tracked source files and any user-requested rebuilds.
+     *
+     * The caller guarantees that {@code analyzerPath} is non-null and exists.
+     */
+    private boolean isStale(Language lang, Path analyzerPath, List<ProjectFile> trackedFiles)
+    {
+        // An explicit external rebuild request always wins.
+        if (externalRebuildRequested) {
+            return true;
+        }
+
+        long cpgMTime;
+        try {
+            cpgMTime = Files.getLastModifiedTime(analyzerPath).toMillis();
+        } catch (IOException e) {
+            logger.warn("Error reading analyzer file timestamp for {}: {}", analyzerPath, e.getMessage());
+            // Unable to read the timestamp - treat the cache as stale so that we rebuild.
+            return true;
+        }
+
+        for (ProjectFile rf : trackedFiles) {
+            try {
+                var path = rf.absPath();
+                if (!Files.exists(path)) {
+                    // The file was removed - that is effectively newer than the CPG.
+                    return true;
+                }
+                long fileMTime = Files.getLastModifiedTime(path).toMillis();
+                if (fileMTime > cpgMTime) {
+                    logger.debug("Tracked file {} for language {} is newer than its CPG {} ({} > {})",
+                                 path, lang.name(), analyzerPath, fileMTime, cpgMTime);
+                    return true;
+                }
+            } catch (IOException e) {
+                logger.debug("Error reading timestamp for tracked file {} (language {}): {}", rf.absPath(), lang.name(), e.getMessage());
+                // If we cannot evaluate the timestamp, be conservative.
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private synchronized void rebuild() {
+        rebuild(Optional.empty());
+    }
+
+    /**
      * Force a fresh rebuild of the analyzer by scheduling a job on the analyzerExecutor.
      * Avoids concurrent rebuilds by setting a flag, but if a change is detected during
      * the rebuild, a new rebuild will be scheduled immediately afterwards.
      * This rebuilds the entire analyzer setup (single or multi) based on current project languages.
+     *
+     * @param maybeChangedFiles changed files if any can be detected, or none if the analyzer is meant to determine
+     *                          changes itself.
      */
-    private synchronized void rebuild() {
+    private synchronized void rebuild(Optional<List<FileChangeEvent>> maybeChangedFiles) {
         if (rebuildInProgress) {
             rebuildPending = true;
             return;
@@ -453,7 +490,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         future = runner.submit("Rebuilding code intelligence", () -> {
             try {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
-                currentAnalyzer = loadOrCreateAnalyzerInternal(false);
+                currentAnalyzer = loadOrCreateAnalyzerInternal(false, maybeChangedFiles);
                 logger.debug("Analyzer (full rebuild) completed.");
                 return currentAnalyzer;
             } finally {
@@ -462,7 +499,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                     if (rebuildPending) {
                         rebuildPending = false;
                         logger.trace("Rebuilding immediately after pending request");
-                        rebuild();
+                        rebuild(maybeChangedFiles);
                     } else {
                         externalRebuildRequested = false;
                     }
@@ -502,7 +539,8 @@ public class AnalyzerWrapper implements AutoCloseable {
     /**
      * @return null if analyzer is not ready yet
      */
-    @Nullable public IAnalyzer getNonBlocking() {
+    @Nullable
+    public IAnalyzer getNonBlocking() {
         if (currentAnalyzer != null) {
             return currentAnalyzer;
         }
@@ -534,6 +572,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
     /**
      * Checks if any window in the application currently has focus
+     *
      * @return true if any application window has focus, false otherwise
      */
     private boolean isApplicationFocused() {
@@ -546,8 +585,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         watcherThread.start();
     }
 
-    private void collectEventsFromKey(WatchKey key, WatchService watchService, Set<FileChangeEvent> batch)
-    {
+    private void collectEventsFromKey(WatchKey key, WatchService watchService, Set<FileChangeEvent> batch) {
         for (WatchEvent<?> event : key.pollEvents()) {
             // JVM can emit overflow events with null context (path), skip these
             if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
@@ -570,23 +608,23 @@ public class AnalyzerWrapper implements AutoCloseable {
             // Skip .brokk or log file paths
             String pathStr = absolutePath.toString();
             if (pathStr.contains("${sys:logfile.path}") ||
-                absolutePath.startsWith(root.resolve(".brokk"))) {
+                    absolutePath.startsWith(root.resolve(".brokk"))) {
                 continue;
             }
 
             WatchEvent.Kind<Path> kind = pathEvent.kind();
-            EventType eventType = switch (kind.name()) {
-                case "ENTRY_CREATE" -> EventType.CREATE;
-                case "ENTRY_DELETE" -> EventType.DELETE;
-                case "ENTRY_MODIFY" -> EventType.MODIFY;
-                default -> EventType.OVERFLOW;
+            FileChangeEvent.EventType eventType = switch (kind.name()) {
+                case "ENTRY_CREATE" -> FileChangeEvent.EventType.CREATE;
+                case "ENTRY_DELETE" -> FileChangeEvent.EventType.DELETE;
+                case "ENTRY_MODIFY" -> FileChangeEvent.EventType.MODIFY;
+                default -> FileChangeEvent.EventType.OVERFLOW;
             };
 
             logger.trace("Directory event: {} on {}", eventType, absolutePath);
             batch.add(new FileChangeEvent(eventType, absolutePath));
 
             // If it's a directory creation, register it so we can watch its children
-            if (eventType == EventType.CREATE && Files.isDirectory(absolutePath)) {
+            if (eventType == FileChangeEvent.EventType.CREATE && Files.isDirectory(absolutePath)) {
                 try {
                     registerAllDirectories(absolutePath, watchService);
                 } catch (IOException ex) {
@@ -604,8 +642,7 @@ public class AnalyzerWrapper implements AutoCloseable {
     /**
      * @param start can be either the root project directory, or a newly created directory we want to add to the watch
      */
-    private void registerAllDirectories(Path start, WatchService watchService) throws IOException
-    {
+    private void registerAllDirectories(Path start, WatchService watchService) throws IOException {
         if (!Files.isDirectory(start)) return;
 
         var brokkPrivate = root.resolve(".brokk");
@@ -616,9 +653,9 @@ public class AnalyzerWrapper implements AutoCloseable {
                         .forEach(dir -> {
                             try {
                                 dir.register(watchService,
-                                             StandardWatchEventKinds.ENTRY_CREATE,
-                                             StandardWatchEventKinds.ENTRY_DELETE,
-                                             StandardWatchEventKinds.ENTRY_MODIFY);
+                                        StandardWatchEventKinds.ENTRY_CREATE,
+                                        StandardWatchEventKinds.ENTRY_DELETE,
+                                        StandardWatchEventKinds.ENTRY_MODIFY);
                             } catch (IOException e) {
                                 logger.warn("Failed to register directory for watching: {}", dir, e);
                             }
@@ -651,13 +688,17 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
     }
 
-    /** Pause the file watching service. */
+    /**
+     * Pause the file watching service.
+     */
     public synchronized void pause() {
         logger.debug("Pausing file watcher");
         paused = true;
     }
 
-    /** Resume the file watching service. */
+    /**
+     * Resume the file watching service.
+     */
     public synchronized void resume() {
         logger.debug("Resuming file watcher");
         paused = false;
@@ -668,14 +709,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         running = false;
         resume(); // Ensure any waiting thread is woken up to exit
     }
-
-    private enum EventType {
-        CREATE, MODIFY, DELETE, OVERFLOW
-    }
-
-    private record FileChangeEvent(EventType type, Path path) {
-    }
-
+    
     private record CachedAnalyzerResult(@Nullable IAnalyzer analyzer, boolean needsRebuild) {
     }
 }
