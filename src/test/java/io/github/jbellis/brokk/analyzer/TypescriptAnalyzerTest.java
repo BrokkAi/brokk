@@ -611,6 +611,7 @@ public class TypescriptAnalyzerTest {
     void testGetClassSource() throws IOException {
         var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
         var analyzer = new TypescriptAnalyzer(project); // Initialize with default excluded files (none)
+        System.out.println(project.getAllFiles());
 
         String greeterSource = normalize.apply(analyzer.getClassSource("Greeter"));
         assertNotNull(greeterSource);
