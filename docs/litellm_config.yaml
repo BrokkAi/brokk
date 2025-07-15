@@ -77,7 +77,7 @@ model_list:
     model_info:
       supports_reasoning_disable: true
       is_private: true
-      max_output_tokens: 32768
+      # leave max_output_tokens alone, unlike sonnet 4, opus is capped at 32000 (not 32k)
       max_concurrent_requests: 1
 
   - model_name: claude-4-sonnet
