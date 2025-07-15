@@ -33,16 +33,37 @@ public class GitTestCleanupUtil {
      */
     public static void cleanupGitResources(GitRepo gitRepo, Git... gitInstances) {
         // Close GitRepo first, which should close its internal Git and Repository instances
-        closeWithErrorHandling("GitRepo", () -> {
-            gitRepo.close();
-        });
+        if (gitRepo != null) {
+            closeWithErrorHandling("GitRepo", () -> {
+                gitRepo.close();
+            });
+        }
 
         // Close Git instances - may be redundant but ensures cleanup on Windows
         for (int i = 0; i < gitInstances.length; i++) {
             var git = gitInstances[i];
-            final int index = i;
-            closeWithErrorHandling("Git[" + index + "]", () -> {
-                git.close();
+            if (git != null) {
+                final int index = i;
+                closeWithErrorHandling("Git[" + index + "]", () -> {
+                    // Close repository first to ensure all resources are released
+                    var repo = git.getRepository();
+                    if (repo != null) {
+                        repo.close();
+                    }
+                    git.close();
+                });
+            }
+        }
+
+        // On Windows, force cleanup before cache clearing
+        if (Environment.isWindows()) {
+            closeWithErrorHandling("pre-cache-cleanup", () -> {
+                System.gc();
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             });
         }
 
@@ -73,13 +94,19 @@ public class GitTestCleanupUtil {
 
             // Gather unique directories associated with the Git resources
             Set<Path> dirsToDelete = new HashSet<>();
-            dirsToDelete.add(gitRepo.getGitTopLevel());
+            if (gitRepo != null) {
+                dirsToDelete.add(gitRepo.getGitTopLevel());
+            }
             for (Git git : gitInstances) {
-                var repo = git.getRepository();
-                Path dir = repo.isBare()
-                             ? repo.getDirectory().toPath()
-                             : repo.getWorkTree().toPath();
-                dirsToDelete.add(dir);
+                if (git != null) {
+                    var repo = git.getRepository();
+                    if (repo != null) {
+                        Path dir = repo.isBare()
+                                     ? repo.getDirectory().toPath()
+                                     : repo.getWorkTree().toPath();
+                        dirsToDelete.add(dir);
+                    }
+                }
             }
 
             // Attempt to remove each directory (best-effort, logged on failure)
@@ -164,6 +191,9 @@ public class GitTestCleanupUtil {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+
+        // Final GC call after delay
+        System.gc();
     }
 
     private static void closeWithErrorHandling(String resourceName, Runnable closeAction) {
