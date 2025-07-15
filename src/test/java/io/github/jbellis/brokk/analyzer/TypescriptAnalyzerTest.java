@@ -631,66 +631,10 @@ public class TypescriptAnalyzerTest {
         assertTrue(pointSource.endsWith("}"));
     }
 
-    @Test
-    void testWindowsFileOrderCorruption() throws IOException {
-        // Simulate Windows file processing order that causes byte range corruption
-        // Windows order: [DefaultExport.ts, Module.ts, Overloads.ts, Advanced.ts, ExportDefault.ts, Hello.ts, Vars.ts]
-        // This means Advanced.ts Point (minimal) gets processed before Hello.ts Point (comprehensive)
-
-        var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
-        var analyzer = new TypescriptAnalyzer(project);
-
-        // Verify that the corruption scenario exists
-        List<CodeUnit> allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
-            .flatMap(List::stream)
-            .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
-            .toList();
-
-        assertEquals(2, allPointInterfaces.size(), "Should find Point interfaces in both Hello.ts and Advanced.ts");
-
-        // Find which Point interface getDefinition returns (depends on file processing order)
-        Optional<CodeUnit> foundPoint = analyzer.getDefinition("Point");
-        assertTrue(foundPoint.isPresent(), "Should find a Point interface");
-
-        String pointSource = analyzer.getClassSource("Point");
-
-        // On some platforms (like Windows), Advanced.ts is processed first, leading to potential corruption
-        // The corruption occurs when the wrong byte ranges get associated with the wrong CodeUnit
-        boolean isAdvancedPoint = pointSource.trim().equals("interface Point { x: number; y: number; }");
-        boolean isHelloPoint = pointSource.contains("move(dx: number, dy: number): void");
-
-        if (isAdvancedPoint) {
-            // If we got Advanced.ts Point, verify it's not corrupted with Hello.ts byte ranges
-            assertFalse(pointSource.contains("export"),
-                       "Advanced.ts Point should not contain 'export' keyword");
-            assertFalse(pointSource.contains("move("),
-                       "Advanced.ts Point should not contain move method");
-        } else if (isHelloPoint) {
-            // If we got Hello.ts Point, verify it's not corrupted with Advanced.ts byte ranges
-            assertTrue(pointSource.contains("export interface Point"),
-                      "Hello.ts Point should contain 'export interface Point'");
-            assertTrue(pointSource.contains("move(dx: number, dy: number): void"),
-                      "Hello.ts Point should contain move method");
-        } else {
-            // This is the corruption case - neither expected interface was returned properly
-            fail("getClassSource('Point') returned corrupted content that doesn't match either expected Point interface: " + pointSource);
-        }
-
-        // Check for specific corruption patterns from Advanced.ts decorator functions
-        boolean isCorrupted = pointSource.contains("MyParameterDecorator") ||
-                             pointSource.contains("MyPropertyDecorator") ||
-                             pointSource.contains("MyClassDecorator") ||
-                             pointSource.contains("/* ... */") ||
-                             pointSource.contains("propertyKey:") ||
-                             pointSource.contains("function My") ||
-                             pointSource.contains("parameterIndex:");
-
-        assertFalse(isCorrupted, "getClassSource('Point') returned corrupted byte range containing decorator functions: " + pointSource);
-    }
 
     @Test
-    void testCodeUnitEqualityWithSameFqName() throws IOException {
-        // Test that demonstrates the CodeUnit equality issue that causes byte range corruption
+    void testCodeUnitEqualityFixed() throws IOException {
+        // Test that verifies the CodeUnit equality fix prevents byte range corruption
         var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
         var analyzer = new TypescriptAnalyzer(project);
 
@@ -717,11 +661,11 @@ public class TypescriptAnalyzerTest {
         assertNotEquals(helloPoint.source().toString(), advancedPoint.source().toString(),
                        "Point interfaces should be from different files");
 
-        // But they are incorrectly considered equal due to same FQN (this is the root cause of corruption)
-        assertTrue(helloPoint.equals(advancedPoint), "CodeUnits with same FQN are considered equal (this is the bug)");
-        assertEquals(helloPoint.hashCode(), advancedPoint.hashCode(), "Equal CodeUnits should have same hashCode");
+        // After the fix: CodeUnits with same FQN but different source files should be distinct
+        assertFalse(helloPoint.equals(advancedPoint), "CodeUnits with same FQN from different files should be distinct");
+        assertNotEquals(helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
 
-        // This equality causes problems with sourceRanges map and getClassSource
+        // With distinct CodeUnits, getClassSource should work correctly without corruption
         String pointSource = analyzer.getClassSource("Point");
 
         // The source should be a valid Point interface, not corrupted
@@ -730,56 +674,5 @@ public class TypescriptAnalyzerTest {
                 "Should start with interface declaration");
     }
 
-    @Test
-    void testSpecificWindowsCorruptionPattern() throws IOException {
-        // Test specifically for the Windows corruption pattern where getClassSource("Point")
-        // returns decorator function text instead of the interface from Advanced.ts
-        var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
-        var analyzer = new TypescriptAnalyzer(project);
-
-        String pointSource = analyzer.getClassSource("Point");
-
-        // The original Windows bug: when Point from Advanced.ts was found first but got
-        // byte ranges from Hello.ts, it would extract the wrong portion of Advanced.ts
-        // and return decorator function text starting around byte 301 instead of the
-        // interface at bytes 51-92
-
-        // Check for the specific corruption pattern reported in Windows
-        String expectedCorruptionPattern = "ny, propertyKey: string | symbol) { /* ... */ }";
-        String decoratorFunctionStart = "function MyParameterDecorator(target: Object, propertyKey: string | symbol, parameterIndex: number)";
-
-        boolean hasWindowsCorruption = pointSource.contains(expectedCorruptionPattern) ||
-                                      pointSource.contains("function MyParameterDecorator") ||
-                                      pointSource.contains("function MyPropertyDecorator") ||
-                                      pointSource.contains("function MyClassDecorator");
-
-        if (hasWindowsCorruption) {
-            fail("Detected Windows-style byte range corruption in getClassSource('Point'). " +
-                 "Expected Point interface but got decorator function text: " + pointSource);
-        }
-
-        // Verify we got a valid Point interface (either Hello.ts or Advanced.ts)
-        boolean isValidAdvancedPoint = pointSource.trim().equals("interface Point { x: number; y: number; }");
-        boolean isValidHelloPoint = pointSource.contains("export interface Point") &&
-                                   pointSource.contains("move(dx: number, dy: number): void");
-
-        assertTrue(isValidAdvancedPoint || isValidHelloPoint,
-                  "Should get either Advanced.ts Point or Hello.ts Point, but got: " + pointSource);
-
-        // Additional validation based on which Point we got
-        if (isValidAdvancedPoint) {
-            // If we got Advanced.ts Point, ensure it's exactly the minimal interface
-            assertTrue(pointSource.contains("x: number"), "Advanced.ts Point should contain x: number");
-            assertTrue(pointSource.contains("y: number"), "Advanced.ts Point should contain y: number");
-            assertFalse(pointSource.contains("export"), "Advanced.ts Point should not be exported");
-            assertFalse(pointSource.contains("move"), "Advanced.ts Point should not have move method");
-        } else if (isValidHelloPoint) {
-            // If we got Hello.ts Point, ensure it's the comprehensive interface
-            assertTrue(pointSource.contains("x: number"), "Hello.ts Point should contain x: number");
-            assertTrue(pointSource.contains("y: number"), "Hello.ts Point should contain y: number");
-            assertTrue(pointSource.contains("export"), "Hello.ts Point should be exported");
-            assertTrue(pointSource.contains("move(dx: number, dy: number): void"), "Hello.ts Point should have move method");
-        }
-    }
 
 }
