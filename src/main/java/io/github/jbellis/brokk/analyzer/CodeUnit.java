@@ -123,14 +123,17 @@ public record CodeUnit(ProjectFile source, CodeUnitType kind, String packageName
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof CodeUnit other)) return false;
-        // Equality based on the derived fully qualified name AND kind
-        return kind == other.kind && Objects.equals(this.fqName(), other.fqName());
+        // Equality based on the derived fully qualified name, kind, AND source file
+        // This ensures that classes/interfaces with the same name in different files are distinct
+        return kind == other.kind && 
+               Objects.equals(this.fqName(), other.fqName()) &&
+               Objects.equals(this.source, other.source);
     }
 
     @Override
     public int hashCode() {
-        // Hash code based on the derived fully qualified name AND kind
-        return Objects.hash(kind, fqName());
+        // Hash code based on the derived fully qualified name, kind, AND source file
+        return Objects.hash(kind, fqName(), source);
     }
 
     @Override
