@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { highlighterPromise, ensureLang } from '../worker/shiki/shiki-plugin';
-  import { buildUnifiedDiff, detectLang } from '../lib/diff-utils';
+  import {buildUnifiedDiff, getMdLanguageTag} from '../lib/diff-utils';
   import { transformerDiffLines } from '../worker/shiki/shiki-diff-transformer';
 
   let {
@@ -27,7 +27,7 @@
     isLoading = true;
     try {
       const { text, added, removed } = buildUnifiedDiff(search, replace);
-      const lang = detectLang(filename);
+      const lang = getMdLanguageTag(filename);
 
       await ensureLang(lang);
       const highlighter = await highlighterPromise;

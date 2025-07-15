@@ -1,21 +1,12 @@
-import type {Plugin} from 'svelte-exmarkdown';
-import type {Root, Node, Content, Code, Parent, Text, RootContent} from 'mdast';
-import {visit, SKIP, type VisitorResult} from 'unist-util-visit';
+import type {Code, Content, Node, Parent, Root, RootContent, Text} from 'mdast';
 import {toString} from 'mdast-util-to-string';
+import {SKIP, visit, type VisitorResult} from 'unist-util-visit';
+import type {Test} from 'unist-util-visit/lib';
 import type {VFile} from 'vfile';
-import EditBlock from '../components/EditBlock.svelte';
-import type {Test} from "unist-util-visit/lib";
 
 // Augment mdast to recognize custom data properties
 declare module 'mdast' {
     interface Data {
-        'code-fence'?: {
-            hName: 'code-fence';
-            hProperties: {
-                lang: string;
-                content: string;
-            };
-        };
         'edit-block'?: {
             hName: 'edit-block';
             hProperties: EditBlockProps;
@@ -200,8 +191,8 @@ function findFileNameNearby(allLines: string[], startIndex: number): string | nu
 function rawOf(node: Node & {
     position?: { start: { offset: number }; end: { offset: number } }
 }, file: VFile): string {
-    if (node.position && file.contents) {
-        return file.contents.slice(
+    if (node.position && file.value) {
+        return file.value.slice(
             node.position.start.offset,
             node.position.end.offset
         );
@@ -227,7 +218,7 @@ function handleFencedBlock(node: Code, index: number, parent: Parent, tree: Root
         const lines = raw.split('\n');
         if (fenceLooksLikeEditBlock(lines)) {
             const lang = node.lang; // sometimes lang == filename
-            const allLines = file.contents ? file.contents.toString().split('\n') : [];
+            const allLines = file.value ? file.value.toString().split('\n') : [];
             const parsed = parseEditBlock(lines, lang, node.position?.start.line || 0, allLines);
             if (parsed) {
                 const {filename, search, replace, adds, dels, changed} = parsed;
@@ -270,10 +261,10 @@ function handleUnfencedBlock(node: Content, index: number, parent: Parent, tree:
         if (end >= parent.children.length) break;
         raw += '\n' + rawOf(parent.children[end], file);
     }
-    
+
     // Parse
     const lines = raw.split('\n');
-    const allLines = file.contents ? file.contents.toString().split('\n') : [];
+    const allLines = file.value ? file.value.toString().split('\n') : [];
     const parsed = parseEditBlock(
         lines,
         null,
@@ -321,9 +312,3 @@ export function remarkEditBlock(): (tree: Root, file: VFile) => void {
     };
 }
 
-export const editBlockPlugin = (): Plugin => ({
-    remarkPlugin: [remarkEditBlock],
-    renderer: {
-        'edit-block': EditBlock
-    }
-});

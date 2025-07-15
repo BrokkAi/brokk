@@ -1,4 +1,6 @@
-import { type Change, diffLines } from 'diff';
+import {diffLines} from 'diff';
+import * as langMap from 'lang-map'; // Use 'lang-map' in JS without the asterisk
+
 
 export interface UnifiedDiff {
   text: string;
@@ -39,18 +41,18 @@ export function buildUnifiedDiff(search: string, replace: string): UnifiedDiff {
   return result;
 }
 
-/**
- * Quick heuristic to get a language id for Shiki from a filename.
- */
-export function detectLang(filename: string | undefined): string {
-  if (!filename) return 'text';
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  const langMap: Record<string, string> = {
-    js: 'javascript', ts: 'typescript', c: 'c', h: 'c', cpp: 'cpp',
-    java: 'java', py: 'python', kt: 'kotlin', sh: 'bash',
-    json: 'json', yml: 'yaml', yaml: 'yaml', md: 'markdown',
-    svelte: 'svelte', html: 'html', css: 'css', scss: 'scss',
-    gradle: 'groovy', pom: 'xml'
-  };
-  return langMap[ext] ?? 'text';
+
+export function getMdLanguageTag(filename: string): string {
+    // Extract the file extension (e.g., 'js' from 'foo.js')
+    const ext = filename.split('.').pop()?.toLowerCase();
+    if (!ext) {
+        return '';
+    }
+
+    // Get the languages array for the extension
+    const languages = langMap.languages(ext);
+
+    // Return the first language if available (most extensions map to one)
+    // If multiple, you could add logic to select based on context
+    return languages?.[0] ?? '';
 }

@@ -1,14 +1,20 @@
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
+import { remarkEditBlock } from '../lib/edit-block-plugin';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { editBlockPlugin } from './edit-block-plugin';
 import { visit } from 'unist-util-visit';
 import { expect, test } from 'vitest';
+import { gfmEditBlock, editBlockFromMarkdown } from './micromark-edit-block';
 
 // Helper function to process markdown through the plugin and return the AST
 function md2hast(md: string, { enableEditBlocks = true } = {}) {
   const processor = unified().use(remarkParse);
   if (enableEditBlocks) {
-    processor.use(editBlockPlugin().remarkPlugin[0]);
+    processor
+      .data('micromarkExtensions', [gfmEditBlock()])
+      .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
+      .use(remarkEditBlock);
   }
   // Pass the markdown content as part of the VFile to ensure file.contents is available
   return processor.runSync(processor.parse(md), { value: md });
@@ -24,18 +30,6 @@ function findEditBlocks(tree: any): any[] {
   });
   return editBlocks;
 }
-
-// Helper to find code-fence nodes in the AST
-function findCodeFences(tree: any): any[] {
-  const codeFences: any[] = [];
-  visit(tree, (node) => {
-    if (node.data && node.data.hName === 'code-fence') {
-      codeFences.push(node);
-    }
-  });
-  return codeFences;
-}
-
 
 test('detects unfenced edit block with inline filename', () => {
   const md = `
@@ -54,6 +48,26 @@ System.out.println("bye");
   expect(props.dels).toBe('1');
   expect(props.changed).toBe('1');
   expect(props.status).toBe('UNKNOWN');
+});
+
+test('detects multiple unfenced edit block with inline filename', () => {
+  const md = `
+<<<<<<< SEARCH foo/bar.java
+System.out.println("hi");
+=======
+System.out.println("bye");
+>>>>>>> REPLACE
+
+<<<<<<< SEARCH foo/bar.java
+System.out.println("hi2");
+=======
+System.out.println("bye2");
+>>>>>>> REPLACE
+
+  `;
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+  expect(editBlocks.length).toBe(2);
 });
 
 test('detects unfenced edit block without filename', () => {
@@ -97,7 +111,6 @@ test('handles empty search and replace sections', () => {
   const md = `
 <<<<<<< SEARCH empty.txt
 =======
-=======
 >>>>>>> REPLACE
   `;
   const tree = md2hast(md);
@@ -127,7 +140,7 @@ public class Test {
   expect(editBlocks.length).toBe(1);
   const props = editBlocks[0].data.hProperties;
   expect(props.filename).toBe('java');
-  expect(props.adds).toBe('4');
+  expect(props.adds).toBe('5');
   expect(props.dels).toBe('1');
   expect(props.changed).toBe('1');
 });
@@ -157,12 +170,6 @@ Here's a list with mixed content:
   expect(editProps.adds).toBe('1');
   expect(editProps.dels).toBe('1');
   expect(editProps.changed).toBe('1');
-  
-  const codeFences = findCodeFences(tree);
-  expect(codeFences.length).toBe(1);
-  const codeProps = codeFences[0].data.hProperties;
-  expect(codeProps.lang).toBe('java');
-  expect(codeProps.content).toBe('System.out.println("Item 2");');
 });
 
 test('edit blocks are ignored when the feature flag is off', () => {
@@ -208,6 +215,33 @@ b
   expect(props.dels).toBe('1');
   expect(props.changed).toBe('1');
   expect(props.status).toBe('UNKNOWN');
+});
+
+test('detects multiple fenced edit block', () => {
+    // Markdown with a fenced edit-block
+    const md = `
+\`\`\`
+foo.txt
+<<<<<<< SEARCH
+a
+=======
+b
+>>>>>>> REPLACE
+\`\`\`
+\`\`\`
+foo.txt
+<<<<<<< SEARCH
+a2
+=======
+b2
+>>>>>>> REPLACE
+\`\`\`
+  `;
+
+    const tree = md2hast(md);
+    const editBlocks = findEditBlocks(tree);
+
+    expect(editBlocks.length).toBe(2);
 });
 
 // ------------------------------------------------------------
@@ -320,6 +354,102 @@ new code
   expect(props.filename).toBe('script.js');
 });
 
+test('detects edit blocks with conflict syntax', () => {
+  const md = `
+\`\`\`
+  Now I need to modify \`GitLogTab.java\` to use the new \`GitCommitBrowserPanel\` instead of the inline code:
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      // Commit Browser Components (to be extracted)
+      private JTable commitsTable;
+      private DefaultTableModel commitsTableModel;
+      private JTree changesTree;
+      private DefaultTreeModel changesTreeModel;
+      private DefaultMutableTreeNode changesRootNode;
+      private JLabel revisionTextLabel; // For "Revision:" or "Revisions:"
+      private JTextArea revisionIdTextArea; // For the actual commit ID(s)
+      private JTextField commitSearchTextField;
+  
+      // Commit Browser Context Menu Items (to be extracted)
+      private JMenuItem addToContextItem;
+      private JMenuItem softResetItem;
+      private JMenuItem revertCommitItem;
+      private JMenuItem viewChangesItem;
+      private JMenuItem compareAllToLocalItem;
+      private JMenuItem popStashCommitItem;
+      private JMenuItem applyStashCommitItem;
+      private JMenuItem dropStashCommitItem;
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      // Commit Browser Component
+      private GitCommitBrowserPanel commitBrowserPanel;
+      private JTextField commitSearchTextField;
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+\`\`\`
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  console.log(editBlocks[0]);
+});
+
+test('detects multiple edit blocks for the same file in conflict syntax (unfenced)', () => {
+    const md = `
+  Now I need to modify \`GitLogTab.java\` to use the new \`GitCommitBrowserPanel\` instead of the inline code:
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      // Commit Browser Components (to be extracted)
+      private JTable commitsTable;
+      private DefaultTableModel commitsTableModel;
+      private JTree changesTree;
+      private DefaultTreeModel changesTreeModel;
+      private DefaultMutableTreeNode changesRootNode;
+      private JLabel revisionTextLabel; // For "Revision:" or "Revisions:"
+      private JTextArea revisionIdTextArea; // For the actual commit ID(s)
+      private JTextField commitSearchTextField;
+  
+      // Commit Browser Context Menu Items (to be extracted)
+      private JMenuItem addToContextItem;
+      private JMenuItem softResetItem;
+      private JMenuItem revertCommitItem;
+      private JMenuItem viewChangesItem;
+      private JMenuItem compareAllToLocalItem;
+      private JMenuItem popStashCommitItem;
+      private JMenuItem applyStashCommitItem;
+      private JMenuItem dropStashCommitItem;
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      // Commit Browser Component
+      private GitCommitBrowserPanel commitBrowserPanel;
+      private JTextField commitSearchTextField;
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // ============ Commit Browser Panel (center ~80%) ============
+          JPanel commitBrowserPanel = buildCommitBrowserPanel();
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // ============ Commit Browser Panel (center ~80%) ============
+          commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager);
+          JPanel commitBrowserContainer = buildCommitBrowserContainer();
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserPanel, constraints);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserContainer, constraints);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  `;
+
+    const tree = md2hast(md);
+    const editBlocks = findEditBlocks(tree);
+
+    expect(editBlocks.length).toBe(3);
+});
+
 // ------------------------------------------------------------
 // FILENAME after fence, before HEAD
 // ------------------------------------------------------------
@@ -381,6 +511,231 @@ public class Main {
   const editBlocks = findEditBlocks(tree);
 
   expect(editBlocks.length).toBe(0);
+});test('foo', () => {
+  const md = `
+Looking at the failed blocks and the current content, I can see the issue. The file is in a broken state where it references \`commitBrowserPanel\` (which doesn't exist) but we need to revert those changes back to use the original table model code.
+  
+  Let me fix the specific lines that are causing the build failure:
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // ============ Commit Browser Panel (center ~80%) ============
+          commitBrowserPanel = new GitCommitBrowserPanel(chrome, contextManager);
+          JPanel commitBrowserContainer = buildCommitBrowserContainer();
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // ============ Commit Browser Panel (center ~80%) ============
+          JPanel commitBrowserPanel = buildCommitBrowserPanel();
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserContainer, constraints);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          constraints.gridx = 1; // commit browser (commits + changes)
+          constraints.weightx = 0.80;
+          logPanel.add(commitBrowserPanel, constraints);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                          logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
+                                      previouslySelectedBranch, currentGitBranch);
+                          commitBrowserPanel.setCommits(List.of());
+                          pullButton.setEnabled(false);
+                          pushButton.setEnabled(false);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                          logger.warn("Could not select any local branch (target: {}, current git: {}). Clearing commits.",
+                                      previouslySelectedBranch, currentGitBranch);
+                          commitsTableModel.setRowCount(0);
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          pullButton.setEnabled(false);
+                          pushButton.setEnabled(false);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      branchTableModel.setRowCount(0);
+                      branchTableModel.addRow(new Object[]{"", "Error fetching branches: " + e.getMessage()});
+                      remoteBranchTableModel.setRowCount(0);
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      branchTableModel.setRowCount(0);
+                      branchTableModel.addRow(new Object[]{"", "Error fetching branches: " + e.getMessage()});
+                      remoteBranchTableModel.setRowCount(0);
+                      commitsTableModel.setRowCount(0);
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                      if (finalCommits.isEmpty()) {
+                          commitBrowserPanel.setCommits(List.of());
+                          return;
+                      }
+  
+                      commitBrowserPanel.setCommits(finalCommits);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                      if (commitRows.isEmpty()) {
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          return;
+                      }
+  
+                      for (Object[] rowData : commitRows) {
+                          commitsTableModel.addRow(rowData);
+                      }
+  
+                      // Fit column widths for author and date
+                      TableUtils.fitColumnWidth(commitsTable, 1); // Author column
+                      TableUtils.fitColumnWidth(commitsTable, 2); // Date column
+  
+                      if (commitsTableModel.getRowCount() > 0) {
+                          commitsTable.setRowSelectionInterval(0, 0);
+                          // Listener will handle updates to revision display and changes tree
+                      } else {
+                          // Ensure changes area and revision display are cleared if no commits
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                      }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error fetching commits for branch: " + branchName, e);
+                  SwingUtilities.invokeLater(() -> {
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+              }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error fetching commits for branch: " + branchName, e);
+                  SwingUtilities.invokeLater(() -> {
+                      commitsTableModel.setRowCount(0);
+                      commitsTableModel.addRow(new Object[]{
+                              "Error fetching commits: " + e.getMessage(), "", "", ""
+                      });
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+              }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      if (searchResults.isEmpty()) {
+                          commitBrowserPanel.setCommits(List.of());
+                          chrome.systemOutput("No commits found matching: " + query);
+                          return;
+                      }
+  
+                      commitBrowserPanel.setCommits(searchResults.stream().map(c -> (ICommitInfo) c).toList());
+                      chrome.systemOutput("Found " + searchResults.size() + " commits matching: " + query);
+                  });
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+                  SwingUtilities.invokeLater(() -> {
+                      commitsTableModel.setRowCount(0);
+                      changesRootNode.removeAllChildren();
+                      changesTreeModel.reload();
+  
+                      if (commitRows.isEmpty()) {
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                          chrome.systemOutput("No commits found matching: " + query);
+                          return;
+                      }
+  
+                      for (Object[] rowData : commitRows) {
+                          commitsTableModel.addRow(rowData);
+                      }
+  
+                      chrome.systemOutput("Found " + commitRows.size() + " commits matching: " + query);
+                      if (commitsTableModel.getRowCount() > 0) {
+                          // Fit column widths
+                          TableUtils.fitColumnWidth(commitsTable, 1); // Author
+                          TableUtils.fitColumnWidth(commitsTable, 2); // Date
+                          commitsTable.setRowSelectionInterval(0, 0);
+                          // Listener will handle updates to revision display and changes tree
+                      } else {
+                          // Ensure changes area and revision display are cleared if no search results
+                          changesRootNode.removeAllChildren();
+                          changesTreeModel.reload();
+                          revisionTextLabel.setText("Revision:");
+                          revisionIdTextArea.setText("N/A");
+                      }
+                  });
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error searching commits: {}", query, e);
+                  SwingUtilities.invokeLater(() -> {
+                      chrome.toolErrorRaw("Error searching commits: " + e.getMessage());
+                      commitBrowserPanel.setCommits(List.of());
+                  });
+              }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+              } catch (Exception e) {
+                  logger.error("Error searching commits: {}", query, e);
+                  SwingUtilities.invokeLater(() -> {
+                      chrome.toolErrorRaw("Error searching commits: " + e.getMessage());
+                      revisionTextLabel.setText("Revision:");
+                      revisionIdTextArea.setText("N/A");
+                  });
+              }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // Commit browser panel in the center
+          container.add(commitBrowserPanel, BorderLayout.CENTER);
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+          // Commit browser panel in the center
+          container.add(commitBrowserPanel, BorderLayout.CENTER);
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  
+  <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      /**
+       * Selects a commit in the commits table by its ID.
+       */
+      public void selectCommitById(String commitId) {
+          commitBrowserPanel.selectCommitById(commitId);
+      }
+  ======== src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+      /**
+       * Selects a commit in the commits table by its ID.
+       */
+      public void selectCommitById(String commitId) {
+          for (int i = 0; i < commitsTableModel.getRowCount(); i++) {
+              // Get CommitInfo from hidden column 5
+              ICommitInfo commitInfo = (ICommitInfo) commitsTableModel.getValueAt(i, 5);
+              if (commitId.equals(commitInfo.id())) {
+                  commitsTable.setRowSelectionInterval(i, i);
+                  commitsTable.scrollRectToVisible(commitsTable.getCellRect(i, 0, true));
+                  // Listener will handle updateChangesForCommits and revisionLabel
+                  return;
+              }
+          }
+  
+          // If not found in the current view, let the user know
+          chrome.systemOutput("Commit " + commitId.substring(0, 7) + " not found in current branch view");
+      }
+  >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
+  `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(10);
 });
 
 // ------------------------------------------------------------

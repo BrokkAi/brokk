@@ -1,3 +1,4 @@
+import {editBlockPlugin, remarkEditBlock} from '../lib/edit-block-plugin';
 import type {Root as HastRoot} from 'hast';
 import type {Parent, Root, RootContent} from 'mdast';
 import remarkBreaks from 'remark-breaks';
@@ -20,6 +21,7 @@ export function createBaseProcessor(): Processor {
         .use(remarkParse)
         .use(remarkGfm)
         .use(remarkBreaks)
+        .use(remarkEditBlock)
         .use(remarkRehype, {allowDangerousHtml: true});
 }
 
@@ -60,6 +62,7 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
 }
 
 export function parseMarkdown(src: string, fast = false): HastRoot {
+    fast = true;
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;
