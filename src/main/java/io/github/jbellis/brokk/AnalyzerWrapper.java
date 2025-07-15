@@ -58,6 +58,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         future = runner.submit("Initializing code intelligence", () -> {
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
             currentAnalyzer = loadOrCreateAnalyzerInternal(true, Optional.empty());
+            startWatcher();
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
@@ -228,7 +229,6 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.debug("Loading/creating analyzer for languages: {}", projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
 
         if (projectLangs.isEmpty() || (projectLangs.size() == 1 && projectLangs.contains(Language.NONE))) {
-            if (isInitialLoad) startWatcher(); // Watcher for git, etc.
             return new DisabledAnalyzer();
         }
 
@@ -301,9 +301,6 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
             handleFirstBuildRefreshSettings(totalDeclarations, totalCreationTimeMs, projectLangs);
-            startWatcher();
-        } else if (isInitialLoad) { // Not UNSET, but still initial load
-            startWatcher();
         }
         return loadedAnalyzer;
     }
