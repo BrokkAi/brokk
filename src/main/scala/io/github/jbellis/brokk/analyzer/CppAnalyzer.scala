@@ -17,7 +17,7 @@ import scala.util.matching.Regex
 import scala.util.{Try, Using} // Added for mutable.ListBuffer
 
 /** Analyzer for C and C++ source files (leveraging joern c2cpg). */
-class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer(sourcePath, cpgInit) {
+class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer[CConfig](sourcePath, cpgInit) {
 
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, io.joern.joerncli.CpgBasedTool.loadFromFile(preloadedPath.toString))
@@ -33,6 +33,8 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
   override def isCpg: Boolean = true
 
   override val fullNameSeparators: Seq[String] = Seq(".", "::")
+
+  override def defaultConfig: CConfig = CppAnalyzer.defaultConfig
 
   // ---------------------------------------------------------------------
   // Language-specific helpers
@@ -816,11 +818,19 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
     }
     IAnalyzer.FunctionLocation(file, startLine, endLine, maybeCode.get)
   }
+
+  override def updateFiles(changedFiles: java.util.Set[ProjectFile]): Unit =
+    updateFilesInternal(CppAnalyzer.defaultConfig, changedFiles)
+
 }
 
 object CppAnalyzer {
 
   private val logger = LoggerFactory.getLogger(getClass)
+  private def defaultConfig = CConfig()
+    .withDefaultIgnoredFilesRegex(Nil)
+    .withIncludeComments(false)
+    .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
 
   import scala.jdk.CollectionConverters.*
 
@@ -831,14 +841,11 @@ object CppAnalyzer {
     if Files.exists(cpgPath) then logger.info(s"Updating C/C++ CPG at '$cpgPath'")
     else logger.info(s"Creating C/C++ CPG at '$cpgPath'")
 
-    CConfig()
+    defaultConfig
       .withInputPath(absPath.toString)
       .withOutputPath(cpgPath.toString)
-      .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-      .withIncludeComments(false)
-      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
-      .buildAndThrow
+      .buildAndThrow()
       .open
   }
 
