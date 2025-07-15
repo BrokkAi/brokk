@@ -200,6 +200,8 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    default void updateFiles(Set<ProjectFile> changedFiles) {}
+
     /**
      * Container for a function’s location and current source text.
      */

@@ -10,7 +10,9 @@ import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
+import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
@@ -291,6 +293,17 @@ public class Brokk {
         boolean isDark = MainProject.getTheme().equals("dark");
         initializeLookAndFeelAndSplashScreen(isDark);
 
+        // Register native macOS “About” handler (only if running on macOS)
+        if (Environment.isMacOs()) {
+            SwingUtilities.invokeLater(() -> {
+                try {
+                    Desktop.getDesktop().setAboutHandler(e -> AboutDialog.showAboutDialog(null));
+                } catch (UnsupportedOperationException ignored) {
+                    // AboutHandler not supported on this platform/JVM – safe to ignore
+                }
+            });
+        }
+
         // run this after we show the splash screen, it's expensive
         Thread.ofPlatform().start(Messages::init);
 
@@ -308,26 +321,39 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
 
         if (!successfulOpenOccurred) {
             // No projects auto-opened; give the user the Open-Project dialog.
-            SwingUtil.runOnEdt(Brokk::hideSplashScreen);
-
-            var selectedPathOpt = requireNonNull(SwingUtil.runOnEdt(
-                    () -> OpenProjectDialog.showDialog(new JFrame()),
-                    Optional.<Path>empty()));
-
-            selectedPathOpt.ifPresent(path -> {
-                try {
-                    // Wait synchronously until the project is fully opened
-                    new OpenProjectBuilder(path).open().get();
-                } catch (Exception e) {
-                    logger.error("Failed to open project selected via dialog: {}", path, e);
-                }
-            });
-
-            if (openProjectWindows.isEmpty()) {
-                logger.info("User closed Open Project dialog without opening anything. Exiting.");
-                System.exit(0);
-            }
+            promptAndOpenProject(null)
+                    .thenAccept(opened -> {
+                        if (!opened && openProjectWindows.isEmpty()) {
+                            logger.info("User closed Open Project dialog without opening anything. Exiting.");
+                            System.exit(0);
+                        }
+                    });
         }
+    }
+
+    /**
+     * Shows a modal dialog letting the user pick a project and opens it.
+     * If the user cancels the dialog, no project is opened.
+     *
+     * @param owner The parent frame (may be {@code null}).
+     * @return a CompletableFuture that completes with true if a project was opened, false otherwise.
+     */
+    public static CompletableFuture<Boolean> promptAndOpenProject(@Nullable Frame owner) {
+        SwingUtil.runOnEdt(Brokk::hideSplashScreen); // Ensure splash screen is hidden before dialog
+        var selectedPathOpt = requireNonNull(SwingUtil.runOnEdt(
+                () -> OpenProjectDialog.showDialog(owner),
+                Optional.<Path>empty()));
+
+        if (selectedPathOpt.isEmpty()) {
+            return CompletableFuture.completedFuture(false);
+        }
+
+        return new OpenProjectBuilder(selectedPathOpt.get())
+                .open()
+                .exceptionally(ex -> {
+                    logger.error("Failed to open project selected via dialog: {}", selectedPathOpt.get(), ex);
+                    return false;
+                });
     }
 
     private static void showSplashScreen() {
@@ -352,7 +378,7 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
             panel.add(iconLabel, BorderLayout.WEST);
         }
 
-        var label = new JLabel("Brokk " + BuildInfo.version(), SwingConstants.LEFT); // Align text left
+        var label = new JLabel("Brokk " + BuildInfo.version, SwingConstants.LEFT); // Align text left
         label.setFont(label.getFont().deriveFont(Font.BOLD, 18f)); // Larger font
         panel.add(label, BorderLayout.CENTER);
 

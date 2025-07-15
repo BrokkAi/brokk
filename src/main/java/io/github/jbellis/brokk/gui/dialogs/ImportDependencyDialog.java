@@ -36,9 +36,13 @@ public class ImportDependencyDialog {
 
     private enum SourceType { JAR, DIRECTORY }
 
-    public static void show(Chrome chrome) {
+    public static void show(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
         assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
-        new DialogHelper(chrome).buildAndShow();
+        new DialogHelper(chrome, listener).buildAndShow();
+    }
+
+    public static void show(Chrome chrome) {
+        show(chrome, null);
     }
 
     private static class DialogHelper {
@@ -58,10 +62,13 @@ public class ImportDependencyDialog {
         @Nullable
         private BrokkFile selectedBrokkFileForImport;
         private final Path dependenciesRoot;
+        @Nullable
+        private final ManageDependenciesDialog.DependencyLifecycleListener listener;
 
-        DialogHelper(Chrome chrome) {
+        DialogHelper(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
             this.chrome = chrome;
             this.dependenciesRoot = chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
+            this.listener = listener;
             // Initialize other fields that might be null based on conditions later
         }
 
@@ -472,18 +479,19 @@ public class ImportDependencyDialog {
             Path sourcePath = selectedBrokkFileForImport.absPath();
             importButton.setEnabled(false); // Disable during operation
 
-            if (currentSourceType == SourceType.JAR) {
-                Decompiler.decompileJar(chrome, sourcePath, chrome.getContextManager()::submitBackgroundTask);
-                // Decompiler.decompileJar is asynchronous and handles its own user feedback.
-                // We might want to close the dialog or give some feedback here too.
-                // For now, assume decompileJar gives enough feedback. Dialog stays open.
-                // Re-enable button if needed, or simply close dialog on success from decompileJar.
-                // Let's clear selection to prevent re-import of same.
-                selectedBrokkFileForImport = null;
-                previewArea.setText("Decompilation process started for " + sourcePath.getFileName());
-                if (currentFileSelectionPanel != null) currentFileSelectionPanel.setInputText("");
-                dialog.dispose();
+            var depName = sourcePath.getFileName().toString();
+            if (listener != null) {
+                SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(depName));
+            }
+            dialog.dispose();
 
+            if (currentSourceType == SourceType.JAR) {
+                Decompiler.decompileJar(chrome,
+                                        sourcePath,
+                                        chrome.getContextManager()::submitBackgroundTask,
+                                        () -> SwingUtilities.invokeLater(() -> {
+                                            if (listener != null) listener.dependencyImportFinished(depName);
+                                        }));
             } else { // DIRECTORY
                 var project = chrome.getProject();
 
@@ -521,7 +529,7 @@ public class ImportDependencyDialog {
                         try {
                             Files.createDirectories(dependenciesRoot);
                             if (Files.exists(targetPath)) {
-                                ImportDependencyDialog.deleteRecursively(targetPath); // Use static method
+                                Decompiler.deleteDirectoryRecursive(targetPath);
                             }
                             List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
                                 .flatMap(lang -> lang.getExtensions().stream())
@@ -541,10 +549,7 @@ public class ImportDependencyDialog {
                                 chrome.systemOutput("Directory copied successfully to " + targetPath +
                                                     " (filtered by project language(s): " + langNamesForOutput +
                                                     "). Reopen project to incorporate the new files.");
-                                if (currentFileSelectionPanel != null) currentFileSelectionPanel.setInputText("");
-                                previewArea.setText("Directory copied successfully.");
-                                selectedBrokkFileForImport = null;
-                                // importButton enabled state handled by selection logic
+                                if (listener != null) listener.dependencyImportFinished(depName);
                             });
                         } catch (IOException ex) {
                             logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
@@ -556,7 +561,6 @@ public class ImportDependencyDialog {
                         return null;
                     }
                 );
-                dialog.dispose();
             }
         }
     }
@@ -587,14 +591,4 @@ public class ImportDependencyDialog {
         });
     }
 
-    private static void deleteRecursively(Path path) throws IOException {
-        if (!Files.exists(path)) return;
-        try (Stream<Path> walk = Files.walk(path)) {
-            // Sort in reverse order to delete files before directories
-            List<Path> pathsToDelete = walk.sorted(Comparator.reverseOrder()).toList();
-            for (Path p : pathsToDelete) {
-                Files.delete(p);
-            }
-        }
-    }
 }
