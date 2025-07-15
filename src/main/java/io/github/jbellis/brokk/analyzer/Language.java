@@ -509,7 +509,6 @@ public interface Language {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
         }
-        @Override public boolean isCpg() { return false; }
         @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
     };
 
@@ -665,19 +664,13 @@ public interface Language {
             return languages.stream().anyMatch(Language::isCpg);
         }
 
-        @Override public IAnalyzer createAnalyzer(IProject project)
-        {
-            return createAnalyzer(project, Optional.empty());
-        }
-
         @Override
-        public IAnalyzer createAnalyzer(IProject project,
-                                        Optional<List<FileChangeEvent>> maybeChangedFiles)
+        public IAnalyzer createAnalyzer(IProject project)
         {
             var delegates = new java.util.HashMap<Language, IAnalyzer>();
             for (var lang : languages)
             {
-                var analyzer = lang.createAnalyzer(project, maybeChangedFiles);
+                var analyzer = lang.createAnalyzer(project);
                 if (!analyzer.isEmpty())
                     delegates.put(lang, analyzer);
             }

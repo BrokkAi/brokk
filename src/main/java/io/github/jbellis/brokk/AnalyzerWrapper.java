@@ -10,15 +10,14 @@ import javax.swing.*;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -47,20 +46,20 @@ public class AnalyzerWrapper implements AutoCloseable {
     private volatile Future<IAnalyzer> future;
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
     private volatile boolean rebuildInProgress = false;
-    private volatile boolean externalRebuildRequested = false;
+    private volatile boolean externalRebuildRequested = false; // TODO allow requesting either incremental or full rebuild
     private volatile boolean rebuildPending = false;
 
     public AnalyzerWrapper(IProject project, ContextManager.TaskRunner runner, @Nullable AnalyzerListener listener) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
+        gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.runner = runner;
         this.listener = listener;
 
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
-            currentAnalyzer = loadOrCreateAnalyzerInternal(true, Optional.empty());
+            currentAnalyzer = loadOrCreateAnalyzer();
             startWatcher();
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
@@ -94,8 +93,8 @@ public class AnalyzerWrapper implements AutoCloseable {
             // (common in worktrees), explicitly watch the .git directory within gitRepoRoot.
             // The registerAllDirectories method's .brokk exclusion (relative to this.root)
             // will not interfere with watching contents of .git.
-            if (this.gitRepoRoot != null && !this.gitRepoRoot.equals(this.root)) {
-                Path actualGitMetaDir = this.gitRepoRoot.resolve(".git");
+            if (gitRepoRoot != null && !gitRepoRoot.equals(this.root)) {
+                Path actualGitMetaDir = gitRepoRoot.resolve(".git");
                 assert Files.isDirectory(actualGitMetaDir);
                 logger.debug("Additionally watching git metadata directory for changes: {}", actualGitMetaDir);
                 registerAllDirectories(actualGitMetaDir, watchService);
@@ -116,13 +115,13 @@ public class AnalyzerWrapper implements AutoCloseable {
                 if (key == null) {
                     if (externalRebuildRequested && !rebuildInProgress) {
                         logger.debug("External rebuild requested");
-                        rebuild();
+                        rebuild(() -> getLanguageHandle().createAnalyzer(project));
                     }
                     continue;
                 }
 
                 // We got an event, collect it and any others within the debounce window
-                var batch = new HashSet<FileChangeEvent>();
+                var batch = new EventBatch();
                 collectEventsFromKey(key, watchService, batch);
 
                 long deadline = System.currentTimeMillis() + DEBOUNCE_DELAY_MS;
@@ -145,77 +144,69 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
     }
 
+    /** mutable since we will collect events until they stop arriving */
+    static class EventBatch {
+        boolean isOverflowed;
+        Set<ProjectFile> files = new HashSet<>();
+    }
+
     /**
      * Check if changes in this batch of events require a .git refresh and/or analyzer rebuild.
      */
-    private void handleBatch(Set<FileChangeEvent> batch) {
+    private void handleBatch(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
-
+        
         // 1) Possibly refresh Git
-        boolean needsGitRefresh = false;
-        if (this.gitRepoRoot != null) {
-            Path actualGitMetaDir = this.gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
-            needsGitRefresh = batch.stream().anyMatch(event ->
-                    event.path().startsWith(actualGitMetaDir)
-                            && (event.type() == FileChangeEvent.EventType.CREATE
-                            || event.type() == FileChangeEvent.EventType.DELETE
-                            || event.type() == FileChangeEvent.EventType.MODIFY)
-            );
-        }
-
-        if (needsGitRefresh) {
-            // this.gitRepoRoot is already confirmed non-null from the block above
-            logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(this.gitRepoRoot).resolve(".git"));
-            if (listener != null) {
-                listener.onRepoChange();
-                listener.onTrackedFileChange(); // not 100% sure this is necessary
+        if (gitRepoRoot != null) {
+            Path gitMetaDir = gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
+            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaDir))) {
+                logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(gitRepoRoot).resolve(".git"));
+                if (listener != null) {
+                    listener.onRepoChange();
+                    listener.onTrackedFileChange(); // not 100% sure this is necessary
+                }
             }
         }
 
-        // 2) Check if any *tracked* files changed
-        Set<Path> trackedPaths = project.getRepo().getTrackedFiles().stream()
-                .map(ProjectFile::absPath)
-                .collect(Collectors.toSet());
-        boolean trackedPathsChanged = batch.stream()
-                .anyMatch(event -> trackedPaths.contains(event.path()));
+        // 2) If overflowed, assume something changed
+        if (batch.isOverflowed) {
+            if (listener != null) listener.onTrackedFileChange();
+            rebuild(() -> currentAnalyzer.update());
+        }
 
-        if (trackedPathsChanged) {
+        // 3) We have an exact files list to check
+        var trackedFiles = project.getRepo().getTrackedFiles();
+        var projectLanguages = project.getAnalyzerLanguages();
+        var relevantFiles = batch.files.stream()
+                .filter(pf -> {
+                    if (!trackedFiles.contains(pf)) {
+                        return false;
+                    }
+                    return projectLanguages.stream().anyMatch(L -> L.getExtensions().contains(pf.extension()));
+                })
+                .collect(Collectors.toSet());
+
+        if (!relevantFiles.isEmpty()) {
             // call listener (refreshes git panel)
             logger.debug("Changes in tracked files detected");
-            if (listener != null) {
-                listener.onTrackedFileChange();
-            }
+            if (listener != null) listener.onTrackedFileChange();
 
             // update the analyzer if we're configured to do so
-            // Only rebuild if the changed files are of a type relevant to the project's configured languages
-            Set<Language> projectLanguages = project.getAnalyzerLanguages();
-            boolean relevantFileChanged = batch.stream().anyMatch(event -> {
-                if (!trackedPaths.contains(event.path())) return false;
-                String extension = com.google.common.io.Files.getFileExtension(event.path().toString());
-                Language langOfFile = Language.fromExtension(extension);
-                return langOfFile != Language.NONE && projectLanguages.contains(langOfFile);
-            });
-
-            if (relevantFileChanged) {
-                if (project.getAnalyzerRefresh() == IProject.CpgRefresh.AUTO) {
-                    final var changedFiles = batch.stream()
-                            .filter(e -> trackedPaths.contains(e.path())).toList();
-                    logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
-                            changedFiles.stream()
-                                    .filter(e -> {
-                                        String ext = com.google.common.io.Files.getFileExtension(e.path().toString());
-                                        Language lang = Language.fromExtension(ext);
-                                        return projectLanguages.contains(lang);
-                                    })
-                                    .distinct()
-                                    .map(e -> e.path().toString())
-                                    .collect(Collectors.joining(", "))
-                    );
-                    rebuild(Optional.of(changedFiles));
-                }
-            } else {
-                logger.trace("No tracked files relevant to configured languages changed; skipping analyzer rebuild");
+            if (project.getAnalyzerRefresh() != IProject.CpgRefresh.AUTO) {
+                return;
             }
+
+            logger.debug("Rebuilding analyzer due to changes in tracked files relevant to configured languages: {}",
+                         relevantFiles.stream()
+                                 .filter(pf -> {
+                                     Language lang = Language.fromExtension(pf.extension());
+                                     return projectLanguages.contains(lang);
+                                 })
+                                 .distinct()
+                                 .map(ProjectFile::toString)
+                                 .collect(Collectors.joining(", "))
+            );
+            rebuild(() -> currentAnalyzer.update(relevantFiles));
         } else {
             logger.trace("No tracked files changed (overall); skipping analyzer rebuild");
         }
@@ -240,23 +231,13 @@ public class AnalyzerWrapper implements AutoCloseable {
      * <code>langHandle.loadAnalyzer()</code> (use cache) or
      * <code>langHandle.createAnalyzer()</code> (full rebuild).</p>
      */
-    private IAnalyzer loadOrCreateAnalyzerInternal(boolean isInitialLoad,
-                                                   Optional<List<FileChangeEvent>> maybeChangedFiles) {
+    private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
-        var projectLangs = project.getAnalyzerLanguages()
-                .stream()
-                .filter(l -> l != Language.NONE)
-                .collect(Collectors.toUnmodifiableSet());
-
-        logger.debug("Loading/creating analyzer for languages: {}",
-                     projectLangs.stream().map(Language::name).collect(Collectors.joining(", ")));
-
-        if (projectLangs.isEmpty())
+        Language langHandle = getLanguageHandle();
+        logger.debug("Loading/creating analyzer for languages: {}", langHandle);
+        if (langHandle == Language.NONE) {
             return new DisabledAnalyzer();
-
-        Language langHandle = (projectLangs.size() == 1)
-                ? projectLangs.iterator().next()
-                : new Language.MultiLanguage(projectLangs);
+        }
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
         if (listener != null) listener.beforeEachBuild();
@@ -268,7 +249,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
         boolean needsRebuild = externalRebuildRequested;            // explicit user request wins
         if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
-            for (Language lang : projectLangs) {
+            for (Language lang : project.getAnalyzerLanguages()) {
                 if (!lang.isCpg()) continue;                       // non‑CPG langs are rebuilt ad‑hoc
                 Path cpgPath = lang.getCpgPath(project);
                 if (!Files.exists(cpgPath)) {                      // no cache → rebuild
@@ -287,14 +268,13 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
         long start = System.currentTimeMillis();
-        IAnalyzer analyzer;
+        IAnalyzer analyzer = langHandle.loadAnalyzer(project);
+
         if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
-            logger.debug("Building fresh analyzer ({}st build, rebuild required: {})",
-                         isInitialLoad ? "fir" : "subsequent", needsRebuild);
-            analyzer = langHandle.createAnalyzer(project, maybeChangedFiles);
-        } else {
-            logger.debug("Loading cached analyzer(s)");
-            analyzer = langHandle.loadAnalyzer(project);
+            logger.debug("Building fresh analyzer (first build, rebuild required: {})", needsRebuild);
+            // TODO allow this to happen in the background
+            // TODO get changed files from mtimes instead of using Big Hammer update()
+            analyzer = analyzer.update();
         }
         long durationMs = System.currentTimeMillis() - start;
         int declarationCount = analyzer.getAllDeclarations().size();
@@ -309,12 +289,12 @@ public class AnalyzerWrapper implements AutoCloseable {
                 !externalRebuildRequested) 
         {
             logger.debug("Scheduling background rebuild to refresh stale caches");
-            rebuild(maybeChangedFiles);
+            rebuild(() -> langHandle.createAnalyzer(project));
         }
 
         /* ── 6.  First‑build heuristics (unchanged logic) ───────────────────────────── */
-        if (isInitialLoad && project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-            handleFirstBuildRefreshSettings(declarationCount, durationMs, projectLangs);
+        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
+            handleFirstBuildRefreshSettings(declarationCount, durationMs, project.getAnalyzerLanguages());
         }
 
         return analyzer;
@@ -380,6 +360,22 @@ public class AnalyzerWrapper implements AutoCloseable {
         if (currentAnalyzer == null) return false;
         return currentAnalyzer.isCpg();
     }
+
+    /**
+     * Convenience overload that infers the language set from {@link #project}.
+     */
+    private Language getLanguageHandle() {
+        var projectLangs = project.getAnalyzerLanguages()
+                                  .stream()
+                                  .filter(l -> l != Language.NONE)
+                                  .collect(Collectors.toUnmodifiableSet());
+        if (projectLangs.isEmpty()) {
+            return Language.NONE;
+        }
+        return (projectLangs.size() == 1)
+               ? projectLangs.iterator().next()
+               : new Language.MultiLanguage(projectLangs);
+    }
     
     /**
      * Determine whether the cached analyzer for the given language is stale relative to
@@ -426,20 +422,13 @@ public class AnalyzerWrapper implements AutoCloseable {
         return false;
     }
 
-    private synchronized void rebuild() {
-        rebuild(Optional.empty());
-    }
-
     /**
      * Force a fresh rebuild of the analyzer by scheduling a job on the analyzerExecutor.
      * Avoids concurrent rebuilds by setting a flag, but if a change is detected during
      * the rebuild, a new rebuild will be scheduled immediately afterwards.
      * This rebuilds the entire analyzer setup (single or multi) based on current project languages.
-     *
-     * @param maybeChangedFiles changed files if any can be detected, or none if the analyzer is meant to determine
-     *                          changes itself.
      */
-    private synchronized void rebuild(Optional<List<FileChangeEvent>> maybeChangedFiles) {
+    private synchronized void rebuild(Supplier<IAnalyzer> supplier) {
         if (rebuildInProgress) {
             rebuildPending = true;
             return;
@@ -450,7 +439,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         future = runner.submit("Rebuilding code intelligence", () -> {
             try {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
-                currentAnalyzer = loadOrCreateAnalyzerInternal(false, maybeChangedFiles);
+                currentAnalyzer = supplier.get();
                 logger.debug("Analyzer (full rebuild) completed.");
                 return currentAnalyzer;
             } finally {
@@ -459,7 +448,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                     if (rebuildPending) {
                         rebuildPending = false;
                         logger.trace("Rebuilding immediately after pending request");
-                        rebuild(maybeChangedFiles);
+                        rebuild(() -> getLanguageHandle().createAnalyzer(project));
                     } else {
                         externalRebuildRequested = false;
                     }
@@ -545,57 +534,38 @@ public class AnalyzerWrapper implements AutoCloseable {
         watcherThread.start();
     }
 
-    private void collectEventsFromKey(WatchKey key, WatchService watchService, Set<FileChangeEvent> batch) {
+    private void collectEventsFromKey(WatchKey key, WatchService watchService, EventBatch batch) {
+        Path watchPath = (Path) key.watchable();
+
         for (WatchEvent<?> event : key.pollEvents()) {
-            // JVM can emit overflow events with null context (path), skip these
             if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-                logger.debug("Overflow event: {}", key.watchable());
-                continue;
-            }
-            // skip any other null contexts. unexpected, so log what they are if any
-            @SuppressWarnings("unchecked")
-            WatchEvent<Path> pathEvent = (WatchEvent<Path>) event;
-            Path relativePath = pathEvent.context();
-            if (relativePath == null) {
-                logger.debug("Event with null context (kind={})", event.kind());
+                batch.isOverflowed = true;
                 continue;
             }
 
-            // now we can resolve the path
-            Path parentDir = (Path) key.watchable();
-            Path absolutePath = parentDir.resolve(relativePath);
-
-            // Skip .brokk or log file paths
-            String pathStr = absolutePath.toString();
-            if (pathStr.contains("${sys:logfile.path}") ||
-                    absolutePath.startsWith(root.resolve(".brokk"))) {
+            // Guard: context might be null (OVERFLOW) or not a Path
+            if (!(event.context() instanceof Path ctx)) {
+                logger.warn("Event is not overflow but has no path: {}", event);
                 continue;
             }
 
-            WatchEvent.Kind<Path> kind = pathEvent.kind();
-            FileChangeEvent.EventType eventType = switch (kind.name()) {
-                case "ENTRY_CREATE" -> FileChangeEvent.EventType.CREATE;
-                case "ENTRY_DELETE" -> FileChangeEvent.EventType.DELETE;
-                case "ENTRY_MODIFY" -> FileChangeEvent.EventType.MODIFY;
-                default -> FileChangeEvent.EventType.OVERFLOW;
-            };
-
-            logger.trace("Directory event: {} on {}", eventType, absolutePath);
-            batch.add(new FileChangeEvent(eventType, absolutePath));
+            // convert to ProjectFile
+            Path eventPath = watchPath.resolve(ctx);
+            batch.files.add(new ProjectFile(root, root.relativize(eventPath)));
 
             // If it's a directory creation, register it so we can watch its children
-            if (eventType == FileChangeEvent.EventType.CREATE && Files.isDirectory(absolutePath)) {
+            if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
                 try {
-                    registerAllDirectories(absolutePath, watchService);
+                    registerAllDirectories(eventPath, watchService);
                 } catch (IOException ex) {
-                    logger.warn("Failed to register new directory for watching: {}", absolutePath, ex);
+                    logger.warn("Failed to register new directory for watching: {}", eventPath, ex);
                 }
             }
         }
 
         // If the key is no longer valid, we can't watch this path anymore
         if (!key.reset()) {
-            logger.debug("Watch key no longer valid: {}", key.watchable());
+            logger.warn("Watch key no longer valid: {}", key.watchable());
         }
     }
 
@@ -642,7 +612,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
-            future.get().updateFiles(changedFiles);
+            future.get().update(changedFiles);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }
