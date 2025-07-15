@@ -1,9 +1,13 @@
 package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.*
-import io.joern.joerncli.CpgBasedTool
-import io.shiftleft.codepropertygraph.generated.Cpg
+import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
+import io.github.jbellis.brokk.analyzer.implicits.CpgExt.*
+import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
+import io.joern.joerncli.CpgBasedTool
+import io.joern.x2cpg.X2CpgConfig
+import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.{Method, NamespaceBlock, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
@@ -11,6 +15,7 @@ import org.slf4j.LoggerFactory
 
 import java.io.Closeable
 import java.nio.file.Path
+import java.util
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
 import java.util.regex.Pattern
@@ -20,14 +25,14 @@ import scala.collection.parallel.CollectionConverters.IterableIsParallelizable
 import scala.concurrent.ExecutionContext
 import scala.io.Source
 import scala.jdk.OptionConverters.RichOptional
-import scala.util.{Try, Using}
 import scala.util.matching.Regex
+import scala.util.{Failure, Success, Try, Using}
 
 /** An abstract base for language-specific analyzers. It implements the bulk of "IAnalyzer" using Joern's CPG, but
   * delegates language-specific operations (like building a CPG or constructing method signatures) to concrete
   * subclasses.
   */
-abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg: Cpg)
+abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, private[brokk] var cpg: Cpg)
     extends IAnalyzer
     with Closeable {
 
@@ -40,6 +45,9 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
     require(path.toFile.isDirectory, s"Source path must be a directory: $path")
     path
   }
+
+  // The default configuration for this analyzer
+  protected def defaultConfig: R
 
   // implicits at the top, you will regret it otherwise
   protected implicit val ec: ExecutionContext        = ExecutionContext.global
@@ -73,6 +81,33 @@ abstract class JoernAnalyzer protected (sourcePath: Path, private[brokk] val cpg
   def this(sourcePath: Path, maybeUnused: Language) = this(sourcePath)
 
   override def isCpg: Boolean = true
+
+  /** Given a language frontend-specific configuration and CPG builder, runs an incremental build of the CPG associated
+    * with this analyzer and refreshes it.
+    * @param config
+    *   the configuration. The input and output paths are inferred from the CPG.
+    * @param changedFiles
+    *   the files changed, to be incrementally updated.
+    * @param builder
+    *   the CPG builder.
+    * @tparam R
+    *   the configuration type.
+    */
+  protected def updateFilesInternal[R <: X2CpgConfig[R]](config: R, changedFiles: util.Set[ProjectFile])(using
+    builder: CpgBuilder[R]
+  ): Unit = {
+    Try(cpg.close()).failed.foreach(e => logger.error("Error encountered while closing CPG before update.", e))
+    Try(
+      config
+        .withInputPath(cpg.projectRoot.toString)
+        .withOutputPath(cpg.graph.storagePathMaybe.getOrElse("cpg.bin").toString)
+        .buildAndThrow(Option(changedFiles))
+        .open
+    ) match {
+      case Success(newCpg)    => cpg = newCpg
+      case Failure(exception) => logger.error("Error encountered while updating CPG.", exception)
+    }
+  }
 
   /** Return the method signature as a language-appropriate String, e.g. for Java: "public int foo(String bar)"
     */
