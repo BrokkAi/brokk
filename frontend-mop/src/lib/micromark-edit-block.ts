@@ -85,10 +85,20 @@ const tokenize: Tokenizer = function (effects, ok, nok) {
                 safeConsume(code);
                 return checkSearchKeyword(index + 1);
             }
-            safeConsume(code);
+            if (code === codes.space) {
+                safeConsume(code);
+                safeExit('editBlockSearchKeyword');
+                safeEnter('editBlockFilename');
+                return inFilename;
+            }
+            if (markdownLineEnding(code) || code === codes.eof) {
+                safeExit('editBlockSearchKeyword');
+                safeEnter('editBlockSearchContent');
+                return content(inSearch, afterDividerCheck)(code);
+            }
             safeExit('editBlockSearchKeyword');
-            safeEnter('editBlockFilename');
-            return inFilename;
+            safeExit('editBlock');
+            return nok(code);
         };
     }
 
@@ -340,6 +350,10 @@ export function editBlockFromMarkdown() {
 
             editBlock(tok) {
                 console.log('exit editBlock');
+                const node = this.data.currentEditBlock;
+                if (!node.data.filename || /^\s*$/.test(node.data.filename)) {
+                    node.data.filename = '?';
+                }
                 delete this.data['currentEditBlock']; // clear helper
                 this.exit(tok); // close the node
             }
