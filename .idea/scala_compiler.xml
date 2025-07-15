@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ScalaCompilerConfiguration">
+    <profile name="bsp 1" modules="brokk">
+      <option name="reflectiveCalls" value="true" />
+      <option name="featureWarnings" value="true" />
+      <parameters>
+        <parameter value="-Xfatal-warnings" />
+        <parameter value="-print-lines" />
+        <parameter value="-encoding" />
+        <parameter value="UTF-8" />
+      </parameters>
+    </profile>
+    <profile name="bsp 2" modules="brokk-build">
+      <option name="deprecationWarnings" value="true" />
+      <parameters>
+        <parameter value="-Wconf:cat=unused-nowarn:s" />
+        <parameter value="-Wconf:cat=unused-nowarn:s" />
+        <parameter value="-Xsource:3" />
+      </parameters>
+    </profile>
+  </component>
+</project>

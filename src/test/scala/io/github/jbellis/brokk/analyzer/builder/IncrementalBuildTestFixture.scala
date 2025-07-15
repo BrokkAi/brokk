@@ -11,7 +11,6 @@ import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
 
 import java.nio.file.Files
 import scala.util.{Failure, Success, Using}
-import Ordering.Implicits.given
 
 trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   this: CpgTestFixture[R] =>

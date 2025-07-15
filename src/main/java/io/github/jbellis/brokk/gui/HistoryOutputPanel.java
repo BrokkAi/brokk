@@ -19,7 +19,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import io.github.jbellis.brokk.gui.components.SplitButton;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.plaf.LayerUI;
@@ -59,7 +58,7 @@ public class HistoryOutputPanel extends JPanel {
     private final JButton undoButton;
     private final JButton redoButton;
     private final JComboBox<SessionInfo> sessionComboBox;
-    private final SplitButton newSessionButton;
+    private final JButton newSessionButton;
     private final JButton manageSessionsButton;
     private ResetArrowLayerUI arrowLayerUI;
 
@@ -109,7 +108,7 @@ public class HistoryOutputPanel extends JPanel {
         this.undoButton = new JButton("Undo");
         this.redoButton = new JButton("Redo");
         this.sessionComboBox = new JComboBox<>();
-        this.newSessionButton = new SplitButton("New");
+        this.newSessionButton = new JButton("New");
         this.manageSessionsButton = new JButton("Manage");
 
         var sessionControlsPanel = buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
@@ -166,7 +165,7 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Builds the session controls panel with combo box and buttons
      */
-    private JPanel buildSessionControlsPanel(JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton, JButton manageSessionsButton) {
+    private JPanel buildSessionControlsPanel(JComboBox<SessionInfo> sessionComboBox, JButton newSessionButton, JButton manageSessionsButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -203,23 +202,10 @@ public class HistoryOutputPanel extends JPanel {
 
         // Tooltip and action listener for the new session button
         newSessionButton.setToolTipText("Create a new session");
-        // Primary click → empty session
         newSessionButton.addActionListener(e -> {
             contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
-                    SwingUtilities.invokeLater(this::updateSessionComboBox)
+                SwingUtilities.invokeLater(this::updateSessionComboBox)
             );
-        });
-        // Split-arrow menu → session with copied workspace
-        newSessionButton.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
-            var copyWorkspaceItem = new JMenuItem("New + Copy Workspace");
-            copyWorkspaceItem.addActionListener(ev -> {
-                contextManager.createSessionFromContextAsync(
-                        contextManager.topContext(), ContextManager.DEFAULT_SESSION_NAME
-                ).thenRun(() -> SwingUtilities.invokeLater(this::updateSessionComboBox));
-            });
-            popup.add(copyWorkspaceItem);
-            return popup;
         });
 
         // Tooltip and action listener for the manage sessions button

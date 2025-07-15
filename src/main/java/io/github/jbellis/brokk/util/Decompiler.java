@@ -30,16 +30,6 @@ public class Decompiler {
      * @param runner TaskRunner to run the decompilation task on
      */
     public static void decompileJar(Chrome io, Path jarPath, ContextManager.TaskRunner runner) {
-        decompileJar(io, jarPath, runner, null);
-    }
-
-    /**
-     * Overload that accepts an optional EDT callback once decompilation finishes.
-     */
-    public static void decompileJar(Chrome io,
-                                    Path jarPath,
-                                    ContextManager.TaskRunner runner,
-                                    @Nullable Runnable onComplete) {
         try {
             String jarName = jarPath.getFileName().toString();
             // Use the *original* project's root to determine the .brokk directory
@@ -147,9 +137,7 @@ public class Decompiler {
                     logger.info("Decompilation process finished.");
 
                     // Notify user of success
-                    if (onComplete != null) {
-                        SwingUtilities.invokeLater(onComplete);
-                    }
+                    io.systemOutput("Decompilation completed. Reopen project to incorporate the new source files.");
                     // Log final directory structure for troubleshooting
                     logger.debug("Final contents of {} after decompilation:", outputDir);
                     try (var pathStream = Files.walk(outputDir, 1)) { // Walk only one level deep for brevity

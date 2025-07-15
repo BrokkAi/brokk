@@ -5,11 +5,9 @@ import io.github.jbellis.brokk.BuildInfo;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
-import io.github.jbellis.brokk.gui.dialogs.ManageDependenciesDialog;
-import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
+import io.github.jbellis.brokk.gui.dialogs.ImportDependencyDialog;
 import io.github.jbellis.brokk.gui.dialogs.PreviewImagePanel;
 import io.github.jbellis.brokk.gui.dialogs.SettingsDialog;
-import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.FeedbackDialog;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeDialog;
 
@@ -36,7 +34,18 @@ public class MenuBar {
         var fileMenu = new JMenu("File");
 
         var openProjectItem = new JMenuItem("Open Project...");
-        openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
+        openProjectItem.addActionListener(e -> {
+            // Use a directory chooser
+            var chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            chooser.setDialogTitle("Select a project directory");
+            int result = chooser.showOpenDialog(chrome.frame);
+            if (result == JFileChooser.APPROVE_OPTION) {
+                var dir = chooser.getSelectedFile().toPath();
+                // Opening from menu is a user action, not internal, and has no explicit parent.
+                new Brokk.OpenProjectBuilder(dir).open();
+            }
+        });
         fileMenu.add(openProjectItem);
 
         JMenuItem reopenProjectItem;
@@ -74,6 +83,16 @@ public class MenuBar {
         });
         fileMenu.add(settingsItem);
 
+        fileMenu.addSeparator();
+
+        var openDependencyItem = new JMenuItem("Import Dependency...");
+        openDependencyItem.setEnabled(true);
+        openDependencyItem.addActionListener(e -> {
+            // Ensure this action is run on the EDT as it might interact with Swing components immediately
+            SwingUtilities.invokeLater(() -> ImportDependencyDialog.show(chrome));
+        });
+        fileMenu.add(openDependencyItem);
+
         menuBar.add(fileMenu);
 
         // Edit menu
@@ -105,7 +124,7 @@ public class MenuBar {
 
         copyMenuItem = new JMenuItem(chrome.getGlobalCopyAction());
         pasteMenuItem = new JMenuItem(chrome.getGlobalPasteAction());
-
+        
         copyMenuItem.setText("Copy");
         copyMenuItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_C, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         editMenu.add(copyMenuItem);
@@ -146,7 +165,7 @@ public class MenuBar {
         });
         readFilesItem.setEnabled(true);
         contextMenu.add(readFilesItem);
-
+    
     var viewFileItem = new JMenuItem("View File");
     // On Mac, use Cmd+O; on Windows/Linux, use Ctrl+N
     viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
@@ -242,10 +261,6 @@ public class MenuBar {
         // Tools menu
         var toolsMenu = new JMenu("Tools");
         toolsMenu.setEnabled(true);
-
-        var manageDependenciesItem = new JMenuItem("Manage Dependencies...");
-        manageDependenciesItem.addActionListener(e -> SwingUtilities.invokeLater(() -> ManageDependenciesDialog.show(chrome)));
-        toolsMenu.add(manageDependenciesItem);
 
         var upgradeAgentItem = new JMenuItem("BlitzForge...");
         upgradeAgentItem.addActionListener(e -> {
@@ -360,8 +375,23 @@ public class MenuBar {
         helpMenu.add(joinDiscordItem);
 
         var aboutItem = new JMenuItem("About");
-        aboutItem.addActionListener(e -> AboutDialog.showAboutDialog(chrome.getFrame()));
+        aboutItem.addActionListener(e -> {
+            ImageIcon icon = null;
+            var iconUrl = Brokk.class.getResource(Brokk.ICON_RESOURCE);
+            if (iconUrl != null) {
+                var originalIcon = new ImageIcon(iconUrl);
+                var image = originalIcon.getImage();
+                var scaledImage = image.getScaledInstance(128, 128, Image.SCALE_SMOOTH);
+                icon = new ImageIcon(scaledImage);
+            }
+            JOptionPane.showMessageDialog(chrome.getFrame(),
+                                          "Brokk Version %s\n\nCopyright (c) 2025 Brokk, Inc.".formatted(BuildInfo.version()),
+                                          "About Brokk",
+                                          JOptionPane.INFORMATION_MESSAGE,
+                                          icon);
+        });
         helpMenu.add(aboutItem);
+
         menuBar.add(helpMenu);
 
         return menuBar;

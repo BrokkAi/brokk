@@ -367,22 +367,21 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 var contents = clipboard.getContents(null);
                 boolean imageHandled = false;
 
-                if (contents == null) {
-                    return;
-                }
-
-                for (var flavor : contents.getTransferDataFlavors()) {
-                    try {
-                        if (flavor.equals(DataFlavor.imageFlavor)
-                            || flavor.getMimeType().startsWith("image/"))
-                        {
-                            // Re-use existing WorkspacePanel logic
-                            chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
-                            imageHandled = true;
-                            break;
+                if (contents != null) {
+                    for (var flavor : contents.getTransferDataFlavors()) {
+                        try {
+                            if (flavor.equals(DataFlavor.imageFlavor)
+                                || flavor.isFlavorJavaFileListType()
+                                || flavor.getMimeType().startsWith("image/")) {
+                                // Re-use existing WorkspacePanel logic
+                                chrome.getContextPanel()
+                                        .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                                imageHandled = true;
+                                break;
+                            }
+                        } catch (Exception ex) {
+                            // Ignore and fall back to default paste handling
                         }
-                    } catch (Exception ex) {
-                        // Ignore and fall back to default paste handling
                     }
                 }
 

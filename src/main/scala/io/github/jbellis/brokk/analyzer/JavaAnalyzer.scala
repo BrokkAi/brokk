@@ -29,8 +29,6 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
 
   override def isCpg: Boolean = true
 
-  override val fullNameSeparators: Seq[String] = Seq(".", "$")
-
   /** Java-specific method signature builder.
     */
   override protected def methodSignature(m: Method): String = {
@@ -355,6 +353,7 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     Try(CodeUnit.field(file, pkg, s"$className.$fieldName")).toOption
   }
   // -----------------------------------------------------
+
 }
 
 object JavaAnalyzer {
@@ -379,7 +378,6 @@ object JavaAnalyzer {
       .withEnableTypeRecovery(true)
       .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
       .buildAndThrow
       .open
   }

@@ -43,13 +43,9 @@ public class ImportDependencyDialog {
 
     private enum SourceType { JAR, DIRECTORY, GIT }
 
-    public static void show(Chrome chrome, @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener) {
-        assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
-        new DialogHelper(chrome, listener).buildAndShow();
-    }
-
     public static void show(Chrome chrome) {
-        show(chrome, null);
+        assert SwingUtilities.isEventDispatchThread() : "Dialogs should be created on the EDT";
+        new DialogHelper(chrome).buildAndShow();
     }
 
     private static class DialogHelper {
@@ -65,10 +61,8 @@ public class ImportDependencyDialog {
 
         private SourceType currentSourceType = SourceType.JAR;
         private final Path dependenciesRoot;
-        @Nullable
-        private final ManageDependenciesDialog.DependencyLifecycleListener listener;
 
-         // --- File/Dir specific fields
+        // --- File/Dir specific fields
         @Nullable private FileSelectionPanel currentFileSelectionPanel;
         @Nullable private BrokkFile selectedBrokkFileForImport;
 
@@ -79,19 +73,10 @@ public class ImportDependencyDialog {
         @Nullable private JButton validateGitRepoButton;
         @Nullable private GitRepo.RemoteInfo remoteInfo;
 
-        @Nullable private final ManageDependenciesDialog.DependencyLifecycleListener listener;
 
-        DialogHelper(Chrome chrome,
-                     @Nullable ManageDependenciesDialog.DependencyLifecycleListener listener)
-        {
+        DialogHelper(Chrome chrome) {
             this.chrome = chrome;
-            this.listener = listener;
-            this.dependenciesRoot = chrome.getProject()
-                                          .getRoot()
-                                          .resolve(".brokk")
-                                          .resolve("dependencies");
-        }
-
+            this.dependenciesRoot = chrome.getProject().getRoot().resolve(".brokk").resolve("dependencies");
         }
 
         void buildAndShow() {
@@ -586,24 +571,9 @@ public class ImportDependencyDialog {
             }
 
             Path sourcePath = selectedBrokkFileForImport.absPath();
-            importButton.setEnabled(false);
-
-            var depName = sourcePath.getFileName().toString();
-            if (listener != null) {
-                SwingUtilities.invokeLater(() -> listener.dependencyImportStarted(depName));
-            }
-            dialog.dispose();
-
             if (currentSourceType == SourceType.JAR) {
-                Decompiler.decompileJar(
-                        chrome,
-                        sourcePath,
-                        chrome.getContextManager()::submitBackgroundTask,
-                        () -> SwingUtilities.invokeLater(() -> {
-                            if (listener != null) listener.dependencyImportFinished(depName);
-                        }));
-                return;   // do not fall through to directory logic
-            }
+                Decompiler.decompileJar(chrome, sourcePath, chrome.getContextManager()::submitBackgroundTask);
+                dialog.dispose();
             } else { // DIRECTORY
                 var project = chrome.getProject();
                 if (project.getAnalyzerLanguages().stream().anyMatch(lang -> lang.isAnalyzed(project, sourcePath))) {
@@ -624,51 +594,12 @@ public class ImportDependencyDialog {
                         return;
                     }
                 }
-          
-                chrome.getContextManager().submitBackgroundTask(
-                        "Copying directory: " + depName,
-                        () -> {
-                            try {
-                                Files.createDirectories(dependenciesRoot);
-                                if (Files.exists(targetPath)) {
-                                    Decompiler.deleteDirectoryRecursive(targetPath);
-                                }
-                                List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
-                                                                        .flatMap(lang -> lang.getExtensions().stream())
-                                                                        .distinct()
-                                                                        .toList();
-                                ImportDependencyDialog.copyDirectoryRecursively(sourcePath,
-                                                                                targetPath,
-                                                                                allowedExtensions);
 
-                                SwingUtilities.invokeLater(() -> {
-                                    var langs = project.getAnalyzerLanguages();
-                                    var langNames = langs.isEmpty()
-                                                     ? "configured"
-                                                     : langs.stream()
-                                                            .map(Language::name)
-                                                            .sorted()
-                                                            .collect(Collectors.joining(", "));
-                                    chrome.systemOutput("Directory copied successfully to "
-                                                        + targetPath
-                                                        + " (filtered by project language(s): "
-                                                        + langNames
-                                                        + "). Reopen project to incorporate the new files.");
-                                    if (listener != null) listener.dependencyImportFinished(depName);
-                                });
-                            } catch (IOException ex) {
-                                logger.error("Error copying directory {} to {}", sourcePath, targetPath, ex);
-                                SwingUtilities.invokeLater(() -> {
-                                    JOptionPane.showMessageDialog(dialog,
-                                                                  "Error copying directory: " + ex.getMessage(),
-                                                                  "Error",
-                                                                  JOptionPane.ERROR_MESSAGE);
-                                    importButton.setEnabled(true);
-                                });
-                            }
-                            return null;
-                        });
-
+                chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
+                    try {
+                        Files.createDirectories(dependenciesRoot);
+                        if (Files.exists(targetPath)) {
+                            deleteRecursively(targetPath);
                         }
                         List<String> allowedExtensions = project.getAnalyzerLanguages().stream()
                             .flatMap(lang -> lang.getExtensions().stream()).distinct().toList();
@@ -719,4 +650,16 @@ public class ImportDependencyDialog {
         });
     }
 
-
+    private static void deleteRecursively(Path path) throws IOException {
+        if (!Files.exists(path)) return;
+        try (Stream<Path> walk = Files.walk(path)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.delete(p);
+                } catch (IOException e) {
+                    logger.warn("Failed to delete path during recursive cleanup: {}", p, e);
+                }
+            });
+        }
+    }
+}
