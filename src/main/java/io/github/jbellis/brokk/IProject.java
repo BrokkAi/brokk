@@ -38,6 +38,8 @@ public interface IProject extends AutoCloseable {
         return Set.of();
     }
 
+    default void invalidateAllFiles() {}
+
     /**
      * Gets the structured build details inferred by the BuildAgent.
      * @return BuildDetails record, potentially BuildDetails.EMPTY if not found or on error.

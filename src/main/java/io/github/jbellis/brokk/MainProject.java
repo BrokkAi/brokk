@@ -48,6 +48,7 @@ public final class MainProject extends AbstractProject {
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
+    private static final String LIVE_DEPENDENCIES_KEY = "liveDependencies";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -193,14 +194,30 @@ public final class MainProject extends AbstractProject {
         boolean needsProjectSave = removedKey1 || removedKey2;
 
 
-        if (migratedArchitectSettings) { // Data was written to workspaceProps
+        // Migrate Live Dependencies from projectProps to workspaceProps
+        boolean migratedLiveDeps = false;
+        if (projectProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
+            if (!mainWorkspaceProps.containsKey(LIVE_DEPENDENCIES_KEY)) {
+                 mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, projectProps.getProperty(LIVE_DEPENDENCIES_KEY));
+                 migratedLiveDeps = true;
+            }
+            projectProps.remove(LIVE_DEPENDENCIES_KEY);
+            needsProjectSave = true;
+        }
+
+        if (migratedArchitectSettings || migratedLiveDeps) { // Data was written to workspaceProps
             persistWorkspacePropertiesFile();
-            logger.info("Migrated Architect options from project.properties to workspace.properties for {}", root.getFileName());
+            if (migratedArchitectSettings) {
+                logger.info("Migrated Architect options from project.properties to workspace.properties for {}", root.getFileName());
+            }
+            if (migratedLiveDeps) {
+                logger.info("Migrated Live Dependencies from project.properties to workspace.properties for {}", root.getFileName());
+            }
         }
         if (needsProjectSave) { // Keys were removed from projectProps
             saveProjectProperties();
             if (!migratedArchitectSettings) { // Log if keys were only removed but not "migrated" (i.e. already in workspace)
-                 logger.info("Removed Architect options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
+                 logger.info("Removed Architect/Dependency options from project.properties (already in or now moved to workspace.properties) for {}", root.getFileName());
             }
         }
         
@@ -818,6 +835,39 @@ public final class MainProject extends AbstractProject {
             logger.error("Failed to serialize ArchitectOptions to JSON for workspace: {}. Settings not saved.", options, e);
             // Not re-throwing as this is a preference, not critical state.
         }
+    }
+
+    @Override
+    public Set<ProjectFile> getLiveDependencies() {
+        var allDeps = getAllOnDiskDependencies();
+        var liveDepsNames = mainWorkspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
+        if (liveDepsNames == null || liveDepsNames.isBlank()) {
+            return allDeps;
+        }
+
+        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
+                                 .map(String::trim)
+                                 .filter(s -> !s.isEmpty())
+                                 .collect(Collectors.toSet());
+
+        return allDeps.stream().filter(dep -> {
+            // .brokk/dependencies/dep-name/file.java -> path has 3+ parts
+            if (dep.getRelPath().getNameCount() < 3) {
+                return false;
+            }
+            // relPath is relative to masterRootPathForConfig, so .brokk is first component
+            var depName = dep.getRelPath().getName(2).toString();
+            return liveNamesSet.contains(depName);
+        }).collect(Collectors.toSet());
+    }
+
+    @Override
+    public void saveLiveDependencies(Set<Path> dependencyTopLevelDirs) {
+        var names = dependencyTopLevelDirs.stream()
+                                          .map(p -> p.getFileName().toString())
+                                          .collect(Collectors.joining(","));
+        mainWorkspaceProps.setProperty(LIVE_DEPENDENCIES_KEY, names);
+        persistWorkspacePropertiesFile();
     }
 
     public Optional<GitRepo.MergeMode> getLastMergeMode() {

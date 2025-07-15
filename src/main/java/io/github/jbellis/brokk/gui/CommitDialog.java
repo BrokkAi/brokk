@@ -6,6 +6,7 @@ import io.github.jbellis.brokk.git.GitWorkflowService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import io.github.jbellis.brokk.gui.util.KeyboardShortcutUtil;
 
 import javax.swing.*;
 import java.awt.*;
@@ -72,6 +73,8 @@ public class CommitDialog extends JDialog {
         contentPanel.add(buttonPanel, BorderLayout.SOUTH);
 
         add(contentPanel, BorderLayout.CENTER);
+
+        KeyboardShortcutUtil.registerDialogEscapeKey(getRootPane(), this::dispose);
 
         pack();
         setLocationRelativeTo(owner);
