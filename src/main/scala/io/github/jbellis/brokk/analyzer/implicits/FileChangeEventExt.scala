@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk.analyzer.implicits
 
 import io.github.jbellis.brokk.FileChangeEvent
-import io.github.jbellis.brokk.EventType
+import io.github.jbellis.brokk.FileChangeEvent.EventType
 import io.github.jbellis.brokk.analyzer.builder.{AddedFile, FileChange, ModifiedFile, RemovedFile}
 import scala.jdk.CollectionConverters.*
 

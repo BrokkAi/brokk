@@ -206,6 +206,13 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public void updateFiles(Set<ProjectFile> changedFiles) {
+        for (var an: delegates.values()) {
+            an.updateFiles(changedFiles);
+        }
+    }
+
+    @Override
     public FunctionLocation getFunctionLocation(String fqMethodName, List<String> paramNames) {
         // TODO -- unused right now
         throw new UnsupportedOperationException();

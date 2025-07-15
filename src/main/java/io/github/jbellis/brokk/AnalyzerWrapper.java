@@ -10,6 +10,9 @@ import javax.swing.*;
 import java.awt.KeyboardFocusManager;
 import java.io.IOException;
 import java.nio.file.*;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -154,9 +157,9 @@ public class AnalyzerWrapper implements AutoCloseable {
             Path actualGitMetaDir = this.gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
             needsGitRefresh = batch.stream().anyMatch(event ->
                     event.path().startsWith(actualGitMetaDir)
-                            && (event.type() == EventType.CREATE
-                            || event.type() == EventType.DELETE
-                            || event.type() == EventType.MODIFY)
+                            && (event.type() == FileChangeEvent.EventType.CREATE
+                            || event.type() == FileChangeEvent.EventType.DELETE
+                            || event.type() == FileChangeEvent.EventType.MODIFY)
             );
         }
 
@@ -590,18 +593,18 @@ public class AnalyzerWrapper implements AutoCloseable {
             }
 
             WatchEvent.Kind<Path> kind = pathEvent.kind();
-            EventType eventType = switch (kind.name()) {
-                case "ENTRY_CREATE" -> EventType.CREATE;
-                case "ENTRY_DELETE" -> EventType.DELETE;
-                case "ENTRY_MODIFY" -> EventType.MODIFY;
-                default -> EventType.OVERFLOW;
+            FileChangeEvent.EventType eventType = switch (kind.name()) {
+                case "ENTRY_CREATE" -> FileChangeEvent.EventType.CREATE;
+                case "ENTRY_DELETE" -> FileChangeEvent.EventType.DELETE;
+                case "ENTRY_MODIFY" -> FileChangeEvent.EventType.MODIFY;
+                default -> FileChangeEvent.EventType.OVERFLOW;
             };
 
             logger.trace("Directory event: {} on {}", eventType, absolutePath);
             batch.add(new FileChangeEvent(eventType, absolutePath));
 
             // If it's a directory creation, register it so we can watch its children
-            if (eventType == EventType.CREATE && Files.isDirectory(absolutePath)) {
+            if (eventType == FileChangeEvent.EventType.CREATE && Files.isDirectory(absolutePath)) {
                 try {
                     registerAllDirectories(absolutePath, watchService);
                 } catch (IOException ex) {
@@ -657,6 +660,14 @@ public class AnalyzerWrapper implements AutoCloseable {
         logger.debug("Failed to (completely) register directory `{}` for watching", start);
     }
 
+    public void updateFiles(Set<ProjectFile> changedFiles) {
+        try {
+            future.get().updateFiles(changedFiles);
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /**
      * Pause the file watching service.
      */
@@ -678,10 +689,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         running = false;
         resume(); // Ensure any waiting thread is woken up to exit
     }
-
-    public record CodeWithSource(String code, Set<CodeUnit> sources) {
-    }
-
+    
     private record CachedAnalyzerResult(@Nullable IAnalyzer analyzer, boolean needsRebuild) {
     }
 }
