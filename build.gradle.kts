@@ -251,15 +251,29 @@ tasks.withType<Test> {
         showStandardStreams = false
     }
 
-    // Collect failed tests for end summary
+    // Collect failed tests and their output for end summary
     val failedTests = mutableListOf<String>()
+    val testOutputs = mutableMapOf<String, String>()
+
+    // Capture test output for failed tests
+    addTestOutputListener(object : TestOutputListener {
+        override fun onOutput(testDescriptor: TestDescriptor, outputEvent: TestOutputEvent) {
+            val testKey = "${testDescriptor.className}.${testDescriptor.name}"
+            if (outputEvent.destination == TestOutputEvent.Destination.StdOut || 
+                outputEvent.destination == TestOutputEvent.Destination.StdErr) {
+                testOutputs.merge(testKey, outputEvent.message) { existing, new -> existing + new }
+            }
+        }
+    })
 
     // Capture individual test failures for later reporting
     afterTest(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
         if (result.resultType == TestResult.ResultType.FAILURE) {
+            val testKey = "${desc.className}.${desc.name}"
             val errorMessage = result.exception?.message ?: "Unknown error"
             val stackTrace = result.exception?.stackTrace?.joinToString("\n") { "      at $it" } ?: ""
-            failedTests.add("❌ ${desc.className}.${desc.name}\n   Error: $errorMessage\n$stackTrace")
+            val output = testOutputs[testKey]?.let { "\n   Output:\n$it" } ?: ""
+            failedTests.add("❌ $testKey\n   Error: $errorMessage\n$stackTrace$output")
         }
     }))
 
