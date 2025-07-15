@@ -7,6 +7,7 @@ import org.eclipse.jgit.lib.RepositoryCache;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
@@ -16,12 +17,38 @@ import java.util.Set;
  */
 public class GitTestCleanupUtil {
 
+    private static final Set<Runnable> shutdownCleanupTasks = Collections.synchronizedSet(new HashSet<>());
+    private static volatile boolean shutdownHookRegistered = false;
+
     static {
         if (Environment.isWindows()) {
             // Disable JGit's memory mapping and enable unlock-after-read on Windows
             // to prevent file-locking issues that cause temp-dir deletion to fail in tests.
             System.setProperty("jgit.usemmap", "false");
             System.setProperty("jgit.fs.unlockAfterRead", "true");
+
+            // Register shutdown hook for emergency cleanup
+            registerShutdownHook();
+        }
+    }
+
+    private static void registerShutdownHook() {
+        if (!shutdownHookRegistered) {
+            synchronized (GitTestCleanupUtil.class) {
+                if (!shutdownHookRegistered) {
+                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        for (Runnable task : shutdownCleanupTasks) {
+                            try {
+                                task.run();
+                            } catch (Exception e) {
+                                // Ignore errors during shutdown
+                            }
+                        }
+                        shutdownCleanupTasks.clear();
+                    }, "Git-Cleanup-Hook"));
+                    shutdownHookRegistered = true;
+                }
+            }
         }
     }
 
@@ -32,6 +59,29 @@ public class GitTestCleanupUtil {
      * @param gitInstances Git instances to close (may contain nulls)
      */
     public static void cleanupGitResources(GitRepo gitRepo, Git... gitInstances) {
+        // On Windows, be extra aggressive about cleanup order
+        if (Environment.isWindows()) {
+            // First, close all repositories before closing Git instances
+            for (Git git : gitInstances) {
+                if (git != null) {
+                    closeWithErrorHandling("Repository", () -> {
+                        var repo = git.getRepository();
+                        if (repo != null) {
+                            repo.close();
+                        }
+                    });
+                }
+            }
+
+            // Force GC after closing repositories
+            System.gc();
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
         // Close GitRepo first, which should close its internal Git and Repository instances
         if (gitRepo != null) {
             closeWithErrorHandling("GitRepo", () -> {
@@ -45,11 +95,6 @@ public class GitTestCleanupUtil {
             if (git != null) {
                 final int index = i;
                 closeWithErrorHandling("Git[" + index + "]", () -> {
-                    // Close repository first to ensure all resources are released
-                    var repo = git.getRepository();
-                    if (repo != null) {
-                        repo.close();
-                    }
                     git.close();
                 });
             }
@@ -69,7 +114,25 @@ public class GitTestCleanupUtil {
 
         // Clear any cached JGit repositories to release mmapped pack files,
         // preventing Windows file-handle leaks that block temp-dir deletion.
-        closeWithErrorHandling("RepositoryCache.clear", RepositoryCache::clear);
+        closeWithErrorHandling("RepositoryCache.clear", () -> {
+            try {
+                RepositoryCache.clear();
+            } catch (Exception e) {
+                // On Windows, if cache clearing fails, try once more after GC
+                if (Environment.isWindows()) {
+                    System.gc();
+                    try {
+                        Thread.sleep(50);
+                        RepositoryCache.clear();
+                    } catch (Exception retryException) {
+                        // Ignore retry failures to prevent test failures
+                        System.err.println("Failed to clear repository cache after retry: " + retryException.getMessage());
+                    }
+                } else {
+                    throw e;
+                }
+            }
+        });
         // Flush WindowCache (if JGit exposes it) so all pack/loose-object
         // file handles are closed.  We use reflection to avoid a hard compile-time
         // dependency on the internal classes.

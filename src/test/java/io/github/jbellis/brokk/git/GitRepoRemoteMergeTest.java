@@ -60,7 +60,18 @@ public class GitRepoRemoteMergeTest {
 
     @AfterEach
     void tearDown() {
-        GitTestCleanupUtil.cleanupGitResources(localRepo, localGit, remoteGit);
+        // Close Git instances before @TempDir cleanup
+        try {
+            GitTestCleanupUtil.cleanupGitResources(localRepo, localGit, remoteGit);
+        } catch (Exception e) {
+            // Log but don't fail the test
+            System.err.println("Warning: Error during Git cleanup: " + e.getMessage());
+        } finally {
+            // Nullify references to help GC and prevent further issues
+            localRepo = null;
+            localGit = null;
+            remoteGit = null;
+        }
     }
 
     @Test
