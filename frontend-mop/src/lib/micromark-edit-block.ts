@@ -104,12 +104,26 @@ const tokenize: Tokenizer = function (effects, ok, nok) {
 
     function afterDividerCheck(code: Code): State {
         safeExit('editBlockSearchContent');
+        // Now consume the divider
+        return effects.attempt({tokenize: tokenizeDivider, partial: true}, 
+            afterDividerConsumed, 
+            nok)(code);
+    }
+
+    function afterDividerConsumed(code: Code): State {
         safeEnter('editBlockReplaceContent');
         return content(inReplace, afterTailCheck)(code);
     }
 
     function afterTailCheck(code: Code): State {
         safeExit('editBlockReplaceContent');
+        // Now consume the tail
+        return effects.attempt({tokenize: tokenizeTail, partial: true},
+            afterTailConsumed,
+            nok)(code);
+    }
+
+    function afterTailConsumed(code: Code): State {
         safeExit('editBlock');
         return ok(code);
     }
@@ -139,15 +153,27 @@ const tokenize: Tokenizer = function (effects, ok, nok) {
                 return next(code);
             }
             if (markdownLineEnding(code)) {
-                // We are already in a content consumer, so we handle the line ending directly.
-                return contentChunk(code);
+                // Consume the line ending as part of content
+                safeEnter('chunk');
+                safeConsume(code);
+                safeExit('chunk');
+                return content(next, transitionCheck);
             }
 
+            // Check for markers at the start of a line
             if (next === inSearch && code === codes.equalsTo) {
-                return effects.attempt({tokenize: tokenizeDivider, partial: true}, transitionCheck, contentChunk)(code);
+                // Try to parse divider without consuming it yet
+                return effects.check({tokenize: tokenizeDivider, partial: true}, 
+                    transitionCheck,  // Success: transition without including divider
+                    contentChunk      // Failure: treat as regular content
+                )(code);
             }
             if (next === inReplace && code === codes.greaterThan) {
-                return effects.attempt({tokenize: tokenizeTail, partial: true}, transitionCheck, contentChunk)(code);
+                // Try to parse tail without consuming it yet
+                return effects.check({tokenize: tokenizeTail, partial: true},
+                    transitionCheck,  // Success: transition without including tail
+                    contentChunk      // Failure: treat as regular content
+                )(code);
             }
 
             return contentChunk(code);
