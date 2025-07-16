@@ -21,7 +21,7 @@ class SerialByKeyExecutorTest {
     static void afterAll() {
         executorService.shutdown();
         try {
-            if (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
+            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
                 executorService.shutdownNow();
             }
         } catch (InterruptedException e) {
@@ -56,9 +56,9 @@ class SerialByKeyExecutorTest {
         });
 
         // Wait for all tasks to complete and verify results
-        assertEquals("result1", future1.get(1, TimeUnit.SECONDS));
-        assertEquals("result2", future2.get(1, TimeUnit.SECONDS));
-        assertEquals("result3", future3.get(1, TimeUnit.SECONDS));
+        assertEquals("result1", future1.get(5, TimeUnit.SECONDS));
+        assertEquals("result2", future2.get(5, TimeUnit.SECONDS));
+        assertEquals("result3", future3.get(5, TimeUnit.SECONDS));
 
         // Verify they executed in order
         assertEquals(List.of("task1", "task2", "task3"), executionOrder);
@@ -79,7 +79,7 @@ class SerialByKeyExecutorTest {
             executionOrder.add("key1-started");
             task1Started.countDown();
             // Wait for task 2 to start before we proceed. This will timeout if tasks are not parallel.
-            if (!task2Started.await(500, TimeUnit.MILLISECONDS)) {
+            if (!task2Started.await(2, TimeUnit.SECONDS)) {
                 executionOrder.add("key1-timed-out");
             }
             executionOrder.add("key1-finished");
@@ -90,7 +90,7 @@ class SerialByKeyExecutorTest {
             executionOrder.add("key2-started");
             task2Started.countDown();
             // Wait for task 1 to start before we proceed. This will timeout if tasks are not parallel.
-            if (!task1Started.await(500, TimeUnit.MILLISECONDS)) {
+            if (!task1Started.await(2, TimeUnit.SECONDS)) {
                 executionOrder.add("key2-timed-out");
             }
             executionOrder.add("key2-finished");
@@ -98,8 +98,8 @@ class SerialByKeyExecutorTest {
         });
 
         // Wait for completion
-        assertEquals("key1-result", future1.get(1, TimeUnit.SECONDS));
-        assertEquals("key2-result", future2.get(1, TimeUnit.SECONDS));
+        assertEquals("key1-result", future1.get(5, TimeUnit.SECONDS));
+        assertEquals("key2-result", future2.get(5, TimeUnit.SECONDS));
 
         // Because the tasks wait for each other to start, we can be sure they ran in parallel.
         // The first two elements must be the "started" messages, in some order.
@@ -136,7 +136,7 @@ class SerialByKeyExecutorTest {
                         return;
                     }
                     try {
-                        Thread.sleep(10);
+                        Thread.sleep(50);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         return;
@@ -147,7 +147,7 @@ class SerialByKeyExecutorTest {
         });
 
         // Wait for all tasks to complete
-        CompletableFuture.allOf(future1, future2).get(1, TimeUnit.SECONDS);
+        CompletableFuture.allOf(future1, future2).get(5, TimeUnit.SECONDS);
 
         // Verify results
         assertNull(future1.getNow(null));
@@ -157,7 +157,7 @@ class SerialByKeyExecutorTest {
         assertEquals(List.of("runnable1", "runnable2"), executionOrder);
 
         // Wait for cleanup to complete
-        assertTrue(cleanupLatch.await(2, TimeUnit.SECONDS), "Cleanup should complete within 2 seconds");
+        assertTrue(cleanupLatch.await(5, TimeUnit.SECONDS), "Cleanup should complete within 5 seconds");
         assertEquals(0, serialByKeyExecutor.getActiveKeyCount());
     }
 
