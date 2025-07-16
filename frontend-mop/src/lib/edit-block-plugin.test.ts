@@ -91,7 +91,7 @@ test('handles incomplete edit block', () => {
   const md = `
 <<<<<<< SEARCH
 some content
-=======
+====
   `;
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);

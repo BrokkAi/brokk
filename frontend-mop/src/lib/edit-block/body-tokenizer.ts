@@ -66,7 +66,6 @@ export function makeEditBlockBodyTokenizer(
         function inSearch(code: Code): State {
             // This function is reached when we are at EOF, and we haven't found a divider.
             fx.exit('editBlockSearchContent');
-            fx.exit('editBlock');
             return ok(code);
         }
 
@@ -131,7 +130,6 @@ export function makeEditBlockBodyTokenizer(
         function inReplace(code: Code): State {
             // Reached at EOF without tail.
             fx.exit('editBlockReplaceContent');
-            fx.exit('editBlock');
             return ok(code);
         }
 
