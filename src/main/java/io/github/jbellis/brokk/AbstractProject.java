@@ -27,6 +27,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
     protected final IGitRepo repo;
     protected final Path workspacePropertiesFile;
     protected final Properties workspaceProps;
+    protected final Set<ProjectFile> dependencyFiles;
     protected final Path masterRootPathForConfig;
 
     public AbstractProject(Path root) {
@@ -44,6 +45,7 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
             this.masterRootPathForConfig = this.root; // Already absolute and normalized by super
         }
         logger.debug("Project root: {}, Master root for config/sessions: {}", this.root, this.masterRootPathForConfig);
+        this.dependencyFiles = loadDependencyFiles();
 
         if (Files.exists(workspacePropertiesFile)) {
             try (var reader = Files.newBufferedReader(workspacePropertiesFile)) {
@@ -164,10 +166,6 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         saveBlitzHistory(history, maxItems);
         return history;
     }
-
-    public abstract Set<ProjectFile> getLiveDependencies();
-
-    public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
 
     @Override
     public final List<String> loadTextHistory() {
@@ -368,14 +366,14 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
-    public Set<ProjectFile> getAllOnDiskDependencies() {
+    private Set<ProjectFile> loadDependencyFiles() {
         var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
             return Set.of();
         }
-        try (var pathStream = Files.list(dependenciesPath)) {
+        try (var pathStream = Files.walk(dependenciesPath)) {
             return pathStream
-                    .filter(Files::isDirectory)
+                    .filter(Files::isRegularFile)
                     .map(path -> {
                         var relPath = masterRootPathForConfig.relativize(path);
                         return new ProjectFile(masterRootPathForConfig, relPath);
@@ -387,44 +385,11 @@ public sealed abstract class AbstractProject implements IProject permits MainPro
         }
     }
 
-    @Nullable
-    private volatile Set<ProjectFile> allFilesCache;
-
-    private Set<ProjectFile> getAllFilesRaw() {
-        var trackedFiles = repo.getTrackedFiles();
-
-        var dependenciesPath = masterRootPathForConfig.resolve(".brokk").resolve("dependencies");
-        if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
-            return trackedFiles;
-        }
-
-        var allFiles = new HashSet<>(trackedFiles);
-        try (var pathStream = Files.walk(dependenciesPath)) {
-            pathStream
-                    .filter(Files::isRegularFile)
-                    .map(path -> {
-                        var relPath = masterRootPathForConfig.relativize(path);
-                        return new ProjectFile(masterRootPathForConfig, relPath);
-                    })
-                    .forEach(allFiles::add);
-        } catch (IOException e) {
-            logger.error("Error loading dependency files from {}: {}", dependenciesPath, e.getMessage());
-            return trackedFiles;
-        }
-
+    @Override
+    public final Set<ProjectFile> getAllFiles() {
+        var trackedFiles = repo.getTrackedFiles(); // repo from AbstractProject
+        var allFiles = new java.util.HashSet<>(trackedFiles);
+        allFiles.addAll(dependencyFiles);
         return allFiles;
-    }
-
-    @Override
-    public final synchronized Set<ProjectFile> getAllFiles() {
-        if (allFilesCache == null) {
-            allFilesCache = getAllFilesRaw();
-        }
-        return allFilesCache;
-    }
-
-    @Override
-    public final synchronized void invalidateAllFiles() {
-        allFilesCache = null;
     }
 }

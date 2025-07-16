@@ -16,14 +16,6 @@ import java.util.Set;
  */
 public class GitTestCleanupUtil {
 
-    static {
-        if (Environment.isWindows()) {
-            // Disable JGit's memory mapping on Windows to prevent file-locking
-            // issues that cause temp-dir deletion to fail in tests.
-            System.setProperty("jgit.usemmap", "false");
-        }
-    }
-
     /**
      * Performs robust cleanup of Git repositories and their resources, with Windows-specific handling.
      *

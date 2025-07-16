@@ -1206,7 +1206,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             throw new UncheckedIOException(e1);
         }
 
-        var version = BuildInfo.version;
+        var version = BuildInfo.version();
 
         return """
                %s
