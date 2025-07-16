@@ -359,7 +359,7 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   }
   // -----------------------------------------------------
 
-  override def updateFiles(changedFiles: util.Set[ProjectFile]): Unit =
+  override def update(changedFiles: util.Set[ProjectFile]): Unit =
     updateFilesInternal(JavaAnalyzer.defaultConfig, changedFiles)
 }
 

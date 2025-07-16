@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -609,7 +610,6 @@ public class TypescriptAnalyzerTest {
 
     @Test
     void testGetClassSource() throws IOException {
-        // Test with Greeter class from Hello.ts
         String greeterSource = normalize.apply(analyzer.getClassSource("Greeter"));
         assertNotNull(greeterSource);
         assertTrue(greeterSource.startsWith("export class Greeter"));
@@ -617,13 +617,68 @@ public class TypescriptAnalyzerTest {
         assertTrue(greeterSource.contains("greet(): string {"));
         assertTrue(greeterSource.endsWith("}"));
 
-        // Test with Point interface from Hello.ts
+        // Test with Point interface - could be from Hello.ts or Advanced.ts
         String pointSource = normalize.apply(analyzer.getClassSource("Point"));
         assertNotNull(pointSource);
-        System.out.println(pointSource);
-        assertTrue(pointSource.startsWith("export interface Point"));
-        assertTrue(pointSource.contains("x: number;"));
-        assertTrue(pointSource.contains("move(dx: number, dy: number): void;"));
+        assertTrue(pointSource.contains("x: number") && pointSource.contains("y: number"),
+                   "Point should have x and y properties");
         assertTrue(pointSource.endsWith("}"));
+
+        // Handle both possible Point interfaces
+        if (pointSource.contains("move(dx: number, dy: number): void")) {
+            // This is the comprehensive Hello.ts Point interface
+            assertTrue(pointSource.startsWith("export interface Point"));
+            assertTrue(pointSource.contains("label?: string"));
+            assertTrue(pointSource.contains("readonly originDistance?: number"));
+        } else {
+            // This is the minimal Advanced.ts Point interface
+            assertTrue(pointSource.startsWith("interface Point"));
+            assertFalse(pointSource.contains("export"));
+        }
     }
+
+
+    @Test
+    void testCodeUnitEqualityFixed() throws IOException {
+        // Test that verifies the CodeUnit equality fix prevents byte range corruption
+        var project = TestProject.createTestProject("testcode-ts", Language.TYPESCRIPT);
+        var analyzer = new TypescriptAnalyzer(project);
+
+        // Find both Point interfaces from different files
+        List<CodeUnit> allPointInterfaces = analyzer.getTopLevelDeclarations().values().stream()
+            .flatMap(List::stream)
+            .filter(cu -> cu.fqName().equals("Point") && cu.isClass())
+            .toList();
+
+        // Should find Point interfaces from both Hello.ts and Advanced.ts
+        assertEquals(2, allPointInterfaces.size(), "Should find Point interfaces in both Hello.ts and Advanced.ts");
+
+        CodeUnit helloPoint = allPointInterfaces.stream()
+            .filter(cu -> cu.source().toString().equals("Hello.ts"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("Should find Point in Hello.ts"));
+
+        CodeUnit advancedPoint = allPointInterfaces.stream()
+            .filter(cu -> cu.source().toString().equals("Advanced.ts"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("Should find Point in Advanced.ts"));
+
+        // The CodeUnits should be from different files
+        assertNotEquals(helloPoint.source().toString(), advancedPoint.source().toString(),
+                       "Point interfaces should be from different files");
+
+        // After the fix: CodeUnits with same FQN but different source files should be distinct
+        assertFalse(helloPoint.equals(advancedPoint), "CodeUnits with same FQN from different files should be distinct");
+        assertNotEquals(helloPoint.hashCode(), advancedPoint.hashCode(), "Distinct CodeUnits should have different hashCodes");
+
+        // With distinct CodeUnits, getClassSource should work correctly without corruption
+        String pointSource = analyzer.getClassSource("Point");
+
+        // The source should be a valid Point interface, not corrupted
+        assertFalse(pointSource.contains("MyParameterDecorator"), "Should not contain decorator function text");
+        assertTrue(pointSource.trim().startsWith("interface Point") || pointSource.trim().startsWith("export interface Point"),
+                "Should start with interface declaration");
+    }
+
+
 }

@@ -819,7 +819,7 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
     IAnalyzer.FunctionLocation(file, startLine, endLine, maybeCode.get)
   }
 
-  override def updateFiles(changedFiles: java.util.Set[ProjectFile]): Unit =
+  override def update(changedFiles: java.util.Set[ProjectFile]): Unit =
     updateFilesInternal(CppAnalyzer.defaultConfig, changedFiles)
 
 }

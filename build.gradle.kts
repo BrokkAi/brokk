@@ -243,10 +243,59 @@ tasks.withType<Test> {
 
     // Test execution settings
     testLogging {
-        events("passed", "skipped", "failed")
+        events("passed", "skipped")  // Only show passed/skipped during execution
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = false
+        showCauses = false
+        showStackTraces = false
         showStandardStreams = false
     }
+
+    // Collect failed tests and their output for end summary
+    val failedTests = mutableListOf<String>()
+    val testOutputs = mutableMapOf<String, String>()
+
+    // Capture test output for failed tests
+    addTestOutputListener(object : TestOutputListener {
+        override fun onOutput(testDescriptor: TestDescriptor, outputEvent: TestOutputEvent) {
+            val testKey = "${testDescriptor.className}.${testDescriptor.name}"
+            if (outputEvent.destination == TestOutputEvent.Destination.StdOut || 
+                outputEvent.destination == TestOutputEvent.Destination.StdErr) {
+                testOutputs.merge(testKey, outputEvent.message) { existing, new -> existing + new }
+            }
+        }
+    })
+
+    // Capture individual test failures for later reporting
+    afterTest(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+        if (result.resultType == TestResult.ResultType.FAILURE) {
+            val testKey = "${desc.className}.${desc.name}"
+            val errorMessage = result.exception?.message ?: "Unknown error"
+            val stackTrace = result.exception?.stackTrace?.joinToString("\n") { "      at $it" } ?: ""
+            val output = testOutputs[testKey]?.let { "\n   Output:\n$it" } ?: ""
+            failedTests.add("❌ $testKey\n   Error: $errorMessage\n$stackTrace$output")
+        }
+    }))
+
+    // Show all failures grouped at the end
+    afterSuite(KotlinClosure2({ desc: TestDescriptor, result: TestResult ->
+        if (desc.parent == null) { // Only execute once for the root suite
+            if (result.failedTestCount > 0) {
+                println("\n" + "=".repeat(80))
+                println("FAILED TESTS SUMMARY")
+                println("=".repeat(80))
+                failedTests.forEach { failure ->
+                    println("\n$failure")
+                }
+                println("\n" + "=".repeat(80))
+                println("Total tests: ${result.testCount}")
+                println("Passed: ${result.successfulTestCount}")
+                println("Failed: ${result.failedTestCount}")
+                println("Skipped: ${result.skippedTestCount}")
+                println("=".repeat(80))
+            }
+        }
+    }))
 
     // Fail fast on first test failure
     failFast = false
