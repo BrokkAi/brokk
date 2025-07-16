@@ -6,7 +6,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
@@ -170,7 +170,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         codeButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
                     var models = chrome.getContextManager().getService();
-                    StreamingChatLanguageModel selectedModel = models.getModel(modelName, reasoningLevel);
+                    StreamingChatModel selectedModel = models.getModel(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runCodeCommand(selectedModel);
                     } else {
@@ -186,7 +186,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         askButton.setMenuSupplier(() -> createModelSelectionMenu(
                 (modelName, reasoningLevel) -> {
                     var models = chrome.getContextManager().getService();
-                    StreamingChatLanguageModel selectedModel = models.getModel(modelName, reasoningLevel);
+                    StreamingChatModel selectedModel = models.getModel(modelName, reasoningLevel);
                     if (selectedModel != null) {
                         runAskCommand(selectedModel);
                     } else {
@@ -1118,7 +1118,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Code" command.
      * This runs inside the Runnable passed to contextManager.submitUserTask.
      */
-    private void executeCodeCommand(StreamingChatLanguageModel model, String input) {
+    private void executeCodeCommand(StreamingChatModel model, String input) {
         var contextManager = chrome.getContextManager();
 
         contextManager.getAnalyzerWrapper().pause();
@@ -1140,7 +1140,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Ask" command.
      * This runs inside the Runnable passed to contextManager.submitAction.
      */
-    private static TaskResult executeAskCommand(IContextManager cm, StreamingChatLanguageModel model, String question) {
+    private static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
         List<ChatMessage> messages;
         try {
             messages = CodePrompts.instance.collectAskMessages(cm, question);
@@ -1214,7 +1214,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * @param goal    The initial user instruction passed to the agent.
      * @param options The configured options for the agent's tools.
      */
-    private void executeArchitectCommand(StreamingChatLanguageModel model, String goal, ArchitectAgent.ArchitectOptions options) {
+    private void executeArchitectCommand(StreamingChatModel model, String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         try {
             var agent = new ArchitectAgent(contextManager, model, contextManager.getToolRegistry(), goal, options);
@@ -1233,7 +1233,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Search" command.
      * This runs inside the Runnable passed to contextManager.submitAction.
      */
-    private void executeSearchCommand(StreamingChatLanguageModel model, String query) {
+    private void executeSearchCommand(StreamingChatModel model, String query) {
         if (query.isBlank()) {
             chrome.toolError("Please provide a search query");
             return;
@@ -1456,12 +1456,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Public entry point for selected Code model from SplitButton
-    public void runCodeCommand(StreamingChatLanguageModel modelToUse) {
+    public void runCodeCommand(StreamingChatModel modelToUse) {
         prepareAndRunCodeCommand(modelToUse);
     }
 
     // Core method to prepare and submit the Code action
-    private void prepareAndRunCodeCommand(StreamingChatLanguageModel modelToUse) {
+    private void prepareAndRunCodeCommand(StreamingChatModel modelToUse) {
         var input = getInstructions();
         if (input.isBlank()) {
             chrome.toolError("Please enter a command or text");
@@ -1489,12 +1489,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     // Public entry point for selected Ask model from SplitButton
-    private void runAskCommand(StreamingChatLanguageModel modelToUse) {
+    private void runAskCommand(StreamingChatModel modelToUse) {
         prepareAndRunAskCommand(modelToUse, getInstructions());
     }
 
     // Core method to prepare and submit the Ask action
-    private void prepareAndRunAskCommand(StreamingChatLanguageModel modelToUse, String input) {
+    private void prepareAndRunAskCommand(StreamingChatModel modelToUse, String input) {
         if (input.isBlank()) {
             chrome.toolError("Please enter a question");
             return;

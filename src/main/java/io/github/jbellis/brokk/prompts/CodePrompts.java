@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.prompts;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.*;
 import io.github.jbellis.brokk.*;
@@ -54,7 +54,7 @@ public abstract class CodePrompts {
             """.stripIndent();
 
     // Now takes a Models instance
-    public static String reminderForModel(Service service, StreamingChatLanguageModel model) {
+    public static String reminderForModel(Service service, StreamingChatModel model) {
         return service.isLazy(model)
                 ? LAZY_REMINDER
                 : OVEREAGER_REMINDER;
@@ -100,7 +100,7 @@ public abstract class CodePrompts {
     }
 
     public final List<ChatMessage> collectCodeMessages(IContextManager cm,
-                                                       StreamingChatLanguageModel model,
+                                                       StreamingChatModel model,
                                                        EditBlockParser parser,
                                                        List<ChatMessage> taskMessages,
                                                        UserMessage request,

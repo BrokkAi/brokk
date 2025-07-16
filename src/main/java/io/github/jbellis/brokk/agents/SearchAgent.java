@@ -8,7 +8,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.*;
@@ -75,7 +75,7 @@ public class SearchAgent {
 
     public SearchAgent(String query,
                       ContextManager contextManager,
-                      StreamingChatLanguageModel model,
+                      StreamingChatModel model,
                       ToolRegistry toolRegistry,
                       int ordinal) throws InterruptedException
     {

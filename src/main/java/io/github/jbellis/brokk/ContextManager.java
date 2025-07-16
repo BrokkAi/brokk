@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
@@ -498,7 +498,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the configured Architect model, falling back to the system model if unavailable.
      */
-    public StreamingChatLanguageModel getArchitectModel() {
+    public StreamingChatModel getArchitectModel() {
         var config = project.getArchitectModelConfig();
         return getModelOrDefault(config, "Architect");
     }
@@ -506,7 +506,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the configured Code model, falling back to the system model if unavailable.
      */
-    public StreamingChatLanguageModel getCodeModel() {
+    public StreamingChatModel getCodeModel() {
         var config = project.getCodeModelConfig();
         return getModelOrDefault(config, "Code");
     }
@@ -514,7 +514,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the configured Ask model, falling back to the system model if unavailable.
      */
-    public StreamingChatLanguageModel getAskModel() {
+    public StreamingChatModel getAskModel() {
         var config = project.getAskModelConfig();
         return getModelOrDefault(config, "Ask");
     }
@@ -522,13 +522,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Returns the configured Search model, falling back to the system model if unavailable.
      */
-    public StreamingChatLanguageModel getSearchModel() {
+    public StreamingChatModel getSearchModel() {
         var config = project.getSearchModelConfig();
         return getModelOrDefault(config, "Search");
     }
 
-    private StreamingChatLanguageModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
-        StreamingChatLanguageModel model = service.getModel(config.name(), config.reasoning());
+    private StreamingChatModel getModelOrDefault(Service.ModelConfig config, String modelTypeName) {
+        StreamingChatModel model = service.getModel(config.name(), config.reasoning());
         if (model != null) {
             return model;
         }

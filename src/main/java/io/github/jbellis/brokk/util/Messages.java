@@ -2,7 +2,7 @@ package io.github.jbellis.brokk.util;
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.openai.OpenAiTokenizer;
+import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -16,9 +16,9 @@ import static java.util.Objects.requireNonNull;
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
 
-    // Simple OpenAI tokenizer for approximate counting
-    // Tokenizer can remain static as it's stateless based on model ID
-    private static final OpenAiTokenizer tokenizer = new OpenAiTokenizer("gpt-4o");
+    // Simple OpenAI token count estimator for approximate counting
+    // It can remain static as it's stateless based on model ID
+    private static final OpenAiTokenCountEstimator tokenCountEstimator = new OpenAiTokenCountEstimator("gpt-4o");
 
     public static void init() {
         // tokenizer is surprisingly heavyweigh to initialize, this is just to give a hook to force that early
@@ -125,13 +125,13 @@ public class Messages {
 
     /**
      * Estimates the token count of a text string.
-     * This can remain static as it only depends on the static tokenizer.
+     * This can remain static as it only depends on the static token count estimator.
      */
     public static int getApproximateTokens(String text) {
         if (text.isEmpty()) {
             return 0;
         }
-        return tokenizer.encode(text).size();
+        return tokenCountEstimator.encode(text).size();
     }
 
     public static int getApproximateTokens(Collection<ChatMessage> messages) {
