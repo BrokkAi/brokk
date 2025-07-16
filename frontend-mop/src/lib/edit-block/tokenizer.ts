@@ -124,8 +124,10 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         if (code === codes.eof) {
             return inSearch(code);
         }
-        if (markdownLineEnding(code)) {
+
+        if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
             // Blank line - emit it as its own empty chunk
+            // eat the indention before analysing the line
             fx.enter('data');
             fx.consume(code);
             fx.exit('data');
@@ -173,8 +175,10 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         if (code === codes.eof) {
             return inReplace(code);
         }
-        if (markdownLineEnding(code)) {
+
+        if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
             // Blank line - emit it as its own empty chunk
+            // eat the indention before analysing the line
             fx.enter('data');
             fx.consume(code);
             fx.exit('data');
@@ -245,14 +249,40 @@ export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
                 fx.exit('editBlockDivider');
                 return nok(code);
             }
+            // Optional whitespace before filename
+            if (code === codes.space || code === codes.tab) {
+                fx.consume(code);
+                return dividerFilenameStart;
+            }
+            // Accept immediate EOL/EOF
             if (markdownLineEnding(code) || code === codes.eof) {
                 fx.exit('editBlockDivider');
                 return ok(code);
             }
-            // Some other content on divider line.
-            fx.exit('editBlockDivider');
-            return nok(code);
+            // Any other character starts the filename
+            fx.enter('editBlockDividerFilename');
+            return dividerFilenameContinue(code);
         };
+    }
+
+    function dividerFilenameStart(code: Code): State {
+        // If only spaces were provided before EOL/EOF
+        if (markdownLineEnding(code) || code === codes.eof) {
+            fx.exit('editBlockDivider');
+            return ok(code);
+        }
+        fx.enter('editBlockDividerFilename');
+        return dividerFilenameContinue(code);
+    }
+
+    function dividerFilenameContinue(code: Code): State {
+        if (markdownLineEnding(code) || code === codes.eof) {
+            fx.exit('editBlockDividerFilename');
+            fx.exit('editBlockDivider');
+            return ok(code);
+        }
+        fx.consume(code);
+        return dividerFilenameContinue;
     }
 };
 
@@ -301,15 +331,40 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
                 fx.exit('editBlockTail');
                 return nok(code);
             }
+            // Optional whitespace before filename
+            if (code === codes.space || code === codes.tab) {
+                fx.consume(code);
+                return tailFilenameStart;
+            }
             if (markdownLineEnding(code) || code === codes.eof) {
                 fx.exit('editBlockTailKeyword');
                 fx.exit('editBlockTail');
                 return ok(code);
             }
-            // Something else on the line.
+            // Something else on the line starts the filename
+            fx.enter('editBlockTailFilename');
+            return tailFilenameContinue(code);
+        };
+    }
+
+    function tailFilenameStart(code: Code): State {
+        if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockTailKeyword');
             fx.exit('editBlockTail');
-            return nok(code);
-        };
+            return ok(code);
+        }
+        fx.enter('editBlockTailFilename');
+        return tailFilenameContinue(code);
+    }
+
+    function tailFilenameContinue(code: Code): State {
+        if (markdownLineEnding(code) || code === codes.eof) {
+            fx.exit('editBlockTailFilename');
+            fx.exit('editBlockTailKeyword');
+            fx.exit('editBlockTail');
+            return ok(code);
+        }
+        fx.consume(code);
+        return tailFilenameContinue;
     }
 };

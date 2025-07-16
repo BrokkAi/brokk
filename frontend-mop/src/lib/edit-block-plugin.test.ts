@@ -356,7 +356,6 @@ new code
 
 test('detects edit blocks with conflict syntax', () => {
   const md = `
-\`\`\`
   Now I need to modify \`GitLogTab.java\` to use the new \`GitCommitBrowserPanel\` instead of the inline code:
   
   <<<<<<<< SEARCH src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
@@ -384,7 +383,6 @@ test('detects edit blocks with conflict syntax', () => {
       private GitCommitBrowserPanel commitBrowserPanel;
       private JTextField commitSearchTextField;
   >>>>>>>> REPLACE src/main/java/io/github/jbellis/brokk/gui/GitLogTab.java
-\`\`\`
   `;
 
   const tree = md2hast(md);
