@@ -1,11 +1,9 @@
-import remarkBreaks from 'remark-breaks';
-import remarkGfm from 'remark-gfm';
-import { remarkEditBlock } from '../lib/edit-block-plugin';
-import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { visit } from 'unist-util-visit';
-import { expect, test } from 'vitest';
-import { gfmEditBlock, editBlockFromMarkdown } from './micromark-edit-block';
+import {unified} from 'unified';
+import {visit} from 'unist-util-visit';
+import {expect, test} from 'vitest';
+import {remarkEditBlock} from '../lib/edit-block-plugin';
+import {editBlockFromMarkdown, gfmEditBlock} from './micromark-edit-block';
 
 // Helper function to process markdown through the plugin and return the AST
 function md2hast(md: string, { enableEditBlocks = true } = {}) {
@@ -201,8 +199,7 @@ a
 =======
 b
 >>>>>>> REPLACE
-\`\`\`
-  `;
+\`\`\``;
 
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);
@@ -508,7 +505,10 @@ public class Main {
   const editBlocks = findEditBlocks(tree);
 
   expect(editBlocks.length).toBe(0);
-});test('foo', () => {
+});
+
+
+test('foo', () => {
   const md = `
 Looking at the failed blocks and the current content, I can see the issue. The file is in a broken state where it references \`commitBrowserPanel\` (which doesn't exist) but we need to revert those changes back to use the original table model code.
   

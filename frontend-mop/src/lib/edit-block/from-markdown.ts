@@ -1,12 +1,14 @@
 /**
  * mdast build logic for edit-blocks.
  */
+import { log } from './util';
+
 export function editBlockFromMarkdown() {
     return {
         enter: {
             // Create the node and remember it.
             editBlock(tok) {
-                console.log('enter editBlock');
+                log('enter editBlock');
                 const node = {
                     type: 'editBlock',
                     data: {
@@ -21,46 +23,46 @@ export function editBlockFromMarkdown() {
 
             // Filename
             editBlockFilename() {
-                console.log('enter editBlockFilename');
-                // this.buffer(); // start collecting raw filename
+                log('enter editBlockFilename');
             },
 
             // Search text
             editBlockSearchContent() {
-                console.log('enter editBlockSearchContent');
+                log('enter editBlockSearchContent');
                 this.buffer(); // start collecting *search* text
             },
 
             // Replace text
             editBlockReplaceContent() {
-                console.log('enter editBlockReplaceContent');
+                log('enter editBlockReplaceContent');
                 this.buffer(); // start collecting *replace* text
             }
         },
         exit: {
             editBlockFilename(tok) {
-                console.log('exit editBlockFilename');
+                log('exit editBlockFilename');
                 const node = this.data.currentEditBlock;
                 node.data.filename = this.sliceSerialize(tok);
             },
 
             editBlockSearchContent(tok) {
-                console.log('exit editBlockSearchContent');
+                log('exit editBlockSearchContent');
                 const node = this.data.currentEditBlock;
                 node.data.search = this.resume();
             },
 
             editBlockReplaceContent(tok) {
-                console.log('exit editBlockReplaceContent');
+                log('exit editBlockReplaceContent');
                 const node = this.data.currentEditBlock;
                 node.data.replace = this.resume();
             },
 
             editBlock(tok) {
-                console.log('exit editBlock');
+                log('exit editBlock');
                 delete this.data['currentEditBlock']; // clear helper
                 this.exit(tok); // close the node
             }
         },
     };
 }
+

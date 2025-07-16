@@ -3,7 +3,15 @@ import type { Code, Effects, TokenizeContext } from 'micromark-util-types';
 /**
  * Debug logging function for edit block parsing.
  */
-function dbg(msg: string, code?: number, context?: TokenizeContext) {
+let loggingEnabled = false;
+
+export function log(msg: string): void {
+    if (!loggingEnabled) return;
+    console.log(`[micromark-edit-block] ${msg}`);
+}
+
+export function dbg(msg: string, code?: number, context?: TokenizeContext): void {
+    if (!loggingEnabled) return;
     const txt1 = `[micromark-edit-block] ${msg}${context ? ` at line ${context.now().line}, col ${context.now().column}` : ''}`;
     const txt2 = code !== undefined ? `char: ${String.fromCharCode(code)}` : '';
     console.log(txt1, txt2);
