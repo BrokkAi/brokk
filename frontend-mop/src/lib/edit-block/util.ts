@@ -29,11 +29,11 @@ export function makeSafeFx(effects: Effects, ctx: TokenizeContext): SafeFx {
         },
         enter(name) {
             dbg('enter ' + name, undefined, ctx);
-            effects.enter(name);
+            effects.enter(name as any);
         },
         exit(name) {
             dbg('exit  ' + name, undefined, ctx);
-            effects.exit(name);
+            effects.exit(name as any);
         }
     };
 }

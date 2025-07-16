@@ -1,7 +1,6 @@
 import type {Code, Content, Node, Parent, Root, RootContent, Text} from 'mdast';
 import {toString} from 'mdast-util-to-string';
 import {SKIP, visit, type VisitorResult} from 'unist-util-visit';
-import type {Test} from 'unist-util-visit/lib';
 import type {VFile} from 'vfile';
 
 // Augment mdast to recognize custom data properties

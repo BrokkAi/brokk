@@ -1,7 +1,10 @@
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, State, Tokenizer } from 'micromark-util-types';
-import { makeSafeFx, SafeFx } from './util';
+import { makeSafeFx } from './util';
+import { makeEditBlockBodyTokenizer } from './body-tokenizer';
+import { tokenizeDivider } from './divider-tokenizer';
+import { tokenizeTail } from './tail-tokenizer';
 
 /**
  * Tokenizer for edit blocks.
@@ -9,6 +12,11 @@ import { makeSafeFx, SafeFx } from './util';
 export const tokenize: Tokenizer = function (effects, ok, nok) {
     const ctx = this;
     const fx = makeSafeFx(effects, ctx);
+    const bodyTokenizer = makeEditBlockBodyTokenizer({
+        divider: tokenizeDivider,
+        tail: tokenizeTail,
+        makeSafeFx
+    });
     return start;
 
     function start(code: Code): State {
@@ -63,11 +71,11 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockSearchKeyword');
             fx.enter('editBlockSearchContent');
-            return searchLineStart(code);        // reuse existing logic
+            return delegateToBody(code);
         }
 
         // 2. Skip one or more spaces/tabs (optional)
-        if (code === codes.space || code === codes.tab) {
+        if (code === codes.space || code === codes.horizontalTab) {
             fx.consume(code);
             return afterSearchKeyword;           // keep swallowing whitespace
         }
@@ -78,293 +86,26 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         return inFilename(code);
     }
 
-
     function inFilename(code: Code): State {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockFilename');
             fx.enter('editBlockSearchContent');
-            return searchLineStart(code);
+            return delegateToBody(code);
         }
         fx.consume(code);
         return inFilename;
     }
 
-    function afterDividerCheck(code: Code): State {
-        fx.exit('editBlockSearchContent');
-        // Now consume the divider
+    function delegateToBody(code: Code): State {
         return effects.attempt(
-            { tokenize: tokenizeDivider, partial: true },
-            afterDividerConsumed,
+            { tokenize: bodyTokenizer, partial: true },
+            afterBody,
             nok
         )(code);
     }
 
-    function afterDividerConsumed(code: Code): State {
-        fx.enter('editBlockReplaceContent');
-        return replaceLineStart(code);
-    }
-
-    function afterTailCheck(code: Code): State {
-        fx.exit('editBlockReplaceContent');
-        // Now consume the tail
-        return effects.attempt(
-            { tokenize: tokenizeTail, partial: true },
-            afterTailConsumed,
-            nok
-        )(code);
-    }
-
-    function afterTailConsumed(code: Code): State {
+    function afterBody(code: Code): State {
         fx.exit('editBlock');
         return ok(code);
-    }
-
-    // Search content state machine
-    function searchLineStart(code: Code): State {
-        if (code === codes.eof) {
-            return inSearch(code);
-        }
-
-        if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
-            // Blank line - emit it as its own empty chunk
-            // eat the indention before analysing the line
-            fx.enter('data');
-            fx.consume(code);
-            fx.exit('data');
-            return searchLineStart;
-        }
-        if (code === codes.equalsTo) {
-            // Look-ahead for the divider (=======)
-            return effects.check(
-                { tokenize: tokenizeDivider, partial: true },
-                afterDividerCheck, // Success: transition without including divider
-                searchChunkStart // Failure: treat as regular content
-            )(code);
-        }
-        return searchChunkStart(code);
-    }
-
-    function searchChunkStart(code: Code): State {
-        fx.enter('data');
-        return searchChunkContinue(code);
-    }
-
-    function searchChunkContinue(code: Code): State {
-        if (code === codes.eof) {
-            fx.exit('data');
-            return inSearch(code);
-        }
-        if (markdownLineEnding(code)) {
-            fx.consume(code);
-            fx.exit('data');
-            return searchLineStart; // New logical line
-        }
-        fx.consume(code); // Regular payload
-        return searchChunkContinue;
-    }
-
-    function inSearch(code: Code): State {
-        // This function is reached when we are at EOF, and we haven't found a divider.
-        fx.exit('editBlockSearchContent');
-        fx.exit('editBlock');
-        return ok(code);
-    }
-
-    // Replace content state machine
-    function replaceLineStart(code: Code): State {
-        if (code === codes.eof) {
-            return inReplace(code);
-        }
-
-        if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
-            // Blank line - emit it as its own empty chunk
-            // eat the indention before analysing the line
-            fx.enter('data');
-            fx.consume(code);
-            fx.exit('data');
-            return replaceLineStart;
-        }
-        if (code === codes.greaterThan) {
-            // Look-ahead for the tail (>>>>>>> REPLACE ...)
-            return effects.check(
-                { tokenize: tokenizeTail, partial: true },
-                afterTailCheck, // Success: transition without including tail
-                replaceChunkStart // Failure: treat as regular content
-            )(code);
-        }
-        return replaceChunkStart(code);
-    }
-
-    function replaceChunkStart(code: Code): State {
-        fx.enter('data');
-        return replaceChunkContinue(code);
-    }
-
-    function replaceChunkContinue(code: Code): State {
-        if (code === codes.eof) {
-            fx.exit('data');
-            return inReplace(code);
-        }
-        if (markdownLineEnding(code)) {
-            fx.consume(code);
-            fx.exit('data');
-            return replaceLineStart;
-        }
-        fx.consume(code);
-        return replaceChunkContinue;
-    }
-
-
-
-    function inReplace(code: Code): State {
-        // Reached at EOF without tail.
-        fx.exit('editBlockReplaceContent');
-        fx.exit('editBlock');
-        return ok(code);
-    }
-};
-
-/**
- * Tokenizer for edit block divider.
- */
-export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
-    const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
-    return start;
-
-    function start(code: Code): State {
-        if (code !== codes.equalsTo) return nok(code);
-        fx.enter('editBlockDivider');
-        fx.consume(code);
-        return sequence(1);
-    }
-
-    function sequence(count: number): State {
-        return function (code: Code): State {
-            if (code === codes.equalsTo) {
-                fx.consume(code);
-                return sequence(count + 1);
-            }
-            if (count < 7) {
-                fx.exit('editBlockDivider');
-                return nok(code);
-            }
-            // Optional whitespace before filename
-            if (code === codes.space || code === codes.tab) {
-                fx.consume(code);
-                return dividerFilenameStart;
-            }
-            // Accept immediate EOL/EOF
-            if (markdownLineEnding(code) || code === codes.eof) {
-                fx.exit('editBlockDivider');
-                return ok(code);
-            }
-            // Any other character starts the filename
-            fx.enter('editBlockDividerFilename');
-            return dividerFilenameContinue(code);
-        };
-    }
-
-    function dividerFilenameStart(code: Code): State {
-        // If only spaces were provided before EOL/EOF
-        if (markdownLineEnding(code) || code === codes.eof) {
-            fx.exit('editBlockDivider');
-            return ok(code);
-        }
-        fx.enter('editBlockDividerFilename');
-        return dividerFilenameContinue(code);
-    }
-
-    function dividerFilenameContinue(code: Code): State {
-        if (markdownLineEnding(code) || code === codes.eof) {
-            fx.exit('editBlockDividerFilename');
-            fx.exit('editBlockDivider');
-            return ok(code);
-        }
-        fx.consume(code);
-        return dividerFilenameContinue;
-    }
-};
-
-/**
- * Tokenizer for edit block tail.
- */
-export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
-    const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
-    return start;
-
-    function start(code: Code): State {
-        if (code !== codes.greaterThan) return nok(code);
-        fx.enter('editBlockTail');
-        fx.consume(code);
-        return sequence(1);
-    }
-
-    function sequence(count: number): State {
-        return function (code: Code): State {
-            if (code === codes.greaterThan) {
-                fx.consume(code);
-                return sequence(count + 1);
-            }
-            if (count < 7) {
-                fx.exit('editBlockTail');
-                return nok(code);
-            }
-            if (code === codes.space) {
-                fx.consume(code);
-            }
-            fx.enter('editBlockTailKeyword');
-            return keyword(0);
-        };
-    }
-
-    function keyword(index: number): State {
-        return function (code: Code): State {
-            const keywordText = 'REPLACE';
-            if (index < keywordText.length) {
-                if (code === keywordText.charCodeAt(index)) {
-                    fx.consume(code);
-                    return keyword(index + 1);
-                }
-                fx.exit('editBlockTailKeyword');
-                fx.exit('editBlockTail');
-                return nok(code);
-            }
-            // Optional whitespace before filename
-            if (code === codes.space || code === codes.tab) {
-                fx.consume(code);
-                return tailFilenameStart;
-            }
-            if (markdownLineEnding(code) || code === codes.eof) {
-                fx.exit('editBlockTailKeyword');
-                fx.exit('editBlockTail');
-                return ok(code);
-            }
-            // Something else on the line starts the filename
-            fx.enter('editBlockTailFilename');
-            return tailFilenameContinue(code);
-        };
-    }
-
-    function tailFilenameStart(code: Code): State {
-        if (markdownLineEnding(code) || code === codes.eof) {
-            fx.exit('editBlockTailKeyword');
-            fx.exit('editBlockTail');
-            return ok(code);
-        }
-        fx.enter('editBlockTailFilename');
-        return tailFilenameContinue(code);
-    }
-
-    function tailFilenameContinue(code: Code): State {
-        if (markdownLineEnding(code) || code === codes.eof) {
-            fx.exit('editBlockTailFilename');
-            fx.exit('editBlockTailKeyword');
-            fx.exit('editBlockTail');
-            return ok(code);
-        }
-        fx.consume(code);
-        return tailFilenameContinue;
     }
 };
