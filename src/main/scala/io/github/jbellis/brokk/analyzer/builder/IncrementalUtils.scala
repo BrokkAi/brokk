@@ -55,9 +55,11 @@ object IncrementalUtils {
     }.toSeq
     // The below will include files unrelated to project source code, but will be filtered out by the language frontend
     val newFiles = maybeChangedFiles.map(_.asScala) match {
-      case Some(changedFiles) => changedFiles.map(_.absPath()).map(path => PathAndHash(path.toString, path.sha1)).toList
+      case Some(changedFiles) =>
+        logger.debug(s"${changedFiles.size} changed files have been given")
+        changedFiles.map(_.absPath()).map(path => PathAndHash(path.toString, path.sha1)).toList
       case None =>
-        SourceFiles
+        val determinedChanges = SourceFiles
           .determine(
             config.inputPath,
             sourceFileExtensions,
@@ -70,6 +72,8 @@ object IncrementalUtils {
             case dir if Files.isDirectory(dir) => None
             case path                          => Option(PathAndHash(path.toString, path.sha1))
           }
+        logger.debug(s"${determinedChanges.size} changed files have been determined")
+        determinedChanges
     }
 
     determineChangedFiles(existingFiles, newFiles)
