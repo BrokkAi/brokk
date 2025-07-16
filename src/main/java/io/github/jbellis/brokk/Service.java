@@ -7,7 +7,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.StreamingResponseHandler;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import okhttp3.*;
@@ -220,8 +220,8 @@ public class Service {
     private final Map<String, Map<String, Object>> modelInfoMap;
 
     // Default models - now instance fields
-    private final StreamingChatLanguageModel quickModel;
-    private final StreamingChatLanguageModel quickestModel;
+    private final StreamingChatModel quickModel;
+    private final StreamingChatModel quickestModel;
     private final SpeechToTextModel sttModel;
 
     public Service(IProject project) {
@@ -280,7 +280,7 @@ public class Service {
     /**
      * Returns the display name for a given model instance
      */
-    public String nameOf(StreamingChatLanguageModel model) {
+    public String nameOf(StreamingChatModel model) {
         // langchain4j "name" corresponds to our "location"
         var location = model.defaultRequestParameters().modelName();
         // Find the key (display name) in the modelLocations map corresponding to the location value
@@ -570,7 +570,7 @@ public class Service {
      * Retrieves the maximum input tokens for the given model name.
      * Returns a default value if the information is not available.
      */
-    public int getMaxInputTokens(StreamingChatLanguageModel model) {
+    public int getMaxInputTokens(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
         if (info == null || !info.containsKey("max_input_tokens")) {
@@ -586,7 +586,7 @@ public class Service {
      * Retrieves the maximum concurrent requests for the given model name.
      * Returns a default value of 1 if the information is not available.
      */
-    public @Nullable Integer getMaxConcurrentRequests(StreamingChatLanguageModel model) {
+    public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
         if (info == null || !info.containsKey("max_concurrent_requests")) {
@@ -599,7 +599,7 @@ public class Service {
      * Retrieves the tokens per second for the given model.
      * Returns null if the information is not available.
      */
-    public @Nullable Integer getTokensPerMinute(StreamingChatLanguageModel model) {
+    public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
         if (info == null || !info.containsKey("tokens_per_minute")) {
@@ -669,12 +669,12 @@ public class Service {
     }
 
     /**
-     * Retrieves or creates a StreamingChatLanguageModel for the given modelName and reasoning level.
+     * Retrieves or creates a StreamingChatModel for the given modelName and reasoning level.
      *
      * @param modelName      The display name of the model (e.g., "gemini-2.5-pro-exp-03-25").
      */
     @Nullable
-    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
+    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel, @Nullable Double temperature) {
         @Nullable String location = modelLocations.get(modelName);
         logger.trace("Creating new model instance for '{}' at location '{}' with reasoning '{}' via LiteLLM",
                      modelName, location, reasoningLevel);
@@ -728,11 +728,11 @@ public class Service {
     }
 
     @Nullable
-    public StreamingChatLanguageModel getModel(String modelName, ReasoningLevel reasoningLevel) {
+    public StreamingChatModel getModel(String modelName, ReasoningLevel reasoningLevel) {
         return getModel(modelName, reasoningLevel, null);
     }
 
-    public boolean supportsJsonSchema(StreamingChatLanguageModel model) {
+    public boolean supportsJsonSchema(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
 
@@ -755,12 +755,12 @@ public class Service {
         return b instanceof Boolean boolVal && boolVal;
     }
 
-    public boolean isLazy(StreamingChatLanguageModel model) {
+    public boolean isLazy(StreamingChatModel model) {
         String modelName = nameOf(model);
         return !(modelName.contains("3-7-sonnet") || modelName.contains("gemini-2.5-pro"));
     }
 
-    public boolean requiresEmulatedTools(StreamingChatLanguageModel model) {
+    public boolean requiresEmulatedTools(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
 
@@ -779,7 +779,7 @@ public class Service {
         return location.contains("grok-3");
     }
 
-    public boolean supportsParallelCalls(StreamingChatLanguageModel model) {
+    public boolean supportsParallelCalls(StreamingChatModel model) {
         // mostly we force models that don't support parallel calls to use our emulation, but o3 does so poorly with that
         // that serial calls is the lesser evil
         var location = model.defaultRequestParameters().modelName();
@@ -793,7 +793,7 @@ public class Service {
      * @param model The model instance to check.
      * @return True if the model is configured for reasoning
      */
-    public boolean isReasoning(StreamingChatLanguageModel model) {
+    public boolean isReasoning(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var supportsReasoning = supportsReasoning(location);
         if (!supportsReasoningEffortInternal(location)) {
@@ -847,7 +847,7 @@ public class Service {
      * @param model The model instance to check.
      * @return True if the model info contains `"supports_vision": true`, false otherwise.
      */
-    public boolean supportsVision(StreamingChatLanguageModel model) {
+    public boolean supportsVision(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = modelInfoMap.get(location);
         if (info == null) {
@@ -859,11 +859,11 @@ public class Service {
         return supports instanceof Boolean boolVal && boolVal;
     }
 
-    public StreamingChatLanguageModel quickestModel() {
+    public StreamingChatModel quickestModel() {
         return quickestModel;
     }
 
-    public StreamingChatLanguageModel quickModel() {
+    public StreamingChatModel quickModel() {
         return quickModel;
     }
 
@@ -962,7 +962,7 @@ public class Service {
         }
     }
 
-    public static class UnavailableStreamingModel implements StreamingChatLanguageModel {
+    public static class UnavailableStreamingModel implements StreamingChatModel {
         public UnavailableStreamingModel() {
         }
 

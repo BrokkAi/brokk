@@ -9,7 +9,7 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import org.jetbrains.annotations.Nullable;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
@@ -53,7 +53,7 @@ public class ContextAgent {
     // Rule 1: Use all available summaries if they fit the smallest budget and meet the limit (if not deepScan)
     private int QUICK_TOPK = 10;
 
-    public ContextAgent(ContextManager contextManager, StreamingChatLanguageModel model, String goal, boolean deepScan) throws InterruptedException {
+    public ContextAgent(ContextManager contextManager, StreamingChatModel model, String goal, boolean deepScan) throws InterruptedException {
         this.contextManager = contextManager;
         this.llm = contextManager.getLlm(model, "ContextAgent: " + goal); // Coder for LLM interactions
         this.goal = goal;

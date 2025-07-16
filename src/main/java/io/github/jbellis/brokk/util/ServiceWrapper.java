@@ -1,6 +1,6 @@
 package io.github.jbellis.brokk.util;
 
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Service;
 import org.jetbrains.annotations.Nullable;
@@ -28,19 +28,19 @@ public class ServiceWrapper {
     }
 
     @Nullable
-    public StreamingChatLanguageModel getModel(String modelName, Service.ReasoningLevel reasoning) {
+    public StreamingChatModel getModel(String modelName, Service.ReasoningLevel reasoning) {
         return get().getModel(modelName, reasoning);
     }
 
-    public StreamingChatLanguageModel quickModel() {
+    public StreamingChatModel quickModel() {
         return get().quickModel();
     }
 
-    public String nameOf(StreamingChatLanguageModel model) {
+    public String nameOf(StreamingChatModel model) {
         return get().nameOf(model);
     }
 
-    public StreamingChatLanguageModel quickestModel() {
+    public StreamingChatModel quickestModel() {
         return get().quickestModel();
     }
 }

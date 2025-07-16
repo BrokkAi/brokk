@@ -4,7 +4,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.testutil.NoOpConsoleIO;
 import io.github.jbellis.brokk.util.Messages;
@@ -81,7 +81,7 @@ public class LlmTest {
             try {
                 System.out.println("Testing model: " + modelName);
                 // Get model instance via the Models object
-                StreamingChatLanguageModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
+                StreamingChatModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
                 var coder = contextManager.getLlm(model, "testModels");
                 assertNotNull(model, "Failed to get model instance for: " + modelName);
 
@@ -138,7 +138,7 @@ public class LlmTest {
                 .forEach(modelName -> {
                     try {
                         System.out.println("Testing tool calling for model: " + modelName);
-                        StreamingChatLanguageModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
+                        StreamingChatModel model = models.getModel(modelName, Service.ReasoningLevel.DEFAULT);
                         var coder = contextManager.getLlm(model, "testToolCalling");
                         assertNotNull(model, "Failed to get model instance for: " + modelName);
 

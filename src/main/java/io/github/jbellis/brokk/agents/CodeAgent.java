@@ -4,7 +4,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
 import io.github.jbellis.brokk.Llm.StreamingResult;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -44,14 +44,14 @@ public class CodeAgent {
     static final int MAX_APPLY_FAILURES_BEFORE_FALLBACK = 3;
 
     final IContextManager contextManager;
-    private final StreamingChatLanguageModel model;
+    private final StreamingChatModel model;
     private final IConsoleIO io;
 
-    public CodeAgent(IContextManager contextManager, StreamingChatLanguageModel model) {
+    public CodeAgent(IContextManager contextManager, StreamingChatModel model) {
         this(contextManager, model, contextManager.getIo());
     }
 
-    public CodeAgent(IContextManager contextManager, StreamingChatLanguageModel model, IConsoleIO io) {
+    public CodeAgent(IContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;

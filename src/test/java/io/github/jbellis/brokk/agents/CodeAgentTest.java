@@ -3,7 +3,7 @@ package io.github.jbellis.brokk.agents;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class CodeAgentTest {
 
-    private static class ScriptedLanguageModel implements StreamingChatLanguageModel {
+    private static class ScriptedLanguageModel implements StreamingChatModel {
         private final Queue<String> responses;
 
         ScriptedLanguageModel(String... cannedTexts) {
