@@ -206,10 +206,11 @@ public class MultiAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public void update(Set<ProjectFile> changedFiles) {
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
         for (var an: delegates.values()) {
             an.update(changedFiles);
         }
+        return this;
     }
 
     @Override

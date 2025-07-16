@@ -9,10 +9,9 @@ import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
-import java.io.File
 import java.nio.file.*
-import scala.util.{Failure, Success, Try}
 import scala.jdk.CollectionConverters.*
+import scala.util.{Failure, Success, Try}
 
 object IncrementalUtils {
 
@@ -131,7 +130,7 @@ object IncrementalUtils {
     logger.info(s"Moving ${filesToMove.size} files to an incremental build directory at '$tempDir'")
 
     filesToMove.foreach { path =>
-      val relativePath = Paths.get(path.toString.stripPrefix(projectRoot.toString).stripPrefix(File.separator))
+      val relativePath = projectRoot.relativize(path)
       val newPath      = tempDir.resolve(relativePath)
       val newParentDir = newPath.getParent
       if (!Files.exists(newParentDir)) Files.createDirectories(newParentDir)

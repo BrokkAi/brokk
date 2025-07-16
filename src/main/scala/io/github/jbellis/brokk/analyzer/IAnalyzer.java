@@ -203,7 +203,9 @@ public interface IAnalyzer {
      * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is
      * O(M) in the number of changed files.
      */
-    default IAnalyzer update(Set<ProjectFile> changedFiles) {}
+    default IAnalyzer update(Set<ProjectFile> changedFiles) {
+        return this;
+    }
 
     /**
      * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) 

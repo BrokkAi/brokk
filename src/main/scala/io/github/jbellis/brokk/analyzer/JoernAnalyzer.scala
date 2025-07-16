@@ -95,7 +95,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     */
   protected def updateFilesInternal[R <: X2CpgConfig[R]](config: R, changedFiles: util.Set[ProjectFile])(using
     builder: CpgBuilder[R]
-  ): Unit = {
+  ): IAnalyzer = {
     Try(cpg.close()).failed.foreach(e => logger.error("Error encountered while closing CPG before update.", e))
     Try(
       config
@@ -107,6 +107,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
       case Success(newCpg)    => cpg = newCpg
       case Failure(exception) => logger.error("Error encountered while updating CPG.", exception)
     }
+    this
   }
 
   /** Return the method signature as a language-appropriate String, e.g. for Java: "public int foo(String bar)"

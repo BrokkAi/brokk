@@ -819,7 +819,7 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
     IAnalyzer.FunctionLocation(file, startLine, endLine, maybeCode.get)
   }
 
-  override def update(changedFiles: java.util.Set[ProjectFile]): Unit =
+  override def update(changedFiles: java.util.Set[ProjectFile]): IAnalyzer =
     updateFilesInternal(CppAnalyzer.defaultConfig, changedFiles)
 
 }
@@ -838,8 +838,10 @@ object CppAnalyzer {
     val absPath = sourcePath.toAbsolutePath.normalize()
     require(absPath.toFile.isDirectory, s"Source path must be a directory: $absPath")
 
-    if Files.exists(cpgPath) then logger.info(s"Updating C/C++ CPG at '$cpgPath'")
-    else logger.info(s"Creating C/C++ CPG at '$cpgPath'")
+    if Files.exists(cpgPath) then
+      logger.info(s"Deleting existing CPG at '$cpgPath' to ensure a fresh build.")
+      Files.delete(cpgPath)
+    logger.info(s"Creating  C/C++ CPG at '$cpgPath'")
 
     defaultConfig
       .withInputPath(absPath.toString)
