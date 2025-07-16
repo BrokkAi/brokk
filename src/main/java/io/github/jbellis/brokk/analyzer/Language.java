@@ -83,8 +83,13 @@ public interface Language {
             return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
-        @Override public JavaAnalyzer loadAnalyzer(IProject project) {
-            return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
+        @Override public IAnalyzer loadAnalyzer(IProject project) {
+            var cpgPath = getCpgPath(project);
+            if (Files.isRegularFile(cpgPath)) {
+                return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
+            } else {
+                return createAnalyzer(project);
+            }
         }
 
         @Override
@@ -394,8 +399,13 @@ public interface Language {
             return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
-        @Override public CppAnalyzer loadAnalyzer(IProject project) {
-            return new CppAnalyzer(project.getRoot(), getCpgPath(project));
+        @Override public IAnalyzer loadAnalyzer(IProject project) {
+            var cpgPath = getCpgPath(project);
+            if (Files.isRegularFile(cpgPath)) {
+                return new CppAnalyzer(project.getRoot(), getCpgPath(project));
+            } else {
+                return createAnalyzer(project);
+            }
         }
         @Override
         public boolean isCpg() { return true; }
