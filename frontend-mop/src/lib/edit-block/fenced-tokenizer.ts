@@ -31,6 +31,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
     let fenceSize = 0;
 
     // State machine
+    let filenameSeen = false; // Track if we've seen a filename line
     return openingSequence;
 
     // 1. Absorb ```
@@ -78,6 +79,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.consume(code);
             fx.exit('editBlockFilename');
+            filenameSeen = true;
             return afterOpeningLine;
         }
         fx.consume(code);
@@ -97,7 +99,14 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
             return parseHeaderStart(code);
         }
 
+        // If we've already seen a filename line, we must have the search marker now
+        if (filenameSeen) {
+            fx.exit('editBlock');
+            return nok(code); // No search marker after filename, not an edit block
+        }
+
         // Otherwise treat **this whole line** as "filename only" (2nd test variant)
+        filenameSeen = true;
         fx.enter('editBlockFilename');
         return filenameLine(code);
     }
@@ -107,6 +116,11 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
             fx.consume(code);
             fx.exit('editBlockFilename');
             return afterOpeningLine; // Now next line *must* be header
+        }
+        // Check if the filename line contains the search marker inline
+        if (code === codes.lessThan) {
+            fx.exit('editBlockFilename');
+            return parseHeaderStart(code);
         }
         fx.consume(code);
         return filenameLine;

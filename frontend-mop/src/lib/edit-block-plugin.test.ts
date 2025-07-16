@@ -152,7 +152,12 @@ Here's a list with mixed content:
   \`\`\`java
   System.out.println("Item 2");
   \`\`\`
-- Item 3: with edit block
+- Item 3: with code
+  \`\`\`java
+  System.out.println("Item 1");
+  System.out.println("Item 2");
+  \`\`\`  
+- Item 4: with edit block
   <<<<<<< SEARCH Test.java
   void test() {}
   ======= Test.java
