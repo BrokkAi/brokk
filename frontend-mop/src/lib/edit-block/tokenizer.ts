@@ -126,9 +126,9 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         }
         if (markdownLineEnding(code)) {
             // Blank line - emit it as its own empty chunk
-            fx.enter('chunk');
+            fx.enter('data');
             fx.consume(code);
-            fx.exit('chunk');
+            fx.exit('data');
             return searchLineStart;
         }
         if (code === codes.equalsTo) {
@@ -143,18 +143,18 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
     }
 
     function searchChunkStart(code: Code): State {
-        fx.enter('chunk');
+        fx.enter('data');
         return searchChunkContinue(code);
     }
 
     function searchChunkContinue(code: Code): State {
         if (code === codes.eof) {
-            fx.exit('chunk');
+            fx.exit('data');
             return inSearch(code);
         }
         if (markdownLineEnding(code)) {
             fx.consume(code);
-            fx.exit('chunk');
+            fx.exit('data');
             return searchLineStart; // New logical line
         }
         fx.consume(code); // Regular payload
@@ -175,9 +175,9 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
         }
         if (markdownLineEnding(code)) {
             // Blank line - emit it as its own empty chunk
-            fx.enter('chunk');
+            fx.enter('data');
             fx.consume(code);
-            fx.exit('chunk');
+            fx.exit('data');
             return replaceLineStart;
         }
         if (code === codes.greaterThan) {
@@ -192,18 +192,18 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
     }
 
     function replaceChunkStart(code: Code): State {
-        fx.enter('chunk');
+        fx.enter('data');
         return replaceChunkContinue(code);
     }
 
     function replaceChunkContinue(code: Code): State {
         if (code === codes.eof) {
-            fx.exit('chunk');
+            fx.exit('data');
             return inReplace(code);
         }
         if (markdownLineEnding(code)) {
             fx.consume(code);
-            fx.exit('chunk');
+            fx.exit('data');
             return replaceLineStart;
         }
         fx.consume(code);

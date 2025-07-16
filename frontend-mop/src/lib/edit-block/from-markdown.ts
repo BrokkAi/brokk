@@ -22,19 +22,19 @@ export function editBlockFromMarkdown() {
             // Filename
             editBlockFilename() {
                 console.log('enter editBlockFilename');
-                //this.buffer(); // start collecting raw filename
+                // this.buffer(); // start collecting raw filename
             },
 
             // Search text
             editBlockSearchContent() {
                 console.log('enter editBlockSearchContent');
-                //this.buffer(); // start collecting *search* text
+                this.buffer(); // start collecting *search* text
             },
 
             // Replace text
             editBlockReplaceContent() {
                 console.log('enter editBlockReplaceContent');
-                // this.buffer(); // start collecting *replace* text
+                this.buffer(); // start collecting *replace* text
             }
         },
         exit: {
@@ -47,13 +47,13 @@ export function editBlockFromMarkdown() {
             editBlockSearchContent(tok) {
                 console.log('exit editBlockSearchContent');
                 const node = this.data.currentEditBlock;
-                node.data.search = this.sliceSerialize(tok);
+                node.data.search = this.resume();
             },
 
             editBlockReplaceContent(tok) {
                 console.log('exit editBlockReplaceContent');
                 const node = this.data.currentEditBlock;
-                node.data.replace = this.sliceSerialize(tok);
+                node.data.replace = this.resume();
             },
 
             editBlock(tok) {
