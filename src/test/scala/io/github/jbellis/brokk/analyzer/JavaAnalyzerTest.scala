@@ -656,8 +656,8 @@ class JavaAnalyzerTest {
     val cpg      = analyzer.cpg
 
     // Basic dynamic dispatched call
-//    val methodD1Call = cpg.method.fullName("D\\.methodD2.*").call.nameExact("methodD1").head
-//    assertEquals("D.methodD2", analyzer.parentMethodName(methodD1Call))
+    val methodD1Call = cpg.method.fullName("D\\.methodD2.*").call.nameExact("methodD1").head
+    assertEquals("D.methodD2", analyzer.parentMethodName(methodD1Call))
 
     // Call within a lambda "Runnable"
     val method2Call = cpg.method.fullName("AnonymousUsage\\$1\\.run.*").call.nameExact("method2").head
