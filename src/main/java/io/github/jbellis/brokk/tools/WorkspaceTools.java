@@ -209,7 +209,10 @@ public class WorkspaceTools {
 
         if (!toDrop.isEmpty()) {
             contextManager.drop(toDrop);
-            return "Dropped %d fragment(s) with IDs: [%s]".formatted(toDrop.size(), toDrop);
+            var droppedReprs = toDrop.stream()
+                                     .map(ContextFragment::repr)
+                                     .collect(Collectors.joining(", "));
+            return "Dropped %d fragment(s): [%s]".formatted(toDrop.size(), droppedReprs);
         } else {
             return "No valid fragments found to drop for the given IDs: " + fragmentIds;
         }

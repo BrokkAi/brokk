@@ -63,7 +63,11 @@ public abstract class ArchitectPrompts extends CodePrompts {
         Once Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)
         to the Workspace where you can examine it yourself. However! if you already know where to
         find the necessary information yourself, prefer adding it directly to searching redundantly.
-        (Remember, it's fine to add things to the Workspace just to see if they are relevant, and drop them later if it turns out that they are not.)
+        
+        It's fine to add things to the Workspace just to see if they are relevant, and drop them later if it turns out that they are not.
+        Conversely, if you want to add something back that you dropped earlier, you can look at the result of the
+        dropWorkspaceFragments tool call to remind yourself what they were. But! only code fragments can
+        be recovered this way; in particular, string fragments or paste fragments cannot.
 
         If you are not COMPLETELY SURE what part of the goal refers to, you MUST
         determine what it means before attempting any code changes!  If the request is still ambiguous or
