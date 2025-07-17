@@ -751,11 +751,10 @@ public interface Language {
             return name();
         }
 
-        // TODO: Implement getDependencyCandidates for TypeScript (e.g. node_modules, similar to JAVASCRIPT)
-        /*@Override public List<Path> getDependencyCandidates(Project project) {
-            // Leveraging JAVASCRIPT's logic for node_modules as a starting point
-            return JAVASCRIPT.getDependencyCandidates(project);
-        }*/
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return NodeJsDependencyHelper.getDependencyCandidates(project);
+        }
 
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
