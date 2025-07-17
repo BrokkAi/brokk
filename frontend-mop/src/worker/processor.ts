@@ -67,7 +67,13 @@ export function parseMarkdown(src: string, fast = false): HastRoot {
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;
-    const tree = proc.runSync(proc.parse(src)) as HastRoot;
+    let tree: HastRoot = null;
+    try {
+        tree = proc.runSync(proc.parse(src)) as HastRoot;
+    } catch (e) {
+        console.error('[md-worker] parse failed', e);
+        throw e;
+    }
     if (!fast) {
         // detect langs in the shiki highlighting pass to load lang lazy
         const detectedLangs = detectCodeFenceLangs(tree);

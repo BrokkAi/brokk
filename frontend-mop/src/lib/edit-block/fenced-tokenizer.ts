@@ -64,17 +64,17 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
             return fx.ok(code);
         }
 
-        // Absorb optional spaces, info string (= filename) up to first EOL
-        if (!markdownLineEnding(code)) {
+        // Reject any space/tab right after the fence for eager recognition
+        if (code === codes.space || code === codes.horizontalTab) {
             fx.exit('editBlockFenceOpen');
-            fx.enter('editBlockFilename'); // Info string *is* our filename
-            return infoString(code);
-        } else {
-            fx.consume(code);
-            fx.exit('editBlockFenceOpen');
+            fx.exit('editBlock');
+            return fx.nok(code);
         }
 
-        return afterOpeningLine; // Immediately jumped to next line
+        // No blanks, jump straight into the filename token
+        fx.exit('editBlockFenceOpen');
+        fx.enter('editBlockFilename');
+        return infoString(code);
     }
 
     function consumeFence(c: Code, newSize: number) {
@@ -84,10 +84,16 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
 
     function infoString(code: Code): State {
         if (markdownLineEnding(code) || code === codes.eof) {
-            fx.consume(code);
+            if (code !== codes.eof) fx.consume(code);  // ← only consume real bytes
             fx.exit('editBlockFilename');
             filenameSeen = true;
-            return afterOpeningLine;
+            return afterOpeningLine(code);             // pass newline *or* EOF
+        }
+        // Reject any internal whitespace for eager recognition
+        if (code === codes.space || code === codes.horizontalTab) {
+            fx.exit('editBlockFilename');
+            fx.exit('editBlock');
+            return fx.nok(code);
         }
         fx.consume(code);
         return infoString;

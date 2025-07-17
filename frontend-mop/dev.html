@@ -1,71 +1,80 @@
 <!DOCTYPE html>
 <html class="theme-light">
 <head>
-  <meta charset="utf-8">
-  <title>Brokk MOP - Dev Mode</title>
+    <meta charset="utf-8">
+    <title>Brokk MOP - Dev Mode</title>
 </head>
 <style>
-  #mop-root {
-    top: 210px !important;
-  }
-  #dev-tools {
-    margin: 1em;
-  }
+    #mop-root {
+        top: 350px !important;
+    }
+
+    #dev-tools {
+        margin: 1em;
+    }
 </style>
 <body>
 <div id="dev-tools">
-  <h1>Brokk MOP - Development Mode</h1>
-  <p>Events from Java will be logged to the console and displayed raw below.</p>
-  <h3>Dev Tools</h3>
-  <button onclick="streamAsk()">Stream "Ask"</button>
-  <button onclick="streamEdit()">Stream "Edit"</button>
-  <button onclick="showAskMd()">Show "ask" MD</button>
-  <button onclick="showEditMd()">Show "edit" MD</button>
-  <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle Theme</button>
-  <button onclick="window.brokk.clear()">Clear Log</button>
-  <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
-    Test Spinner
-  </button>
-  <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
+    <h1>Brokk MOP - Development Mode</h1>
+    <p>Events from Java will be logged to the console and displayed raw below.</p>
+    <h3>Dev Tools</h3>
+    <button onclick="streamAsk()">Stream "Ask"</button>
+    <button onclick="streamEdit()">Stream "Edit"</button>
+    <button onclick="showAskMd()">Show "ask" MD</button>
+    <button onclick="showEditMd()">Show "edit" MD</button>
+    <button onclick="window.brokk.setTheme(!document.querySelector('html').classList.contains('theme-dark'))">Toggle
+        Theme
+    </button>
+    <button onclick="window.brokk.clear()">Clear Log</button>
+    <button onclick="window.brokk.showSpinner('Testing spinner...'); setTimeout(() => window.brokk.hideSpinner(), 2000);">
+        Test Spinner
+    </button>
+    <button onclick="window.brokk.hideSpinner()">Hide Spinner</button>
+    <textarea id="md-playground"
+              placeholder="Type Markdown here..."
+              style="width:100%;height:150px;margin:1em 0;box-sizing:border-box;"></textarea>
+
 </div>
+
 <script type="module" src="/src/index.ts"></script>
 <script>
-  // Immediately define brokk with a buffer to catch early events and calls from Java
-  (function() {
-    const buffer = []; // Unified buffer for all calls and events
-    let seq = 0; // Sequence number to maintain order
+    // Immediately define brokk with a buffer to catch early events and calls from Java
+    (function () {
+        const buffer = []; // Unified buffer for all calls and events
+        let seq = 0; // Sequence number to maintain order
 
-    window.brokk = new Proxy({
-      _buffer: buffer
-    }, {
-      get(target, prop) {
-        if (prop === '_buffer') {
-          return target[prop];
+        window.brokk = new Proxy({
+            _buffer: buffer
+        }, {
+            get(target, prop) {
+                if (prop === '_buffer') {
+                    return target[prop];
+                }
+                return (...args) => {
+                    if (prop === 'onEvent') {
+                        console.log('Buffering early event from Java:', JSON.stringify(args));
+                        buffer.push({type: 'event', payload: args[0], seq: seq++});
+                    } else if (prop === 'hideSpinner') {
+                        console.log('Buffering early call from Java to', prop);
+                        buffer.push({type: 'call', method: prop, args: [], seq: seq++});
+                    } else {
+                        console.log('Buffering early call from Java to', prop);
+                        buffer.push({type: 'call', method: prop, args: args, seq: seq++});
+                    }
+                    return undefined;
+                };
+            }
+        });
+    })();
+    // Mock Java bridge for dev mode
+    window.javaBridge = {
+        onAck: (epoch) => {
         }
-        return (...args) => {
-          if (prop === 'onEvent') {
-            console.log('Buffering early event from Java:', JSON.stringify(args));
-            buffer.push({ type: 'event', payload: args[0], seq: seq++ });
-          } else if (prop === 'hideSpinner') {
-            console.log('Buffering early call from Java to', prop);
-            buffer.push({ type: 'call', method: prop, args: [], seq: seq++ });
-          } else {
-            console.log('Buffering early call from Java to', prop);
-            buffer.push({ type: 'call', method: prop, args: args, seq: seq++ });
-          }
-          return undefined;
-        };
-      }
-    });
-  })();
-  // Mock Java bridge for dev mode
-  window.javaBridge = {
-    onAck: (epoch) => {}
-  };
+    };
 
-  function simulateEvent(type, data = {}) {
-    window.brokk.onEvent({type, epoch: Date.now(), ...data});
-  }
+    function simulateEvent(type, data = {}) {
+        window.brokk.onEvent({type, epoch: Date.now(), ...data});
+    }
 
 
     const contentUser = `> "npm run dev" should run vite/svelte based on dev.html? \nany idea?`;
@@ -263,28 +272,29 @@ Both approaches:
 - Vite always *serves* every HTML file under \`root\`, but it *opens* only one page at start-up.
 - Adjusting \`server.open\` (or the CLI \`--open\`) lets you point dev mode to whichever HTML file you want without disturbing the production build.
 `;
- function streamAsk() {
-    let index = 0;
-    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
-    const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-    const interval = setInterval(() => {
-      if (index < chunks.length) {
-        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
-        index++;
-      } else {
-        clearInterval(interval);
-      }
-    }, 10);
-  }
 
-  function showAskMd() {
-      simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
-      simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false})
-      simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
-  }
+    function streamAsk() {
+        let index = 0;
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true})
+        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+        const interval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+                index++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 10);
+    }
+
+    function showAskMd() {
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+    }
 
 
-  const ai = `
+    const ai = `
 
   Looking at the failed blocks and the current content, I can see the issue. The file is in a broken state where it references \`commitBrowserPanel\` (which doesn't exist) but we need to revert those changes back to use the original table model code.
 
@@ -506,15 +516,15 @@ Both approaches:
 `;
 
 
-  function showEditMd() {
-      simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
-      simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false})
-      simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
-  }
+    function showEditMd() {
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false})
+        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false})
+    }
 
-  function streamEdit() {
-    const contentUser = `fix it`;
-    const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
+    function streamEdit() {
+        const contentUser = `fix it`;
+        const contentAi = `I understand the issue with the ordering of buffered events and calls in the JavaScript code, which causes the UI to sometimes clear at the end due to incorrect replay order. The problem stems from having two separate buffers (\`_callQueue\` and \`_eventBuffer\`) and replaying them in the wrong order. I'll fix this by unifying the buffer into a single queue with a sequence number to maintain the correct order of operations during replay.
 
 Here's the plan:
 1. Modify the temporary stub in \`index.html\` to use a single buffer with a sequence number.
@@ -713,19 +723,38 @@ if (buffer.length > 0) {
 >>>>>>> REPLACE
 \`\`\`
     `;
-    let index = 0;
-    simulateEvent('clear');
-    simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true});
-    const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-    const interval = setInterval(() => {
-      if (index < chunks.length) {
-        simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
-        index++;
-      } else {
-        clearInterval(interval);
-      }
-    }, 10);
-  }
+        let index = 0;
+        simulateEvent('clear');
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: true});
+        const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+        const interval = setInterval(() => {
+            if (index < chunks.length) {
+                simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true});
+                index++;
+            } else {
+                clearInterval(interval);
+            }
+        }, 10);
+    }
+
+
+    (function () {
+        const mdInput = document.getElementById('md-playground');
+        let rafId = 0;
+
+        mdInput.addEventListener('input', () => {
+            cancelAnimationFrame(rafId);
+            rafId = requestAnimationFrame(() => {
+                window.brokk.clear();
+                simulateEvent('chunk', {
+                    text: mdInput.value,
+                    msgType: 'AI',
+                    streaming: true
+                });
+            });
+        });
+    })();
+
 </script>
 <div id="mop-root"></div>
 </body>

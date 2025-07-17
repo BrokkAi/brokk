@@ -8,7 +8,7 @@ export function editBlockFromMarkdown() {
         enter: {
             // Create the node and remember it.
             editBlock(tok) {
-                log('enter editBlock');
+                log('from-markdown', 'enter editBlock');
                 const node = {
                     type: 'editBlock',
                     data: {
@@ -26,43 +26,43 @@ export function editBlockFromMarkdown() {
 
             // Filename
             editBlockFilename() {
-                log('enter editBlockFilename');
+                log('from-markdown', 'enter editBlockFilename');
             },
 
             // Search text
             editBlockSearchContent() {
-                log('enter editBlockSearchContent');
+                log('from-markdown', 'enter editBlockSearchContent');
                 this.buffer(); // start collecting *search* text
             },
 
             // Replace text
             editBlockReplaceContent() {
-                log('enter editBlockReplaceContent');
+                log('from-markdown', 'enter editBlockReplaceContent');
                 this.buffer(); // start collecting *replace* text
             }
         },
         exit: {
             editBlockFilename(tok) {
-                log('exit editBlockFilename');
+                log('from-markdown', 'exit editBlockFilename');
                 const node = this.data.currentEditBlock;
                 node.data.hProperties.filename = this.sliceSerialize(tok);
             },
 
             editBlockSearchContent(tok) {
-                log('exit editBlockSearchContent');
+                log('from-markdown', 'exit editBlockSearchContent');
                 const node = this.data.currentEditBlock;
                 node.data.hProperties.search = this.resume();
             },
 
             editBlockReplaceContent(tok) {
-                log('exit editBlockReplaceContent');
+                log('from-markdown', 'exit editBlockReplaceContent');
                 const node = this.data.currentEditBlock;
                 node.data.hProperties.replace = this.resume();
             },
 
             editBlock(tok) {
-                log('exit editBlock');
-                log(this.data.currentEditBlock, true);
+                log('from-markdown', 'exit editBlock');
+                log('from-markdown', this.data.currentEditBlock, true);
                 delete this.data['currentEditBlock']; // clear helper
                 this.exit(tok); // close the node
             }

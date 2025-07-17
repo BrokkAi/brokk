@@ -1,4 +1,5 @@
 import type { Construct } from 'micromark-util-types';
+import {tokenizeEditBlock} from './edit-block-orchestrator';
 import { tokenizeFenced } from './fenced-tokenizer';
 
 /**
@@ -6,6 +7,6 @@ import { tokenizeFenced } from './fenced-tokenizer';
  */
 export const fencedEditBlock: Construct = {
     name: 'editBlock', // Same node type – mdast stays unchanged
-    tokenize: tokenizeFenced,
+    tokenize: tokenizeEditBlock,
     concrete: true
 };
