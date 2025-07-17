@@ -30,6 +30,10 @@ public interface Language {
 
     IAnalyzer loadAnalyzer(IProject project);
 
+    default IAnalyzer loadOrCreateAnalyzer(IProject project) {
+        return loadAnalyzer(project);
+    }
+
     /**
      * Get the path where the CPG for this language in the given project should be stored.
      *
@@ -104,7 +108,7 @@ public interface Language {
         }
     };
 
-    Language JAVA = new Language() {
+    Language JAVA = new CpgLanguage() {
         private final List<String> extensions = List.of("java");
 
         @Override
@@ -228,10 +232,6 @@ public interface Language {
             return jarFiles;
         }
 
-        @Override
-        public boolean isCpg() {
-            return true;
-        }
     };
 
     Pattern PY_SITE_PKGS = Pattern.compile("^python\\d+\\.\\d+$");
@@ -437,7 +437,7 @@ public interface Language {
         }
     };
 
-    Language C_CPP = new Language() {
+    Language C_CPP = new CpgLanguage() {
         private final List<String> extensions = List.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
 
         @Override
@@ -469,16 +469,6 @@ public interface Language {
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
             return new CppAnalyzer(project.getRoot(), getCpgPath(project));
-        }
-
-        @Override
-        public boolean isCpg() {
-            return true;
-        }
-
-        @Override
-        public List<Path> getDependencyCandidates(IProject project) {
-            return Language.super.getDependencyCandidates(project);
         }
     };
 
@@ -908,6 +898,19 @@ public interface Language {
                     ? delegates.values().iterator().next()
                     : new MultiAnalyzer(delegates);
         }
+        
+        @Override
+        public IAnalyzer loadOrCreateAnalyzer(IProject project) {
+            var delegates = new HashMap<Language, IAnalyzer>();
+            for (var lang : languages) {
+                var analyzer = lang.loadOrCreateAnalyzer(project);
+                if (!analyzer.isEmpty())
+                    delegates.put(lang, analyzer);
+            }
+            return delegates.size() == 1
+                    ? delegates.values().iterator().next()
+                    : new MultiAnalyzer(delegates);
+        }
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
@@ -924,6 +927,23 @@ public interface Language {
         @Override
         public String toString() {
             return "MultiLanguage" + languages;
+        }
+    }
+
+    /**
+     * A language frontend that makes use of a Joern/CPG-based analysis.
+     */
+    interface CpgLanguage extends Language {
+        @Override
+        default IAnalyzer loadOrCreateAnalyzer(IProject project) {
+            var cpgPath = getCpgPath(project);
+            if (Files.isRegularFile(cpgPath)) return loadAnalyzer(project);
+            else return createAnalyzer(project);
+        }
+
+        @Override
+        default boolean isCpg() {
+            return true;
         }
     }
 }

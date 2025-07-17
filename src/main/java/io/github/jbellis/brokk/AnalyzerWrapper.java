@@ -268,7 +268,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
         long start = System.currentTimeMillis();
-        IAnalyzer analyzer = langHandle.loadAnalyzer(project);
+        IAnalyzer analyzer = langHandle.loadOrCreateAnalyzer(project);
 
         if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
             logger.debug("Building fresh analyzer (first build, rebuild required: {})", needsRebuild);
