@@ -40,27 +40,6 @@ public class OpenAiTokenCountEstimator implements TokenCountEstimator {
     private final Encoding encoding;
 
     /**
-     * Creates an instance of the {@code OpenAiTokenCountEstimator} for a given {@link OpenAiChatModelName}.
-     */
-    public OpenAiTokenCountEstimator(OpenAiChatModelName modelName) {
-        this(modelName.toString());
-    }
-
-    /**
-     * Creates an instance of the {@code OpenAiTokenCountEstimator} for a given {@link OpenAiEmbeddingModelName}.
-     */
-    public OpenAiTokenCountEstimator(OpenAiEmbeddingModelName modelName) {
-        this(modelName.toString());
-    }
-
-    /**
-     * Creates an instance of the {@code OpenAiTokenCountEstimator} for a given {@link OpenAiLanguageModelName}.
-     */
-    public OpenAiTokenCountEstimator(OpenAiLanguageModelName modelName) {
-        this(modelName.toString());
-    }
-
-    /**
      * Creates an instance of the {@code OpenAiTokenCountEstimator} for a given model name.
      */
     public OpenAiTokenCountEstimator(String modelName) {
