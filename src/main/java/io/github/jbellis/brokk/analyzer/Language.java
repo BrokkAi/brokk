@@ -28,6 +28,11 @@ public interface Language {
 
     IAnalyzer createAnalyzer(IProject project);
 
+    /**
+     * ACHTUNG!
+     * LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call
+     * it outside of try/catch with recovery!
+     */
     IAnalyzer loadAnalyzer(IProject project);
 
     /**
@@ -900,6 +905,7 @@ public interface Language {
         public IAnalyzer loadAnalyzer(IProject project) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
+                // TODO handle partial failure without needing to rebuild everything?
                 var analyzer = lang.loadAnalyzer(project);
                 if (!analyzer.isEmpty())
                     delegates.put(lang, analyzer);

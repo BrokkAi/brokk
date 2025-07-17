@@ -155,7 +155,7 @@ public class AnalyzerWrapper implements AutoCloseable {
      */
     private void handleBatch(EventBatch batch) {
         logger.trace("Events batch: {}", batch);
-        
+
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
             Path gitMetaDir = gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
@@ -167,7 +167,6 @@ public class AnalyzerWrapper implements AutoCloseable {
                 }
             }
         }
-
         // 2) If overflowed, assume something changed
         if (batch.isOverflowed) {
             if (listener != null) listener.onTrackedFileChange();
@@ -268,7 +267,14 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
         long start = System.currentTimeMillis();
-        IAnalyzer analyzer = langHandle.loadAnalyzer(project);
+        IAnalyzer analyzer;
+        try {
+            analyzer = langHandle.loadAnalyzer(project);
+        } catch (Throwable th) {
+            // cache missing or corrupt, rebuild
+            analyzer = langHandle.createAnalyzer(project);
+            needsRebuild = false;
+        }
 
         if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
             logger.debug("Building fresh analyzer (first build, rebuild required: {})", needsRebuild);
