@@ -1,12 +1,11 @@
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, Effects, State, Tokenizer } from 'micromark-util-types';
-import { SafeFx } from './util';
+import {makeSafeFx, SafeFx} from './util';
 
 export interface BodyTokenizerOpts {
     divider: Tokenizer;
     tail: Tokenizer;
-    makeSafeFx: (effects: Effects, ctx: any) => SafeFx;
 }
 
 /**
@@ -14,11 +13,13 @@ export interface BodyTokenizerOpts {
  * and finishing after the tail has been consumed.
  */
 export function makeEditBlockBodyTokenizer(
-    { divider, tail, makeSafeFx }: BodyTokenizerOpts
+    { divider, tail }: BodyTokenizerOpts
 ): Tokenizer {
     return function tokenizeBody(effects, ok, nok) {
         const ctx = this;
-        const fx = makeSafeFx(effects, ctx);
+        const fx = makeSafeFx('tokenizeBody', effects, ctx, ok, nok);
+        let dividerSeen = false;
+        let tailSeen = false;
 
         // Search content state machine
         function searchLineStart(code: Code): State {
@@ -36,7 +37,7 @@ export function makeEditBlockBodyTokenizer(
             if (code === codes.equalsTo) {
                 // Look-ahead for the divider (=======)
                 return effects.check(
-                    { tokenize: divider, partial: true },
+                    { tokenize: divider, concrete: true },
                     afterDividerCheck, // Success: transition without including divider
                     searchChunkStart // Failure: treat as regular content
                 )(code);
@@ -66,20 +67,23 @@ export function makeEditBlockBodyTokenizer(
         function inSearch(code: Code): State {
             // This function is reached when we are at EOF, and we haven't found a divider.
             fx.exit('editBlockSearchContent');
-            return ok(code);
+            (ctx as any)._editBlockHasDivider = dividerSeen;
+            (ctx as any)._editBlockCompleted = tailSeen;
+            return fx.ok(code);
         }
 
         function afterDividerCheck(code: Code): State {
             fx.exit('editBlockSearchContent');
             // Now consume the divider
             return effects.attempt(
-                { tokenize: divider, partial: true },
+                { tokenize: divider, concrete: true },
                 afterDividerConsumed,
-                nok
+                fx.nok
             )(code);
         }
 
         function afterDividerConsumed(code: Code): State {
+            dividerSeen = true;
             fx.enter('editBlockReplaceContent');
             return replaceLineStart(code);
         }
@@ -100,7 +104,7 @@ export function makeEditBlockBodyTokenizer(
             if (code === codes.greaterThan) {
                 // Look-ahead for the tail (>>>>>>> REPLACE ...)
                 return effects.check(
-                    { tokenize: tail, partial: true },
+                    { tokenize: tail, concrete: true },
                     afterTailCheck, // Success: transition without including tail
                     replaceChunkStart // Failure: treat as regular content
                 )(code);
@@ -130,21 +134,26 @@ export function makeEditBlockBodyTokenizer(
         function inReplace(code: Code): State {
             // Reached at EOF without tail.
             fx.exit('editBlockReplaceContent');
-            return ok(code);
+            (ctx as any)._editBlockHasDivider = dividerSeen;
+            (ctx as any)._editBlockCompleted = tailSeen;
+            return fx.ok(code);
         }
 
         function afterTailCheck(code: Code): State {
             fx.exit('editBlockReplaceContent');
             // Now consume the tail
             return effects.attempt(
-                { tokenize: tail, partial: true },
+                { tokenize: tail, concrete: true },
                 afterTailConsumed,
-                nok
+                fx.nok
             )(code);
         }
 
         function afterTailConsumed(code: Code): State {
-            return ok(code);
+            tailSeen = true;
+            (ctx as any)._editBlockHasDivider = dividerSeen;
+            (ctx as any)._editBlockCompleted = tailSeen;
+            return fx.ok(code);
         }
 
         // Start in search mode

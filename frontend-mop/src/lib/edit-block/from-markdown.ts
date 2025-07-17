@@ -12,9 +12,12 @@ export function editBlockFromMarkdown() {
                 const node = {
                     type: 'editBlock',
                     data: {
-                        filename: undefined as string | undefined,
-                        search: undefined as string | undefined,
-                        replace: undefined as string | undefined
+                        hName: 'edit-block',
+                        hProperties: {
+                            filename: undefined as string | undefined,
+                            search: undefined as string | undefined,
+                            replace: undefined as string | undefined
+                        }
                     }
                 };
                 this.enter(node, tok);
@@ -42,23 +45,24 @@ export function editBlockFromMarkdown() {
             editBlockFilename(tok) {
                 log('exit editBlockFilename');
                 const node = this.data.currentEditBlock;
-                node.data.filename = this.sliceSerialize(tok);
+                node.data.hProperties.filename = this.sliceSerialize(tok);
             },
 
             editBlockSearchContent(tok) {
                 log('exit editBlockSearchContent');
                 const node = this.data.currentEditBlock;
-                node.data.search = this.resume();
+                node.data.hProperties.search = this.resume();
             },
 
             editBlockReplaceContent(tok) {
                 log('exit editBlockReplaceContent');
                 const node = this.data.currentEditBlock;
-                node.data.replace = this.resume();
+                node.data.hProperties.replace = this.resume();
             },
 
             editBlock(tok) {
                 log('exit editBlock');
+                log(this.data.currentEditBlock, true);
                 delete this.data['currentEditBlock']; // clear helper
                 this.exit(tok); // close the node
             }

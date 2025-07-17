@@ -8,11 +8,11 @@ import { makeSafeFx } from './util';
  */
 export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
     const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
+    const fx = makeSafeFx('tokenizeTail', effects, ctx, ok, nok);
     return start;
 
     function start(code: Code): State {
-        if (code !== codes.greaterThan) return nok(code);
+        if (code !== codes.greaterThan) return fx.nok(code);
         fx.enter('editBlockTail');
         fx.consume(code);
         return sequence(1);
@@ -26,7 +26,7 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
             }
             if (count < 7) {
                 fx.exit('editBlockTail');
-                return nok(code);
+                return fx.nok(code);
             }
             if (code === codes.space) {
                 fx.consume(code);
@@ -46,7 +46,7 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
                 }
                 fx.exit('editBlockTailKeyword');
                 fx.exit('editBlockTail');
-                return nok(code);
+                return fx.nok(code);
             }
             // Optional whitespace before filename
             if (code === codes.space || code === codes.horizontalTab) {
@@ -56,7 +56,7 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
             if (markdownLineEnding(code) || code === codes.eof) {
                 fx.exit('editBlockTailKeyword');
                 fx.exit('editBlockTail');
-                return ok(code);
+                return fx.ok(code);
             }
             // Something else on the line starts the filename
             fx.enter('editBlockTailFilename');
@@ -68,7 +68,7 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockTailKeyword');
             fx.exit('editBlockTail');
-            return ok(code);
+            return fx.ok(code);
         }
         fx.enter('editBlockTailFilename');
         return tailFilenameContinue(code);
@@ -79,7 +79,7 @@ export const tokenizeTail: Tokenizer = function (effects, ok, nok) {
             fx.exit('editBlockTailFilename');
             fx.exit('editBlockTailKeyword');
             fx.exit('editBlockTail');
-            return ok(code);
+            return fx.ok(code);
         }
         fx.consume(code);
         return tailFilenameContinue;

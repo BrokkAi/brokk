@@ -8,11 +8,11 @@ import { makeSafeFx } from './util';
  */
 export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
     const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
+    const fx = makeSafeFx('tokenizeDivider', effects, ctx, ok, nok);
     return start;
 
     function start(code: Code): State {
-        if (code !== codes.equalsTo) return nok(code);
+        if (code !== codes.equalsTo) return fx.nok(code);
         fx.enter('editBlockDivider');
         fx.consume(code);
         return sequence(1);
@@ -26,7 +26,7 @@ export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
             }
             if (count < 7) {
                 fx.exit('editBlockDivider');
-                return nok(code);
+                return fx.nok(code);
             }
             // Optional whitespace before filename
             if (code === codes.space || code === codes.horizontalTab) {
@@ -36,7 +36,7 @@ export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
             // Accept immediate EOL/EOF
             if (markdownLineEnding(code) || code === codes.eof) {
                 fx.exit('editBlockDivider');
-                return ok(code);
+                return fx.ok(code);
             }
             // Any other character starts the filename
             fx.enter('editBlockDividerFilename');
@@ -48,7 +48,7 @@ export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
         // If only spaces were provided before EOL/EOF
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockDivider');
-            return ok(code);
+            return fx.ok(code);
         }
         fx.enter('editBlockDividerFilename');
         return dividerFilenameContinue(code);
@@ -58,7 +58,7 @@ export const tokenizeDivider: Tokenizer = function (effects, ok, nok) {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockDividerFilename');
             fx.exit('editBlockDivider');
-            return ok(code);
+            return fx.ok(code);
         }
         fx.consume(code);
         return dividerFilenameContinue;

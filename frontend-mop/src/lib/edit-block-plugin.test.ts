@@ -2,7 +2,6 @@ import remarkParse from 'remark-parse';
 import {unified} from 'unified';
 import {visit} from 'unist-util-visit';
 import {expect, test} from 'vitest';
-import {remarkEditBlock} from '../lib/edit-block-plugin';
 import {editBlockFromMarkdown, gfmEditBlock} from './micromark-edit-block';
 
 // Helper function to process markdown through the plugin and return the AST
@@ -12,7 +11,6 @@ function md2hast(md: string, { enableEditBlocks = true } = {}) {
     processor
       .data('micromarkExtensions', [gfmEditBlock()])
       .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
-      .use(remarkEditBlock);
   }
   // Pass the markdown content as part of the VFile to ensure file.contents is available
   return processor.runSync(processor.parse(md), { value: md });
@@ -33,6 +31,8 @@ test('detects unfenced edit block with inline filename', () => {
   const md = `
 <<<<<<< SEARCH foo/bar.java
 System.out.println("hi");
+====
+sdf
 =======
 System.out.println("bye");
 >>>>>>> REPLACE
@@ -46,6 +46,43 @@ System.out.println("bye");
   expect(props.dels).toBe('1');
   expect(props.changed).toBe('1');
   expect(props.status).toBe('UNKNOWN');
+});
+
+test('detects fenced edit block with inline filename', () => {
+  const md = `
+\`\`\`
+<<<<<<< SEARCH foo/bar.java
+System.out.println("hi");
+=======
+System.out.println("bye");
+>>>>>>> REPLACE
+\`\`\``;
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('foo/bar.java');
+  expect(props.adds).toBe('1');
+  expect(props.dels).toBe('1');
+  expect(props.changed).toBe('1');
+  expect(props.status).toBe('UNKNOWN');
+});
+
+test('foo 3', () => {
+    const md = `
+foo bar    
+    
+\`\`\`
+`;
+    const tree = md2hast(md);
+    const editBlocks = findEditBlocks(tree);
+    expect(editBlocks.length).toBe(1);
+    const props = editBlocks[0].data.hProperties;
+    expect(props.filename).toBe('foo/bar.java');
+    expect(props.adds).toBe('1');
+    expect(props.dels).toBe('1');
+    expect(props.changed).toBe('1');
+    expect(props.status).toBe('UNKNOWN');
 });
 
 test('detects multiple unfenced edit block with inline filename', () => {
@@ -93,6 +130,21 @@ test('handles incomplete edit block', () => {
 some content
 ====
   `;
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('?');
+  expect(props.search).toBe('some content\n');
+  expect(props.replace).toBe('');  expect(props.adds).toBe('0');
+  expect(props.dels).toBe('1');
+  expect(props.changed).toBe('0');
+});
+
+test('handles incomplete fenced edit block', () => {
+  const md = `
+  \`\`\`
+<<`;
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);
   expect(editBlocks.length).toBe(1);
@@ -204,7 +256,8 @@ a
 =======
 b
 >>>>>>> REPLACE
-\`\`\``;
+\`\`\`
+`;
 
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);
@@ -463,6 +516,249 @@ new code
 >>>>>>> REPLACE
 \`\`\`
   `;
+
+  const tree = md2hast(md);
+  const editBlocks = findEditBlocks(tree);
+
+  expect(editBlocks.length).toBe(1);
+  const props = editBlocks[0].data.hProperties;
+  expect(props.filename).toBe('script.js');
+});
+
+
+test('foo2', () => {
+  const md = `
+## 1  Why extract a “body” helper?
+
+All the heavy lifting that happens **after** we have read
+
+\`\`\`
+<<<<<<< SEARCH [optional-filename]
+\`\`\`
+
+is completely independent of whether the edit-block is *fenced* or *unfenced*:  
+it just has to
+
+1. accumulate the *search* segment until it sees an \`======= …\` divider,
+2. accumulate the *replace* segment until it sees a \`>>>>>>> REPLACE …\` tail,
+3. return control to the outer construct.
+
+If we move that logic into a separate helper we gain:
+
+* zero duplication when we later add the fenced variant,
+* easier unit testing – the body helper can be fed an artificial stream that
+  starts right after the head line,
+* a much smaller, more readable “shell” tokenizer for both unfenced and fenced
+  constructs.
+
+---
+
+## 2  What exactly is the “body” part?
+
+Everything shaded below should live in the helper:
+
+\`\`\`
+start()                               // unfenced shell, keep here
+├── checkHeadLessThan()
+├── checkSearchKeyword()
+├── afterSearchKeyword()
+└── inFilename()
+   └── ENTER BODY PARSER  ←────────── extracted helper ──────────┐
+       searchLineStart()                                         │
+       searchChunkStart/Continue()                               │
+       tokenizeDivider (≈=======)                                │
+       replaceLineStart()                                        │
+       replaceChunkStart/Continue()                              │
+       tokenizeTail   (≈>>>>>>>)                                 │
+       inSearch() / inReplace()                                  │
+   └── RETURN from helper ───────────────────────────────────────┘
+\`\`\`
+
+\`tokenizeDivider\` and \`tokenizeTail\` are already **stand-alone tokenizers**,
+so we can simply re-export them and let the helper \`import\` / receive them.
+
+---
+
+## 3  Suggested file layout
+
+\`\`\`
+edit-block/
+├── tokenizer.ts              // current unfenced shell – keeps only “head”
+├── body-tokenizer.ts         // new: shared body helper
+├── divider-tokenizer.ts      // (= existing tokenizeDivider)
+└── tail-tokenizer.ts         // (= existing tokenizeTail)
+\`\`\`
+
+(Naming is obviously flexible; this is only to make the idea concrete.)
+
+---
+
+## 4  Code sketches
+
+Below are **illustrative** snippets – not copy-paste-ready production code –  
+to show how the refactor hangs together.
+
+### 4.1  body-tokenizer.ts
+
+\`\`\`ts
+// body-tokenizer.ts
+import type { Code, Tokenizer, State, Effects } from 'micromark-util-types';
+import { markdownLineEnding, codes } from 'micromark-util-symbol';
+
+export interface BodyTokenizerOpts {
+  divider: Tokenizer;          // usually \`tokenizeDivider\`
+  tail: Tokenizer;             // usually \`tokenizeTail\`
+  makeSafeFx: (effects: Effects, ctx: any) => SafeFx;
+}
+
+/**
+ * Returns a tokenizer that starts in *search* mode and finishes right
+ * after the tail has been consumed. It delegates success to \`ok\`
+ * and any structural error to \`nok\`.
+ */
+export function makeEditBlockBodyTokenizer(
+  { divider, tail, makeSafeFx }: BodyTokenizerOpts
+): Tokenizer {
+
+  return function tokenizeBody(effects, ok, nok) {
+    const ctx = this;
+    const fx = makeSafeFx(effects, ctx);
+
+    // --- SEARCH side -------------------------------------------------------
+    function searchLineStart(code: Code): State {
+      if (code === codes.eof) return fail();        // unexpected EOF
+
+      if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
+        fx.enter('data'); fx.consume(code); fx.exit('data');
+        return searchLineStart;
+      }
+
+      if (code === codes.equalsTo) {
+        return effects.check({ tokenize: divider },
+                             afterDivider, searchChunkStart)(code);
+      }
+      return searchChunkStart(code);
+    }
+
+    function searchChunkStart(code: Code): State {
+      fx.enter('data');             // start a run of literal characters
+      return searchChunkContinue(code);
+    }
+    function searchChunkContinue(code: Code): State {
+      if (markdownLineEnding(code)) { fx.consume(code); fx.exit('data'); return searchLineStart; }
+      if (code === codes.eof) return fail();
+      fx.consume(code); return searchChunkContinue;
+    }
+    // --- /SEARCH -----------------------------------------------------------
+
+    function afterDivider(code: Code): State {
+      fx.exit('editBlockSearchContent');
+      fx.enter('editBlockReplaceContent');
+      return replaceLineStart(code);
+    }
+
+    // --- REPLACE side ------------------------------------------------------
+    function replaceLineStart(code: Code): State {
+      if (code === codes.eof) return fail();
+
+      if (markdownLineEnding(code) || code === codes.space || code === codes.tab) {
+        fx.enter('data'); fx.consume(code); fx.exit('data');
+        return replaceLineStart;
+      }
+
+      if (code === codes.greaterThan) {
+        return effects.check({ tokenize: tail },
+                             afterTail, replaceChunkStart)(code);
+      }
+      return replaceChunkStart(code);
+    }
+
+    function replaceChunkStart(code: Code): State {
+      fx.enter('data');
+      return replaceChunkContinue(code);
+    }
+    function replaceChunkContinue(code: Code): State {
+      if (markdownLineEnding(code)) { fx.consume(code); fx.exit('data'); return replaceLineStart; }
+      if (code === codes.eof) return fail();
+      fx.consume(code); return replaceChunkContinue;
+    }
+    // --- /REPLACE ----------------------------------------------------------
+
+    function afterTail(code: Code): State {
+      fx.exit('editBlockReplaceContent');
+      return ok(code);                 // body successfully finished
+    }
+
+    function fail(): State {
+      fx.exit('editBlockReplaceContent');
+      fx.exit('editBlock');            // or whatever clean-up you need
+      return nok(codes.eof);
+    }
+
+    /* boot-strap state */
+    fx.enter('editBlockSearchContent');
+    return searchLineStart;
+  };
+}
+\`\`\`
+
+### 4.2  tokenizer.ts (unfenced shell, now *slim*)
+
+\`\`\`ts
+// tokenizer.ts  (excerpt – only the outer shell retained)
+import { codes } from 'micromark-util-symbol';
+import { makeEditBlockBodyTokenizer } from './body-tokenizer';
+import { tokenizeDivider } from './divider-tokenizer';
+import { tokenizeTail }    from './tail-tokenizer';
+import { makeSafeFx }      from './util';
+
+export const tokenize: Tokenizer = function (effects, ok, nok) {
+  const ctx = this;
+  const fx = makeSafeFx(effects, ctx);
+  const bodyTokenizer = makeEditBlockBodyTokenizer({
+    divider: tokenizeDivider,
+    tail: tokenizeTail,
+    makeSafeFx,
+  });
+
+  return start;
+
+  /* ─── HEAD parsing (unchanged) ─────────────────────────────────── */
+
+  function start(code) { /* detect <<<<<<< SEARCH … */ }
+
+  /* … snip … until we finally have consumed filename/EOL … */
+  function afterFilename(code) {
+    // At this point we are positioned at the first byte *after* the head line.
+    // Delegate to the shared body tokenizer:
+    return effects.attempt({ tokenize: bodyTokenizer },
+                           bodyDone, nok)(code);
+  }
+  function bodyDone(code) {
+    fx.exit('editBlock');
+    return ok(code);
+  }
+};
+\`\`\`
+
+---
+
+## 5  Key take-aways
+
+* Move **all search/replace logic** (and its helper tokenizers) into
+  \`body-tokenizer.ts\`.
+* The unfenced tokenizer only
+  1. recognises the \`<<<<<<< SEARCH …\` header,
+  2. optionally captures the filename,
+  3. then *delegates* to \`bodyTokenizer\`.
+* When you later write a fenced construct you reuse the *same* \`bodyTokenizer\`
+  – you only need a different shell that detects the opening / closing fences.
+
+This refactor changes no external behaviour; it simply isolates the reusable
+core, paving the way for the fenced variant and making the codebase easier to
+maintain and extend.
+  
+`;
 
   const tree = md2hast(md);
   const editBlocks = findEditBlocks(tree);

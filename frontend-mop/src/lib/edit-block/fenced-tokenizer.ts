@@ -17,18 +17,18 @@ import { tokenizeTail } from './tail-tokenizer';
 export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
     // Setup helpers
     const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
+    const fx = makeSafeFx('tokenizeFenced', effects, ctx, ok, nok);
 
     // Same body tokenizer we already ship
     const bodyTokenizer = makeEditBlockBodyTokenizer({
         divider: tokenizeDivider,
         tail: tokenizeTail,
-        makeSafeFx
     });
 
     // Will hold ` (back-tick) and how many we saw
     let fenceMarker: Code;
     let fenceSize = 0;
+    let indentCount = 0;
 
     // State machine
     let filenameSeen = false; // Track if we've seen a filename line
@@ -37,7 +37,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
     // 1. Absorb ```
     function openingSequence(code: Code): State {
         fenceMarker ??= code; // Remember whether it's `
-        if (code !== fenceMarker) return nok(code);
+        if (code !== fenceMarker) return fx.nok(code);
 
         fx.enter('editBlock');
         fx.enter('editBlockFenceOpen'); // Purely cosmetic, useful for debugging
@@ -54,7 +54,14 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         if (fenceSize < 3) { // GFM: ≥3 markers constitute a fence
             fx.exit('editBlockFenceOpen');
             fx.exit('editBlock');
-            return nok(code);
+            return fx.nok(code);
+        }
+
+        // eager recognition
+        if (code === codes.eof) {
+            fx.exit('editBlockFenceOpen');
+            fx.exit('editBlock');
+            return fx.ok(code);
         }
 
         // Absorb optional spaces, info string (= filename) up to first EOL
@@ -89,6 +96,12 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
     // 2. We are *after* the opening fence’s end-of-line
     //    → maybe one line with a filename, otherwise expect <<<<<<<
     function afterOpeningLine(code: Code): State {
+        // eager recognition
+        if (code === codes.eof) {
+            fx.exit('editBlock');
+            return fx.ok(code);
+        }
+
         if (markdownLineEnding(code)) { // Blank line – ignore
             fx.consume(code);
             return afterOpeningLine;
@@ -102,7 +115,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         // If we've already seen a filename line, we must have the search marker now
         if (filenameSeen) {
             fx.exit('editBlock');
-            return nok(code); // No search marker after filename, not an edit block
+            return fx.nok(code); // No search marker after filename, not an edit block
         }
 
         // Otherwise treat **this whole line** as "filename only" (2nd test variant)
@@ -111,7 +124,34 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         return filenameLine(code);
     }
 
+    // 2b. After header or filename, check if the next non-blank line is a closing fence
+    function checkForImmediateClosingFence(code: Code): State {
+        if (markdownLineEnding(code)) {
+            fx.enter('data');
+            fx.consume(code);
+            fx.exit('data');
+            return checkForImmediateClosingFence;
+        }
+        return effects.check(
+            { tokenize: closingFenceTokenizer, concrete: true },
+            (c) => {
+                fx.exit('editBlockSearchContent');
+                fx.exit('editBlock'); // Undo the initial enter if it's an empty block
+                return fx.nok(c); // Reject as not an edit block
+            },
+            delegateToBody
+        )(code);
+    }
+
     function filenameLine(code: Code): State {
+
+        //eager recognition
+        if (code === codes.eof) {
+            fx.exit('editBlockFilename');
+            fx.exit('editBlock');
+            return fx.ok(code);
+        }
+
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.consume(code);
             fx.exit('editBlockFilename');
@@ -133,6 +173,13 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         return checkHeadLessThan(code);
 
         function checkHeadLessThan(code2: Code): State {
+            //eager recognition
+            if (code === codes.eof) {
+                fx.exit('editBlockHead');
+                fx.exit('editBlock');
+                return fx.ok(code);
+            }
+
             if (code2 === codes.lessThan) {
                 fx.consume(code2);
                 count++;
@@ -141,7 +188,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
             if (count < 7 || code2 !== codes.space) {
                 fx.exit('editBlockHead');
                 fx.exit('editBlock');
-                return nok(code2);
+                return fx.nok(code2);
             }
             fx.consume(code2);
             fx.exit('editBlockHead');
@@ -165,7 +212,7 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
             if (markdownLineEnding(code3) || code3 === codes.eof) {
                 fx.exit('editBlockSearchKeyword');
                 fx.enter('editBlockSearchContent');
-                return delegateToBody(code3);
+                return checkForImmediateClosingFence(code3);
             }
             if (code3 === codes.space || code3 === codes.horizontalTab) {
                 fx.consume(code3);
@@ -178,10 +225,9 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
 
         function inFilename(code4: Code): State {
             if (markdownLineEnding(code4) || code4 === codes.eof) {
-                fx.consume(code4);
                 fx.exit('editBlockFilename');
                 fx.enter('editBlockSearchContent');
-                return delegateToBody(code4);
+                return checkForImmediateClosingFence(code4);
             }
             fx.consume(code4);
             return inFilename;
@@ -190,64 +236,96 @@ export const tokenizeFenced: Tokenizer = function (effects, ok, nok) {
         function fail(bad: Code): State {
             fx.exit('editBlockHead');
             fx.exit('editBlock');
-            return nok(bad);
+            return fx.nok(bad);
         }
     }
 
     // 4. Hand the heavy lifting to body-tokenizer
     function delegateToBody(code: Code): State {
-        return effects.attempt({ tokenize: bodyTokenizer, partial: true }, afterBody, nok)(code);
+        return effects.attempt({ tokenize: bodyTokenizer, concrete: true }, afterBody, fx.nok)(code);
     }
 
-    // 5. Once bodyTokenizer is done we *must* see the closing fence
+    // 5. Once bodyTokenizer is done, validate completeness *and* skip
+    //    any blank‑/indent lines before enforcing the closing fence
+
     function afterBody(code: Code): State {
-        return effects.attempt({ tokenize: closingFenceTokenizer, partial: true }, done, nok)(code);
+        // Body must contain both divider and tail, otherwise reject.
+        const bodyComplete = (ctx as any)._editBlockCompleted === true;
+        const hasDivider   = (ctx as any)._editBlockHasDivider === true;
+        if (!bodyComplete || !hasDivider) return fx.nok(code);
+
+        // --- allow blank lines between body and closing fence --------------
+        if (markdownLineEnding(code)) {          // empty / new logical line
+            indentCount = 0;                     // reset indentation counter
+            fx.enter("foo")
+            fx.consume(code);
+            fx.exit("foo")
+            return afterBody;
+        }
+
+        // --- allow up to three leading spaces (CommonMark rule) ------------
+        if ((code === codes.space || code === codes.horizontalTab) &&
+            indentCount < 3) {
+            indentCount++;
+            fx.enter("data")
+            fx.consume(code);
+            fx.exit("data")
+            return afterBody;
+        }
+
+        // -------------------------------------------------------------------
+        // First non‑space character of the line – must start the closing fence
+        return effects.attempt(
+            { tokenize: closingFenceTokenizer, concrete: true },
+            done,
+            fx.nok
+        )(code);
     }
 
     function done(code: Code): State {
         fx.exit('editBlock'); // Match the very first enter('editBlock')
-        return ok(code);
+        return fx.ok(code);
     }
 
     // Closing fence tokenizer
-    function closingFenceTokenizer (eff, ok2, nok2) {
-        // Make sure the very same marker + count close the block
-        return closeStart;
+    // -----------------------------------------------------------------------
+    // Closing fence tokenizer – must start *immediately* with the same
+    // marker that opened the block (``` or ~~~) and be ≥ the opening length.
+    // No ad‑hoc tokens, no line‑end pre‑consumption.
+    // -----------------------------------------------------------------------
+    function closingFenceTokenizer(eff, ok, nok) {
+        const fx = makeSafeFx('closingFence', eff, ctx, ok, nok);
 
-        function closeStart(c: Code): State {
+        return start;
 
-            if (markdownLineEnding(c) || c === codes.eof) {
-                // respect newlines
-                fx.enter('chunk')
-                fx.consume(c);
-                fx.exit('chunk')
-                return closeStart;
-            }
+        function start(code: Code): State {
+            if (code !== fenceMarker) return fx.nok(code);
 
-            if (c !== fenceMarker) return nok2(c);
-            let seen = 0;
             fx.enter('editBlockFenceClose');
-            return closeSeq(c);
+            let seen = 0;
 
-            function closeSeq(code5: Code): State {
-                if (code5 === fenceMarker) {
+            return seq(code);
+
+            function seq(c: Code): State {
+                // Count consecutive fence markers
+                if (c === fenceMarker && seen < fenceSize) {
                     seen++;
-                    fx.consume(code5);
-                    return closeSeq;
+                    fx.consume(c);
+                    return seq;
                 }
-                if (seen < fenceSize) { // Must be >= opening size
+
+                // Must be at least as long as the opening fence
+                if (seen < fenceSize) {
                     fx.exit('editBlockFenceClose');
-                    return nok2(code5);
+                    return fx.nok(c);
                 }
-                // Optional whitespace till EOL / EOF
-                if (!markdownLineEnding(code5) && code5 !== codes.eof) {
-                    fx.consume(code5);
-                    return closeSeq;
-                }
+
+                // Any other character invalidates the fence
                 fx.exit('editBlockFenceClose');
-                return ok2(code5);
+                return fx.ok(c);
             }
         }
     }
+
 
 };

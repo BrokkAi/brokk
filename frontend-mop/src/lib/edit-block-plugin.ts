@@ -313,7 +313,17 @@ export function remarkEditBlock(): (tree: Root, file: VFile) => void {
     return (tree: Root, file: VFile) => {
         visit<Root, Test>(tree, (n): n is RootContent => n.type !== 'inlineCode', (node: RootContent, index: number | undefined, parent: Parent | undefined) => {
             if (node.type === 'editBlock') {
-                console.log('Node: ', node);
+                const data = node.data;
+                node.data = {
+                    hName: 'edit-block',
+                    hProperties: {
+                        id: String(id++),
+                        filename: data.filename,
+                        search: data.search,
+                        replace: data.replace,
+                    }
+                }
+                console.log('node', node);
             }
 
             return;

@@ -24,7 +24,6 @@ export function createBaseProcessor(): Processor {
         .data('fromMarkdownExtensions', [editBlockFromMarkdown()])
         .use(remarkGfm)
         .use(remarkBreaks)
-        .use(remarkEditBlock)
         .use(remarkRehype, {allowDangerousHtml: true});
 }
 
@@ -65,7 +64,6 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
 }
 
 export function parseMarkdown(src: string, fast = false): HastRoot {
-    fast = true;
     const timeLabel = fast ? 'parse (fast)' : 'parse';
     console.time(timeLabel);
     const proc = fast ? baseProcessor : currentProcessor;

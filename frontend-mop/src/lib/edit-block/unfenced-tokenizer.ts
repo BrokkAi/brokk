@@ -9,18 +9,17 @@ import { tokenizeTail } from './tail-tokenizer';
 /**
  * Tokenizer for edit blocks.
  */
-export const tokenize: Tokenizer = function (effects, ok, nok) {
+export const tokenizeUnfenced: Tokenizer = function (effects, ok, nok) {
     const ctx = this;
-    const fx = makeSafeFx(effects, ctx);
+    const fx = makeSafeFx('tokenizeUnfenced', effects, ctx, ok, nok);
     const bodyTokenizer = makeEditBlockBodyTokenizer({
         divider: tokenizeDivider,
-        tail: tokenizeTail,
-        makeSafeFx
+        tail: tokenizeTail
     });
     return start;
 
     function start(code: Code): State {
-        if (code !== codes.lessThan) return nok(code);
+        if (code !== codes.lessThan) return fx.nok(code);
         fx.enter('editBlock');
         fx.enter('editBlockHead');
         fx.consume(code);
@@ -36,12 +35,12 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
             if (count < 7) {
                 fx.exit('editBlockHead');
                 fx.exit('editBlock');
-                return nok(code);
+                return fx.nok(code);
             }
             if (code !== codes.space) {
                 fx.exit('editBlockHead');
                 fx.exit('editBlock');
-                return nok(code);
+                return fx.nok(code);
             }
             fx.consume(code);
             fx.exit('editBlockHead');
@@ -57,7 +56,7 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
                 if (code !== keyword.charCodeAt(index)) {
                     fx.exit('editBlockSearchKeyword');
                     fx.exit('editBlock');
-                    return nok(code);
+                    return fx.nok(code);
                 }
                 fx.consume(code);
                 return checkSearchKeyword(index + 1);
@@ -98,14 +97,14 @@ export const tokenize: Tokenizer = function (effects, ok, nok) {
 
     function delegateToBody(code: Code): State {
         return effects.attempt(
-            { tokenize: bodyTokenizer, partial: true },
+            { tokenize: bodyTokenizer, concrete: true },
             afterBody,
-            nok
+            fx.nok
         )(code);
     }
 
     function afterBody(code: Code): State {
         fx.exit('editBlock');
-        return ok(code);
+        return fx.ok(code);
     }
 };

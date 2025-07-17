@@ -14,6 +14,8 @@
     replace = ''
   } = $props();
 
+  console.log('EditBlock props:');
+
   const numAdds = +adds;
   const numDels = +dels;
 
