@@ -14,6 +14,7 @@ import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
+import io.github.jbellis.brokk.util.MemoryMonitor;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

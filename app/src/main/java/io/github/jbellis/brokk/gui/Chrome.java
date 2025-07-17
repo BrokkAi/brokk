@@ -16,6 +16,7 @@ import io.github.jbellis.brokk.gui.mop.MarkdownOutputPanel;
 import io.github.jbellis.brokk.gui.mop.ThemeColors;
 import io.github.jbellis.brokk.gui.search.GenericSearchBar;
 import io.github.jbellis.brokk.gui.search.MarkdownSearchableComponent;
+import io.github.jbellis.brokk.util.MemoryMonitor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -105,6 +106,9 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
+    
+    // Background threads
+    private final Thread memoryMonitorThread;
 
     /**
      * Default constructor sets up the UI.
@@ -289,6 +293,8 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return null;
             });
         }
+
+        this.memoryMonitorThread = MemoryMonitor.startMonitoring(frame);
     }
 
     /**
@@ -655,6 +661,7 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void close() {
         logger.info("Closing Chrome UI");
         contextManager.close();
+        memoryMonitorThread.interrupt();
         frame.dispose();
     }
 
