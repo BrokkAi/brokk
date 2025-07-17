@@ -6,8 +6,6 @@ import java.util.Map;
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
-import dev.langchain4j.model.openai.internal.spi.OpenAiClientBuilderFactory;
-import dev.langchain4j.model.openai.internal.spi.ServiceHelper;
 
 public abstract class OpenAiClient {
 
@@ -15,10 +13,6 @@ public abstract class OpenAiClient {
 
     @SuppressWarnings("rawtypes")
     public static Builder builder() {
-        for (OpenAiClientBuilderFactory factory : ServiceHelper.loadFactories(OpenAiClientBuilderFactory.class)) {
-            return factory.get();
-        }
-        // fallback to the default
         return DefaultOpenAiClient.builder();
     }
 
