@@ -49,6 +49,8 @@ public class Brokk {
 
     @Nullable
     private static JWindow splashScreen = null;
+    @Nullable
+    private static Thread memoryMonitorThread = null;
     private static final ConcurrentHashMap<Path, Chrome> openProjectWindows = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<IProject, List<Chrome>> mainToWorktreeChromes = new ConcurrentHashMap<>();
     private static final Set<Path> reOpeningProjects = ConcurrentHashMap.newKeySet();
@@ -621,6 +623,9 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
                             // if we have a half-finished gui we're kind of screwed
                             throw new RuntimeException(guiEx);
                         }
+
+                        // Begin monitoring for excessive memory usage
+                        memoryMonitorThread = MemoryMonitor.startMonitoring(contextManager.getIo());
 
                         if (builder.initialTask != null) {
                             logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());

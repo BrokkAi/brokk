@@ -106,9 +106,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
 
     // Command input panel is now encapsulated in InstructionsPanel.
     private final InstructionsPanel instructionsPanel;
-    
-    // Background threads
-    private final Thread memoryMonitorThread;
 
     /**
      * Default constructor sets up the UI.
@@ -293,8 +290,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
                 return null;
             });
         }
-
-        this.memoryMonitorThread = MemoryMonitor.startMonitoring(frame);
     }
 
     /**
@@ -661,7 +656,6 @@ public class Chrome implements AutoCloseable, IConsoleIO, IContextManager.Contex
     public void close() {
         logger.info("Closing Chrome UI");
         contextManager.close();
-        memoryMonitorThread.interrupt();
         frame.dispose();
     }
 
