@@ -10,11 +10,14 @@ import java.awt.*;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
+import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.text.NumberFormat;
 
 /**
  * A memory monitoring daemon that attempts to preempt an {@link OutOfMemoryError}. If the memory usage of the JVM
- * exceeds 85%, the {@link NotificationPopup} is shown to the user.
+ * exceeds 80%, the {@link NotificationPopup} is shown to the user.
  */
 public class MemoryMonitor implements Runnable {
 
@@ -69,10 +72,17 @@ public class MemoryMonitor implements Runnable {
     private NotificationPopup buildPopup(Frame owner) {
         final var title = "Low Memory Detected";
         final var body = String.format("The IDE may become unresponsive. Current limit (-Xmx) is %s.", getMaxHeapSize());
-        return new NotificationPopup.NotificationPopupBuilder(owner, title, body)
-                // TODO: Link to a page on how to manage memory
-                .optionalUrl("Increase memory limit...", "https://www.brokk.ai/documentation")
-                .build();
+        final var urlString = "https://www.brokk.ai/documentation";
+        final var builder = new NotificationPopup.NotificationPopupBuilder(owner, title, body);
+        try {
+            return builder
+                    // TODO: Link to a page on how to manage memory
+                    .optionalUrl("Increase memory limit...", new URI(urlString).toURL())
+                    .build();
+        } catch (URISyntaxException | MalformedURLException e) {
+            logger.warn("Unable to build notification popup link for URL: {}", urlString, e);
+            return builder.build();
+        }
     }
 
     private String getMaxHeapSize() {

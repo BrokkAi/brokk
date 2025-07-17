@@ -12,8 +12,8 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
-import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.Optional;
 
 /**
@@ -25,26 +25,24 @@ public class NotificationPopup extends JWindow {
 
     private final int hideDelayMs;
 
-    // Defaults
-    private static final int HIDE_DELAY_MS = 15000; // 15 seconds
-
-    private NotificationPopup(Frame owner, @NonNull String title, @NonNull String body, @NonNull Optional<String> optionalUrlText, @NonNull Optional<String> optionalUrl, int hideDelayMs) {
+    private NotificationPopup(Frame owner, @NonNull String title, @NonNull String body, @NonNull Optional<String> optionalUrlText, @NonNull Optional<URL> optionalUrl, int hideDelayMs) {
         super(owner);
         this.hideDelayMs = hideDelayMs;
         initUI(title, body, optionalUrlText, optionalUrl);
     }
 
-    private void initUI(@NonNull String title, @NonNull String body, @NonNull Optional<String> optionalUrlText, @NonNull Optional<String> optionalUrl) {
+    private void initUI(@NonNull String title, @NonNull String body, @NonNull Optional<String> optionalUrlText, @NonNull Optional<URL> optionalUrl) {
         // Main panel with a border and background color for a modern look
-        JPanel mainPanel = new JPanel(new GridBagLayout());
-        mainPanel.setBackground(new Color(245, 245, 245)); // Light gray background
+        final var mainPanel = new JPanel(new GridBagLayout());
+        final var backgroundColor = UIManager.getColor("Panel.background");
+        mainPanel.setBackground(backgroundColor == null ? new Color(144, 144, 144) : backgroundColor);
         // A compound border gives an outer line and inner padding
         mainPanel.setBorder(new CompoundBorder(
                 new MatteBorder(1, 1, 1, 1, Color.GRAY), // Outer border
                 new EmptyBorder(10, 15, 10, 15)   // Inner padding
         ));
 
-        GridBagConstraints gbc = new GridBagConstraints();
+        final var gbc = new GridBagConstraints();
 
         // Warning Icon
         JLabel iconLabel = new JLabel(UIManager.getIcon("OptionPane.warningIcon"));
@@ -65,7 +63,7 @@ public class NotificationPopup extends JWindow {
                 title,
                 body
         );
-        JLabel messageLabel = new JLabel(message);
+        final var messageLabel = new JLabel(message);
         gbc.gridx = 1;
         gbc.gridy = 0;
         gbc.gridheight = 1;
@@ -83,7 +81,7 @@ public class NotificationPopup extends JWindow {
         }
 
         // Close button
-        JButton closeButton = new JButton("X");
+        final var closeButton = new JButton("X");
         closeButton.setMargin(new Insets(1, 4, 1, 4));
         closeButton.setFocusable(false);
         closeButton.addActionListener(e -> dispose());
@@ -121,14 +119,14 @@ public class NotificationPopup extends JWindow {
         timer.start();
     }
 
-    private JLabel createHyperlinkLabel(String text, @NonNull String url) {
+    private JLabel createHyperlinkLabel(String text, @NonNull URL url) {
         JLabel linkLabel = new JLabel(String.format("<html><a href=''>%s</a></html>", text));
         linkLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         linkLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 try {
-                    Desktop.getDesktop().browse(new URI(url));
+                    Desktop.getDesktop().browse(url.toURI());
                 } catch (IOException | URISyntaxException ex) {
                     logger.error("Unable to browse user to the link {}!", url, ex);
                 }
@@ -144,9 +142,9 @@ public class NotificationPopup extends JWindow {
         private final Frame owner;
         private final String title;
         private final String body;
-        private Optional<String> optionalUrl = Optional.empty();
+        private Optional<URL> optionalUrl = Optional.empty();
         private Optional<String> optionalUrlText = Optional.empty();
-        private int hideDelayMs = HIDE_DELAY_MS;
+        private int hideDelayMs = Integer.MAX_VALUE; // persist notification by default
 
         public NotificationPopupBuilder(@NonNull Frame owner, @NonNull String title, @NonNull String body) {
             this.owner = owner;
@@ -154,12 +152,12 @@ public class NotificationPopup extends JWindow {
             this.body = body;
         }
 
-        public NotificationPopupBuilder hideDelayMs(int hideDelayMs) {
+        public NotificationPopupBuilder hideAfterDelayMs(int hideDelayMs) {
             this.hideDelayMs = hideDelayMs;
             return this;
         }
 
-        public NotificationPopupBuilder optionalUrl(@NonNull String text, @NonNull String url) {
+        public NotificationPopupBuilder optionalUrl(@NonNull String text, @NonNull URL url) {
             this.optionalUrlText = Optional.of(text);
             this.optionalUrl = Optional.of(url);
             return this;
@@ -167,8 +165,8 @@ public class NotificationPopup extends JWindow {
 
 
         public NotificationPopup build() {
-            logger.debug("Built and showing popup '{}'", title);
-            return new NotificationPopup(owner, title, body, optionalUrl, optionalUrlText, hideDelayMs);
+            logger.debug("Built and showing notification popup with title '{}'", title);
+            return new NotificationPopup(owner, title, body, optionalUrlText, optionalUrl, hideDelayMs);
         }
 
     }
