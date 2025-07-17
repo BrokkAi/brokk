@@ -15,14 +15,6 @@ import dev.langchain4j.http.client.HttpRequest;
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
-import dev.langchain4j.model.openai.internal.completion.CompletionRequest;
-import dev.langchain4j.model.openai.internal.completion.CompletionResponse;
-import dev.langchain4j.model.openai.internal.embedding.EmbeddingRequest;
-import dev.langchain4j.model.openai.internal.embedding.EmbeddingResponse;
-import dev.langchain4j.model.openai.internal.image.GenerateImagesRequest;
-import dev.langchain4j.model.openai.internal.image.GenerateImagesResponse;
-import dev.langchain4j.model.openai.internal.moderation.ModerationRequest;
-import dev.langchain4j.model.openai.internal.moderation.ModerationResponse;
 
 public class DefaultOpenAiClient extends OpenAiClient {
 
@@ -79,28 +71,6 @@ public class DefaultOpenAiClient extends OpenAiClient {
     }
 
     @Override
-    public SyncOrAsyncOrStreaming<CompletionResponse> completion(CompletionRequest request) {
-
-        HttpRequest httpRequest = HttpRequest.builder()
-                .method(POST)
-                .url(baseUrl, "completions")
-                .addHeader("Content-Type", "application/json")
-                .addHeaders(defaultHeaders)
-                .body(Json.toJson(CompletionRequest.builder().from(request).stream(false).build()))
-                .build();
-
-        HttpRequest streamingHttpRequest = HttpRequest.builder()
-                .method(POST)
-                .url(baseUrl, "completions")
-                .addHeader("Content-Type", "application/json")
-                .addHeaders(defaultHeaders)
-                .body(Json.toJson(CompletionRequest.builder().from(request).stream(true).build()))
-                .build();
-
-        return new RequestExecutor<>(httpClient, httpRequest, streamingHttpRequest, CompletionResponse.class);
-    }
-
-    @Override
     public SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(ChatCompletionRequest request) {
 
         HttpRequest httpRequest = HttpRequest.builder()
@@ -120,46 +90,5 @@ public class DefaultOpenAiClient extends OpenAiClient {
                 .build();
 
         return new RequestExecutor<>(httpClient, httpRequest, streamingHttpRequest, ChatCompletionResponse.class);
-    }
-
-    @Override
-    public SyncOrAsync<EmbeddingResponse> embedding(EmbeddingRequest request) {
-
-        HttpRequest httpRequest = HttpRequest.builder()
-                .method(POST)
-                .url(baseUrl, "embeddings")
-                .addHeader("Content-Type", "application/json")
-                .addHeaders(defaultHeaders)
-                .body(Json.toJson(request))
-                .build();
-
-        return new RequestExecutor<>(httpClient, httpRequest, EmbeddingResponse.class);
-    }
-
-    @Override
-    public SyncOrAsync<ModerationResponse> moderation(ModerationRequest request) {
-
-        HttpRequest httpRequest = HttpRequest.builder()
-                .method(POST)
-                .url(baseUrl, "moderations")
-                .addHeader("Content-Type", "application/json")
-                .addHeaders(defaultHeaders)
-                .body(Json.toJson(request))
-                .build();
-
-        return new RequestExecutor<>(httpClient, httpRequest, ModerationResponse.class);
-    }
-
-    @Override
-    public SyncOrAsync<GenerateImagesResponse> imagesGeneration(GenerateImagesRequest request) {
-        HttpRequest httpRequest = HttpRequest.builder()
-                .method(POST)
-                .url(baseUrl, "images/generations")
-                .addHeader("Content-Type", "application/json")
-                .addHeaders(defaultHeaders)
-                .body(Json.toJson(request))
-                .build();
-
-        return new RequestExecutor<>(httpClient, httpRequest, GenerateImagesResponse.class);
     }
 }

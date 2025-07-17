@@ -6,28 +6,12 @@ import java.util.Map;
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
-import dev.langchain4j.model.openai.internal.completion.CompletionRequest;
-import dev.langchain4j.model.openai.internal.completion.CompletionResponse;
-import dev.langchain4j.model.openai.internal.embedding.EmbeddingRequest;
-import dev.langchain4j.model.openai.internal.embedding.EmbeddingResponse;
-import dev.langchain4j.model.openai.internal.image.GenerateImagesRequest;
-import dev.langchain4j.model.openai.internal.image.GenerateImagesResponse;
-import dev.langchain4j.model.openai.internal.moderation.ModerationRequest;
-import dev.langchain4j.model.openai.internal.moderation.ModerationResponse;
 import dev.langchain4j.model.openai.internal.spi.OpenAiClientBuilderFactory;
 import dev.langchain4j.model.openai.internal.spi.ServiceHelper;
 
 public abstract class OpenAiClient {
 
-    public abstract SyncOrAsyncOrStreaming<CompletionResponse> completion(CompletionRequest request);
-
     public abstract SyncOrAsyncOrStreaming<ChatCompletionResponse> chatCompletion(ChatCompletionRequest request);
-
-    public abstract SyncOrAsync<EmbeddingResponse> embedding(EmbeddingRequest request);
-
-    public abstract SyncOrAsync<ModerationResponse> moderation(ModerationRequest request);
-
-    public abstract SyncOrAsync<GenerateImagesResponse> imagesGeneration(GenerateImagesRequest request);
 
     @SuppressWarnings("rawtypes")
     public static Builder builder() {

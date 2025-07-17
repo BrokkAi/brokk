@@ -21,8 +21,6 @@ import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
 import dev.langchain4j.model.openai.internal.chat.Delta;
 import dev.langchain4j.model.openai.internal.chat.FunctionCall;
 import dev.langchain4j.model.openai.internal.chat.ToolCall;
-import dev.langchain4j.model.openai.internal.completion.CompletionChoice;
-import dev.langchain4j.model.openai.internal.completion.CompletionResponse;
 import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.TokenUsage;
@@ -132,37 +130,6 @@ public class OpenAiStreamingResponseBuilder {
             if (functionCall.arguments() != null) {
                 builder.argumentsBuilder.append(functionCall.arguments());
             }
-        }
-    }
-
-    public void append(CompletionResponse partialResponse) {
-        if (partialResponse == null) {
-            return;
-        }
-
-        Usage usage = partialResponse.usage();
-        if (usage != null) {
-            this.tokenUsage.set(tokenUsageFrom(usage));
-        }
-
-        List<CompletionChoice> choices = partialResponse.choices();
-        if (choices == null || choices.isEmpty()) {
-            return;
-        }
-
-        CompletionChoice completionChoice = choices.get(0);
-        if (completionChoice == null) {
-            return;
-        }
-
-        String finishReason = completionChoice.finishReason();
-        if (finishReason != null) {
-            this.finishReason.set(finishReasonFrom(finishReason));
-        }
-
-        String token = completionChoice.text();
-        if (token != null) {
-            this.contentBuilder.append(token);
         }
     }
 
