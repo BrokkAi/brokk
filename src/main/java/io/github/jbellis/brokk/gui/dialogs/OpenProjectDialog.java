@@ -395,17 +395,8 @@ panel.add(buttonPanel, gbc);
 
     private void openProject(Path projectPath)
     {
-        if (!Files.isDirectory(projectPath) || !GitRepo.hasGitRepo(projectPath)) {
-            var isDir = Files.isDirectory(projectPath);
-            var isGit = GitRepo.hasGitRepo(projectPath);
-            String message;
-            if (!isDir) {
-                message = "The selected path is not a directory.";
-            } else if (!isGit) {
-                message = "The selected directory is not a Git repository.";
-            } else {
-                message = "The selected path is not a valid project.";
-            }
+        if (!Files.isDirectory(projectPath)) {
+            var message = "The selected path is not a directory.";
             JOptionPane.showMessageDialog(this, message, "Invalid Project", JOptionPane.ERROR_MESSAGE);
             return;
         }
