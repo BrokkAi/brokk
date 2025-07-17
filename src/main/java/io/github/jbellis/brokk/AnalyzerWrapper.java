@@ -357,8 +357,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
 
     public boolean isCpg() {
-        if (currentAnalyzer == null) return false;
-        return currentAnalyzer.isCpg();
+        return project.getAnalyzerLanguages().stream().anyMatch(Language::isCpg);
     }
 
     /**

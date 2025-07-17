@@ -1743,7 +1743,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private void ensureStyleGuide()
     {
-        if (!project.getStyleGuide().isEmpty()) {
+        if (!project.getStyleGuide().isEmpty() || !analyzerWrapper.isCpg()) {
             return;
         }
 
