@@ -17,7 +17,9 @@ object AstNodeExt {
         val filePath = Cpg(node.graph).projectRoot.resolve(filename).toAbsolutePath.toString
         (node.offset, node.offsetEnd) match {
           case (Some(offset), Some(offsetEnd)) =>
-            Using(Source.fromFile(filePath))(_.slice(offset, offsetEnd).mkString).toOption
+            Using(Source.fromFile(filePath))(
+              _.mkString.replace(System.lineSeparator, "\n").slice(offset, offsetEnd)
+            ).toOption
           case _ => None
         }
       }

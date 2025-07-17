@@ -5,7 +5,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import io.github.jbellis.brokk.*;
@@ -65,7 +65,7 @@ public class ArchitectAgent {
     }
 
     private final ContextManager contextManager;
-    private final StreamingChatLanguageModel model;
+    private final StreamingChatModel model;
     private final ToolRegistry toolRegistry;
     private final String goal;
     private final ArchitectOptions options; // Store the options
@@ -83,7 +83,7 @@ public class ArchitectAgent {
      * @param options Configuration for which tools the agent can use.
      */
     public ArchitectAgent(ContextManager contextManager,
-                          StreamingChatLanguageModel model,
+                          StreamingChatModel model,
                           ToolRegistry toolRegistry,
                           String goal,
                           ArchitectOptions options)
@@ -465,7 +465,7 @@ public class ArchitectAgent {
             io.llmOutput("\n# Planning", ChatMessageType.AI, true);
 
             // Determine active models and their minimum input token limit
-            var models = new ArrayList<StreamingChatLanguageModel>();
+            var models = new ArrayList<StreamingChatModel>();
             models.add(this.model);
             if (options.includeCodeAgent) {
                 models.add(contextManager.getCodeModel());

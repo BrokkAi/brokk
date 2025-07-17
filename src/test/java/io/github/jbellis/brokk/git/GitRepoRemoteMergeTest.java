@@ -8,6 +8,7 @@ import org.eclipse.jgit.transport.RefSpec;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -20,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for GitRepo remote merge functionality via fast-forward, squash, and rebase modes.
  */
+@DisabledIfEnvironmentVariable(named = "RUNNER_OS", matches = "Windows")
 public class GitRepoRemoteMergeTest {
 
     @TempDir

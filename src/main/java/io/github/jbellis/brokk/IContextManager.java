@@ -1,7 +1,7 @@
 package io.github.jbellis.brokk;
 
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.analyzer.BrokkFile;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
@@ -145,14 +145,14 @@ public interface IContextManager {
     /**
      * Create a new LLM instance for the given model and description
      */
-    default Llm getLlm(StreamingChatLanguageModel model, String taskDescription) {
+    default Llm getLlm(StreamingChatModel model, String taskDescription) {
         return getLlm(model, taskDescription, false);
     }
 
     /**
      * Create a new LLM instance for the given model and description
      */
-    default Llm getLlm(StreamingChatLanguageModel model, String taskDescription, boolean allowPartialResponses) {
+    default Llm getLlm(StreamingChatModel model, String taskDescription, boolean allowPartialResponses) {
         return new Llm(model, taskDescription, this, allowPartialResponses, getProject().getDataRetentionPolicy() == MainProject.DataRetentionPolicy.IMPROVE_BROKK);
     }
 }

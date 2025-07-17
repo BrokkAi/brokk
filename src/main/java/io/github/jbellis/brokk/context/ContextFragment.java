@@ -149,6 +149,14 @@ public interface ContextFragment {
     }
 
     /**
+     * Return a string that can be provided to the appropriate WorkspaceTools method to recreate this fragment.  
+     * Returns an empty string for fragments that cannot be re-added without serializing their entire contents.
+     */
+    default String repr() {
+        return "";
+    }
+
+    /**
      * code sources found in this fragment
      */
     Set<CodeUnit> sources();
@@ -323,6 +331,11 @@ public interface ContextFragment {
                    %s
                    </file>
                    """.formatted(file, summary);
+        }
+
+        @Override
+        public String repr() {
+            return "File(['%s'])".formatted(file.toString());
         }
 
         @Override
@@ -1145,6 +1158,11 @@ public interface ContextFragment {
         }
 
         @Override
+        public String repr() {
+            return "SymbolUsages('%s')".formatted(targetIdentifier);
+        }
+
+        @Override
         public String description() {
             return "Uses of %s".formatted(targetIdentifier);
         }
@@ -1227,6 +1245,13 @@ public interface ContextFragment {
         @Override
         public Set<ProjectFile> files() {
             return sources().stream().map(CodeUnit::source).collect(Collectors.toSet());
+        }
+
+        @Override
+        public String repr() {
+            return isCalleeGraph
+                   ? "CallGraphOut('%s', %d)".formatted(methodName, depth)
+                   : "CallGraphIn('%s', %d)".formatted(methodName, depth);
         }
 
         @Override
@@ -1349,11 +1374,22 @@ public interface ContextFragment {
         }
 
         @Override
+        public String repr() {
+            return switch (summaryType) {
+                case CLASS_SKELETON ->
+                        "ClassSummaries([%s])".formatted(
+                                targetIdentifiers.stream().map(s -> "'" + s + "'").collect(Collectors.joining(", ")));
+                case FILE_SKELETONS ->
+                        "FileSummaries([%s])".formatted(
+                                targetIdentifiers.stream().map(s -> "'" + s + "'").collect(Collectors.joining(", ")));
+            };
+        }
+
+        @Override
         public String description() {
             return "Summary of %s".formatted(String.join(", ", targetIdentifiers));
         }
-
-
+        
         @Override
         public boolean isEligibleForAutoContext() {
             // If it's an auto-context fragment itself, it shouldn't contribute to seeding a new auto-context.

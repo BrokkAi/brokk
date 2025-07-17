@@ -10,6 +10,7 @@ import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 import java.nio.file.{Files, Path}
+import java.util
 import java.util.Optional
 import scala.annotation.tailrec
 import scala.io.Source
@@ -20,7 +21,7 @@ import scala.util.{Try, Using, boundary}
 /** A concrete analyzer for Java source code, extending AbstractAnalyzer with Java-specific logic for building the CPG,
   * method signatures, etc.
   */
-class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer(sourcePath, cpgInit) {
+class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer[Config](sourcePath, cpgInit) {
 
   def this(sourcePath: Path, preloadedPath: Path) =
     this(sourcePath, CpgBasedTool.loadFromFile(preloadedPath.toString))
@@ -31,6 +32,8 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   override def isCpg: Boolean = true
 
   override val fullNameSeparators: Seq[String] = Seq(".", "$")
+
+  override def defaultConfig: Config = JavaAnalyzer.defaultConfig
 
   /** Java-specific method signature builder.
     */
@@ -384,11 +387,17 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     Try(CodeUnit.field(file, pkg, s"$className.$fieldName")).toOption
   }
   // -----------------------------------------------------
+
+  override def update(changedFiles: util.Set[ProjectFile]): IAnalyzer =
+    updateFilesInternal(JavaAnalyzer.defaultConfig, changedFiles)
 }
 
 object JavaAnalyzer {
 
   private val logger = LoggerFactory.getLogger(getClass)
+  private def defaultConfig = Config()
+    .withDefaultIgnoredFilesRegex(Nil)
+    .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
 
   import scala.jdk.CollectionConverters.*
 
@@ -402,14 +411,11 @@ object JavaAnalyzer {
     logger.info(s"Creating Java CPG at '$cpgPath'")
 
     // Build the CPG
-    Config()
+    defaultConfig
       .withInputPath(absPath.toString)
       .withOutputPath(cpgPath.toString)
-      .withEnableTypeRecovery(true)
-      .withDefaultIgnoredFilesRegex(Nil)
       .withIgnoredFiles(excludedFiles.asScala.toSeq)
-      .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes
-      .buildAndThrow
+      .buildAndThrow()
       .open
   }
 

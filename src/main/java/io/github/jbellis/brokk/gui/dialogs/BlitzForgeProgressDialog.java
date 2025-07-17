@@ -7,7 +7,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IConsoleIO;
 import io.github.jbellis.brokk.Service;
@@ -136,7 +136,7 @@ public class BlitzForgeProgressDialog extends JDialog {
      */
     private FileProcessingResult processSingleFile(ProjectFile file,
                                                    ContextManager cm,
-                                                   StreamingChatLanguageModel model,
+                                                   StreamingChatModel model,
                                                    String instructions,
                                                    String action,
                                                    boolean includeWorkspace,

@@ -5,7 +5,6 @@ import org.jetbrains.annotations.Nullable;
 import scala.Tuple2;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 public interface IAnalyzer {
     // Basics
@@ -200,7 +199,21 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    default void updateFiles(Set<ProjectFile> changedFiles) {}
+    /**
+     * Update the Analyzer for create/modify/delete activity against `changedFiles`. This is
+     * O(M) in the number of changed files.
+     */
+    default IAnalyzer update(Set<ProjectFile> changedFiles) {
+        return this;
+    }
+
+    /**
+     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) 
+     * in the total number of files and relatively heavyweight.
+     */
+    default IAnalyzer update() {
+        return this;
+    }
 
     /**
      * Container for a function’s location and current source text.

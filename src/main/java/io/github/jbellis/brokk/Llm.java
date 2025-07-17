@@ -9,7 +9,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.exception.HttpException;
-import dev.langchain4j.model.chat.StreamingChatLanguageModel;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.ResponseFormat;
@@ -75,11 +75,11 @@ public class Llm {
     private final Path taskHistoryDir; // Directory for this specific LLM task's history files
     final IContextManager contextManager;
     private final int MAX_ATTEMPTS = 8; // Keep retry logic for now
-    private final StreamingChatLanguageModel model;
+    private final StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean tagRetain;
 
-    public Llm(StreamingChatLanguageModel model, String taskDescription, IContextManager contextManager, boolean allowPartialResponses, boolean tagRetain) {
+    public Llm(StreamingChatModel model, String taskDescription, IContextManager contextManager, boolean allowPartialResponses, boolean tagRetain) {
         this.model = model;
         this.contextManager = contextManager;
         this.io = contextManager.getIo();
@@ -387,7 +387,7 @@ public class Llm {
      * function calling for these tools, we emulate it using a JSON Schema approach.
      * This method now also triggers writing the request to the history file.
      */
-    private StreamingResult doSingleSendMessage(StreamingChatLanguageModel model,
+    private StreamingResult doSingleSendMessage(StreamingChatModel model,
                                                 List<ChatMessage> messages,
                                                 List<ToolSpecification> tools,
                                                 ToolChoice toolChoice,
@@ -454,7 +454,7 @@ public class Llm {
      * 1. Schema-based: For models that support JSON schema in response_format
      * 2. Text-based: For models without schema support, using text instructions
      */
-    private StreamingResult emulateTools(StreamingChatLanguageModel model,
+    private StreamingResult emulateTools(StreamingChatModel model,
                                          List<ChatMessage> messages,
                                          List<ToolSpecification> tools,
                                          ToolChoice toolChoice,
@@ -998,7 +998,7 @@ public class Llm {
     /**
      * Writes history information to task-specific files.
      */
-    private synchronized void logRequest(StreamingChatLanguageModel model, ChatRequest request, @Nullable StreamingResult result) {
+    private synchronized void logRequest(StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result) {
         try {
             var timestamp = LocalDateTime.now(java.time.ZoneId.systemDefault()); // timestamp finished, not started
 

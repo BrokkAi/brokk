@@ -1,6 +1,6 @@
 [versions]
 joern = "4.0.379"
-langchain4j = "1.0.0-beta3"
+langchain4j = "1.1.0"
 junit = "5.10.2"
 scalatest = "3.2.18"
 log4j = "2.20.0"
