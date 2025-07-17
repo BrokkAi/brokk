@@ -151,10 +151,10 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
         method.astParent match {
           case parentMethod: Method => _parentMethodName(parentMethod)
           case other: Expression    => _parentMethodName(other.method)
-          case unsupported =>
-            throw new SchemaViolationException(
-              s"Unexpected node type ${unsupported.getClass} encountered while resolving method name!"
-            )
+          case astNode: AstNode =>
+            astNode.inAst.collectFirst { case m: Method => _parentMethodName(m) }.getOrElse {
+              throw new SchemaViolationException(s"Unable to determine parent method for lambda ${method.fullName}!")
+            }
         }
       else {
         // The most language agnostic way to do this as C++ ASTs are vastly different to Java ones
