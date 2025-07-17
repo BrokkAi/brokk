@@ -16,7 +16,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.store.embedding.EmbeddingStore;
 
 /**
  * Represents metadata of a {@link Document} or a {@link TextSegment}.
