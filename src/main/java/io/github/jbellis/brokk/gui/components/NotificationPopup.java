@@ -167,7 +167,7 @@ public class NotificationPopup extends JWindow {
 
 
         public NotificationPopup build() {
-            logger.debug("Built and showing popup '{}'", title)
+            logger.debug("Built and showing popup '{}'", title);
             return new NotificationPopup(owner, title, body, optionalUrl, optionalUrlText, hideDelayMs);
         }
 
