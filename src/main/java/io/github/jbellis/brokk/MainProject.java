@@ -67,15 +67,13 @@ public final class MainProject extends AbstractProject {
     private static final String JIRA_PROJECT_API_TOKEN_KEY = "jiraProjectApiToken";
     private static final String JIRA_PROJECT_KEY_KEY = "jiraProjectKey";
 
-    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig, String oldModelNameKey,
-                                 String oldReasoningKey) {
-    }
+    private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) { }
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH), "architectModel", "architectReasoning"),
-            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "codeModel", "codeReasoning"),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "askModel", "askReasoning"),
-            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT), "searchModel", "searchReasoning")
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH)),
+            "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
+            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
+            "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
     );
 
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
@@ -256,49 +254,8 @@ public final class MainProject extends AbstractProject {
                 return props;
             }
         }
-        boolean migrated = migrateOldModelConfigsIfNecessary(props);
-        if (migrated) {
-            saveGlobalProperties(props);
-        } else {
-            globalPropertiesCache = (Properties) props.clone();
-        }
+        globalPropertiesCache = (Properties) props.clone();
         return props;
-    }
-
-    private static boolean migrateOldModelConfigsIfNecessary(Properties props) {
-        boolean changed = false;
-        for (var entry : MODEL_TYPE_INFOS.entrySet()) {
-            String modelType = entry.getKey();
-            ModelTypeInfo typeInfo = entry.getValue();
-
-            if (props.containsKey(typeInfo.oldModelNameKey()) && !props.containsKey(typeInfo.configKey())) {
-                String modelName = props.getProperty(typeInfo.oldModelNameKey());
-                Service.ReasoningLevel reasoningLevel = Service.ReasoningLevel.fromString(
-                        props.getProperty(typeInfo.oldReasoningKey()),
-                        typeInfo.preferredConfig().reasoning()
-                );
-
-                if (modelName == null || modelName.isBlank()) {
-                    logger.warn("Old model name key '{}' for {} exists but value is blank. Skipping migration for this type.", typeInfo.oldModelNameKey(), modelType);
-                    continue;
-                }
-
-                ModelConfig migratedConfig = new ModelConfig(modelName, reasoningLevel);
-                try {
-                    String jsonString = objectMapper.writeValueAsString(migratedConfig);
-                    props.setProperty(typeInfo.configKey(), jsonString);
-                    props.remove(typeInfo.oldModelNameKey());
-                    props.remove(typeInfo.oldReasoningKey());
-                    changed = true;
-                    logger.info("Migrated model config for {} from old keys ('{}', '{}') to new key '{}'.",
-                            modelType, typeInfo.oldModelNameKey(), typeInfo.oldReasoningKey(), typeInfo.configKey());
-                } catch (JsonProcessingException e) {
-                    logger.error("Error serializing migrated ModelConfig for {} to JSON. Old keys ('{}', '{}') will be kept. Error: {}",
-                            modelType, typeInfo.oldModelNameKey(), typeInfo.oldReasoningKey(), e.getMessage());
-                }
-            }
-        }
-        return changed;
     }
 
     private static synchronized void saveGlobalProperties(Properties props) {
