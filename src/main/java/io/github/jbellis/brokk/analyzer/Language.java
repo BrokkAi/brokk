@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 
@@ -20,13 +21,18 @@ public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
     List<String> getExtensions();
+
     String name(); // Human-friendly
+
     String internalName(); // Filesystem-safe
+
     IAnalyzer createAnalyzer(IProject project);
+
     IAnalyzer loadAnalyzer(IProject project);
 
     /**
      * Get the path where the CPG for this language in the given project should be stored.
+     *
      * @param project The project.
      * @return The path to the CPG file.
      */
@@ -45,7 +51,7 @@ public interface Language {
      * The path provided is expected to be absolute.
      *
      * @param project The current project.
-     * @param path The absolute path to check.
+     * @param path    The absolute path to check.
      * @return {@code true} if the path is considered part of the project's analyzed sources, {@code false} otherwise.
      */
     default boolean isAnalyzed(IProject project, Path path) {
@@ -61,29 +67,74 @@ public interface Language {
 
     Language C_SHARP = new Language() {
         private final List<String> extensions = List.of("cs");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "C#"; }
-        @Override public String internalName() { return "C_SHARP"; }
-        @Override public String toString() { return name(); } // For compatibility
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "C#";
+        }
+
+        @Override
+        public String internalName() {
+            return "C_SHARP";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        } // For compatibility
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new CSharpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
-        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return Language.super.getDependencyCandidates(project);
+        }
     };
 
     Language JAVA = new Language() {
         private final List<String> extensions = List.of("java");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "Java"; }
-        @Override public String internalName() { return "JAVA"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "Java";
+        }
+
+        @Override
+        public String internalName() {
+            return "JAVA";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             var cpgPath = getCpgPath(project);
             return new JavaAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
-        @Override public IAnalyzer loadAnalyzer(IProject project) {
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
             return new JavaAnalyzer(project.getRoot(), getCpgPath(project));
         }
 
@@ -178,21 +229,45 @@ public interface Language {
         }
 
         @Override
-        public boolean isCpg() { return true; }
+        public boolean isCpg() {
+            return true;
+        }
     };
 
     Pattern PY_SITE_PKGS = Pattern.compile("^python\\d+\\.\\d+$");
 
     Language JAVASCRIPT = new Language() {
         private final List<String> extensions = List.of("js", "mjs", "cjs", "jsx");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "JavaScript"; }
-        @Override public String internalName() { return "JAVASCRIPT"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "JavaScript";
+        }
+
+        @Override
+        public String internalName() {
+            return "JAVASCRIPT";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new JavascriptAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
 
         @Override
         public List<Path> getDependencyCandidates(IProject project) {
@@ -250,14 +325,36 @@ public interface Language {
 
     Language PYTHON = new Language() {
         private final List<String> extensions = List.of("py");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "Python"; }
-        @Override public String internalName() { return "PYTHON"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "Python";
+        }
+
+        @Override
+        public String internalName() {
+            return "PYTHON";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new PythonAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
 
         private List<Path> findVirtualEnvs(@Nullable Path root) {
             if (root == null) return List.of();
@@ -385,49 +482,128 @@ public interface Language {
 
     Language C_CPP = new Language() {
         private final List<String> extensions = List.of("c", "h", "cpp", "hpp", "cc", "hh", "cxx", "hxx");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "C/C++"; }
-        @Override public String internalName() { return "C_CPP"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "C/C++";
+        }
+
+        @Override
+        public String internalName() {
+            return "C_CPP";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             var cpgPath = getCpgPath(project);
             return new CppAnalyzer(project.getRoot(), project.loadBuildDetails().excludedDirectories(), cpgPath);
         }
 
-        @Override public IAnalyzer loadAnalyzer(IProject project) {
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
             return new CppAnalyzer(project.getRoot(), getCpgPath(project));
         }
+
         @Override
-        public boolean isCpg() { return true; }
-        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
+        public boolean isCpg() {
+            return true;
+        }
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return Language.super.getDependencyCandidates(project);
+        }
     };
 
     Language GO = new Language() {
         private final List<String> extensions = List.of("go");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "Go"; }
-        @Override public String internalName() { return "GO"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "Go";
+        }
+
+        @Override
+        public String internalName() {
+            return "GO";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new GoAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
         // TODO
-        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return List.of();
+        }
     };
 
     Language RUST = new Language() {
         private final List<String> extensions = List.of("rs");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "Rust"; }
-        @Override public String internalName() { return "RUST"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "Rust";
+        }
+
+        @Override
+        public String internalName() {
+            return "RUST";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new RustAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
         // TODO: Implement getDependencyCandidates for Rust (e.g. scan Cargo.lock, vendor dir)
-        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return List.of();
+        }
+
         // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
@@ -451,30 +627,79 @@ public interface Language {
 
     Language NONE = new Language() {
         private final List<String> extensions = Collections.emptyList();
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "None"; }
-        @Override public String internalName() { return "NONE"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "None";
+        }
+
+        @Override
+        public String internalName() {
+            return "NONE";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new DisabledAnalyzer();
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {return createAnalyzer(project);}
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
     };
 
     // --- Infrastructure for fromExtension and enum-like static methods ---
 
     Language PHP = new Language() {
         private final List<String> extensions = List.of("php", "phtml", "php3", "php4", "php5", "phps");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "PHP"; }
-        @Override public String internalName() { return "PHP"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "PHP";
+        }
+
+        @Override
+        public String internalName() {
+            return "PHP";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             return new PhpAnalyzer(project, project.loadBuildDetails().excludedDirectories());
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) { return createAnalyzer(project); }
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            return createAnalyzer(project);
+        }
+
         // TODO: Implement getDependencyCandidates for PHP (e.g. composer's vendor directory)
-        @Override public List<Path> getDependencyCandidates(IProject project) { return List.of(); }
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return List.of();
+        }
+
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
         public boolean isAnalyzed(IProject project, Path pathToImport) {
@@ -496,26 +721,58 @@ public interface Language {
 
     Language SQL = new Language() {
         private final List<String> extensions = List.of("sql");
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "SQL"; }
-        @Override public String internalName() { return "SQL"; }
-        @Override public String toString() { return name(); }
-        @Override public IAnalyzer createAnalyzer(IProject project) {
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "SQL";
+        }
+
+        @Override
+        public String internalName() {
+            return "SQL";
+        }
+
+        @Override
+        public String toString() {
+            return name();
+        }
+
+        @Override
+        public IAnalyzer createAnalyzer(IProject project) {
             var excludedDirStrings = project.loadBuildDetails().excludedDirectories();
-            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(java.util.stream.Collectors.toSet());
+            var excludedPaths = excludedDirStrings.stream().map(Path::of).collect(Collectors.toSet());
             return new SqlAnalyzer(project, excludedPaths);
         }
-        @Override public IAnalyzer loadAnalyzer(IProject project) {
+
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project);
         }
-        @Override public List<Path> getDependencyCandidates(IProject project) { return Language.super.getDependencyCandidates(project); }
+
+        @Override
+        public List<Path> getDependencyCandidates(IProject project) {
+            return Language.super.getDependencyCandidates(project);
+        }
     };
 
     Language TYPESCRIPT = new Language() {
         private final List<String> extensions = List.of("ts", "tsx"); // Including tsx for now, can be split later if needed
-        @Override public List<String> getExtensions() { return extensions; }
-        @Override public String name() { return "TYPESCRIPT"; }
+
+        @Override
+        public List<String> getExtensions() {
+            return extensions;
+        }
+
+        @Override
+        public String name() {
+            return "TYPESCRIPT";
+        }
 
         @Override
         public String internalName() {
@@ -532,7 +789,10 @@ public interface Language {
             return createAnalyzer(project);
         }
 
-        @Override public String toString() { return name(); }
+        @Override
+        public String toString() {
+            return name();
+        }
         // TODO: Implement getDependencyCandidates for TypeScript (e.g. node_modules, similar to JAVASCRIPT)
         /*@Override public List<Path> getDependencyCandidates(Project project) {
             // Leveraging JAVASCRIPT's logic for node_modules as a starting point
@@ -597,7 +857,7 @@ public interface Language {
      * @param name the name of the Language constant to be returned.
      * @return the Language constant with the specified name.
      * @throws IllegalArgumentException if this language type has no constant with the specified name.
-     * @throws NullPointerException if name is null.
+     * @throws NullPointerException     if name is null.
      */
     static Language valueOf(String name) {
         Objects.requireNonNull(name, "Name is null");
@@ -618,12 +878,10 @@ public interface Language {
      * Methods tied to a single‐language identity ‑ such as {@link #internalName()} or
      * {@link #getCpgPath(IProject)} ‑ throw {@link UnsupportedOperationException}.</p>
      */
-    class MultiLanguage implements Language
-    {
+    class MultiLanguage implements Language {
         private final Set<Language> languages;
 
-        public MultiLanguage(Set<Language> languages)
-        {
+        public MultiLanguage(Set<Language> languages) {
             Objects.requireNonNull(languages, "languages set is null");
             if (languages.isEmpty())
                 throw new IllegalArgumentException("languages set must not be empty");
@@ -632,44 +890,42 @@ public interface Language {
             // copy defensively to guarantee immutability and deterministic ordering
             this.languages = languages.stream()
                     .filter(l -> l != Language.NONE)
-                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                    .collect(Collectors.toUnmodifiableSet());
         }
 
-        @Override public List<String> getExtensions()
-        {
+        @Override
+        public List<String> getExtensions() {
             return languages.stream()
                     .flatMap(l -> l.getExtensions().stream())
                     .distinct()
                     .toList();
         }
 
-        @Override public String name()
-        {
+        @Override
+        public String name() {
             return languages.stream().map(Language::name)
-                    .collect(java.util.stream.Collectors.joining("/"));
+                    .collect(Collectors.joining("/"));
         }
 
-        @Override public String internalName()
-        {
+        @Override
+        public String internalName() {
             throw new UnsupportedOperationException("MultiLanguage has no single internalName()");
         }
 
-        @Override public Path getCpgPath(IProject project)
-        {
+        @Override
+        public Path getCpgPath(IProject project) {
             throw new UnsupportedOperationException("MultiLanguage has no single CPG file");
         }
 
-        @Override public boolean isCpg()
-        {
+        @Override
+        public boolean isCpg() {
             return languages.stream().anyMatch(Language::isCpg);
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project)
-        {
-            var delegates = new java.util.HashMap<Language, IAnalyzer>();
-            for (var lang : languages)
-            {
+        public IAnalyzer createAnalyzer(IProject project) {
+            var delegates = new HashMap<Language, IAnalyzer>();
+            for (var lang : languages) {
                 var analyzer = lang.createAnalyzer(project);
                 if (!analyzer.isEmpty())
                     delegates.put(lang, analyzer);
@@ -679,11 +935,10 @@ public interface Language {
                     : new MultiAnalyzer(delegates);
         }
 
-        @Override public IAnalyzer loadAnalyzer(IProject project)
-        {
-            var delegates = new java.util.HashMap<Language, IAnalyzer>();
-            for (var lang : languages)
-            {
+        @Override
+        public IAnalyzer loadAnalyzer(IProject project) {
+            var delegates = new HashMap<Language, IAnalyzer>();
+            for (var lang : languages) {
                 var analyzer = lang.loadAnalyzer(project);
                 if (!analyzer.isEmpty())
                     delegates.put(lang, analyzer);
@@ -694,19 +949,20 @@ public interface Language {
         }
 
         @Override
-        public List<Path> getDependencyCandidates(IProject project)
-        {
+        public List<Path> getDependencyCandidates(IProject project) {
             return languages.stream()
                     .flatMap(l -> l.getDependencyCandidates(project).stream())
                     .toList();
         }
 
         @Override
-        public boolean isAnalyzed(IProject project, Path path)
-        {
+        public boolean isAnalyzed(IProject project, Path path) {
             return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
         }
 
-        @Override public String toString() { return "MultiLanguage" + languages; }
+        @Override
+        public String toString() {
+            return "MultiLanguage" + languages;
+        }
     }
 }
