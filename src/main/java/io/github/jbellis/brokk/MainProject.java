@@ -70,9 +70,9 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) { }
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.HIGH)),
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.HIGH)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
-            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
+            "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.DEFAULT)),
             "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
     );
 
@@ -335,6 +335,7 @@ public final class MainProject extends AbstractProject {
         var typeInfo = MODEL_TYPE_INFOS.get(modelTypeKey);
         Objects.requireNonNull(typeInfo, "typeInfo should not be null for modelTypeKey: " + modelTypeKey);
 
+        // read user-specified value
         String jsonString = props.getProperty(typeInfo.configKey());
         if (jsonString != null && !jsonString.isBlank()) {
             try {
@@ -344,6 +345,8 @@ public final class MainProject extends AbstractProject {
                         modelTypeKey, typeInfo.configKey(), e.getMessage(), jsonString);
             }
         }
+
+        // fallback to hardcoded default
         return typeInfo.preferredConfig();
     }
 
