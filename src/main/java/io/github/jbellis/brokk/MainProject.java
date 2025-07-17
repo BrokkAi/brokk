@@ -941,8 +941,8 @@ public final class MainProject extends AbstractProject {
     public static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("o3", Service.O3, Service.ReasoningLevel.DEFAULT),
             new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Sonnet 3.7", "claude-3.7-sonnet", Service.ReasoningLevel.DEFAULT),
-            new Service.FavoriteModel("Flash 2.0", "gemini-2.0-flash", Service.ReasoningLevel.DEFAULT)
+            new Service.FavoriteModel("Flash 2.5", "gemini-2.5-flash", Service.ReasoningLevel.DISABLE),
+            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW),
     );
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
