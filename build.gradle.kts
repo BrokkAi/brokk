@@ -66,8 +66,9 @@ dependencies {
     implementation(libs.nullaway)
 
     // LangChain4j dependencies
-    implementation(libs.bundles.langchain4j)
     implementation(libs.okhttp)
+    implementation(libs.opennlp)
+    implementation(libs.jtokkit)
 
     implementation(libs.jlama.core)
 
