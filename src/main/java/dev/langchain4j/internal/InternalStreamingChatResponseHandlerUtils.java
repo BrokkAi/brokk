@@ -3,9 +3,6 @@ package dev.langchain4j.internal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import dev.langchain4j.Internal;
-
-@Internal
 public class InternalStreamingChatResponseHandlerUtils {
 
     private static final Logger log = LoggerFactory.getLogger(InternalStreamingChatResponseHandlerUtils.class);

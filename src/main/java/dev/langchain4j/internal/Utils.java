@@ -29,12 +29,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-import dev.langchain4j.Internal;
-
 /**
  * Utility methods.
  */
-@Internal
 public class Utils {
 
   private Utils() {}

@@ -4,7 +4,6 @@ import static dev.langchain4j.model.ModelProvider.OTHER;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import dev.langchain4j.data.message.ChatMessage;
@@ -85,9 +84,5 @@ public interface StreamingChatModel {
                 .build();
 
         chat(chatRequest, handler);
-    }
-
-    default Set<Capability> supportedCapabilities() {
-        return Set.of();
     }
 }

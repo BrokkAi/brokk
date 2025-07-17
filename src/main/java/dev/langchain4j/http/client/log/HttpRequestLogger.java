@@ -12,10 +12,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import dev.langchain4j.Internal;
 import dev.langchain4j.http.client.HttpRequest;
 
-@Internal
 class HttpRequestLogger {
 
     private static final Set<String> COMMON_SECRET_HEADERS =

@@ -63,7 +63,6 @@ jspecify = "org.jspecify:jspecify:1.0.0"
 snakeyaml = "org.yaml:snakeyaml:2.3"
 jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
-opennlp = "org.apache.opennlp:opennlp-tools:2.5.4"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
 
 # Markdown

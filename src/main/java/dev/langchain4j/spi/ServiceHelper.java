@@ -5,12 +5,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.ServiceLoader;
 
-import dev.langchain4j.Internal;
-
 /**
  * Utility wrapper around {@code ServiceLoader.load()}.
  */
-@Internal
 public class ServiceHelper {
 
     /**

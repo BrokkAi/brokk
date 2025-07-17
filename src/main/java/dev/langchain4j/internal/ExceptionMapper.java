@@ -3,7 +3,6 @@ package dev.langchain4j.internal;
 import java.nio.channels.UnresolvedAddressException;
 import java.util.concurrent.Callable;
 
-import dev.langchain4j.Internal;
 import dev.langchain4j.exception.AuthenticationException;
 import dev.langchain4j.exception.HttpException;
 import dev.langchain4j.exception.InternalServerException;
@@ -14,7 +13,6 @@ import dev.langchain4j.exception.RateLimitException;
 import dev.langchain4j.exception.TimeoutException;
 import dev.langchain4j.exception.UnresolvedModelServerException;
 
-@Internal
 @FunctionalInterface
 public interface ExceptionMapper {
 
