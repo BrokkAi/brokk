@@ -942,7 +942,7 @@ public final class MainProject extends AbstractProject {
             new Service.FavoriteModel("o3", Service.O3, Service.ReasoningLevel.DEFAULT),
             new Service.FavoriteModel("Gemini Pro 2.5", Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT),
             new Service.FavoriteModel("Flash 2.5", "gemini-2.5-flash", Service.ReasoningLevel.DISABLE),
-            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW),
+            new Service.FavoriteModel("Sonnet 4", "claude-4-sonnet", Service.ReasoningLevel.LOW)
     );
 
     public static List<Service.FavoriteModel> loadFavoriteModels() {
