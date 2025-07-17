@@ -67,7 +67,7 @@ public class SerialByKeyExecutor {
 
                     Runnable scheduleTask = () -> CompletableFuture
                             .supplyAsync(supplier, executor)
-                            .whenComplete((T res, @Nullable Throwable err) -> {
+                            .whenCompleteAsync((T res, @Nullable Throwable err) -> {
                                 // guarantee cleanup precedes observable completion
                                 activeFutures.remove(k, resultFuture);
                                 if (err != null) {
@@ -82,7 +82,7 @@ public class SerialByKeyExecutor {
                         scheduleTask.run();
                     } else {
                         // chain after the previous placeholder, regardless of its outcome
-                        previous.whenComplete((r, e) -> scheduleTask.run());
+                        previous.whenCompleteAsync((r, e) -> scheduleTask.run());
                     }
 
                     return resultFuture;
