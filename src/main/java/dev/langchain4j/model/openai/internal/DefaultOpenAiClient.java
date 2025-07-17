@@ -10,8 +10,8 @@ import java.util.Map;
 
 import dev.langchain4j.http.client.HttpClient;
 import dev.langchain4j.http.client.HttpClientBuilder;
-import dev.langchain4j.http.client.HttpClientBuilderLoader;
 import dev.langchain4j.http.client.HttpRequest;
+import dev.langchain4j.http.client.jdk.JdkHttpClient;
 import dev.langchain4j.http.client.log.LoggingHttpClient;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionResponse;
@@ -24,8 +24,7 @@ public class DefaultOpenAiClient extends OpenAiClient {
 
     public DefaultOpenAiClient(Builder builder) {
 
-        HttpClientBuilder httpClientBuilder =
-                getOrDefault(builder.httpClientBuilder, HttpClientBuilderLoader::loadHttpClientBuilder);
+        HttpClientBuilder httpClientBuilder = JdkHttpClient.builder();
 
         HttpClient httpClient = httpClientBuilder
                 .connectTimeout(getOrDefault(getOrDefault(builder.connectTimeout, httpClientBuilder.connectTimeout()), ofSeconds(15)))
