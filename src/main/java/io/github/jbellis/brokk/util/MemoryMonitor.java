@@ -1,20 +1,14 @@
 package io.github.jbellis.brokk.util;
 
-import dev.langchain4j.data.message.ChatMessageType;
 import io.github.jbellis.brokk.IConsoleIO;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.components.NotificationPopup;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
-import java.awt.*;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
-import java.net.MalformedURLException;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.text.NumberFormat;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -26,7 +20,7 @@ public class MemoryMonitor implements Runnable {
 
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
 
-    private static final double MEMORY_THRESHOLD = 0.05;
+    private static final double MEMORY_THRESHOLD = 0.80;
     private static final int GC_INTERVAL = 10;
     private static final double GC_THRESHOLD = Math.max(MEMORY_THRESHOLD - 0.10, 0.10);
 
