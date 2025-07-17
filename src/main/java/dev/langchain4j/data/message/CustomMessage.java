@@ -6,11 +6,9 @@ import static dev.langchain4j.internal.Utils.copy;
 import java.util.Map;
 import java.util.Objects;
 
-import dev.langchain4j.model.chat.ChatModel;
-
 /**
  * Represents a custom message.
- * Can be used only with {@link ChatModel} implementations that support this type of message.
+ * Can be used only with chat model implementations that support this type of message.
  */
 public class CustomMessage implements ChatMessage {
 

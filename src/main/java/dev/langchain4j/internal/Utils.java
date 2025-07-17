@@ -193,7 +193,6 @@ public class Utils {
    * Internal method to get a SHA-256 instance of {@link MessageDigest}.
    * @return a {@link MessageDigest}.
    */
-  @JacocoIgnoreCoverageGenerated
   private static MessageDigest getSha256Instance() {
     try {
       return MessageDigest.getInstance("SHA-256");

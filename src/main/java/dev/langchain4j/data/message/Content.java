@@ -5,9 +5,6 @@ package dev.langchain4j.data.message;
  *
  * @see TextContent
  * @see ImageContent
- * @see AudioContent
- * @see VideoContent
- * @see PdfFileContent
  */
 public interface Content {
     /**

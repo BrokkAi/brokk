@@ -1,8 +1,6 @@
 package dev.langchain4j.model.chat;
 
 import static dev.langchain4j.model.ModelProvider.OTHER;
-import static dev.langchain4j.model.chat.ChatModelListenerUtils.onRequest;
-import static dev.langchain4j.model.chat.ChatModelListenerUtils.onResponse;
 
 import java.util.List;
 import java.util.Map;
@@ -12,7 +10,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.ModelProvider;
-import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
@@ -21,8 +18,6 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 
 /**
  * Represents a language model that has a chat API and can stream a response one token at a time.
- *
- * @see ChatModel
  */
 public interface StreamingChatModel {
 
@@ -39,7 +34,6 @@ public interface StreamingChatModel {
                 .parameters(defaultRequestParameters().overrideWith(chatRequest.parameters()))
                 .build();
 
-        List<ChatModelListener> listeners = listeners();
         Map<Object, Object> attributes = new ConcurrentHashMap<>();
 
         StreamingChatResponseHandler observingHandler = new StreamingChatResponseHandler() {
@@ -51,18 +45,15 @@ public interface StreamingChatModel {
 
             @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
-                onResponse(completeResponse, finalChatRequest, provider(), attributes, listeners);
                 handler.onCompleteResponse(completeResponse);
             }
 
             @Override
             public void onError(Throwable error) {
-                ChatModelListenerUtils.onError(error, finalChatRequest, provider(), attributes, listeners);
                 handler.onError(error);
             }
         };
 
-        onRequest(finalChatRequest, provider(), attributes, listeners);
         doChat(finalChatRequest, observingHandler);
     }
 
@@ -72,10 +63,6 @@ public interface StreamingChatModel {
 
     default ChatRequestParameters defaultRequestParameters() {
         return DefaultChatRequestParameters.EMPTY;
-    }
-
-    default List<ChatModelListener> listeners() {
-        return List.of();
     }
 
     default ModelProvider provider() {

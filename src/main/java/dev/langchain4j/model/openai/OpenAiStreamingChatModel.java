@@ -22,7 +22,6 @@ import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import dev.langchain4j.model.chat.listener.ChatModelListener;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.request.ChatRequestParameters;
 import dev.langchain4j.model.chat.request.DefaultChatRequestParameters;
@@ -47,7 +46,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     private final OpenAiChatRequestParameters defaultRequestParameters;
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
-    private final List<ChatModelListener> listeners;
 
     public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
         this.client = OpenAiClient.builder()
@@ -104,7 +102,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
-        this.listeners = copy(builder.listeners);
     }
 
     @Override
@@ -180,11 +177,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     }
 
     @Override
-    public List<ChatModelListener> listeners() {
-        return listeners;
-    }
-
-    @Override
     public ModelProvider provider() {
         return OPEN_AI;
     }
@@ -227,7 +219,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
         private Boolean logRequests;
         private Boolean logResponses;
         private Map<String, String> customHeaders;
-        private List<ChatModelListener> listeners;
 
         public OpenAiStreamingChatModelBuilder() {
             // This is public so it can be extended
@@ -381,11 +372,6 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
         public OpenAiStreamingChatModelBuilder customHeaders(Map<String, String> customHeaders) {
             this.customHeaders = customHeaders;
-            return this;
-        }
-
-        public OpenAiStreamingChatModelBuilder listeners(List<ChatModelListener> listeners) {
-            this.listeners = listeners;
             return this;
         }
 

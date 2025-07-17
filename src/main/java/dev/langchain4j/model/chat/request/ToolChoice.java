@@ -1,9 +1,7 @@
 package dev.langchain4j.model.chat.request;
 
-import dev.langchain4j.model.chat.ChatModel;
-
 /**
- * Specifies how {@link ChatModel} should use tools.
+ * Specifies how chat model should use tools.
  */
 public enum ToolChoice {
 

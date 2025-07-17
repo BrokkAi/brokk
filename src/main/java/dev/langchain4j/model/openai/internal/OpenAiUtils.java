@@ -30,11 +30,9 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.image.Image;
 import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.AudioContent;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.Content;
 import dev.langchain4j.data.message.ImageContent;
-import dev.langchain4j.data.message.PdfFileContent;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
@@ -156,10 +154,6 @@ public class OpenAiUtils {
             return toOpenAiContent((TextContent) content);
         } else if (content instanceof ImageContent) {
             return toOpenAiContent((ImageContent) content);
-        } else if (content instanceof AudioContent audioContent) {
-            return toOpenAiContent(audioContent);
-        } else if (content instanceof PdfFileContent pdfFileContent) {
-            return toOpenAiContent(pdfFileContent);
         } else {
             throw illegalArgument("Unknown content type: " + content);
         }
@@ -182,36 +176,6 @@ public class OpenAiUtils {
                         .build())
                 .build();
     }
-
-    private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(AudioContent audioContent) {
-        return dev.langchain4j.model.openai.internal.chat.Content.builder()
-                .type(ContentType.AUDIO)
-                .inputAudio(InputAudio.builder()
-                        .data(ensureNotBlank(audioContent.audio().base64Data(), "audio.base64Data"))
-                        .format(extractSubtype(ensureNotBlank(audioContent.audio().mimeType(), "audio.mimeType")))
-                        .build())
-                .build();
-    }
-
-    private static dev.langchain4j.model.openai.internal.chat.Content toOpenAiContent(PdfFileContent pdfFileContent) {
-        String fileData;
-        if (pdfFileContent.pdfFile().url() != null) {
-            fileData = pdfFileContent.pdfFile().url().toString();
-        } else {
-            fileData = format("data:%s;base64,%s",
-                    pdfFileContent.pdfFile().mimeType(),
-                    pdfFileContent.pdfFile().base64Data());
-        }
-
-        return dev.langchain4j.model.openai.internal.chat.Content.builder()
-                .type(ContentType.FILE)
-                .file(PdfFile.builder()
-                        .fileData(fileData)
-                        .filename("pdf_file")
-                        .build())
-                .build();
-    }
-
 
     private static String extractSubtype(String mimetype) {
         return mimetype.split("/")[1];
