@@ -12,7 +12,7 @@ class PruneTypesPass(cpg: Cpg) extends CpgPass(cpg) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   override def run(diffGraph: DiffGraphBuilder): Unit = {
-    val typesToPrune = cpg.typ.whereNot(_.evalTypeIn).l
+    val typesToPrune = cpg.typ.whereNot(_.and(_.evalTypeIn, _.referencedTypeDecl.isExternal(true))).l
     logger.info(s"Pruning ${typesToPrune.size} types no longer referenced")
     typesToPrune.flatMap(t => t :: t.referencedTypeDecl.l).foreach(diffGraph.removeNode)
   }
