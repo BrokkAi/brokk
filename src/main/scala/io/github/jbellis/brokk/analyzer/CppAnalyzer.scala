@@ -255,9 +255,9 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
       )
       val candidatesByName = cpg.method.nameExact(funcShortName).l
       methods = candidatesByName.filter { m =>
-        val cpgFullName = m.fullName // e.g., "pytorch.cpp:at::native::<global>::start_index:int(int,int,int)"
-        val resolvedCpgFullName =
-          resolveMethodName(cpgFullName) // e.g., "pytorch.cpp:at::native::<global>::start_index"
+        // e.g., from  "pytorch.cpp:at::native::<global>::start_index:int(int,int,int)" to
+        //        "pytorch.cpp:at::native::<global>::start_index"
+        val resolvedCpgFullName = parentMethodName(m)
 
         val methodSimpleFilename = Path.of(m.filename).getFileName.toString
         val nameToCheckAgainstNs = if (resolvedCpgFullName.startsWith(methodSimpleFilename + ":")) {

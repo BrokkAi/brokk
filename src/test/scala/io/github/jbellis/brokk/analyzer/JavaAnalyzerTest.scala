@@ -355,7 +355,7 @@ class JavaAnalyzerTest {
     // Expect references in B.callsIntoA() because it calls a.method2("test")
     val actualMethodRefs = asScala(usages).filter(_.isFunction).map(_.fqName).toSet
     val actualRefs       = asScala(usages).map(_.fqName).toSet
-    assertEquals(Set("B.callsIntoA", "AnonymousUsage.foo"), actualRefs)
+    assertEquals(Set("B.callsIntoA", "AnonymousUsage$1.run"), actualRefs)
   }
 
   @Test
@@ -401,7 +401,7 @@ class JavaAnalyzerTest {
     val classRefs    = asScala(usages).filter(_.isClass).map(_.fqName).toSet
 
     // There should be function usages in these methods
-    assertEquals(Set("B.callsIntoA", "D.methodD1", "AnonymousUsage.foo"), functionRefs)
+    assertEquals(Set("B.callsIntoA", "D.methodD1", "AnonymousUsage$1.run"), functionRefs)
 
     // Ensure we have the correct usage types with our refactored implementation
     assertEquals(foundRefs, functionRefs ++ fieldRefs ++ classRefs)
@@ -439,7 +439,7 @@ class JavaAnalyzerTest {
     // Find fields matching "field.*"
     val fieldMatches = analyzer.searchDefinitions(".*field.*")
     val fieldRefs    = asScala(fieldMatches).map(_.fqName).toSet
-    assertEquals(Set("D.field1", "D.field2", "E.iField", "E.sField"), fieldRefs)
+    assertEquals(Set("D.field1", "D.field2", "E.iField", "E.sField", "F.HELLO_FIELD"), fieldRefs)
   }
 
   @Test
@@ -563,23 +563,45 @@ class JavaAnalyzerTest {
 
     // Anonymous Inner Classes used in a method
     assertEquals(
-      "org.apache.cassandra.repair.RepairJob.run",
+      "org.apache.cassandra.repair.RepairJob.run.FutureCallback$0.set",
       analyzer.resolveMethodName("org.apache.cassandra.repair.RepairJob.run.FutureCallback$0.set")
     )
     assertEquals(
-      "org.apache.cassandra.db.lifecycle.View.updateCompacting",
+      "org.apache.cassandra.db.lifecycle.View.updateCompacting.Function$0.all",
       analyzer.resolveMethodName("org.apache.cassandra.db.lifecycle.View.updateCompacting.Function$0.all")
     )
     assertEquals(
-      "org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal",
+      "org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal.Selector$1.any",
       analyzer.resolveMethodName("org.apache.cassandra.index.sai.plan.ReplicaPlans.writeNormal.Selector$1.any")
     )
 
     // Anonymous inner classes used in a field
-    //    assertEquals("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>",
-    //      analyzer.resolveMethodName("org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>"))
-    //    assertEquals("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>",
-    //      analyzer.resolveMethodName("org.apache.cassandra.db.Clustering.STATIC_CLUSTERING.BufferClustering$0.<init>"))
+    assertEquals(
+      "org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>",
+      analyzer.resolveMethodName(
+        "org.apache.cassandra.cql3.functions.TimeFcts.minTimeuuidFct.NativeScalarFunction$0.<init>"
+      )
+    )
+    assertEquals(
+      "org.apache.cassandra.db.Clustering.$1.<init>",
+      analyzer.resolveMethodName("org.apache.cassandra.db.Clustering.$1.<init>")
+    )
+    assertEquals(
+      "FileSelectionTree.loadTreeInBackground.SwingWorker$0.addTreeWillExpandListener",
+      analyzer.resolveMethodName(
+        "FileSelectionTree.loadTreeInBackground.SwingWorker$0.addTreeWillExpandListener:void(javax.swing.event.TreeWillExpandListener"
+      )
+    )
+
+    // Lambdas at some call site
+    assertEquals(
+      "io.github.jbellis.brokk.gui.GitCommitTab.rollbackChangesWithUndo",
+      analyzer.resolveMethodName("io.github.jbellis.brokk.gui.GitCommitTab.lambda$rollbackChangesWithUndo$19")
+    )
+    assertEquals(
+      "io.github.jbellis.brokk.gui.GitCommitTab.rollbackChangesWithUndo",
+      analyzer.resolveMethodName("io.github.jbellis.brokk.gui.GitCommitTab.lambda$lambda$rollbackChangesWithUndo$19$20")
+    )
 
     // Constructors
     assertEquals("java.util.HashMap.<init>", analyzer.resolveMethodName("java.util.HashMap.<init>"))
@@ -626,6 +648,32 @@ class JavaAnalyzerTest {
       "<operators>.assignmentLogicalShiftRight",
       analyzer.resolveMethodName("<operators>.assignmentLogicalShiftRight")
     )
+  }
+
+  @Test
+  def getParentMethodNameTest(): Unit = {
+    val analyzer = getAnalyzer
+    val cpg      = analyzer.cpg
+
+    // Basic dynamic dispatched call
+    val methodD1Call = cpg.method.fullName("D\\.methodD2.*").call.nameExact("methodD1").head
+    assertEquals("D.methodD2", analyzer.parentMethodName(methodD1Call))
+
+    // Call within a lambda "Runnable"
+    val method2Call = cpg.method.fullName("AnonymousUsage\\$1\\.run.*").call.nameExact("method2").head
+    assertEquals("AnonymousUsage$1.run", analyzer.parentMethodName(method2Call)) // or do we want `AnonymousUsage.foo`?
+
+    // Anonymous class assigned to a field
+    val fieldsLambda = cpg.method.fullNameExact("F$1.<init>:void()").l
+    assertEquals("F$1.<init>", analyzer.parentMethodName(fieldsLambda.head))
+
+    // Anonymous class within a nested class method
+    val nestedClassLambda = cpg.method.fullName("AnonymousUsage\\$NestedClass.*").isLambda.l
+    assertEquals("AnonymousUsage$NestedClass.getSomething", analyzer.parentMethodName(nestedClassLambda.head))
+
+    // Call within a method in a nested class
+    val printlnInMethod7Call = cpg.method.fullName(".*AInnerInner\\.method7.*").call.nameExact("println").head
+    assertEquals("A$AInner$AInnerInner.method7", analyzer.parentMethodName(printlnInMethod7Call))
   }
 
   @Test

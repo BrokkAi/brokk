@@ -1,3 +1,5 @@
+import java.util.*;
+
 class AnonymousUsage {
     public void foo() {
         new Runnable() {
@@ -6,4 +8,15 @@ class AnonymousUsage {
             }
         }.run();
     }
+
+    class NestedClass {
+
+        private Object getSomething() {
+            Map<String, String> map = new HashMap<>();
+            map.get("foo").ifPresent(s -> map.put("foo", "test")); // made up method
+            return skeletonsMap;
+        }
+
+    }
+    
 }
