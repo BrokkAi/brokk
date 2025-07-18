@@ -2275,7 +2275,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public Set<String> getBranchesInWorktrees() throws GitAPIException {
         return listWorktrees().stream()
                 .map(WorktreeInfo::branch)
-                .filter(branch -> !branch.isEmpty())
+                .filter(branch -> branch != null && !branch.isEmpty())
                 .collect(Collectors.toSet());
     }
 
