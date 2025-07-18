@@ -500,19 +500,13 @@ class EditBlockConflictsTest {
         assertEquals(initialContent, finalContent, "File content should remain unchanged after the failed edit");
     }
 
-<<<<<<< HEAD
     // ----------------------------------------------------
     // Helper methods
     // ----------------------------------------------------
     private EditBlock.SearchReplaceBlock[] parseBlocks(Path root, String fullResponse, Set<String> validFilenames) {
-=======
-        // ----------------------------------------------------
-        // Helper methods
-        // ----------------------------------------------------
-    private EditBlock.SearchReplaceBlock[] parseBlocks(String fullResponse, Set<String> validFilenames) {
-        var root = FileSystems.getDefault().getRootDirectories().iterator().next();
->>>>>>> f12962d1 (Fixes for Unix-Specific Expectations on Tests (#431))
-        var files = validFilenames.stream().map(f -> new ProjectFile(root, Path.of(f))).collect(Collectors.toSet());
+        var files = validFilenames.stream()
+                .map(f -> new ProjectFile(root, Path.of(f)))
+                .collect(Collectors.toSet());
         var blocks = EditBlockConflictsParser.instance.parseEditBlocks(fullResponse, files).blocks();
         return blocks.toArray(new EditBlock.SearchReplaceBlock[0]);
     }
