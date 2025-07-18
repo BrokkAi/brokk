@@ -1,14 +1,14 @@
 import {markdownLineEnding} from 'micromark-util-character';
-import { Tokenizer, State, Code } from 'micromark-util-types';
-import { tokenizeFilename } from './tokenizer/filename';
-import { tokenizeFenceOpen } from './tokenizer/fence-open';
-import { tokenizeHeader } from './tokenizer/header';
-import { tokenizeFenceClose } from './tokenizer/fence-close';
-import {log, makeSafeFx} from './util';
-import { makeEditBlockBodyTokenizer } from './tokenizer/body-tokenizer';
-import { tokenizeDivider } from './tokenizer/divider-tokenizer';
-import { tokenizeTail } from './tokenizer/tail-tokenizer';
-import { codes } from 'micromark-util-symbol';
+import {codes} from 'micromark-util-symbol';
+import {Code, State, Tokenizer} from 'micromark-util-types';
+import {makeEditBlockBodyTokenizer} from './tokenizer/body-tokenizer';
+import {tokenizeDivider} from './tokenizer/divider-tokenizer';
+import {tokenizeFenceClose} from './tokenizer/fence-close';
+import {tokenizeFenceOpen} from './tokenizer/fence-open';
+import {tokenizeFilename} from './tokenizer/filename';
+import {tokenizeTail} from './tokenizer/tail-tokenizer';
+import {makeSafeFx} from './util';
+import {makeTokenizeHeader} from './tokenizer/header';
 
 // ---------------------------------------------------------------------------
 // 1.  Orchestrator for edit block parsing
@@ -37,6 +37,10 @@ export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
         tail: tokenizeTail,
         fenceClose: tokenizeFenceClose
     });
+
+    // Use strict header tokenizer for unfenced blocks to ensure complete header
+    const tokenizeHeader = makeTokenizeHeader({ strict: false });
+
 
     return start;
 
