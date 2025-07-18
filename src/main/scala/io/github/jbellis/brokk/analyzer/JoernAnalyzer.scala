@@ -1,6 +1,5 @@
 package io.github.jbellis.brokk.analyzer
 
-import flatgraph.SchemaViolationException
 import io.github.jbellis.brokk.*
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.implicits.AstNodeExt.*
@@ -153,7 +152,8 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
           case other: Expression    => _parentMethodName(other.method)
           case astNode: AstNode =>
             astNode.inAst.collectFirst { case m: Method => _parentMethodName(m) }.getOrElse {
-              throw new SchemaViolationException(s"Unable to determine parent method for lambda ${method.fullName}!")
+              logger.warn(s"Unable to determine parent method for lambda ${method.fullName}!")
+              resolveMethodName(chopColon(method.fullName))
             }
         }
       else {

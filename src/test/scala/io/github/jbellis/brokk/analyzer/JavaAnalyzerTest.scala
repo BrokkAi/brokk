@@ -667,6 +667,10 @@ class JavaAnalyzerTest {
     val fieldsLambda = cpg.method.fullNameExact("F$1.<init>:void()").l
     assertEquals("F$1.<init>", analyzer.parentMethodName(fieldsLambda.head))
 
+    // Anonymous class within a nested class method
+    val nestedClassLambda = cpg.method.fullName("AnonymousUsage\\$NestedClass.*").isLambda.l
+    assertEquals("AnonymousUsage$NestedClass.getSomething", analyzer.parentMethodName(nestedClassLambda.head))
+
     // Call within a method in a nested class
     val printlnInMethod7Call = cpg.method.fullName(".*AInnerInner\\.method7.*").call.nameExact("println").head
     assertEquals("A$AInner$AInnerInner.method7", analyzer.parentMethodName(printlnInMethod7Call))
