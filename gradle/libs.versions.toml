@@ -1,6 +1,5 @@
 [versions]
 joern = "4.0.379"
-langchain4j = "1.1.0"
 junit = "5.10.2"
 scalatest = "3.2.18"
 log4j = "2.20.0"
@@ -24,10 +23,6 @@ joern-javasrc2cpg = { module = "io.joern:javasrc2cpg_3", version.ref = "joern" }
 joern-pysrc2cpg = { module = "io.joern:pysrc2cpg_3", version.ref = "joern" }
 joern-cli = { module = "io.joern:joern-cli_3", version.ref = "joern" }
 joern-semanticcpg = { module = "io.joern:semanticcpg_3", version.ref = "joern" }
-
-# LangChain4j
-langchain4j-core = { module = "dev.langchain4j:langchain4j", version.ref = "langchain4j" }
-langchain4j-openai = { module = "dev.langchain4j:langchain4j-open-ai", version.ref = "langchain4j" }
 
 # Logging
 slf4j-api = "org.slf4j:slf4j-api:2.0.16"
@@ -69,6 +64,7 @@ jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
 snakeyaml = "org.yaml:snakeyaml:2.3"
 jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
+jtokkit = "com.knuddels:jtokkit:1.1.0"
 
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
@@ -99,7 +95,6 @@ java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.
 
 [bundles]
 joern = ["joern-x2cpg", "joern-c2cpg", "joern-javasrc2cpg", "joern-pysrc2cpg", "joern-cli", "joern-semanticcpg"]
-langchain4j = ["langchain4j-core", "langchain4j-openai"]
 logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]

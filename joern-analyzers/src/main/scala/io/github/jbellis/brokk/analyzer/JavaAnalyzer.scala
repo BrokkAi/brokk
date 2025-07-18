@@ -5,13 +5,14 @@ import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.javasrc2cpg.Config
 import io.joern.joerncli.CpgBasedTool
 import io.shiftleft.codepropertygraph.generated.Cpg
-import io.shiftleft.codepropertygraph.generated.nodes.{Method, TypeDecl}
+import io.shiftleft.codepropertygraph.generated.nodes.{Expression, Method, TypeDecl}
 import io.shiftleft.semanticcpg.language.*
 import org.slf4j.LoggerFactory
 
 import java.nio.file.{Files, Path}
 import java.util
 import java.util.Optional
+import scala.annotation.tailrec
 import scala.io.Source
 import scala.util.boundary.break
 import scala.util.matching.Regex
@@ -69,11 +70,39 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   /** Java-specific logic for removing lambda suffixes, nested class numeric suffixes, etc.
     */
   override private[brokk] def resolveMethodName(methodName: String): String = {
-    val segments = methodName.split("\\.")
-    val idx      = segments.indexWhere(_.matches(".*\\$\\d+$"))
-    val relevant = if (idx == -1) segments else segments.take(idx)
-    relevant.mkString(".")
+
+    val lambdaPattern    = "(?:lambda\\$)+([^$]+)(?:\\$\\d+)+".r
+    val anonClassPattern = ".*\\$\\d+$".r
+
+    @tailrec
+    def resolve(remaining: List[String], acc: List[String]): List[String] = {
+      remaining match {
+        // 1. Base Case: No more tokens to process. Return the accumulated result in the correct order.
+        case Nil => acc.reverse
+
+        // 2. Recursive Case: The current token is a lambda, e.g., "lambda$parent$1".
+        //    Extract the parent method name (recursively if lambdas are nested) and stop and return
+        //    what we have accumulated.
+        case lambdaPattern(parentMethod) :: _ =>
+          (parentMethod :: acc).reverse
+
+        // 3. Recursive Case: The current token is an anonymous class, e.g., "MyClass$1". We stop, add the base class
+        //    and method name, and return what we  have accumulated.
+        case anonClass :: methodName :: _ if anonClassPattern.matches(anonClass) =>
+          (methodName.takeWhile(_ != ':') :: anonClass :: acc).reverse
+
+        // 4. Recursive Case: A regular token. Add it to the accumulator and continue.
+        case head :: tail =>
+          resolve(tail, head :: acc)
+      }
+    }
+
+    val tokens = methodName.split('.').toList
+    resolve(tokens, Nil).mkString(".")
   }
+
+  override private[brokk] def parentMethodName(expression: Expression | Method): String =
+    resolveMethodName(super.parentMethodName(expression))
 
   override private[brokk] def sanitizeType(t: String): String = {
     def processType(input: String): String = {

@@ -1,5 +1,3 @@
-// Root build file for multi-module Brokk project
-
 // Get the version from the latest git tag and current version
 fun getVersionFromGit(): String {
     return try {

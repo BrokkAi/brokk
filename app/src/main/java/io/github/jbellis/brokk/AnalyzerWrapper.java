@@ -115,7 +115,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 if (key == null) {
                     if (externalRebuildRequested && !rebuildInProgress) {
                         logger.debug("External rebuild requested");
-                        rebuild(() -> getLanguageHandle().createAnalyzer(project));
+                        refresh(() -> getLanguageHandle().createAnalyzer(project));
                     }
                     continue;
                 }
@@ -170,7 +170,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         // 2) If overflowed, assume something changed
         if (batch.isOverflowed) {
             if (listener != null) listener.onTrackedFileChange();
-            rebuild(() -> requireNonNull(currentAnalyzer).update());
+            refresh(() -> requireNonNull(currentAnalyzer).update());
         }
 
         // 3) We have an exact files list to check
@@ -205,7 +205,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                                  .map(ProjectFile::toString)
                                  .collect(Collectors.joining(", "))
             );
-            rebuild(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
+            refresh(() -> requireNonNull(currentAnalyzer).update(relevantFiles));
         } else {
             logger.trace("No tracked files changed (overall); skipping analyzer rebuild");
         }
@@ -295,7 +295,7 @@ public class AnalyzerWrapper implements AutoCloseable {
                 !externalRebuildRequested)
         {
             logger.debug("Scheduling background rebuild to refresh stale caches");
-            rebuild(() -> langHandle.createAnalyzer(project));
+            refresh(() -> langHandle.createAnalyzer(project));
         }
 
         /* ── 6.  First‑build heuristics (unchanged logic) ───────────────────────────── */
@@ -428,32 +428,33 @@ public class AnalyzerWrapper implements AutoCloseable {
     }
 
     /**
-     * Force a fresh rebuild of the analyzer by scheduling a job on the analyzerExecutor.
+     * Refreshes the analyzer by scheduling a job on the analyzerExecutor.
      * Avoids concurrent rebuilds by setting a flag, but if a change is detected during
      * the rebuild, a new rebuild will be scheduled immediately afterwards.
-     * This rebuilds the entire analyzer setup (single or multi) based on current project languages.
+     * This refreshes the entire analyzer setup (single or multi). The supplier
+     * controls whether a new analyzer is created, or an optimistic or pessimistic incremental rebuild.
      */
-    private synchronized void rebuild(Supplier<IAnalyzer> supplier) {
+    private synchronized void refresh(Supplier<IAnalyzer> supplier) {
         if (rebuildInProgress) {
             rebuildPending = true;
             return;
         }
 
         rebuildInProgress = true;
-        logger.trace("Rebuilding analyzer (full)");
-        future = runner.submit("Rebuilding code intelligence", () -> {
+        logger.trace("Refreshing analyzer (full)");
+        future = runner.submit("Refreshing code intelligence", () -> {
             try {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
                 currentAnalyzer = supplier.get();
-                logger.debug("Analyzer (full rebuild) completed.");
+                logger.debug("Analyzer refresh completed.");
                 return currentAnalyzer;
             } finally {
                 synchronized (AnalyzerWrapper.this) {
                     rebuildInProgress = false;
                     if (rebuildPending) {
                         rebuildPending = false;
-                        logger.trace("Rebuilding immediately after pending request");
-                        rebuild(() -> getLanguageHandle().createAnalyzer(project));
+                        logger.trace("Refreshing immediately after pending request");
+                        refresh(() -> getLanguageHandle().createAnalyzer(project));
                     } else {
                         externalRebuildRequested = false;
                     }

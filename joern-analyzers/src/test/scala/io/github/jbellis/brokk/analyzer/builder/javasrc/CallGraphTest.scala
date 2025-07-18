@@ -165,7 +165,7 @@ class CallGraphTest extends CpgTestFixture[javasrc2cpg.Config] {
       ).buildAndOpen
 
       val lambdaMethod = cpg.method.isLambda.head
-      lambdaMethod.fullName should fullyMatch regex "LambdaDriver.<lambda>\\d:java.lang.String\\(\\)"
+      lambdaMethod.fullName should fullyMatch regex "LambdaDriver\\.main\\.<lambda>\\d:java.lang.String\\(\\)"
 
       inside(cpg.call.name("getGreeting").l) { case getGreetingCall :: Nil =>
         getGreetingCall.method.fullName shouldBe lambdaMethod.fullName
