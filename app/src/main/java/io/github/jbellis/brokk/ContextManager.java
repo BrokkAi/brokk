@@ -2407,9 +2407,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public static class SummarizeWorker extends SwingWorker<String, String> {
-        private final ContextManager cm;
-        private final String content;
-        private final int words;
+        protected final ContextManager cm;
+        protected final String content;
+        protected final int words;
 
         public SummarizeWorker(ContextManager cm, String content, int words) {
             this.cm = cm;
