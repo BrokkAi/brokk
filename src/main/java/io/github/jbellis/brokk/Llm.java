@@ -180,6 +180,16 @@ public class Llm {
             }
 
             @Override
+            public void onReasoningResponse(String reasoningContent) {
+              ifNotCancelled.accept(() -> {
+                accumulatedTextBuilder.append(reasoningContent);
+                if (echo) {
+                  io.llmOutput(reasoningContent, ChatMessageType.AI);
+                }
+              });
+            }
+
+            @Override
             public void onCompleteResponse(@Nullable ChatResponse response) {
                 ifNotCancelled.accept(() -> {
                     if (response == null) {
