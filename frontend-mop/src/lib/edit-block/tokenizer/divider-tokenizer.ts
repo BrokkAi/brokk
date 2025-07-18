@@ -1,7 +1,7 @@
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, State, Tokenizer } from 'micromark-util-types';
-import { makeSafeFx } from './util';
+import { makeSafeFx } from '../util';
 
 /**
  * Tokenizer for edit block divider.

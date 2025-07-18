@@ -5,17 +5,17 @@ import { tokenizeFenceOpen } from './tokenizer/fence-open';
 import { tokenizeHeader } from './tokenizer/header';
 import { tokenizeFenceClose } from './tokenizer/fence-close';
 import {log, makeSafeFx} from './util';
-import { makeEditBlockBodyTokenizer } from './body-tokenizer';
-import { tokenizeDivider } from './divider-tokenizer';
-import { tokenizeTail } from './tail-tokenizer';
+import { makeEditBlockBodyTokenizer } from './tokenizer/body-tokenizer';
+import { tokenizeDivider } from './tokenizer/divider-tokenizer';
+import { tokenizeTail } from './tokenizer/tail-tokenizer';
 import { codes } from 'micromark-util-symbol';
 
 // ---------------------------------------------------------------------------
 // 1.  Orchestrator for edit block parsing
 // ---------------------------------------------------------------------------
-export const tokenizeEditBlock: Tokenizer = function (effects, ok, nok) {
+export const tokenizeFencedEditBlock: Tokenizer = function (effects, ok, nok) {
     const ctx = this;
-    const fx = makeSafeFx('editBlockOrchestrator', effects, ctx, ok, nok);
+    const fx = makeSafeFx('fencedEditBlock', effects, ctx, ok, nok);
 
     function eatEndLineAndCheckEof(code: Code, next: State) {
         if (markdownLineEnding(code)) {
@@ -31,17 +31,15 @@ export const tokenizeEditBlock: Tokenizer = function (effects, ok, nok) {
         return null;
     }
 
-    // Use the existing body tokenizer for search/replace content
+    // Use the existing body tokenizer for search/replace content, with fence close guard
     const tokenizeBody = makeEditBlockBodyTokenizer({
         divider: tokenizeDivider,
-        tail: tokenizeTail
+        tail: tokenizeTail,
+        fenceClose: tokenizeFenceClose
     });
 
     return start;
 
-    // ────────────────────────────────────────────────────────────────────
-    // open-fence → filename? → header → body → close
-    // ────────────────────────────────────────────────────────────────────
     function start(code: Code): State {
         fx.enter('editBlock');
         return effects.attempt(
@@ -105,20 +103,9 @@ export const tokenizeEditBlock: Tokenizer = function (effects, ok, nok) {
         if (next) return next;
         return effects.attempt(
             { tokenize: tokenizeFenceClose, concrete: true },
-            checkForCompleteBody,
+            done,
             fx.nok
         )(code);
-    }
-
-    function checkForCompleteBody(code: Code): State {
-        // Validate that the body is complete with divider and tail
-        const bodyComplete = (ctx as any)._editBlockCompleted === true;
-        const hasDivider = (ctx as any)._editBlockHasDivider === true;
-        log('editBlockOrchestrator', `checkForCompleteBody: bodyComplete=${bodyComplete}, hasDivider=${hasDivider}`);
-        if (!bodyComplete || !hasDivider) {
-            return fx.nok(code);
-        }
-        return done(code);
     }
 
     function done(code: Code): State {

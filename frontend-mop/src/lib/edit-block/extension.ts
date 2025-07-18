@@ -1,6 +1,6 @@
 import type { Extension } from 'micromark-util-types';
 import { codes } from 'micromark-util-symbol';
-import { editBlock } from './construct';
+import { unfencedEditBlock } from './unfenced-construct';
 import { fencedEditBlock } from './fenced-construct';
 
 /**
@@ -11,7 +11,7 @@ import { fencedEditBlock } from './fenced-construct';
 export function gfmEditBlock(): Extension {
     return {
         flow: {
-            [codes.lessThan]: editBlock, // Unfenced edit blocks
+            [codes.lessThan]: unfencedEditBlock, // Unfenced edit blocks
             [codes.graveAccent]: fencedEditBlock // Fenced edit blocks with ```
         }
     };

@@ -1,11 +1,12 @@
 import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, Effects, State, Tokenizer } from 'micromark-util-types';
-import {makeSafeFx, SafeFx} from './util';
+import {makeSafeFx, SafeFx} from '../util';
 
 export interface BodyTokenizerOpts {
     divider: Tokenizer;
     tail: Tokenizer;
+    fenceClose?: Tokenizer; // Optional tokenizer to detect premature closing fence
 }
 
 /**
@@ -13,13 +14,15 @@ export interface BodyTokenizerOpts {
  * and finishing after the tail has been consumed.
  */
 export function makeEditBlockBodyTokenizer(
-    { divider, tail }: BodyTokenizerOpts
+    { divider, tail, fenceClose }: BodyTokenizerOpts
 ): Tokenizer {
     return function tokenizeBody(effects, ok, nok) {
         const ctx = this;
         const fx = makeSafeFx('tokenizeBody', effects, ctx, ok, nok);
         let dividerSeen = false;
         let tailSeen = false;
+
+        const hasFenceClose = typeof fenceClose === 'function';
 
         fx.enter('editBlockSearchContent');
 
@@ -35,6 +38,14 @@ export function makeEditBlockBodyTokenizer(
                 fx.consume(code);
                 fx.exit('data');
                 return searchLineStart;
+            }
+            if (hasFenceClose && (code === codes.graveAccent || code === codes.tilde)) {
+                // Look-ahead for premature closing fence
+                return effects.check(
+                    { tokenize: fenceClose!, concrete: true },
+                    fx.nok, // Success: premature close, fail body parsing
+                    searchChunkStart // Failure: treat as regular content
+                )(code);
             }
             if (code === codes.equalsTo) {
                 // Look-ahead for the divider (=======)
@@ -102,6 +113,14 @@ export function makeEditBlockBodyTokenizer(
                 fx.consume(code);
                 fx.exit('data');
                 return replaceLineStart;
+            }
+            if (hasFenceClose && (code === codes.graveAccent || code === codes.tilde)) {
+                // Look-ahead for premature closing fence
+                return effects.check(
+                    { tokenize: fenceClose!, concrete: true },
+                    fx.nok, // Success: premature close, fail body parsing
+                    replaceChunkStart // Failure: treat as regular content
+                )(code);
             }
             if (code === codes.greaterThan) {
                 // Look-ahead for the tail (>>>>>>> REPLACE ...)

@@ -2,9 +2,9 @@ import { markdownLineEnding } from 'micromark-util-character';
 import { codes } from 'micromark-util-symbol';
 import type { Code, State, Tokenizer } from 'micromark-util-types';
 import { makeSafeFx } from './util';
-import { makeEditBlockBodyTokenizer } from './body-tokenizer';
-import { tokenizeDivider } from './divider-tokenizer';
-import { tokenizeTail } from './tail-tokenizer';
+import { makeEditBlockBodyTokenizer } from './tokenizer/body-tokenizer';
+import { tokenizeDivider } from './tokenizer/divider-tokenizer';
+import { tokenizeTail } from './tokenizer/tail-tokenizer';
 
 /**
  * Tokenizer for edit blocks.
