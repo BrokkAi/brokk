@@ -85,7 +85,7 @@ private[expressions] trait AstForLambdasCreator { this: AstCreator =>
 
     val lambdaMethodNode = createLambdaMethodNode(expr, lambdaMethodName, parametersWithoutThis, returnType)
 
-    val (astParentType, astParentFullName) = scope.getAstParentInfo(includeMethod = true)
+    val (astParentType, astParentFullName) = scope.getAstParentInfo(prioritizeMethodAstParent = true)
     lambdaMethodNode
       .astParentType(astParentType)
       .astParentFullName(astParentFullName)
@@ -161,8 +161,13 @@ private[expressions] trait AstForLambdasCreator { this: AstCreator =>
     returnType: Option[String]
   ): NewMethod = {
     val signature              = lambdaMethodSignature(returnType, parameters)
-    val (_, astParentFullName) = scope.getAstParentInfo(includeMethod = true)
-    val lambdaFullName         = composeMethodFullName(astParentFullName, lambdaName, signature)
+    val (_, astParentFullName) = scope.getAstParentInfo(prioritizeMethodAstParent = true)
+    // Composing based on a method full name without signature will be fine as the lambda
+    // counter is at a file-level
+    val surroundingFullName = scope.enclosingMethod
+      .map(x => astParentFullName.stripSuffix(s":${x.method.signature}"))
+      .getOrElse(astParentFullName)
+    val lambdaFullName = composeMethodFullName(surroundingFullName, lambdaName, signature)
 
     val genericSignature = binarySignatureCalculator.lambdaMethodBinarySignature(lambdaExpr)
     methodNode(

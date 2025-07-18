@@ -118,7 +118,7 @@ private[declarations] trait AstForTypeDeclsCreator { this: AstCreator =>
     typeFullName: Option[String],
     baseTypeFullName: Option[String]
   ): Ast = {
-    val (astParentType, astParentFullName) = scope.getAstParentInfo(includeMethod = true)
+    val (astParentType, astParentFullName) = scope.getAstParentInfo(prioritizeMethodAstParent = true)
 
     val genericSignature = binarySignatureCalculator.variableBinarySignature(expr.getType)
     val typeDeclRoot =
