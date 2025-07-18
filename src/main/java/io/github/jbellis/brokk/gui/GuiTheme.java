@@ -112,11 +112,14 @@ public class GuiTheme {
                         applyThemeToFrame(win, theme);
                     }
                     if (window instanceof JDialog dialog) {
-                        // 1. ThemeAware dialogs can theme themselves
-                        if (dialog instanceof ThemeAware aware) {
-                            aware.applyTheme(this);
+                        // Skip dialogs that are not displayable
+                        if (dialog.isDisplayable()) {
+                            // 1. ThemeAware dialogs can theme themselves
+                            if (dialog instanceof ThemeAware aware) {
+                                aware.applyTheme(this);
+                            }
+                            applyThemeToComponent(dialog.getContentPane(), theme);
                         }
-                        applyThemeToComponent(dialog.getContentPane(), theme);
                     }
                 }
             })
