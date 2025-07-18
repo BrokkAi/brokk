@@ -160,6 +160,7 @@ public class DefaultChatRequestParameters implements ChatRequestParameters {
         return new Builder<>();
     }
 
+    @SuppressWarnings("unchecked")
     public static class Builder<T extends Builder<T>> {
 
         private String modelName;

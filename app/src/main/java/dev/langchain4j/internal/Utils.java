@@ -257,6 +257,7 @@ public class Utils {
    * @return The content as bytes.
    * @throws RuntimeException if the request fails.
    */
+  @SuppressWarnings("deprecation")
   public static byte[] readBytes(String url) {
     try {
       if (url.startsWith("http://") || url.startsWith("https://")) {

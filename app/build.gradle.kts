@@ -150,6 +150,9 @@ tasks.named<JavaCompile>("compileJava") {
         // Enable NullAway with comprehensive configuration
         error("NullAway")
 
+        // Exclude dev/ directory from all ErrorProne checks
+        excludedPaths = ".*/src/main/java/dev/.*"
+
         // Core NullAway options
         option("NullAway:AnnotatedPackages", "io.github.jbellis.brokk")
         option("NullAway:ExcludedFieldAnnotations",
@@ -162,6 +165,7 @@ tasks.named<JavaCompile>("compileJava") {
         option("NullAway:KnownInitializers",
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
+        option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
     }
 }
 

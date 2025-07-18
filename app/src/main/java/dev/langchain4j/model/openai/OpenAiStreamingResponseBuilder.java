@@ -46,6 +46,7 @@ public class OpenAiStreamingResponseBuilder {
     private final AtomicReference<TokenUsage> tokenUsage = new AtomicReference<>();
     private final AtomicReference<FinishReason> finishReason = new AtomicReference<>();
 
+    @SuppressWarnings("deprecation")
     public void append(ChatCompletionResponse partialResponse) {
         if (partialResponse == null) {
             return;

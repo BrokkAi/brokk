@@ -70,6 +70,7 @@ import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.Response;
 
+@SuppressWarnings("deprecation")
 public class OpenAiUtils {
 
     public static final String DEFAULT_OPENAI_URL = "https://api.openai.com/v1";

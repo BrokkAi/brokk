@@ -44,6 +44,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
     private final Boolean strictJsonSchema;
     private final Boolean strictTools;
 
+    @SuppressWarnings("unchecked")
     public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
         this.client = OpenAiClient.builder()
                 .httpClientBuilder(builder.httpClientBuilder)
