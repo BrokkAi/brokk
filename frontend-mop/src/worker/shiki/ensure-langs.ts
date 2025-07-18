@@ -35,7 +35,7 @@ export function ensureLang(langId: string): Promise<boolean> {
         }
 
         try {
-            const mod = await loader();
+            const mod: any = await loader();
             await highlighter.loadLanguage(mod.default ?? mod);
             loadedLangs.add(langId);
             console.log('[Shiki] Language loaded:', langId);

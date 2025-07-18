@@ -21,6 +21,8 @@ export function makeEditBlockBodyTokenizer(
         let dividerSeen = false;
         let tailSeen = false;
 
+        fx.enter('editBlockSearchContent');
+
         // Search content state machine
         function searchLineStart(code: Code): State {
             if (code === codes.eof) {

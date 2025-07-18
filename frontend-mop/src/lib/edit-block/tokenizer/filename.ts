@@ -24,16 +24,12 @@ export const tokenizeFilename: Tokenizer = function (effects, ok, nok) {
             return afterFenceNewline;
         }
 
-        // Otherwise, treat this line as an inline filename
-        if (code === codes.eof) {
-            return fx.ok(code); // No filename, succeed with zero length
-        }
-
         if (code === codes.space || code === codes.horizontalTab) {
             return fx.nok(code); // Reject space after fence
         }
 
         fx.enter('editBlockFilename');
+
         hasFilename = true;
         return inlineFilename(code);
     }
@@ -62,7 +58,7 @@ export const tokenizeFilename: Tokenizer = function (effects, ok, nok) {
     function inlineFilename(code: Code): State {
         if (markdownLineEnding(code) || code === codes.eof) {
             fx.exit('editBlockFilename');
-            return fx.ok; // Don't consume the newline, let the next tokenizer handle it
+            return fx.ok(code); // Don't consume the newline, let the next tokenizer handle it
         }
 
         if (code === codes.space || code === codes.horizontalTab) {
