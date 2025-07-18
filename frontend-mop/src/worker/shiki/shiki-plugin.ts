@@ -12,7 +12,6 @@ import python from 'shiki/langs/python.mjs';
 import ts from 'shiki/langs/typescript.mjs';
 import yaml from 'shiki/langs/yaml.mjs';
 import type {Plugin} from 'svelte-exmarkdown';
-import {langLoaders} from './shiki-lang-loaders';
 
 // Define a CSS variables theme
 const cssVarsTheme = createCssVariablesTheme({
@@ -60,49 +59,3 @@ export const shikiPluginPromise: Promise<Plugin> = highlighterPromise.then(highl
     ]
 }));
 
-const langPromiseCache = new Map<string, Promise<void>>();
-
-/**
- * Ensures `langId` is available in the highlighter.
- *
- * • Completely idempotent: call it as many times as you like.
- * • If several calls race on the same lang they all await the same promise.
- * • Returns *immediately* resolved promise if the language is already loaded.
- */
-export function ensureLang(langId: string): Promise<void> {
-    langId = langId.toLowerCase();
-    if (!langId) {
-        return Promise.resolve();
-    }
-
-    // Return cached promise if a load is already in flight.
-    if (langPromiseCache.has(langId)) {
-        return langPromiseCache.get(langId)!;
-    }
-
-    const p = highlighterPromise.then(async highlighter => {
-        if (highlighter.getLoadedLanguages().includes(langId)) {
-            return;
-        }
-
-        const loader = langLoaders[langId];
-        if (!loader) {
-            console.warn('[Shiki] No loader registered for:', langId);
-            return;
-        }
-
-        try {
-            const mod = await loader();
-            await highlighter.loadLanguage(mod.default ?? mod);
-            console.log('[Shiki] Language loaded:', langId);
-        } catch (e) {
-            console.error('[Shiki] Language load failed:', langId, e);
-            // On failure, remove from cache so we can retry.
-            langPromiseCache.delete(langId);
-        }
-    });
-
-    // Cache the promise *before* returning it to dedupe races.
-    langPromiseCache.set(langId, p);
-    return p;
-}

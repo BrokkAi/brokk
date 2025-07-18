@@ -1,5 +1,3 @@
-import {editBlockFromMarkdown, gfmEditBlock} from '../lib/micromark-edit-block';
-import {remarkEditBlock} from '../lib/edit-block-plugin';
 import type {Root as HastRoot} from 'hast';
 import type {Parent, Root, RootContent} from 'mdast';
 import remarkBreaks from 'remark-breaks';
@@ -10,8 +8,10 @@ import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
 import type {Test} from 'unist-util-visit/lib';
+import {editBlockFromMarkdown, gfmEditBlock} from '../lib/micromark-edit-block';
 import type {OutboundFromWorker, ShikiLangsReadyMsg} from './shared';
-import {ensureLang, shikiPluginPromise} from './shiki/shiki-plugin';
+import {ensureLang} from './shiki/ensure-langs';
+import {shikiPluginPromise} from './shiki/shiki-plugin';
 
 function post(msg: OutboundFromWorker) {
     self.postMessage(msg);
@@ -86,13 +86,13 @@ export function parseMarkdown(src: string, fast = false): HastRoot {
 }
 
 function handlePendingLanguages(detectedLangs: Set<string>): void {
-    const pendingPromises = [...detectedLangs]
-        .filter(lang => lang && !highlighter!.getLoadedLanguages().includes(lang))
-        .map(ensureLang);
+    const pendingPromises = [...detectedLangs].map(ensureLang);
 
     if (pendingPromises.length > 0) {
-        Promise.all(pendingPromises).then(() => {
-            post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
+        Promise.all(pendingPromises).then(results => {
+            if (results.some(Boolean)) {
+                post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
+            }
         });
     }
 }
