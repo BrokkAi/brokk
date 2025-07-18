@@ -1174,6 +1174,8 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
         }
       }
 
+    import io.shiftleft.semanticcpg.language.*
+
     // Add global/namespace-level functions
     cpg.method
       .filenameExact(file.toString())
@@ -1181,6 +1183,12 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
         m.name == "<global>" || m.name.startsWith("<operator>")
       }
       .filterNot { m => // Filter out methods whose parent TypeDecl would have been filtered
+        try {
+          m.astParent
+        } catch {
+          case e: Exception =>
+            logger.error(s"Error on astParent for method ${m.start.toJsonPretty}")
+        }
         Option(m.astParent).collect { case td: TypeDecl => td }.exists { parentTd =>
           val name     = parentTd.name
           val fullName = parentTd.fullName

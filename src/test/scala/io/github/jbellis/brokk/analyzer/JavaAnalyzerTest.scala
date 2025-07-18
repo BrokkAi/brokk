@@ -429,7 +429,7 @@ class JavaAnalyzerTest {
     // Find classes matching "*E"
     val classMatches = analyzer.searchDefinitions(".*e")
     val classRefs    = asScala(classMatches).filter(_.isClass).map(_.fqName).toSet
-    assertEquals(Set("E", "UseE", "AnonymousUsage"), classRefs)
+    assertEquals(Set("E", "UseE", "AnonymousUsage", "Interface"), classRefs)
 
     // Find methods matching "method*"
     val methodMatches = analyzer.searchDefinitions("method.*1")
@@ -674,6 +674,11 @@ class JavaAnalyzerTest {
     // Call within a method in a nested class
     val printlnInMethod7Call = cpg.method.fullName(".*AInnerInner\\.method7.*").call.nameExact("println").head
     assertEquals("A$AInner$AInnerInner.method7", analyzer.parentMethodName(printlnInMethod7Call))
+
+    // A lambda assigned to a field within an interface
+    val interfaceField = cpg.method.where(_.file.name("Interface.java")).isLambda.head
+    // this is the last method we can show, further up is the type name, which is not a 'parentMethodName'
+    assertEquals("Interface.<lambda>0", analyzer.parentMethodName(interfaceField))
   }
 
   @Test

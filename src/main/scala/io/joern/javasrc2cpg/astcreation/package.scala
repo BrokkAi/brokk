@@ -3,6 +3,7 @@ package io.joern.javasrc2cpg
 import io.joern.javasrc2cpg.scope.Scope
 import io.joern.javasrc2cpg.util.NameConstants
 import io.shiftleft.codepropertygraph.generated.NodeTypes
+import io.shiftleft.codepropertygraph.generated.nodes.Method.PropertyDefaults
 
 package object astcreation {
 
@@ -13,7 +14,7 @@ package object astcreation {
         .map { scope =>
           (NodeTypes.METHOD, scope.method.fullName)
         }
-        .filter(_ => prioritizeMethodAstParent)
+        .filter((_, fullName) => prioritizeMethodAstParent && fullName != PropertyDefaults.FullName)
         .orElse {
           scope.enclosingTypeDecl
             .map { scope =>
