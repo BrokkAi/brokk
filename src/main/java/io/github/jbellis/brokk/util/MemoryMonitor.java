@@ -1,91 +1,93 @@
 package io.github.jbellis.brokk.util;
 
+import com.sun.management.GarbageCollectionNotificationInfo;
 import io.github.jbellis.brokk.IConsoleIO;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.management.NotificationEmitter;
+import javax.management.NotificationListener;
+import javax.management.openmbean.CompositeData;
 import javax.swing.*;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryPoolMXBean;
 import java.text.NumberFormat;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.List;
 
 /**
  * A memory monitoring daemon that attempts to preempt an {@link OutOfMemoryError}. If the memory usage of the JVM
- * exceeds 80%, the {@link IConsoleIO} dialog is shown to the user.
+ * exceeds 85%, the {@link IConsoleIO} dialog is shown to the user.
  */
 public class MemoryMonitor implements Runnable {
 
-    private final Logger logger = LoggerFactory.getLogger(this.getClass());
+    private final static Logger logger = LoggerFactory.getLogger(MemoryMonitor.class);
 
-    private static final double MEMORY_THRESHOLD = 0.80;
-    private static final int GC_INTERVAL = 10;
-    private static final double GC_THRESHOLD = Math.max(MEMORY_THRESHOLD - 0.10, 0.10);
+    private static final double MEMORY_THRESHOLD = 0.85;
 
-    private final AtomicInteger gcDelay = new AtomicInteger(GC_INTERVAL);
     private boolean dialogShownAlready = false;
     private final IConsoleIO consoleIO;
 
-    public MemoryMonitor(IConsoleIO consoleIO) {
+    private MemoryMonitor(IConsoleIO consoleIO) {
         this.consoleIO = consoleIO;
+    }
+
+    private void issueLowMemoryWarning(double usageRatio) {
+        // Once we've shown the dialog, we can likely disappear. We assume the user will either:
+        //  * close the application and reset it with new memory configurations; or
+        //  * continue working with low memory, but doesn't want this dialog to reappear.
+        if (!dialogShownAlready) {
+            dialogShownAlready = true;
+            final var msg = String.format(
+                    "Memory usage is at %.2f%% after the most recent garbage collection, " +
+                            "thus the IDE may become unresponsive. Current limit (-Xmx) is %s.",
+                    usageRatio * 100,
+                    getMaxHeapSize()
+            );
+            consoleIO.systemNotify(msg, "Low Available Memory Detected", JOptionPane.WARNING_MESSAGE);
+        }
     }
 
     @Override
     public void run() {
         logger.debug("MemoryMonitor ({}) started", Thread.currentThread().getName());
-        // Once we've shown the dialog, we can likely disappear. We assume the user will either:
-        //  * close the application and reset it with new memory configurations; or
-        //  * continue working with low memory, but doesn't want this dialog to reappear.
-        while (!Thread.currentThread().isInterrupted() && !dialogShownAlready) {
-            double usagePercentage = getUsedPercentage();
+        List<GarbageCollectorMXBean> gcBeans = ManagementFactory.getGarbageCollectorMXBeans();
 
-            if (usagePercentage > GC_THRESHOLD && gcDelay.getAndDecrement() < 0) {
-                logger.warn("Noticed high memory usage {} times, running garbage collection. Current usage: {}%",
-                        GC_INTERVAL,
-                        usagePercentage * 100);
-                System.gc();
-                gcDelay.set(GC_INTERVAL);
-                if (usagePercentage > MEMORY_THRESHOLD) {
-                    logger.warn("Low memory detected! Usage: {}%", usagePercentage * 100);
-                    if (!dialogShownAlready) {
-                        dialogShownAlready = true;
-                        consoleIO.systemNotify(
-                                String.format(
-                                        "The IDE may become unresponsive. Current limit (-Xmx) is %s.",
-                                        getMaxHeapSize()
-                                ),
-                                "Low Memory Detected",
-                                JOptionPane.WARNING_MESSAGE
-                        );
+        // Hook a listener to every garbage collector
+        for (GarbageCollectorMXBean gcBean : gcBeans) {
+            NotificationEmitter emitter = (NotificationEmitter) gcBean;
+
+            final NotificationListener listener = (notification, handback) -> {
+                // We only care about GC completion notifications
+                if (notification.getType().equals(GarbageCollectionNotificationInfo.GARBAGE_COLLECTION_NOTIFICATION)) {
+                    final var info = GarbageCollectionNotificationInfo.from((CompositeData) notification.getUserData());
+
+                    long totalUsedAfterGc = 0;
+                    long totalMax = 0;
+
+                    // Sum memory usage across all heap pools after the GC
+                    for (MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans()) {
+                        if (pool.getType() == java.lang.management.MemoryType.HEAP) {
+                            final var usageAfterGc = info.getGcInfo().getMemoryUsageAfterGc().get(pool.getName());
+                            totalUsedAfterGc += usageAfterGc.getUsed();
+                            totalMax += usageAfterGc.getMax();
+                        }
+                    }
+
+                    if (totalMax == 0) return;
+                    double usageRatio = (double) totalUsedAfterGc / totalMax;
+
+                    logger.debug("[{}] GC finished. Heap usage after GC: {}%", info.getGcName(), usageRatio * 100);
+
+                    // If usage is STILL high, issue the warning
+                    if (usageRatio > MEMORY_THRESHOLD) {
+                        issueLowMemoryWarning(usageRatio);
                     }
                 }
-            }
+            };
 
-            try {
-                Thread.sleep(2500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Preserve interrupt status
-                break;
-            }
-        }
-    }
-
-    private double getUsedPercentage() {
-        long maxMemory;
-
-        final var runtime = Runtime.getRuntime();
-        final var totalMemory = runtime.totalMemory();
-
-        final var usedMemory = totalMemory - runtime.freeMemory();
-        maxMemory = runtime.maxMemory();
-
-        // If max is effectively unlimited, use the current total allocated memory as the denominator.
-        if (maxMemory == Long.MAX_VALUE) {
-            maxMemory = totalMemory;
-        }
-
-        if (maxMemory > 0) {
-            return (double) usedMemory / maxMemory;
-        } else {
-            return 0.0;
+            emitter.addNotificationListener(listener, null, null);
+            logger.debug("Registered garbage collector notification listener {}", listener);
         }
     }
 
@@ -106,10 +108,30 @@ public class MemoryMonitor implements Runnable {
         return NumberFormat.getInstance().format(maxMemoryMB) + " MB";
     }
 
-    public static Thread startMonitoring(IConsoleIO consoleIO) {
-        Thread monitorThread = new Thread(new MemoryMonitor(consoleIO), "BrokkMemoryMonitorThread");
-        monitorThread.setDaemon(true); // Ensure thread doesn't prevent JVM shutdown
-        monitorThread.start();
-        return monitorThread;
+    public static void startMonitoring(IConsoleIO consoleIO) {
+        if (!isJmxEnabled()) {
+            logger.warn("JMX is disabled, cannot start monitoring");
+        } else {
+            Thread monitorThread = new Thread(new MemoryMonitor(consoleIO), "BrokkMemoryMonitorThread");
+            monitorThread.setDaemon(true); // Ensure thread doesn't prevent JVM shutdown
+            monitorThread.start();
+        }
+    }
+
+    /**
+     * Checks if the local JMX Management Extensions are available.
+     *
+     * @return true if JMX is enabled, false otherwise.
+     */
+    public static boolean isJmxEnabled() {
+        try {
+            // Attempt to get a fundamental MXBean.
+            // If this fails (returns null or throws), JMX is not available.
+            return ManagementFactory.getMemoryMXBean() != null;
+        } catch (Exception e) {
+            // Catching a broad exception handles any unexpected initialization errors.
+            logger.warn("JMX check failed with an exception", e);
+            return false;
+        }
     }
 }
