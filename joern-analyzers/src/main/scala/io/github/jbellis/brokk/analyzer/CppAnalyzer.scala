@@ -827,6 +827,10 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
 object CppAnalyzer {
 
   private val logger = LoggerFactory.getLogger(getClass)
+
+  def loadAnalyzer(sourcePath: Path, preloadedPath: Path) =
+    new CppAnalyzer(sourcePath, preloadedPath)
+
   private def defaultConfig = CConfig()
     .withDefaultIgnoredFilesRegex(Nil)
     .withIncludeComments(false)

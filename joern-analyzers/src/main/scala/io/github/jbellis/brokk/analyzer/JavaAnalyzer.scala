@@ -395,6 +395,10 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
 object JavaAnalyzer {
 
   private val logger = LoggerFactory.getLogger(getClass)
+
+  def loadAnalyzer(sourcePath: Path, preloadedPath: Path) =
+    new JavaAnalyzer(sourcePath, preloadedPath)
+
   private def defaultConfig = Config()
     .withDefaultIgnoredFilesRegex(Nil)
     .withDisableFileContent(false) // lets us use `.offset` and `.offsetEnd` on AST nodes

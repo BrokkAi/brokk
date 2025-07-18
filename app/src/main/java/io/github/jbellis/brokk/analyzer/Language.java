@@ -140,7 +140,8 @@ public interface Language {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return new JavaAnalyzer(project.getRoot(), Set.of(), getCpgPath(project));
+            Path cpgPath = getCpgPath(project);
+            return JavaAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
         }
 
         @Override
@@ -473,7 +474,8 @@ public interface Language {
 
         @Override
         public IAnalyzer loadAnalyzer(IProject project) {
-            return new CppAnalyzer(project.getRoot(), Set.of(), getCpgPath(project));
+            Path cpgPath = getCpgPath(project);
+            return CppAnalyzer$.MODULE$.loadAnalyzer(project.getRoot(), cpgPath);
         }
 
         @Override
