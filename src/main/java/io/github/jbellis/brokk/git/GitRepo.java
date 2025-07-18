@@ -2142,13 +2142,14 @@ public class GitRepo implements Closeable, IGitRepo {
                         currentBranch = branchRef; // Should not happen with porcelain but good to be defensive
                     }
                 } else if (line.equals("detached")) {
-                    currentBranch = null; // Or a special string like "(detached HEAD)" if preferred
+                    // Detached-HEAD worktree: branch remains null (WorktreeInfo.branch is @Nullable).
+                    currentBranch = null;
                 }
             }
             // Add the last parsed worktree
             if (currentPath != null) {
                 worktrees.add(new WorktreeInfo(currentPath,
-                                               requireNonNull(currentBranch),
+                                               currentBranch,   // empty string for detached worktrees
                                                requireNonNull(currentHead)));
             }
             return worktrees;

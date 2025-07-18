@@ -390,6 +390,40 @@ public class GitRepoTest {
     }
 
     @Test
+    void testGetBranchesInWorktrees_DetachedHead() throws Exception {
+        assumeTrue(repo.supportsWorktrees(),
+                   "Worktrees not supported, skipping testGetBranchesInWorktrees_DetachedHead");
+
+        var mainBranch = repo.getCurrentBranch();
+
+        // Create a worktree in a detached HEAD state (no branch associated)
+        Path detachedWorktreePath = tempDir.resolve("detached-worktree");
+        try {
+            io.github.jbellis.brokk.util.Environment.instance.runShellCommand(
+                String.format("git worktree add --detach %s",
+                              detachedWorktreePath.toAbsolutePath().normalize()),
+                repo.getGitTopLevel(),
+                output -> { }
+            );
+        } catch (io.github.jbellis.brokk.util.Environment.SubprocessException | InterruptedException e) {
+            fail("Failed to create detached HEAD worktree: " + e.getMessage());
+        }
+
+        // The detached worktree should *not* contribute a branch name
+        var branchesInWorktreesDetached = repo.getBranchesInWorktrees();
+
+        assertTrue(branchesInWorktreesDetached.contains(mainBranch),
+                   "Main branch should still be present in worktree branches list");
+        assertFalse(branchesInWorktreesDetached.contains(""),
+                    "Detached HEAD worktree must not add an empty branch name");
+        assertEquals(1, branchesInWorktreesDetached.size(),
+                     "Only the main branch should be listed when an extra detached worktree is present");
+
+        // Clean up the detached worktree
+        repo.removeWorktree(detachedWorktreePath, true);
+    }
+
+    @Test
     void testIsWorktree() throws Exception {
         assumeTrue(repo.supportsWorktrees(), "Worktrees not supported, skipping testIsWorktree");
 
