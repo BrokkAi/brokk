@@ -312,9 +312,7 @@ panel.add(buttonPanel, gbc);
         final var normalizedUrl = normalizeGitUrl(url);
         final var directory      = Paths.get(dir);
 
-        /* ------------------------------------------------------------------
-         * 1. Build the modal progress dialog on the EDT
-         * ------------------------------------------------------------------ */
+        // 1. Build the modal progress dialog on the EDT
         final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
         var progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
@@ -324,9 +322,7 @@ panel.add(buttonPanel, gbc);
         progressDialog.pack();
         progressDialog.setLocationRelativeTo(parentFrame);
 
-        /* ------------------------------------------------------------------
-         * 2. Start background clone
-         * ------------------------------------------------------------------ */
+        // 2. Start background clone
         var worker = new SwingWorker<Path, Void>()
         {
             @Override
@@ -363,10 +359,8 @@ panel.add(buttonPanel, gbc);
         };
         worker.execute();
 
-        /* ------------------------------------------------------------------
-         * 3. Show the dialog (modal) – this blocks the EDT but continues to
-         *    dispatch events, so the SwingWorker can complete in background.
-         * ------------------------------------------------------------------ */
+        // 3. Show the dialog (modal) – this blocks the EDT but continues to
+        //    dispatch events, so the SwingWorker can complete in background.
         progressDialog.setVisible(true);
     }
 
