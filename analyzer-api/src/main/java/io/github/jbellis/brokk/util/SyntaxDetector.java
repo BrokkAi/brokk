@@ -6,102 +6,102 @@ import java.util.Map;
  * Utility class to detect the appropriate RSyntaxTextArea syntax style based on file extension.
  */
 public final class SyntaxDetector {
-    // Map file extensions (lowercase) to RSyntaxTextArea SyntaxConstants
+    // Map file extensions (lowercase) to syntax style strings
     private static final Map<String, String> EXT_TO_SYNTAX = Map.ofEntries(
             // Core languages
-            Map.entry("java", SyntaxConstants.SYNTAX_STYLE_JAVA),
-            Map.entry("py", SyntaxConstants.SYNTAX_STYLE_PYTHON),
-            Map.entry("json", SyntaxConstants.SYNTAX_STYLE_JSON),
-            Map.entry("jsonc", SyntaxConstants.SYNTAX_STYLE_JSON_WITH_COMMENTS),
-            Map.entry("jshintrc", SyntaxConstants.SYNTAX_STYLE_JSON_WITH_COMMENTS),
-            Map.entry("html", SyntaxConstants.SYNTAX_STYLE_HTML),
-            Map.entry("xml", SyntaxConstants.SYNTAX_STYLE_XML),
-            Map.entry("css", SyntaxConstants.SYNTAX_STYLE_CSS),
-            Map.entry("sql", SyntaxConstants.SYNTAX_STYLE_SQL),
-            Map.entry("yaml", SyntaxConstants.SYNTAX_STYLE_YAML),
-            Map.entry("yml", SyntaxConstants.SYNTAX_STYLE_YAML),
+            Map.entry("java", "text/java"),
+            Map.entry("py", "text/python"),
+            Map.entry("json", "application/json"),
+            Map.entry("jsonc", "application/json-with-comments"),
+            Map.entry("jshintrc", "application/json-with-comments"),
+            Map.entry("html", "text/html"),
+            Map.entry("xml", "text/xml"),
+            Map.entry("css", "text/css"),
+            Map.entry("sql", "text/sql"),
+            Map.entry("yaml", "text/yaml"),
+            Map.entry("yml", "text/yaml"),
 
             // Shell and scripting
-            Map.entry("sh", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
-            Map.entry("bash", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
-            Map.entry("zsh", SyntaxConstants.SYNTAX_STYLE_UNIX_SHELL),
-            Map.entry("bat", SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH),
-            Map.entry("cmd", SyntaxConstants.SYNTAX_STYLE_WINDOWS_BATCH),
+            Map.entry("sh", "text/shell"),
+            Map.entry("bash", "text/shell"),
+            Map.entry("zsh", "text/shell"),
+            Map.entry("bat", "text/batch"),
+            Map.entry("cmd", "text/batch"),
 
             // C family
-            Map.entry("c", SyntaxConstants.SYNTAX_STYLE_C),
-            Map.entry("h", SyntaxConstants.SYNTAX_STYLE_C),
-            Map.entry("cpp", SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS),
-            Map.entry("hpp", SyntaxConstants.SYNTAX_STYLE_CPLUSPLUS),
-            Map.entry("cs", SyntaxConstants.SYNTAX_STYLE_CSHARP),
+            Map.entry("c", "text/c"),
+            Map.entry("h", "text/c"),
+            Map.entry("cpp", "text/cpp"),
+            Map.entry("hpp", "text/cpp"),
+            Map.entry("cs", "text/csharp"),
 
             // JVM languages
-            Map.entry("kt", SyntaxConstants.SYNTAX_STYLE_KOTLIN),
-            Map.entry("scala", SyntaxConstants.SYNTAX_STYLE_SCALA),
-            Map.entry("groovy", SyntaxConstants.SYNTAX_STYLE_GROOVY),
-            Map.entry("gradle", SyntaxConstants.SYNTAX_STYLE_GROOVY),
-            Map.entry("clj", SyntaxConstants.SYNTAX_STYLE_CLOJURE),
+            Map.entry("kt", "text/kotlin"),
+            Map.entry("scala", "text/scala"),
+            Map.entry("groovy", "text/groovy"),
+            Map.entry("gradle", "text/groovy"),
+            Map.entry("clj", "text/clojure"),
 
             // Web technologies
-            Map.entry("js", SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT),
-            Map.entry("jsx", SyntaxConstants.SYNTAX_STYLE_JAVASCRIPT),
-            Map.entry("ts", SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT),
-            Map.entry("tsx", SyntaxConstants.SYNTAX_STYLE_TYPESCRIPT),
-            Map.entry("php", SyntaxConstants.SYNTAX_STYLE_PHP),
-            Map.entry("jsp", SyntaxConstants.SYNTAX_STYLE_JSP),
-            Map.entry("less", SyntaxConstants.SYNTAX_STYLE_LESS),
-            Map.entry("hbs", SyntaxConstants.SYNTAX_STYLE_HANDLEBARS),
-            Map.entry("mxml", SyntaxConstants.SYNTAX_STYLE_MXML),
+            Map.entry("js", "text/javascript"),
+            Map.entry("jsx", "text/javascript"),
+            Map.entry("ts", "text/typescript"),
+            Map.entry("tsx", "text/typescript"),
+            Map.entry("php", "text/php"),
+            Map.entry("jsp", "text/jsp"),
+            Map.entry("less", "text/less"),
+            Map.entry("hbs", "text/handlebars"),
+            Map.entry("mxml", "text/mxml"),
 
             // Markup and documentation
-            Map.entry("md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN),
-            Map.entry("tex", SyntaxConstants.SYNTAX_STYLE_LATEX),
-            Map.entry("bbcode", SyntaxConstants.SYNTAX_STYLE_BBCODE),
-            Map.entry("dtd", SyntaxConstants.SYNTAX_STYLE_DTD),
+            Map.entry("md", "text/markdown"),
+            Map.entry("tex", "text/latex"),
+            Map.entry("bbcode", "text/bbcode"),
+            Map.entry("dtd", "text/dtd"),
 
             // Systems and low-level
-            Map.entry("rs", SyntaxConstants.SYNTAX_STYLE_RUST),
-            Map.entry("go", SyntaxConstants.SYNTAX_STYLE_GO),
-            Map.entry("d", SyntaxConstants.SYNTAX_STYLE_D),
-            Map.entry("asm", SyntaxConstants.SYNTAX_STYLE_ASSEMBLER_X86),
-            Map.entry("6502", SyntaxConstants.SYNTAX_STYLE_ASSEMBLER_6502),
+            Map.entry("rs", "text/rust"),
+            Map.entry("go", "text/go"),
+            Map.entry("d", "text/d"),
+            Map.entry("asm", "text/asm-x86"),
+            Map.entry("6502", "text/asm-6502"),
 
             // Scripting and dynamic languages
-            Map.entry("rb", SyntaxConstants.SYNTAX_STYLE_RUBY),
-            Map.entry("pl", SyntaxConstants.SYNTAX_STYLE_PERL),
-            Map.entry("lua", SyntaxConstants.SYNTAX_STYLE_LUA),
-            Map.entry("tcl", SyntaxConstants.SYNTAX_STYLE_TCL),
-            Map.entry("dart", SyntaxConstants.SYNTAX_STYLE_DART),
+            Map.entry("rb", "text/ruby"),
+            Map.entry("pl", "text/perl"),
+            Map.entry("lua", "text/lua"),
+            Map.entry("tcl", "text/tcl"),
+            Map.entry("dart", "text/dart"),
 
             // Functional and academic languages
-            Map.entry("lisp", SyntaxConstants.SYNTAX_STYLE_LISP),
-            Map.entry("f", SyntaxConstants.SYNTAX_STYLE_FORTRAN),
-            Map.entry("f90", SyntaxConstants.SYNTAX_STYLE_FORTRAN),
-            Map.entry("pas", SyntaxConstants.SYNTAX_STYLE_DELPHI),
-            Map.entry("vb", SyntaxConstants.SYNTAX_STYLE_VISUAL_BASIC),
+            Map.entry("lisp", "text/lisp"),
+            Map.entry("f", "text/fortran"),
+            Map.entry("f90", "text/fortran"),
+            Map.entry("pas", "text/delphi"),
+            Map.entry("vb", "text/vb"),
 
             // Data and configuration
-            Map.entry("properties", SyntaxConstants.SYNTAX_STYLE_PROPERTIES_FILE),
-            Map.entry("ini", SyntaxConstants.SYNTAX_STYLE_INI),
-            Map.entry("csv", SyntaxConstants.SYNTAX_STYLE_CSV),
-            Map.entry("proto", SyntaxConstants.SYNTAX_STYLE_PROTO),
+            Map.entry("properties", "text/properties"),
+            Map.entry("ini", "text/ini"),
+            Map.entry("csv", "text/csv"),
+            Map.entry("proto", "text/proto"),
 
             // Build and deployment
-            Map.entry("dockerfile", SyntaxConstants.SYNTAX_STYLE_DOCKERFILE),
-            Map.entry("makefile", SyntaxConstants.SYNTAX_STYLE_MAKEFILE),
-            Map.entry("nsi", SyntaxConstants.SYNTAX_STYLE_NSIS),
+            Map.entry("dockerfile", "text/dockerfile"),
+            Map.entry("makefile", "text/makefile"),
+            Map.entry("nsi", "text/nsis"),
 
             // Specialized
-            Map.entry("as", SyntaxConstants.SYNTAX_STYLE_ACTIONSCRIPT),
-            Map.entry("sas", SyntaxConstants.SYNTAX_STYLE_SAS),
-            Map.entry("hosts", SyntaxConstants.SYNTAX_STYLE_HOSTS),
-            Map.entry("htaccess", SyntaxConstants.SYNTAX_STYLE_HTACCESS)
+            Map.entry("as", "text/actionscript"),
+            Map.entry("sas", "text/sas"),
+            Map.entry("hosts", "text/hosts"),
+            Map.entry("htaccess", "text/htaccess")
     );
 
     // Private constructor to prevent instantiation
     private SyntaxDetector() {}
 
     public static String fromExtension(String extension) {
-        return EXT_TO_SYNTAX.getOrDefault(extension, SyntaxConstants.SYNTAX_STYLE_NONE);
+        return EXT_TO_SYNTAX.getOrDefault(extension, "text/plain");
     }
 }
