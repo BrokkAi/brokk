@@ -17,7 +17,7 @@ import static java.util.Objects.requireNonNull;
 public class Completions {
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String pattern = input.trim();
-        var allDefs = analyzer.searchDefinitions(".*").stream().toList();
+        var allDefs = analyzer.getAllDeclarations().stream().toList();
 
         // empty pattern -> alphabetic list
         if (pattern.isEmpty()) {
