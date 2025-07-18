@@ -330,9 +330,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         });
 
         // Add Undo (Ctrl+Z) and Redo (Ctrl+Y or Ctrl+Shift+Z) actions
-        var undoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, java.awt.event.InputEvent.CTRL_DOWN_MASK);
-        var redoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Y, java.awt.event.InputEvent.CTRL_DOWN_MASK);
-        var redoAlternativeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, java.awt.event.InputEvent.CTRL_DOWN_MASK | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
+        int shortcutMask = java.awt.Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx();
+        var undoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask);
+        var redoKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Y, shortcutMask);
+        var redoAlternativeKeyStroke = KeyStroke.getKeyStroke(KeyEvent.VK_Z, shortcutMask | java.awt.event.InputEvent.SHIFT_DOWN_MASK);
 
         area.getInputMap().put(undoKeyStroke, "undo");
         area.getActionMap().put("undo", new AbstractAction() {
