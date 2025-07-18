@@ -65,10 +65,8 @@ dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
 
-    // LangChain4j dependencies
-    implementation(libs.bundles.langchain4j)
     implementation(libs.okhttp)
-
+    implementation(libs.jtokkit)
     implementation(libs.jlama.core)
 
     // Console and logging
