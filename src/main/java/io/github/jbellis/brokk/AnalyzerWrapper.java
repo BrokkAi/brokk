@@ -59,11 +59,23 @@ public class AnalyzerWrapper implements AutoCloseable {
         // build the initial Analyzer
         future = runner.submit("Initializing code intelligence", () -> {
             // Loading the analyzer with `Optional.empty` tells the analyzer to determine changed files on its own
+            long start =  System.currentTimeMillis();
             currentAnalyzer = loadOrCreateAnalyzer();
+            long durationMs = System.currentTimeMillis() - start;
+
+            // Watcher assumes that currentAnalyzer has been initialized so start it after we have one
             startWatcher();
+            
+            // debug logging
             var codeUnits = currentAnalyzer.getAllDeclarations();
             var codeFiles = codeUnits.stream().map(CodeUnit::source).distinct().count();
             logger.debug("Initial analyzer has {} declarations across {} files", codeUnits.size(), codeFiles);
+
+            // configure auto-refresh based on how long the first build took
+            if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
+                handleFirstBuildRefreshSettings(codeUnits.size(), durationMs, project.getAnalyzerLanguages());
+            }
+
             return currentAnalyzer;
         });
     }
@@ -275,24 +287,15 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
-        long start = System.currentTimeMillis();
         IAnalyzer analyzer;
         try {
             analyzer = langHandle.loadAnalyzer(project);
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
+            logger.warn(th);
             analyzer = langHandle.createAnalyzer(project);
             needsRebuild = false;
         }
-
-        if (needsRebuild && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
-            logger.debug("Building fresh analyzer (first build, rebuild required: {})", needsRebuild);
-            // TODO allow this to happen in the background
-            // TODO get changed files from mtimes instead of using Big Hammer update()
-            analyzer = analyzer.update();
-        }
-        long durationMs = System.currentTimeMillis() - start;
-        int declarationCount = analyzer.getAllDeclarations().size();
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
@@ -303,17 +306,16 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
-        if (needsRebuild &&
-                project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL &&
-                !externalRebuildRequested) 
+        if (needsRebuild
+            && project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL
+            && !externalRebuildRequested) 
         {
-            logger.debug("Scheduling background rebuild to refresh stale caches");
-            refresh(() -> langHandle.createAnalyzer(project));
-        }
-
-        /* ── 6.  First‑build heuristics (unchanged logic) ───────────────────────────── */
-        if (project.getAnalyzerRefresh() == IProject.CpgRefresh.UNSET) {
-            handleFirstBuildRefreshSettings(declarationCount, durationMs, project.getAnalyzerLanguages());
+            logger.debug("Scheduling background refresh");
+            IAnalyzer finalAnalyzer = analyzer;
+            runner.submit("Refreshing Code Intelligence", () -> {
+                refresh(finalAnalyzer::update);
+                return null;
+            });
         }
 
         return analyzer;
