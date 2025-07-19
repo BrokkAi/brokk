@@ -43,6 +43,11 @@ public interface StreamingChatModel {
             }
 
             @Override
+            public void onReasoningResponse(String reasoningContent) {
+                handler.onReasoningResponse(reasoningContent);
+            }
+
+            @Override
             public void onCompleteResponse(ChatResponse completeResponse) {
                 handler.onCompleteResponse(completeResponse);
             }
