@@ -161,7 +161,7 @@ public class WorkspaceTools {
         // Use the ContextManager's method to add the string fragment
         String description = "Content from " + urlString;
         // ContextManager handles pushing the context update
-        var fragment = new ContextFragment.StringFragment(contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_NONE); // Pass contextManager
+        var fragment = new ContextFragment.StringFragment(contextManager, content, description, SyntaxConstants.SYNTAX_STYLE_MARKDOWN); // Pass contextManager
         contextManager.pushContext(ctx -> ctx.addVirtualFragment(fragment));
 
         return "Added content from URL [%s] as a read-only text fragment.".formatted(urlString);
