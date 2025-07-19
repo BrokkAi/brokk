@@ -2,24 +2,35 @@ package io.github.jbellis.brokk.analyzer
 
 import io.github.jbellis.brokk.testutil.TestProject
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
-import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.{BeforeAll, Test}
 
 import java.nio.file.{Files, Path}
 import java.util.Collections
 import scala.jdk.javaapi.CollectionConverters.asScala
 
-class JavaAnalyzerSearchTest {
+// Companion object for @BeforeAll setup
+object JavaAnalyzerSearchTest {
+  private var javaAnalyzer: JavaAnalyzer = scala.compiletime.uninitialized
 
-  val javaTestProject: TestProject = createTestProject("testcode-java", Language.JAVA)
-  val tempCpgFile: Path            = Path.of(System.getProperty("java.io.tmpdir"), "brokk-java-search-test.bin")
-  val javaAnalyzer: JavaAnalyzer   = new JavaAnalyzer(javaTestProject.getRoot, Collections.emptySet(), tempCpgFile)
+  @BeforeAll
+  def setup(): Unit = {
+    val javaTestProject: TestProject = createTestProject("testcode-java", Language.JAVA)
+    val tempCpgFile: Path            = Path.of(System.getProperty("java.io.tmpdir"), "brokk-java-search-test.bin")
+    javaAnalyzer = new JavaAnalyzer(javaTestProject.getRoot, Collections.emptySet(), tempCpgFile)
+  }
 
-  def createTestProject(subDir: String, lang: Language): TestProject = {
+  private def createTestProject(subDir: String, lang: Language): TestProject = {
     val testDir = Path.of("src/test/resources", subDir)
     assertTrue(Files.exists(testDir), s"Test resource dir missing: $testDir")
     assertTrue(Files.isDirectory(testDir), s"$testDir is not a directory")
     new TestProject(testDir.toAbsolutePath, lang)
   }
+}
+
+class JavaAnalyzerSearchTest {
+
+  // Use the analyzer from the companion object
+  private def javaAnalyzer: JavaAnalyzer = JavaAnalyzerSearchTest.javaAnalyzer
 
   @Test
   def testSearchDefinitions_BasicPatterns(): Unit = {
