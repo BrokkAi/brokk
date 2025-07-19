@@ -231,6 +231,10 @@ public class AnalyzerWrapper implements AutoCloseable {
      * <code>langHandle.createAnalyzer()</code> (full rebuild).</p>
      */
     private IAnalyzer loadOrCreateAnalyzer() {
+        // ACHTUNG!
+        // Do not call into the listener directly in this method, since if the listener asks for the analyzer
+        // object via get() it can cause a deadlock.
+        
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
         Language langHandle = getLanguageHandle();
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
@@ -239,7 +243,12 @@ public class AnalyzerWrapper implements AutoCloseable {
         }
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
-        if (listener != null) listener.beforeEachBuild();
+        if (listener != null) {
+            runner.submit("Prep Code Intelligence", () -> {
+                listener.beforeEachBuild();
+                return null;
+            });
+        }
 
         BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
@@ -286,8 +295,12 @@ public class AnalyzerWrapper implements AutoCloseable {
         int declarationCount = analyzer.getAllDeclarations().size();
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
-        if (listener != null)
-            listener.afterEachBuild(true, externalRebuildRequested);
+        if (listener != null) {
+            runner.submit("Refreshing Workspace", () -> {
+                listener.afterEachBuild(true, externalRebuildRequested);
+                return null;
+            });
+        }
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild &&
