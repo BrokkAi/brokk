@@ -846,6 +846,9 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 
   override def searchDefinitions(pattern: String): java.util.List[CodeUnit] = {
     import scala.jdk.CollectionConverters.*
+    // Return empty results for empty pattern, consistent with TreeSitterAnalyzer
+    if (pattern.isEmpty) return java.util.List.of()
+
     // If the user did not include a wildcard, match the pattern anywhere
     val preparedPattern =
       if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"

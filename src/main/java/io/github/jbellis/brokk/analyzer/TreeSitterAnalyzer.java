@@ -28,6 +28,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -283,9 +284,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         if (pattern.isEmpty()) {
             return List.of();
         }
-        return uniqueCodeUnitList().stream()
-                                   .filter(cu -> cu.fqName().contains(pattern))
-                                   .toList();
+
+        // Prepare pattern like JoernAnalyzer: auto-wrap with .* if not present, escape, and make case-insensitive
+        var preparedPattern = pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*";
+        var ciPattern = "(?i)" + preparedPattern;
+
+        try {
+            var compiledPattern = Pattern.compile(ciPattern);
+            return uniqueCodeUnitList().stream()
+                                       .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                                       .toList();
+        } catch (PatternSyntaxException e) {
+            var lowerPattern = pattern.toLowerCase();
+            return uniqueCodeUnitList().stream()
+                                       .filter(cu -> cu.fqName().toLowerCase().contains(lowerPattern))
+                                       .toList();
+        }
     }
 
     @Override
