@@ -302,80 +302,66 @@ panel.add(buttonPanel, gbc);
     {
         if (url.isBlank() || dir.isBlank())
         {
-            JOptionPane.showMessageDialog(this, "URL and Directory must be provided.", "Error", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this,
+                                          "URL and Directory must be provided.",
+                                          "Error",
+                                          JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        var normalizedUrl = normalizeGitUrl(url);
-        var directory = Paths.get(dir);
+        final var normalizedUrl = normalizeGitUrl(url);
+        final var directory      = Paths.get(dir);
 
+        // 1. Build the modal progress dialog on the EDT
+        final var progressDialog = new JDialog(parentFrame, "Cloning...", true);
+        var progressBar = new JProgressBar();
+        progressBar.setIndeterminate(true);
+        progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl),
+                           BorderLayout.NORTH);
+        progressDialog.add(progressBar, BorderLayout.CENTER);
+        progressDialog.pack();
+        progressDialog.setLocationRelativeTo(parentFrame);
+
+        // 2. Start background clone
         var worker = new SwingWorker<Path, Void>()
         {
             @Override
-            protected @Nullable Path doInBackground() throws Exception
+            protected Path doInBackground() throws Exception
             {
-                var progressDialog = new JDialog(parentFrame, "Cloning...", true);
-                var progressBar = new JProgressBar();
-                progressBar.setIndeterminate(true);
-                progressDialog.add(new JLabel("Cloning repository from " + normalizedUrl), BorderLayout.NORTH);
-                progressDialog.add(progressBar, BorderLayout.CENTER);
-                progressDialog.pack();
-                progressDialog.setLocationRelativeTo(parentFrame);
-                var dialogClosed = new AtomicBoolean(false);
-                progressDialog.addWindowListener(new java.awt.event.WindowAdapter() {
-                    @Override
-                    public void windowClosing(java.awt.event.WindowEvent windowEvent) {
-                        dialogClosed.set(true);
-                    }
-                });
-
-                var cloneTask = new Thread(() -> {
-                    try
-                    {
-                        GitRepo.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
-                    }
-                    catch (Exception e)
-                    {
-                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(OpenProjectDialog.this,
-                                                                                       "Failed to clone repository: " + e.getMessage(),
-                                                                                       "Clone Failed",
-                                                                                       JOptionPane.ERROR_MESSAGE));
-                        throw new RuntimeException(e);
-                    }
-                    finally
-                    {
-                        SwingUtilities.invokeLater(progressDialog::dispose);
-                    }
-                });
-                cloneTask.start();
-                progressDialog.setVisible(true); // blocks until dispose() is called
-
-                if (dialogClosed.get()) {
-                    // It is not simple to interrupt JGit clone, so we just let it finish in background but don't open project.
-                    return null;
-                }
-
+                // Heavy-weight Git operation happens off the EDT
+                GitRepo.cloneRepo(normalizedUrl, directory, shallow ? depth : 0);
                 return directory;
             }
 
             @Override
             protected void done()
             {
-                try
-                {
-                    Path projectPath = get();
-                    if (projectPath != null)
+                // Always dispose dialog on EDT
+                SwingUtilities.invokeLater(() -> {
+                    progressDialog.dispose();
+                    try
                     {
-                        openProject(projectPath);
+                        Path projectPath = get();
+                        if (projectPath != null)
+                        {
+                            openProject(projectPath);
+                        }
                     }
-                }
-                catch (Exception e)
-                {
-                    // Error was already shown in doInBackground
-                }
+                    catch (Exception e)
+                    {
+                        JOptionPane.showMessageDialog(OpenProjectDialog.this,
+                                                      "Failed to clone repository: " + e.getMessage(),
+                                                      "Clone Failed",
+                                                      JOptionPane.ERROR_MESSAGE);
+                    }
+                });
             }
         };
         worker.execute();
+
+        // 3. Show the dialog (modal) – this blocks the EDT but continues to
+        //    dispatch events, so the SwingWorker can complete in background.
+        progressDialog.setVisible(true);
     }
 
     private static String normalizeGitUrl(String url)
