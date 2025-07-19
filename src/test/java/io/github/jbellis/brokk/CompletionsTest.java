@@ -4,7 +4,6 @@ import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.io.TempDir;
 import org.msgpack.core.annotations.VisibleForTesting;
 
@@ -108,7 +107,6 @@ public class CompletionsTest {
     }
 
     @Test
-    @Disabled("broken on master")
     public void testUnqualifiedSingleLetter() {
         var mock = new MockAnalyzer(tempDir);
 
@@ -121,7 +119,6 @@ public class CompletionsTest {
     }
 
     @Test
-    @Disabled("broken on master")
     public void testUnqualifiedR() {
         var mock = new MockAnalyzer(tempDir);
         // Input "r" -> user wants to find "a.b.Do$Re" by partial name "Re"
