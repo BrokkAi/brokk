@@ -81,13 +81,15 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    // Everything else
+    /**
+     * All top-level declarations in the project.
+     */
     default List<CodeUnit> getAllDeclarations() {
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Gets all classes in a given file.
+     * Gets top-level declarations in a given file.
      */
     default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         throw new UnsupportedOperationException();
@@ -109,6 +111,13 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided
+     * pattern as follows:
+     *     val preparedPattern =
+     *       if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"
+     *     val ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
+     */
     default List<CodeUnit> searchDefinitions(String pattern) {
         throw new UnsupportedOperationException();
     }
