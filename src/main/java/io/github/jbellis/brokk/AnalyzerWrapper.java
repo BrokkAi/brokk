@@ -631,7 +631,7 @@ public class AnalyzerWrapper implements AutoCloseable {
 
     public void updateFiles(Set<ProjectFile> changedFiles) {
         try {
-            future.get().update(changedFiles);
+            currentAnalyzer = future.get().update(changedFiles);
         } catch (InterruptedException | ExecutionException e) {
             throw new RuntimeException(e);
         }
