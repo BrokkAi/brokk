@@ -3,7 +3,6 @@ import {codes} from 'micromark-util-symbol';
 import {Code, State, Tokenizer} from 'micromark-util-types';
 import {makeEditBlockBodyTokenizer} from './tokenizer/body-tokenizer';
 import {tokenizeDivider} from './tokenizer/divider-tokenizer';
-import {tokenizeFilename} from './tokenizer/filename';
 import {makeTokenizeHeader} from './tokenizer/header';
 import {tokenizeTail} from './tokenizer/tail-tokenizer';
 import {makeSafeFx} from './util';

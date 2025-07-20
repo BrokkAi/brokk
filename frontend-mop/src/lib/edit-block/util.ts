@@ -3,7 +3,7 @@ import type {Code, Effects, State, TokenizeContext} from 'micromark-util-types';
 /**
  * Debug logging function for edit block parsing.
  */
-let loggingEnabled = true;
+let loggingEnabled = false;
 
 export function log(contextInfo, msg: any, newLine = false): void {
     if (!loggingEnabled) return;
