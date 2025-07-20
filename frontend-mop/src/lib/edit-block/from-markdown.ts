@@ -16,7 +16,8 @@ export function editBlockFromMarkdown() {
                         hProperties: {
                             filename: undefined as string | undefined,
                             search: undefined as string | undefined,
-                            replace: undefined as string | undefined
+                            replace: undefined as string | undefined,
+                            headerOk: false as boolean
                         }
                     }
                 };
@@ -46,6 +47,12 @@ export function editBlockFromMarkdown() {
                 log('from-markdown', 'exit editBlockFilename');
                 const node = this.data.currentEditBlock;
                 node.data.hProperties.filename = this.sliceSerialize(tok);
+            },
+
+            editBlockSearchKeyword() {
+                log('from-markdown', 'exit editBlockSearchKeyword');
+                const node = this.data.currentEditBlock;
+                node.data.hProperties.headerOk = true; // Mark header as complete
             },
 
             editBlockSearchContent(tok) {

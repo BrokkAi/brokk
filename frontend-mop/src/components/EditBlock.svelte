@@ -11,7 +11,8 @@
     // changed = '0', // prop available if needed
     // status = 'UNKNOWN', // prop available if needed
     search = '',
-    replace = ''
+    replace = '',
+    headerOk = false as boolean
   } = $props();
 
   console.log('EditBlock props:');
@@ -57,6 +58,7 @@
 
 </script>
 
+{#if headerOk}
 <div class="edit-block-wrapper">
     <header class="edit-block-header" on:click={toggleDetails}>
         <Icon icon="mdi:file-document-edit-outline" class="file-icon"/>
@@ -83,6 +85,7 @@
         </div>
     {/if}
 </div>
+{/if}
 
 <style>
     .edit-block-wrapper {
