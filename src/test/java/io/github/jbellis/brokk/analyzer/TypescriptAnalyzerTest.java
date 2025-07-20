@@ -899,5 +899,76 @@ public class TypescriptAnalyzerTest {
         }
     }
 
+    @Test
+    void testSearchDefinitions_CaseSensitiveAndRegex() {
+        // Test case-insensitive behavior (default)
+        var greeterLower = analyzer.searchDefinitions("greeter");
+        var greeterUpper = analyzer.searchDefinitions("GREETER");
+        var greeterLowerNames = greeterLower.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        var greeterUpperNames = greeterUpper.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertEquals(greeterLowerNames, greeterUpperNames,
+                    "TypeScript search should be case-insensitive: 'greeter' and 'GREETER' should return identical results");
+
+        // Test regex patterns with metacharacters
+        var dotAnyPattern = analyzer.searchDefinitions(".*Greeter.*"); // Regex pattern to match Greeter
+        var greeterNames = dotAnyPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(greeterNames.stream().anyMatch(name -> name.contains("Greeter")),
+                  "Regex pattern should match Greeter and its members");
+
+        // Test class/interface name patterns
+        var classPattern = analyzer.searchDefinitions(".*Class.*");
+        var classNames = classPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(classNames.stream().anyMatch(name -> name.contains("DecoratedClass")),
+                  "Class pattern should match DecoratedClass");
+
+        // Test enum patterns
+        var colorEnum = analyzer.searchDefinitions("Color");
+        var colorNames = colorEnum.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(colorNames.stream().anyMatch(name -> name.contains("Color")),
+                  "Should find Color enum");
+
+        // Test function patterns
+        var funcPattern = analyzer.searchDefinitions(".*Func.*");
+        var funcNames = funcPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(funcNames.stream().anyMatch(name -> name.contains("globalFunc")),
+                  "Function pattern should match globalFunc");
+
+        // Test TypeScript-specific patterns: generic types
+        var genericPattern = analyzer.searchDefinitions(".*Generic.*");
+        var genericNames = genericPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(genericNames.stream().anyMatch(name -> name.contains("GenericInterface")),
+                  "Generic pattern should match GenericInterface");
+
+        // Test async/await patterns
+        var asyncPattern = analyzer.searchDefinitions("async.*");
+        var asyncNames = asyncPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(asyncNames.stream().anyMatch(name -> name.contains("asyncArrowFunc") || name.contains("asyncNamedFunc")),
+                  "Async pattern should match async functions");
+
+        // Test type alias patterns
+        var typePattern = analyzer.searchDefinitions("Pointy");
+        var typeNames = typePattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(typeNames.stream().anyMatch(name -> name.contains("Pointy")),
+                  "Should find Pointy generic type alias");
+
+        // Test ambient declaration patterns
+        var ambientPattern = analyzer.searchDefinitions("$");
+        var ambientNames = ambientPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(ambientNames.stream().anyMatch(name -> name.contains("$")),
+                  "Should find ambient $ variable");
+
+        // Test method/property patterns with dot notation
+        var methodPattern = analyzer.searchDefinitions(".*\\.greet");
+        var methodNames = methodPattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(methodNames.stream().anyMatch(name -> name.contains("Greeter.greet")),
+                  "Dot notation pattern should match method names");
+
+        // Test namespace patterns
+        var namespacePattern = analyzer.searchDefinitions(".*ThirdParty.*");
+        var namespaceNames = namespacePattern.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(namespaceNames.stream().anyMatch(name -> name.contains("ThirdPartyLib")),
+                  "Namespace pattern should match ThirdPartyLib");
+    }
 
 }

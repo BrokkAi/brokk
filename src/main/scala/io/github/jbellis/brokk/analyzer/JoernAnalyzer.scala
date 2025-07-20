@@ -844,12 +844,21 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     buildCallGraph(resolvedMethodName, isIncoming = false, maxDepth = depth)
   }
 
-  override def searchDefinitions(pattern: String): java.util.List[CodeUnit] = {
+  override def searchDefinitionsImpl(
+    originalPattern: String,
+    fallbackPattern: String,
+    compiledPattern: java.util.regex.Pattern
+  ): java.util.List[CodeUnit] = {
     import scala.jdk.CollectionConverters.*
-    // If the user did not include a wildcard, match the pattern anywhere
-    val preparedPattern =
-      if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"
-    val ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
+
+    // Determine the pattern to use
+    val ciPattern = if (fallbackPattern != null) {
+      // Use fallback pattern for simple substring matching
+      s"(?i).*${java.util.regex.Pattern.quote(fallbackPattern)}.*"
+    } else {
+      // Use the already compiled pattern's pattern string
+      compiledPattern.pattern()
+    }
 
     // Classes
     val matchingClasses = cpg.typeDecl

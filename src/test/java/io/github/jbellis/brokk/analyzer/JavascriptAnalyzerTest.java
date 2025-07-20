@@ -305,7 +305,7 @@ public final class JavascriptAnalyzerTest {
         Optional<String> jsxArrowFnHeader = jsAnalyzer.getSkeletonHeader("JsxArrowFnComponent");
         assertTrue(jsxArrowFnHeader.isPresent(), "Skeleton header for JsxArrowFnComponent should be defined.");
         assertEquals("export JsxArrowFnComponent({ name }): JSX.Element => ...", jsxArrowFnHeader.get().trim());
-        
+
         // Test case 3: Regular function in JS
         Optional<String> utilFuncHeader = jsAnalyzer.getSkeletonHeader("util"); // From Hello.js
         assertTrue(utilFuncHeader.isPresent(), "Skeleton header for util function should be defined.");
@@ -357,7 +357,7 @@ public final class JavascriptAnalyzerTest {
         Optional<ProjectFile> renderMethodFile = jsAnalyzer.getFileFor("JsxClass.render");
         assertTrue(renderMethodFile.isPresent(), "File for 'JsxClass.render' method should be found.");
         assertEquals(helloJsxFile, renderMethodFile.get());
-        
+
         // Test case 4: Top-level variable in Vars.js
         Optional<ProjectFile> topConstJsFile = jsAnalyzer.getFileFor("Vars.js.TOP_CONST_JS");
         assertTrue(topConstJsFile.isPresent(), "File for 'Vars.js.TOP_CONST_JS' should be found.");
@@ -381,7 +381,7 @@ public final class JavascriptAnalyzerTest {
         assertTrue(greetMethodDef.isPresent(), "Definition for 'Hello.greet' method should be found.");
         assertEquals("Hello.greet", greetMethodDef.get().fqName());
         assertEquals(helloJsFile, greetMethodDef.get().source());
-        
+
         // Test case 3: Top-level variable in Vars.js
         Optional<CodeUnit> topConstJsDef = jsAnalyzer.getDefinition("Vars.js.TOP_CONST_JS");
         assertTrue(topConstJsDef.isPresent(), "Definition for 'Vars.js.TOP_CONST_JS' should be found.");
@@ -395,34 +395,31 @@ public final class JavascriptAnalyzerTest {
 
     @Test
     void testSearchDefinitions() {
-        // Test case 1: Search for "Jsx"
-        List<CodeUnit> jsxSymbols = jsAnalyzer.searchDefinitions("Jsx");
+        var jsxSymbols = jsAnalyzer.searchDefinitions("Jsx");
         assertFalse(jsxSymbols.isEmpty(), "Should find symbols containing 'Jsx'.");
-        Set<String> jsxFqNames = jsxSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(jsxFqNames.contains("JsxClass"));
-        assertTrue(jsxFqNames.contains("JsxClass.render")); // Member of JsxClass
-        assertTrue(jsxFqNames.contains("JsxArrowFnComponent"));
-        assertTrue(jsxFqNames.contains("LocalJsxArrowFn")); // Non-exported local arrow function
-        assertTrue(jsxFqNames.contains("PlainJsxFunc"));    // Non-exported plain function
-        assertEquals(5, jsxSymbols.size(), "Expected 5 symbols containing 'Jsx'.");
+        var jsxFqNames = jsxSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
-        // Test case 2: Search for "Hello" (matches class name)
-        List<CodeUnit> helloSymbols = jsAnalyzer.searchDefinitions("Hello");
+        assertTrue(jsxFqNames.contains("JsxClass"));
+        assertTrue(jsxFqNames.contains("JsxClass.render"));
+        assertTrue(jsxFqNames.contains("JsxArrowFnComponent"));
+        assertTrue(jsxFqNames.contains("LocalJsxArrowFn"));
+        assertTrue(jsxFqNames.contains("PlainJsxFunc"));
+
+        assertTrue(jsxSymbols.size() >= 5, "Should find at least 5 symbols containing 'Jsx' (case-insensitive). Found: " + jsxSymbols.size());
+
+        var helloSymbols = jsAnalyzer.searchDefinitions("Hello");
         assertFalse(helloSymbols.isEmpty(), "Should find symbols containing 'Hello'.");
-        Set<String> helloFqNames = helloSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        var helloFqNames = helloSymbols.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertTrue(helloFqNames.contains("Hello"), "Should find 'Hello' class.");
         assertTrue(helloFqNames.contains("Hello.greet"), "Should find 'Hello.greet' method.");
-        // JsxArrowFnComponent fqName does not contain "Hello", so it shouldn't be matched by fqName search.
-        assertEquals(2, helloSymbols.size(), "Expected 2 symbols containing 'Hello' in their FQ names.");
+        assertTrue(helloSymbols.size() >= 2, "Should find at least 2 symbols containing 'Hello' (case-insensitive). Found: " + helloSymbols.size());
 
-        // Test case 3: Search for ".render" (matches method name part)
-        List<CodeUnit> renderSymbols = jsAnalyzer.searchDefinitions(".render");
+        var renderSymbols = jsAnalyzer.searchDefinitions(".render");
         assertFalse(renderSymbols.isEmpty(), "Should find symbols containing '.render'.");
         assertTrue(renderSymbols.stream().anyMatch(cu -> "JsxClass.render".equals(cu.fqName())), "Should find 'JsxClass.render'.");
         assertEquals(1, renderSymbols.size(), "Expected 1 symbol matching '.render'.");
-        
-        // Test case 4: Search for "TOP_CONST" (matches variable name part)
-        List<CodeUnit> constSymbols = jsAnalyzer.searchDefinitions("TOP_CONST");
+
+        var constSymbols = jsAnalyzer.searchDefinitions("TOP_CONST");
         assertFalse(constSymbols.isEmpty(), "Should find symbols containing 'TOP_CONST'.");
         assertTrue(constSymbols.stream().anyMatch(cu -> "Vars.js.TOP_CONST_JS".equals(cu.fqName())), "Should find 'Vars.js.TOP_CONST_JS'.");
         assertEquals(1, constSymbols.size(), "Expected 1 symbol matching 'TOP_CONST'.");
@@ -434,6 +431,72 @@ public final class JavascriptAnalyzerTest {
         // Test case 7: Empty pattern
         List<CodeUnit> emptyPatternSymbols = jsAnalyzer.searchDefinitions("");
         assertTrue(emptyPatternSymbols.isEmpty(), "Searching with an empty pattern should return an empty list.");
+
+        // Test case 8: Constructor pattern (JavaScript constructors are typically class names)
+        var constructorSymbols = jsAnalyzer.searchDefinitions("constructor");
+        // JavaScript may not have explicit constructor names like Java's <init>, but classes serve as constructors
+        // Note: Results may be empty depending on test data, but search should not fail
+        assertNotNull(constructorSymbols, "Constructor search should return non-null result");
+        // Verify search works without throwing exceptions, regardless of whether constructors are found
+    }
+
+    @Test
+    void testSearchDefinitions_CaseSensitiveAndRegex() {
+        // Test case-insensitive behavior (default)
+        var helloLower = jsAnalyzer.searchDefinitions("hello");
+        var helloUpper = jsAnalyzer.searchDefinitions("HELLO");
+        var helloLowerNames = helloLower.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        var helloUpperNames = helloUpper.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+        assertEquals(helloLowerNames, helloUpperNames,
+                    "JavaScript search should be case-insensitive: 'hello' and 'HELLO' should return identical results");
+        assertFalse(helloLowerNames.isEmpty(), "Case-insensitive search should find symbols containing 'hello'");
+        assertTrue(helloLowerNames.contains("Hello"), "Should find 'Hello' class with both 'hello' and 'HELLO' patterns");
+
+        // Test regex patterns with metacharacters
+        var dotHelloRegex = jsAnalyzer.searchDefinitions(".*Hello.*");
+        var dotHelloNames = dotHelloRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertFalse(dotHelloNames.isEmpty(), "Regex pattern '.*Hello.*' should find symbols containing 'Hello'");
+        assertTrue(dotHelloNames.contains("Hello"), "Should find 'Hello' with regex pattern '.*Hello.*'");
+        assertTrue(dotHelloNames.contains("Hello.greet"), "Should find 'Hello.greet' with regex pattern '.*Hello.*'");
+
+        // Test specific regex patterns for JavaScript naming conventions
+        var jsxRegex = jsAnalyzer.searchDefinitions(".*Jsx.*");
+        var jsxNames = jsxRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertFalse(jsxNames.isEmpty(), "Should find JSX-related symbols with regex '.*Jsx.*'");
+        assertTrue(jsxNames.contains("JsxClass"), "Should find 'JsxClass' with JSX regex pattern");
+        assertTrue(jsxNames.contains("JsxArrowFnComponent"), "Should find 'JsxArrowFnComponent' with JSX regex pattern");
+
+        // Test function pattern matching
+        var functionRegex = jsAnalyzer.searchDefinitions(".*[fF]unc.*");
+        var functionNames = functionRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertFalse(functionNames.isEmpty(), "Should find function-related symbols with regex '.*[fF]unc.*'");
+        assertTrue(functionNames.contains("PlainJsxFunc"), "Should find 'PlainJsxFunc' with function regex pattern");
+
+        // Test component pattern (common in React/JSX)
+        var componentRegex = jsAnalyzer.searchDefinitions(".*Component.*");
+        var componentNames = componentRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        System.out.println("Component pattern results: " + componentNames);
+        assertTrue(componentNames.contains("JsxArrowFnComponent") || componentNames.contains("MyExportedComponent"),
+                  "Should find component-related symbols with component regex pattern");
+
+        // Test constant pattern (common naming convention)
+        var constRegex = jsAnalyzer.searchDefinitions(".*CONST.*");
+        var constNames = constRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(constNames.contains("Vars.js.TOP_CONST_JS"), "Should find 'TOP_CONST_JS' with constant regex pattern");
+
+        // Test exact class name matching
+        var exactHello = jsAnalyzer.searchDefinitions("Hello");
+        var exactHelloNames = exactHello.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(exactHelloNames.contains("Hello"), "Should find exact 'Hello' class");
+        assertTrue(exactHelloNames.contains("Hello.greet"), "Should also find 'Hello.greet' method (substring match)");
+
+        // Test method patterns with dot notation
+        var dotMethodRegex = jsAnalyzer.searchDefinitions(".*\\..*");
+        var dotMethodNames = dotMethodRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertFalse(dotMethodNames.isEmpty(), "Should find symbols with dot notation using regex '.*\\..*'");
+        assertTrue(dotMethodNames.contains("Hello.greet"), "Should find 'Hello.greet' with dot regex pattern");
+        assertTrue(dotMethodNames.contains("JsxClass.render"), "Should find 'JsxClass.render' with dot regex pattern");
     }
 
     @Test
@@ -531,7 +594,7 @@ public final class JavascriptAnalyzerTest {
         // Test case 8: Existing symbol that is a class, not a function
         Optional<String> classAsMethodSourceOpt = jsAnalyzer.getMethodSource("Hello");
         assertTrue(classAsMethodSourceOpt.isEmpty(), "Requesting method source for a class symbol should return Option.empty().");
-        
+
         // Test case 9: Existing symbol that is a field, not a function
         Optional<String> fieldAsMethodSourceOpt = jsAnalyzer.getMethodSource("Vars.js.TOP_CONST_JS");
         assertTrue(fieldAsMethodSourceOpt.isEmpty(), "Requesting method source for a field symbol should return Option.empty().");

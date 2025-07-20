@@ -28,6 +28,8 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -278,15 +280,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
                                    .findFirst();
     }
 
-    @Override
-    public List<CodeUnit> searchDefinitions(String pattern) {
-        if (pattern.isEmpty()) {
-            return List.of();
-        }
-        return uniqueCodeUnitList().stream()
-                                   .filter(cu -> cu.fqName().contains(pattern))
-                                   .toList();
-    }
 
     @Override
     public List<CodeUnit> getAllDeclarations() {
@@ -295,6 +288,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
         childrenByParent.values().forEach(allClasses::addAll); // Children lists
         allClasses.addAll(childrenByParent.keySet());          // Parent CUs themselves
         return allClasses.stream().filter(CodeUnit::isClass).distinct().toList();
+    }
+
+    @Override
+    public List<CodeUnit> searchDefinitionsImpl(String originalPattern, String fallbackPattern, Pattern compiledPattern) {
+        if (fallbackPattern != null) {
+            // Fallback to simple case-insensitive substring matching
+            return uniqueCodeUnitList().stream()
+                                      .filter(cu -> cu.fqName().toLowerCase().contains(fallbackPattern))
+                                      .toList();
+        } else {
+            // Primary search using compiled regex pattern
+            return uniqueCodeUnitList().stream()
+                                      .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                                      .toList();
+        }
     }
 
     /**
