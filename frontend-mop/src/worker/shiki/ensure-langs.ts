@@ -1,5 +1,5 @@
 import {langLoaders} from './shiki-lang-loaders';
-import {highlighterPromise} from './shiki-plugin';
+import {highlighter} from '../processor';
 
 const loadedLangs = new Set<string>();
 const permanentlyFailed = new Set<string>();
@@ -12,29 +12,36 @@ const pendingLoads = new Map<string, Promise<boolean>>();
  * • If several calls race on the same lang they all await the same promise.
  * • Returns a promise resolving to `true` if the language was newly loaded, `false` if already loaded or failed.
  */
-export function ensureLang(langId: string): Promise<boolean> {
+export async function ensureLang(langId: string): Promise<boolean> {
     langId = langId.toLowerCase();
 
     if (loadedLangs.has(langId) || permanentlyFailed.has(langId)) {
-        return Promise.resolve(false);
+        return false;
     }
     const cached = pendingLoads.get(langId);
-    if (cached) return cached;
+    if (cached) {
+        return cached;
+    }
 
-    const p = highlighterPromise.then(async highlighter => {
-        if (highlighter.getLoadedLanguages().includes(langId)) {
-            loadedLangs.add(langId);
-            return false;
-        }
-
-        const loader = langLoaders[langId];
-        if (!loader) {
-            permanentlyFailed.add(langId);
-            console.warn('[Shiki] Unsupported language:', langId);
-            return false;
-        }
-
+    const loadPromise = (async () => {
         try {
+            if (!highlighter) {
+                console.warn('[Shiki] Highlighter not initialized yet.');
+                return false;
+            }
+
+            if (highlighter.getLoadedLanguages().includes(langId)) {
+                loadedLangs.add(langId);
+                return false;
+            }
+
+            const loader = langLoaders[langId];
+            if (!loader) {
+                permanentlyFailed.add(langId);
+                console.warn('[Shiki] Unsupported language:', langId);
+                return false;
+            }
+
             const mod: any = await loader();
             await highlighter.loadLanguage(mod.default ?? mod);
             loadedLangs.add(langId);
@@ -47,8 +54,8 @@ export function ensureLang(langId: string): Promise<boolean> {
         } finally {
             pendingLoads.delete(langId);
         }
-    });
+    })();
 
-    pendingLoads.set(langId, p);
-    return p;
+    pendingLoads.set(langId, loadPromise);
+    return loadPromise;
 }

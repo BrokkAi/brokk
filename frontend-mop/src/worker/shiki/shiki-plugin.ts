@@ -28,10 +28,7 @@ export const highlighterPromise = createHighlighterCore({
     engine: createJavaScriptRegexEngine({
         target: 'ES2018',
         forgiving: true
-    }),
-    langAlias: {
-        svelte: 'html'
-    }
+    })
 });
 
 export const languageAttributeTransformer = {

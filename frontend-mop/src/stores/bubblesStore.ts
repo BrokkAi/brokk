@@ -62,14 +62,11 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 }
 
 /* ─── entry from worker ───────────────────────────────── */
-export function onShikiReady(): void {
+export function reparseAll(): void {
     bubblesStore.update(list => {
         for (const bubble of list) {
             // Re-parse any bubble that has markdown content and might contain code.
-            // A simple check for code fences is a good enough heuristic.
-            if (bubble.markdown.includes('```')) {
-                parse(bubble.markdown, bubble.id);
-            }
+            parse(bubble.markdown, bubble.id);
         }
         return list; // The list reference itself does not change
     });

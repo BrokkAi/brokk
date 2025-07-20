@@ -22,7 +22,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   switch (m.type) {
     case 'parse':
       try {
-        const tree = parseMarkdown(m.text, m.fast);
+        const tree = parseMarkdown(m.seq, m.text, m.fast);
         post(<ResultMsg>{ type: 'result', tree, seq: m.seq });
       } catch (e) {
         post(<ErrorMsg>{ type: 'error', message: String(e), seq: m.seq });
@@ -32,7 +32,7 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
     case 'chunk':
       buffer += m.text;
       seq = m.seq;
-      if (!busy) { busy = true; void parseAndPost(); }
+      if (!busy) { busy = true; void parseAndPost(m.seq); }
       else dirty = true;
       break;
 
@@ -44,9 +44,9 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
   }
 };
 
-async function parseAndPost(): Promise<void> {
+async function parseAndPost(seq: number): Promise<void> {
   try {
-    const tree = parseMarkdown(buffer);
+    const tree = parseMarkdown(seq, buffer);
     post(<ResultMsg>{ type: 'result', tree, seq });
   } catch (e) {
     post(<ErrorMsg>{ type: 'error', message: String(e), seq });
@@ -55,7 +55,7 @@ async function parseAndPost(): Promise<void> {
   // this is needed to drain the event loop (queued message in onmessage) => accumulate some buffer
   await new Promise(r => setTimeout(r, 5));
 
-  if (dirty) { dirty = false; await parseAndPost(); }
+  if (dirty) { dirty = false; await parseAndPost(seq); }
   else busy = false;
 }
 

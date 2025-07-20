@@ -1,5 +1,5 @@
 import type {InboundToWorker, OutboundFromWorker} from './shared';
-import { onWorkerResult, onShikiReady } from '../stores/bubblesStore';
+import { onWorkerResult, reparseAll } from '../stores/bubblesStore';
 
 const worker = new Worker('/markdown.worker.mjs', { type: 'module' });
 
@@ -22,7 +22,7 @@ worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
 
   switch (msg.type) {
     case 'shiki-langs-ready':
-      onShikiReady();
+      reparseAll();
       break;
     case 'result':
       onWorkerResult(msg);

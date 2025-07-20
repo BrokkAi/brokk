@@ -2,6 +2,7 @@
  * mdast build logic for edit-blocks.
  */
 import { log } from './util';
+import { nextEditBlockId } from './id-generator';
 
 export function editBlockFromMarkdown() {
     return {
@@ -14,6 +15,7 @@ export function editBlockFromMarkdown() {
                     data: {
                         hName: 'edit-block',
                         hProperties: {
+                            id: nextEditBlockId(),
                             filename: undefined as string | undefined,
                             search: undefined as string | undefined,
                             replace: undefined as string | undefined,
