@@ -6,8 +6,8 @@
  */
 package io.github.jbellis.brokk.util.containers;
 
-import lombok.NonNull;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Unmodifiable;
 
 import java.lang.ref.Reference;
@@ -45,7 +45,12 @@ public final class WeakList<T> extends AbstractCollection<T> {
 
         @Override
         public boolean equals(Object obj) {
-            return this == obj || obj != null && Objects.equals(get(), ((Reference<?>) obj).get());
+            return this == obj || (obj != null && Objects.equals(get(), ((Reference<?>) obj).get()));
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(get());
         }
     }
 
@@ -57,6 +62,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
         myList = new ArrayList<>(initialCapacity);
     }
 
+    @SuppressWarnings("unchecked")
     public boolean processQueue() {
         boolean processed = false;
         MyReference<T> reference;
@@ -64,7 +70,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
         while ((reference = (MyReference<T>) myQueue.poll()) != null) {
             int index = reference.index;
             // list may have changed while the reference was dangling in queue
-            if (index < myList.size() && reference == myList.get(index)) {
+            if (index < myList.size() && reference.equals(myList.get(index))) {
                 nullizeAt(index);
             }
             processed = true;
@@ -110,7 +116,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     @Override
-    public boolean add(@NonNull T element) {
+    public boolean add(@NotNull T element) {
         synchronized (myList) {
             processQueue();
             append(element);
@@ -119,14 +125,14 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     @Override
-    public boolean addAll(@NonNull Collection<? extends T> c) {
+    public boolean addAll(@NotNull Collection<? extends T> c) {
         synchronized (myList) {
             processQueue();
             return super.addAll(c);
         }
     }
 
-    public boolean addIfAbsent(@NonNull T element) {
+    public boolean addIfAbsent(@NotNull T element) {
         synchronized (myList) {
             processQueue();
             if (contains(element)) return false;
@@ -146,14 +152,14 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     @Override
-    public boolean contains(@NonNull Object o) {
+    public boolean contains(@NotNull Object o) {
         synchronized (myList) {
             return !isEmpty() && super.contains(o);
         }
     }
 
     @Override
-    public boolean remove(@NonNull Object o) {
+    public boolean remove(@NotNull Object o) {
         synchronized (myList) {
             processQueue();
             for (int i = 0; i < myList.size(); i++) {
@@ -170,7 +176,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     @Override
-    public boolean removeAll(@NonNull Collection<?> c) {
+    public boolean removeAll(@NotNull Collection<?> c) {
         synchronized (myList) {
             processQueue();
             return super.removeAll(c);
@@ -197,10 +203,10 @@ public final class WeakList<T> extends AbstractCollection<T> {
     private final class MyIterator implements Iterator<T> {
         private final int startModCount;
         private int curIndex;
-        private T curElement;
+        private @Nullable T curElement;
 
         private int nextIndex = -1;
-        private T nextElement;
+        private @Nullable T nextElement;
         private boolean modified; // set this flag on modification and update modCount in the very end of iteration to avoid CME on each remove()
 
         private MyIterator() {
@@ -234,6 +240,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
         }
 
         @Override
+        @Nullable
         public T next() {
             if (!hasNext()) throw new NoSuchElementException();
             findNext();
@@ -250,12 +257,12 @@ public final class WeakList<T> extends AbstractCollection<T> {
     }
 
     @Override
-    public @NonNull Iterator<@NonNull T> iterator() {
+    public @NotNull Iterator<@NotNull T> iterator() {
         final Iterator<T> iterator;
         synchronized (myList) {
             iterator = new MyIterator();
         }
-        return new Iterator<T>() {
+        return new Iterator<>() {
             @Override
             public boolean hasNext() {
                 synchronized (myList) {
@@ -279,10 +286,10 @@ public final class WeakList<T> extends AbstractCollection<T> {
         };
     }
 
-    public @NonNull @Unmodifiable List<@NonNull T> toStrongList() {
+    public @NotNull @Unmodifiable List<@NotNull T> toStrongList() {
         synchronized (myList) {
             if (myList.isEmpty()) {
-                return Collections.emptyList();
+                return new ArrayList<>();
             }
 
             List<T> result = new ArrayList<>(myList.size());
@@ -307,7 +314,7 @@ public final class WeakList<T> extends AbstractCollection<T> {
         throw new UnsupportedOperationException("index/size-based operations in UnsafeWeakList are not supported because they don't make sense in the presence of weak references. Use .iterator() (which retains its elements to avoid sudden GC) instead.");
     }
 
-    public @NonNull @Unmodifiable List<@NonNull T> copyAndClear() {
+    public @NotNull @Unmodifiable List<@NotNull T> copyAndClear() {
         synchronized (myList) {
             List<T> result = toStrongList();
             clear();

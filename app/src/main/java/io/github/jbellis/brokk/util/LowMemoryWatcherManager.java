@@ -7,7 +7,6 @@
 package io.github.jbellis.brokk.util;
 
 import io.github.jbellis.brokk.IConsoleIO;
-import lombok.NonNull;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,9 +18,7 @@ import javax.management.NotificationListener;
 import javax.swing.*;
 import java.lang.management.*;
 import java.text.NumberFormat;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -55,7 +52,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
     };
 
     // A list of strong references to low memory watchers.
-    private final List<LowMemoryWatcher> lowMemoryWatcherRefs = new LinkedList<>();
+    private final List<LowMemoryWatcher> lowMemoryWatcherRefs = new ArrayList<>();
 
     public LowMemoryWatcherManager(@NotNull ExecutorService backendExecutorService) {
         myExecutorService = backendExecutorService;
@@ -79,7 +76,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
      *
      * @return the current maximum heap size in a human-readable MB string.
      */
-    @NonNull
+    @NotNull
     public static String getMaxHeapSize() {
         long maxMemoryBytes = Runtime.getRuntime().maxMemory();
         if (maxMemoryBytes == Long.MAX_VALUE) return "No Limit";
@@ -89,7 +86,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
 
     private static long getMajorGcTime() {
         for (GarbageCollectorMXBean gc : ManagementFactory.getGarbageCollectorMXBeans()) {
-            if (gc.getName().toLowerCase().contains("g1 old generation")) {
+            if (gc.getName().toLowerCase(Locale.ROOT).contains("g1 old generation")) {
                 return gc.getCollectionTime();
             }
         }
@@ -128,7 +125,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
 
     private static class GcTracker {
         private static final long WINDOW_SIZE_MS = 60_000; // 1 minute
-        private final Queue<GcPeriod> gcPeriods = new LinkedList<>();
+        private final Queue<GcPeriod> gcPeriods = new ArrayDeque<>();
 
         private record GcPeriod(long timestamp, long gcTime) {
         }

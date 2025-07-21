@@ -35,7 +35,7 @@ public final class LowMemoryWatcher {
         for (LowMemoryWatcher watcher : ourListeners.toStrongList()) {
             try {
                 if (watcher.myType == LowMemoryWatcherType.ALWAYS
-                        || watcher.myType == LowMemoryWatcherType.ONLY_AFTER_GC && afterGc) {
+                        || (watcher.myType == LowMemoryWatcherType.ONLY_AFTER_GC && afterGc)) {
                     watcher.myRunnable.run();
                 }
             } catch (Throwable e) {
