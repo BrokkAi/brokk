@@ -174,9 +174,9 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
-            Path gitMetaDir = gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
-            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaDir))) {
-                logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(gitRepoRoot).resolve(".git"));
+            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
+            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
+                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
                 }
