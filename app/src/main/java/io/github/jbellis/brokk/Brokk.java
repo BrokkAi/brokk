@@ -14,7 +14,6 @@ import io.github.jbellis.brokk.gui.dialogs.AboutDialog;
 import io.github.jbellis.brokk.gui.dialogs.BrokkKeyDialog;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.dialogs.OpenProjectDialog;
-import io.github.jbellis.brokk.util.MemoryMonitor;
 import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -621,9 +620,6 @@ Path dialogProjectPathFromKey = keyResult.dialogProjectPath();
                             // if we have a half-finished gui we're kind of screwed
                             throw new RuntimeException(guiEx);
                         }
-
-                        // Begin monitoring for excessive memory usage
-                        MemoryMonitor.startMonitoring(contextManager.getIo());
 
                         if (builder.initialTask != null) {
                             logger.debug("Executing initial task for project {}", actualProjectPath.getFileName());

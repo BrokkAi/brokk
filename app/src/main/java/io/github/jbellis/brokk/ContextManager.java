@@ -129,6 +129,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private volatile Context liveContext = Context.EMPTY; // Initialize to a non-null default
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+    private final LowMemoryWatcherManager lowMemoryWatcherManager;
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -191,6 +192,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // pass
             }
         };
+
+        // Begin monitoring for excessive memory usage
+        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.backgroundTasks);
+        this.lowMemoryWatcherManager.registerWithStrongReference(
+                () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
+                LowMemoryWatcher.LowMemoryWatcherType.ALWAYS
+        );
 
         var analyzerListener = new AnalyzerListener() {
             @Override
@@ -1235,6 +1243,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void close() {
         userActionExecutor.shutdown();
         contextActionExecutor.shutdown();
+        lowMemoryWatcherManager.close();
         backgroundTasks.shutdown();
         project.close();
         analyzerWrapper.close();
