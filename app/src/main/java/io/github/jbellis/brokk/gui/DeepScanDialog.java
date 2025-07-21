@@ -8,6 +8,7 @@ import io.github.jbellis.brokk.agents.ValidationAgent;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
 import javax.swing.*;
 import java.awt.*;
 import java.util.*;
@@ -106,12 +107,12 @@ class DeepScanDialog {
                 }
 
                 var contextFragments = contextResult.fragments();
-            var reasoning = contextResult.reasoning();
+                var reasoning = contextResult.reasoning();
 
-            // Convert validation files to ProjectPathFragments
-            var validationFragments = validationFiles.stream()
-                    .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager)) // Pass contextManager
-                    .toList();
+                // Convert validation files to ProjectPathFragments
+                var validationFragments = validationFiles.stream()
+                        .map(pf -> new ContextFragment.ProjectPathFragment(pf, contextManager)) // Pass contextManager
+                        .toList();
 
                 // Combine context agent fragments and validation agent fragments
                 // Group by primary file to handle potential overlaps (e.g., agent suggests summary, validation suggests file)
@@ -423,8 +424,8 @@ class DeepScanDialog {
                 if (!filesToSummarize.isEmpty()) {
                     if (!contextManager.getAnalyzerWrapper().isReady()) {
                         contextManager.getIo().systemNotify(AnalyzerWrapper.ANALYZER_BUSY_MESSAGE,
-                                                          AnalyzerWrapper.ANALYZER_BUSY_TITLE,
-                                                          JOptionPane.INFORMATION_MESSAGE);
+                                                            AnalyzerWrapper.ANALYZER_BUSY_TITLE,
+                                                            JOptionPane.INFORMATION_MESSAGE);
                         return;
                     }
                     boolean success = contextManager.addSummaries(filesToSummarize, Set.of());
