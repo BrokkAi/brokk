@@ -34,7 +34,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
 
     private static final long MEM_THRESHOLD = 5 /*MB*/ * 1024 * 1024;
     private static final long GC_TIME_THRESHOLD = 10_000; // 10 seconds
-    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.08f;
+    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.95f;
 
     private final AtomicLong lastGcTime = new AtomicLong();
 
