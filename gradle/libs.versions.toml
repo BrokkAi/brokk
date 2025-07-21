@@ -11,6 +11,7 @@ nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
 treesitter = "0.25.3"
+picocli = "4.7.7"
 
 [libraries]
 # Scala
@@ -60,10 +61,12 @@ jgoodies-forms = "com.jgoodies:jgoodies-forms:1.9.0"
 # Utilities
 okhttp = "com.squareup.okhttp3:okhttp:4.12.0"
 jspecify = "org.jspecify:jspecify:1.0.0"
+jetbrains-annotations = "org.jetbrains:annotations:25.0.0"
 snakeyaml = "org.yaml:snakeyaml:2.3"
 jlama-core = "com.github.tjake:jlama-core:0.8.3"
 java-diff-utils = "io.github.java-diff-utils:java-diff-utils:4.15"
 jtokkit = "com.knuddels:jtokkit:1.1.0"
+picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
 
 # Markdown
 flexmark-core = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
