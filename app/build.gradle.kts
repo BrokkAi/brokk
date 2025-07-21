@@ -86,6 +86,7 @@ dependencies {
     testImplementation(libs.bundles.junit)
     testImplementation("com.github.sbt.junit:jupiter-interface:0.13.3")
     testRuntimeOnly(libs.bundles.junit.runtime)
+    testCompileOnly(libs.bundles.joern)
 
     // Error Prone and NullAway for null safety checking
     "errorprone"(libs.errorprone.core)

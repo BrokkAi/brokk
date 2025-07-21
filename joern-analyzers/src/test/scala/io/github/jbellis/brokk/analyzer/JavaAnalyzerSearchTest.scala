@@ -1,12 +1,14 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.github.jbellis.brokk.testutil.TestProject
+import io.github.jbellis.brokk.IProject
 import org.junit.jupiter.api.Assertions.{assertEquals, assertFalse, assertTrue}
 import org.junit.jupiter.api.{BeforeAll, Test}
 
 import java.nio.file.{Files, Path}
 import java.util.Collections
+import scala.jdk.CollectionConverters.*
 import scala.jdk.javaapi.CollectionConverters.asScala
+import scala.jdk.javaapi.CollectionConverters.asJava
 
 // Companion object for @BeforeAll setup
 object JavaAnalyzerSearchTest {
@@ -14,17 +16,31 @@ object JavaAnalyzerSearchTest {
 
   @BeforeAll
   def setup(): Unit = {
-    val javaTestProject: TestProject = createTestProject("testcode-java", Language.JAVA)
+    val javaTestProject: IProject = createTestProject("testcode-java", Language.JAVA)
     val tempCpgFile: Path            = Path.of(System.getProperty("java.io.tmpdir"), "brokk-java-search-test.bin")
     javaAnalyzer = new JavaAnalyzer(javaTestProject.getRoot, Collections.emptySet(), tempCpgFile)
   }
 
-  private def createTestProject(subDir: String, lang: Language): TestProject = {
+  private def createTestProject(subDir: String, lang: Language): IProject = {
     val testDir = Path.of("src/test/resources", subDir)
     assertTrue(Files.exists(testDir), s"Test resource dir missing: $testDir")
     assertTrue(Files.isDirectory(testDir), s"$testDir is not a directory")
-    new TestProject(testDir.toAbsolutePath, lang)
+    // This mock-like Project provides the minimal methods needed.
+    new IProject() {
+      override def getRoot: Path = {
+        // Ensure the mock returns the tempDir as its root, consistent with Project's behavior
+        testDir.toAbsolutePath
+      }
+
+      override def getAllFiles: java.util.Set[ProjectFile] = {
+        // This mock implementation directly returns the provided filesSet.
+        (testDir.toFile.listFiles().map(
+          file => new ProjectFile(testDir, file.toPath)
+        ).toSet).asJava
+      }
+    }
   }
+
 }
 
 class JavaAnalyzerSearchTest {

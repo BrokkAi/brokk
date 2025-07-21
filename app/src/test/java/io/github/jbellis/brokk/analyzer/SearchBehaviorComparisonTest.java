@@ -25,16 +25,16 @@ public final class SearchBehaviorComparisonTest {
 
     @BeforeAll
     static void setup() {
-        javaTestProject = createTestProject("testcode-java", Language.JAVA);
+        javaTestProject = createTestProject("../joern-analyzers/", "testcode-java", Language.JAVA);
         var tempCpgFile = Path.of(System.getProperty("java.io.tmpdir"), "brokk-search-comparison-test.bin");
         javaAnalyzer = new JavaAnalyzer(javaTestProject.getRoot(), Collections.emptySet(), tempCpgFile);
 
-        jsTestProject = createTestProject("testcode-js", Language.JAVASCRIPT);
+        jsTestProject = createTestProject("", "testcode-js", Language.JAVASCRIPT);
         jsAnalyzer = new JavascriptAnalyzer(jsTestProject);
     }
 
-    static TestProject createTestProject(String subDir, Language lang) {
-        var testDir = Path.of("src/test/resources", subDir);
+    static TestProject createTestProject(String root, String subDir, Language lang) {
+        var testDir = Path.of(root + "src/test/resources", subDir);
         assertTrue(Files.exists(testDir), "Test resource dir missing: " + testDir);
         assertTrue(Files.isDirectory(testDir), testDir + " is not a directory");
         return new TestProject(testDir.toAbsolutePath(), lang);
