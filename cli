@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#
+# Helper script to launch Brokk CLI from the most-recent build artifact.
+# Scans app/build/libs for the latest brokk*.jar and runs the CLI.
+
+set -euo pipefail
+
+# Determine the directory this script lives in, resolving any symlinks.
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LIB_DIR="$SCRIPT_DIR/app/build/libs"
+
+# Pick the newest brokk*.jar in LIB_DIR.
+jarfile="$(ls -t "$LIB_DIR"/brokk*.jar 2>/dev/null | head -n 1 || true)"
+
+if [[ -z "${jarfile:-}" ]]; then
+  echo "Error: No brokk*.jar found in $LIB_DIR" >&2
+  exit 1
+fi
+
+# Launch BrokkCli with all provided arguments.
+exec java -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"
