@@ -12,6 +12,7 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -88,6 +89,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (ignoredExceptions.stream().anyMatch(cls -> cls.isInstance(th))) {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
+            }
+            
+            // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
+            if (OomShutdownHandler.isOomError(th)) {
+                OomShutdownHandler.shutdownWithRecovery();
             }
 
             logger.error("Uncaught exception in executor", th);
