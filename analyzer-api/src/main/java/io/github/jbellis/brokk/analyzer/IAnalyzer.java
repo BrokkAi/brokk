@@ -4,6 +4,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 public interface IAnalyzer {
     /**
@@ -91,13 +93,15 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
-    // Everything else
+    /**
+     * All top-level declarations in the project.
+     */
     default List<CodeUnit> getAllDeclarations() {
         throw new UnsupportedOperationException();
     }
 
     /**
-     * Gets all classes in a given file.
+     * Gets top-level declarations in a given file.
      */
     default Set<CodeUnit> getDeclarationsInFile(ProjectFile file) {
         throw new UnsupportedOperationException();
@@ -119,24 +123,73 @@ public interface IAnalyzer {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * Searches for a (Java) regular expression in the defined identifiers. We manipulate the provided
+     * pattern as follows:
+     *     val preparedPattern =
+     *       if pattern.contains(".*") then pattern else s".*${Regex.quote(pattern)}.*"
+     *     val ciPattern = "(?i)" + preparedPattern // case-insensitive substring match
+     */
     default List<CodeUnit> searchDefinitions(String pattern) {
-        throw new UnsupportedOperationException();
+        // Validate pattern
+        if (pattern == null || pattern.isEmpty()) {
+            return List.of();
+        }
+
+        // Prepare case-insensitive regex pattern
+        var preparedPattern = pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*";
+        var ciPattern = "(?i)" + preparedPattern;
+
+        // Try to compile the pattern
+        Pattern compiledPattern;
+        try {
+            compiledPattern = Pattern.compile(ciPattern);
+        } catch (PatternSyntaxException e) {
+            // Fallback to simple case-insensitive substring matching
+            var fallbackPattern = pattern.toLowerCase();
+            return searchDefinitionsImpl(pattern, fallbackPattern, null);
+        }
+
+        // Delegate to implementation-specific method
+        return searchDefinitionsImpl(pattern, null, compiledPattern);
+    }
+
+    /**
+     * Implementation-specific search method called by the default searchDefinitions.
+     * Subclasses should implement this method to provide their specific search logic.
+     *
+     * @param originalPattern The original search pattern provided by the user
+     * @param fallbackPattern The lowercase fallback pattern (null if not using fallback)
+     * @param compiledPattern The compiled regex pattern (null if using fallback)
+     * @return List of matching CodeUnits
+     */
+    default List<CodeUnit> searchDefinitionsImpl(String originalPattern, String fallbackPattern, Pattern compiledPattern) {
+        // Default implementation using getAllDeclarations
+        if (fallbackPattern != null) {
+            return getAllDeclarations().stream()
+                                      .filter(cu -> cu.fqName().toLowerCase().contains(fallbackPattern))
+                                      .toList();
+        } else {
+            return getAllDeclarations().stream()
+                                      .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                                      .toList();
+        }
     }
 
     /**
      * Returns the immediate children of the given CodeUnit for language-specific hierarchy traversal.
-     * 
+     *
      * <p>This method is used by the default {@link #getSymbols(Set)} implementation to traverse
      * the code unit hierarchy and collect symbols from nested declarations. The specific parent-child
      * relationships depend on the target language:
-     * 
+     *
      * <ul>
      *   <li><strong>Classes:</strong> Return methods, fields, and nested classes</li>
      *   <li><strong>Modules/Files:</strong> Return top-level declarations in the same file</li>
      *   <li><strong>Functions/Methods:</strong> Typically return empty list (no children)</li>
      *   <li><strong>Fields/Variables:</strong> Typically return empty list (no children)</li>
      * </ul>
-     * 
+     *
      * <p><strong>Implementation Notes:</strong>
      * <ul>
      *   <li>This method should be efficient as it may be called frequently during symbol resolution</li>
@@ -144,7 +197,7 @@ public interface IAnalyzer {
      *   <li>The returned list should contain only immediate children, not recursive descendants</li>
      *   <li>Implementations should handle null input gracefully by returning an empty list</li>
      * </ul>
-     * 
+     *
      * @see #getSymbols(Set) for how this method is used in symbol collection
      */
     @NotNull
@@ -155,7 +208,7 @@ public interface IAnalyzer {
      */
     private static void addShort(String full, Set<String> out) {
         if (full.isEmpty()) return;
-        
+
         // Optimized: scan from the end to find the last separator (faster than two indexOf calls)
         int idx = -1;
         for (int i = full.length() - 1; i >= 0; i--) {
@@ -165,7 +218,7 @@ public interface IAnalyzer {
                 break;
             }
         }
-        
+
         var shortName = idx >= 0 ? full.substring(idx + 1) : full;
         if (!shortName.isEmpty()) out.add(shortName);
     }
@@ -218,7 +271,7 @@ public interface IAnalyzer {
     }
 
     /**
-     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N) 
+     * Scan for changes across all files in the Analyzer. This involves hashing each file so it is O(N)
      * in the total number of files and relatively heavyweight.
      */
     default IAnalyzer update() {

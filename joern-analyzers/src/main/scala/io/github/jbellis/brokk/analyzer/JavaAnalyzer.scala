@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
+import io.github.jbellis.brokk.analyzer.builder.languages.javaSrcBuilder
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.javasrc2cpg.Config
 import io.joern.joerncli.CpgBasedTool
@@ -34,6 +35,8 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
   override val fullNameSeparators: Seq[String] = Seq(".", "$")
 
   override def defaultConfig: Config = JavaAnalyzer.defaultConfig
+
+  override implicit val defaultBuilder: CpgBuilder[Config] = javaSrcBuilder
 
   /** Java-specific method signature builder.
     */
@@ -387,9 +390,6 @@ class JavaAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyze
     Try(CodeUnit.field(file, pkg, s"$className.$fieldName")).toOption
   }
   // -----------------------------------------------------
-
-  override def update(changedFiles: util.Set[ProjectFile]): IAnalyzer =
-    updateFilesInternal(JavaAnalyzer.defaultConfig, changedFiles)
 }
 
 object JavaAnalyzer {
