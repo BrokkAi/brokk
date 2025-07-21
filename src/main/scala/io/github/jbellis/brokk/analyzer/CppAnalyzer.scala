@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.analyzer
 
-import io.github.jbellis.brokk.analyzer.builder.languages.given
+import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
+import io.github.jbellis.brokk.analyzer.builder.languages.cBuilder
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
 import io.joern.c2cpg.Config as CConfig
 import io.joern.x2cpg.Defines as X2CpgDefines
@@ -35,6 +36,8 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
   override val fullNameSeparators: Seq[String] = Seq(".", "::")
 
   override def defaultConfig: CConfig = CppAnalyzer.defaultConfig
+
+  override implicit val defaultBuilder: CpgBuilder[CConfig] = cBuilder
 
   // ---------------------------------------------------------------------
   // Language-specific helpers
@@ -818,9 +821,6 @@ class CppAnalyzer private (sourcePath: Path, cpgInit: Cpg) extends JoernAnalyzer
     }
     IAnalyzer.FunctionLocation(file, startLine, endLine, maybeCode.get)
   }
-
-  override def update(changedFiles: java.util.Set[ProjectFile]): IAnalyzer =
-    updateFilesInternal(CppAnalyzer.defaultConfig, changedFiles)
 
 }
 

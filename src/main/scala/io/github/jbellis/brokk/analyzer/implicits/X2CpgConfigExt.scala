@@ -39,7 +39,8 @@ object X2CpgConfigExt {
     /** Alias for [[build]] where exceptions are thrown if one occurs.
       *
       * @param maybeFileChanges
-      *   specific file changes if any are present.
+      *   specific file changes if any are present. If no changes are given then the analyzer determines changes if this
+      *   build is based from an existing CPG.
       * @param builder
       *   the builder associated with the frontend specified by the instance of 'config'.
       * @return
