@@ -11,7 +11,7 @@ import io.shiftleft.codepropertygraph.generated.Cpg
 import io.shiftleft.codepropertygraph.generated.language.*
 import io.shiftleft.codepropertygraph.generated.nodes.*
 import io.shiftleft.semanticcpg.language.*
-import org.slf4j.LoggerFactory
+import org.slf4j.{Logger, LoggerFactory}
 
 import java.io.Closeable
 import java.nio.file.Path
@@ -38,7 +38,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     with Closeable {
 
   // Logger instance for this class
-  protected val logger = LoggerFactory.getLogger(getClass)
+  protected val logger: Logger = LoggerFactory.getLogger(getClass)
 
   // Convert to absolute filename immediately and verify it's a directory
   protected val absolutePath: Path = {
@@ -47,8 +47,9 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
     path
   }
 
-  // The default configuration for this analyzer
+  // The default configuration and CPG builder for this analyzer
   protected def defaultConfig: R
+  protected implicit val defaultBuilder: CpgBuilder[R]
 
   // implicits at the top, you will regret it otherwise
   protected implicit val ec: ExecutionContext        = ExecutionContext.global
@@ -83,18 +84,23 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
 
   override def isCpg: Boolean = true
 
+  override def update(changedFiles: util.Set[ProjectFile]): IAnalyzer =
+    updateFilesInternal(defaultConfig, Option(changedFiles))
+
+  override def update(): IAnalyzer =
+    updateFilesInternal(defaultConfig, None)
+
   /** Given a language frontend-specific configuration and CPG builder, runs an incremental build of the CPG associated
     * with this analyzer and refreshes it.
     * @param config
     *   the configuration. The input and output paths are inferred from the CPG.
-    * @param changedFiles
-    *   the files changed, to be incrementally updated.
+    * @param maybeChangedFiles
+    *   the files changed, to be incrementally updated. If none are given, this will revert to hashing files itself to
+    *   determine changes manually.
     * @param builder
     *   the CPG builder.
-    * @tparam R
-    *   the configuration type.
     */
-  protected def updateFilesInternal[R <: X2CpgConfig[R]](config: R, changedFiles: util.Set[ProjectFile])(using
+  private def updateFilesInternal(config: R, maybeChangedFiles: Option[util.Set[ProjectFile]])(using
     builder: CpgBuilder[R]
   ): IAnalyzer = {
     Try(cpg.close()).failed.foreach(e => logger.error("Error encountered while closing CPG before update.", e))
@@ -102,7 +108,7 @@ abstract class JoernAnalyzer[R <: X2CpgConfig[R]] protected (sourcePath: Path, p
       config
         .withInputPath(cpg.projectRoot.toString)
         .withOutputPath(cpg.graph.storagePathMaybe.getOrElse("cpg.bin").toString)
-        .buildAndThrow(Option(changedFiles))
+        .buildAndThrow(maybeChangedFiles)
         .open
     ) match {
       case Success(newCpg)    => cpg = newCpg

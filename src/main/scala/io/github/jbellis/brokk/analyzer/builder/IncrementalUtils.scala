@@ -29,7 +29,9 @@ object IncrementalUtils {
     * @param sourceFileExtensions
     *   the source file extensions as per the language frontend.
     * @param maybeChangedFiles
-    *   any specifically changed files to compare with, if any.
+    *   any specifically changed files to compare with, if any. If none given, this will determine changes by manually
+    *   hashing every existing files at paths conflicting with [[io.shiftleft.codepropertygraph.generated.nodes.File]]
+    *   nodes in the CPG.
     * @return
     *   a sequence of file changes.
     */
@@ -57,7 +59,12 @@ object IncrementalUtils {
     val newFiles = maybeChangedFiles.map(_.asScala) match {
       case Some(changedFiles) =>
         logger.debug(s"${changedFiles.size} changed files have been given")
-        changedFiles.map(_.absPath()).map(path => PathAndHash(path.toString, path.sha1)).toList
+        changedFiles
+          .map(_.absPath())
+          // the corresponding File node will be hashed when inserted into the CPG later on, this just needs to be
+          // different to what is in the CPG if there is an existing node with the same Path.
+          .map(path => PathAndHash(path.toString, "<changed>"))
+          .toList
       case None =>
         val determinedChanges = SourceFiles
           .determine(
