@@ -13,8 +13,20 @@ import java.awt.*;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.List;
+import io.github.jbellis.brokk.util.DebugFlags;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public final class TableUtils {
+    private static final Logger logger = LogManager.getLogger(TableUtils.class);
+
+    private static void dbg(String fmt, Object... args) {
+        if (DebugFlags.FILE_BADGE_DIAGNOSTICS && logger.isDebugEnabled()) {
+            logger.debug("[FILE_BADGE] " + fmt, args);
+        }
+    }
+
+    private static final int DEFAULT_SCROLLBAR_WIDTH_PX = 15;
 
     /**
      * Returns the preferred row height for a table cell that renders
@@ -34,19 +46,19 @@ public final class TableUtils {
      * to match the viewport width.
      */
     private static class WrappingFileReferenceList extends FileReferenceList implements Scrollable {
-        public WrappingFileReferenceList(List<FileReferenceData> files) {
+        private final int layoutWidth;
+
+        public WrappingFileReferenceList(List<FileReferenceData> files, int layoutWidth) {
             super(files);
+            this.layoutWidth = layoutWidth;
             // Make the flow layout respect width constraints
             setLayout(new FlowLayout(FlowLayout.LEFT, 4, 2) {
                 @Override
                 public Dimension preferredLayoutSize(Container target) {
-                    // Get the constrained width if in a viewport
-                    int targetWidth = target.getWidth();
-                    if (target.getParent() instanceof JViewport) {
-                        targetWidth = ((JViewport) target.getParent()).getExtentSize().width;
-                    }
+                    // Use the width provided at construction time.
+                    int targetWidth = ((WrappingFileReferenceList) target).layoutWidth;
 
-                    // If we have zero width, use the superclass calculation
+                    // If we have zero width (e.g. not laid out yet), use the superclass calculation
                     if (targetWidth <= 0) {
                         return super.preferredLayoutSize(target);
                     }
@@ -75,10 +87,11 @@ public final class TableUtils {
 
                     // Calculate total height for all rows
                     int height = 0;
-                    if (numRows > 0) {
+                    if (numRows > 0 && target.getComponentCount() > 0) {
                         Component c = target.getComponent(0);
                         if (c.isVisible()) {
-                            height = c.getPreferredSize().height * numRows + vgap * (numRows - 1);
+                            // A standard FlowLayout adds vgap before each row, including the first.
+                            height = (c.getPreferredSize().height + vgap) * numRows;
                         }
                     }
 
@@ -119,9 +132,25 @@ public final class TableUtils {
             SwingUtilities.invokeLater(() -> showOverflowPopup(chrome, table, row, col, files));
             return;
         }
+
+        dbg("OS={}, java={}, LAF={}, dpi={}",
+            System.getProperty("os.name"),
+            Runtime.version(),
+            UIManager.getLookAndFeel(),
+            Toolkit.getDefaultToolkit().getScreenResolution());
         
-        // Create a wrapping FileReferenceList with all files
-        var fullList = new WrappingFileReferenceList(files);
+        // Find the exact column width using the table and column index
+        int colWidth = table.getColumnModel().getColumn(col).getWidth();
+
+        // Create a wrapping FileReferenceList with a width that accounts for a potential vertical scrollbar,
+        // which prevents re-wrapping and incorrect height calculations.
+        int scrollbarWidth = UIManager.getInt("ScrollBar.width");
+        boolean usedFallback = scrollbarWidth <= 0;
+        if (usedFallback) {
+            scrollbarWidth = DEFAULT_SCROLLBAR_WIDTH_PX; // A reasonable fallback for platforms where this isn't set
+        }
+        dbg("colWidth={}, scrollbarWidth={}, usingFallback={}", colWidth, scrollbarWidth, usedFallback);
+        var fullList = new WrappingFileReferenceList(files, colWidth - scrollbarWidth);
         fullList.setOpaque(false); // For visual continuity
 
         // Add listeners directly to each badge component
@@ -175,45 +204,38 @@ public final class TableUtils {
             }
         }
 
-        // Calculate the proper row height using the first badge as reference
-        int rowHeight = 0;
-        if (!files.isEmpty()) {
-            // Create a temporary badge label to measure its height
-            JLabel sampleLabel = fullList.createBadgeLabel(files.get(0).getFileName());
-            rowHeight = sampleLabel.getPreferredSize().height + 4; // Add a small padding
-        } else {
-            // Fallback to a reasonable default if no files
-            rowHeight = 25;
-        }
-
-        // Find the exact column width using the table and column index
-        int colWidth = table.getColumnModel().getColumn(col).getWidth();
-
-        // Set visible rows with a maximum
-        int visibleRows = Math.min(4, Math.max(1, files.size())); // At least 1 row, at most 4
-        // Add explicit padding for bottom border to prevent clipping
-        int borderPadding = (int) Math.ceil(FileReferenceList.BORDER_THICKNESS * 2); // Account for top and bottom border
-        int preferredHeight = rowHeight * visibleRows + 6 + borderPadding;
-
-        // Create a scrollable container with explicit scrollbar policies
+        // Create a scrollable container
         var scroll = new JScrollPane(fullList);
-        scroll.setBorder(null);
+        scroll.setBorder(BorderFactory.createEmptyBorder());
+        scroll.setViewportBorder(BorderFactory.createEmptyBorder());
         scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
-        scroll.setPreferredSize(new Dimension(colWidth, preferredHeight));
+
+        // To correctly cap the height, we need to set the preferred size
+        // of the scroll pane itself, BEFORE it gets packed.
+        dbg("fullList pref BEFORE layout = {}", fullList.getPreferredSize());
+        fullList.doLayout();
+        dbg("fullList pref AFTER layout = {}", fullList.getPreferredSize());
+        Dimension listPrefSize = fullList.getPreferredSize();
+        dbg("scroll prefSize = {}", scroll.getPreferredSize());
+
+        if (!files.isEmpty()) {
+            JLabel sampleLabel = fullList.createBadgeLabel(files.get(0).getFileName());
+            int vgap = 2; // from FlowLayout
+            int rowHeight = sampleLabel.getPreferredSize().height + vgap;
+            int maxHeight = rowHeight * 4; // 4 rows
+            maxHeight += 4; // Safety margin
+            dbg("rowHeight={}, maxHeight={}, sampleLabelSize={}", rowHeight, maxHeight, sampleLabel.getPreferredSize());
+
+            if (listPrefSize.height > maxHeight) {
+                scroll.setPreferredSize(new Dimension(listPrefSize.width, maxHeight));
+            }
+        }
 
         // Create and configure the popup
         var popup = new JPopupMenu();
         popup.setLayout(new BorderLayout());
         popup.add(scroll);
-
-        // Force layout to calculate proper wrapping AFTER being added to the container
-        SwingUtilities.invokeLater(() -> {
-            fullList.invalidate();
-            fullList.revalidate();
-            fullList.doLayout();
-            scroll.revalidate();
-        });
 
         // Apply theme using existing theme colors with fallbacks
         boolean isDarkTheme = UIManager.getBoolean("laf.dark");
@@ -239,9 +261,12 @@ public final class TableUtils {
         // Register popup with theme manager if available
         chrome.themeManager.registerPopupMenu(popup);
 
+        // Now pack. It will use the scroll pane's preferred size, which might be capped.
+        popup.pack();
+        dbg("popup packed size = {}", popup.getPreferredSize());
+
         // Show popup below the specific cell
         var cellRect = table.getCellRect(row, col, true);
-        popup.pack(); // Ensure proper sizing
         popup.show(table, cellRect.x, cellRect.y + cellRect.height);
     }
 
@@ -323,7 +348,7 @@ public final class TableUtils {
             // Update row height if necessary to fit the component, but only if there are file references
             // This preserves reasonable row height for other columns when no badges are present
             int prefHeight = component.getPreferredSize().height;
-            if (!fileRefs.isEmpty() && table.getRowHeight(row) != prefHeight) {
+            if (!fileRefs.isEmpty() && table.getRowHeight(row) < prefHeight) {
                 table.setRowHeight(row, prefHeight);
             }
 
@@ -616,7 +641,7 @@ public final class TableUtils {
 
             // Combine border for stroke painting space and text padding
             int borderStrokeInset = (int) Math.ceil(BORDER_THICKNESS);
-            int textPaddingVertical = 1;
+            int textPaddingVertical = 3;
             int textPaddingHorizontal = 6;
             label.setBorder(new EmptyBorder(borderStrokeInset + textPaddingVertical,
                                             borderStrokeInset + textPaddingHorizontal,
