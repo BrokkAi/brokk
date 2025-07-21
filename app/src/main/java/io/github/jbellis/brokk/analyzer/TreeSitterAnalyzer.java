@@ -292,7 +292,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public List<CodeUnit> searchDefinitionsImpl(String originalPattern, String fallbackPattern, Pattern compiledPattern) {
+    public List<CodeUnit> searchDefinitionsImpl(String originalPattern, @Nullable String fallbackPattern, Pattern compiledPattern) {
         if (fallbackPattern != null) {
             // Fallback to simple case-insensitive substring matching
             return uniqueCodeUnitList().stream()

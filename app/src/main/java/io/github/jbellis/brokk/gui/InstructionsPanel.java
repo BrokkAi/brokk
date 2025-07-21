@@ -18,7 +18,6 @@ import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.TaskFragment;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.TableUtils.FileReferenceList.FileReferenceData;
-import io.github.jbellis.brokk.gui.components.BrowserLabel;
 import io.github.jbellis.brokk.gui.components.LoadingButton;
 import io.github.jbellis.brokk.gui.components.OverlayPanel;
 import io.github.jbellis.brokk.gui.dialogs.ArchitectOptionsDialog;
@@ -137,7 +136,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                    new Font(Font.DIALOG, Font.BOLD, 12)));
 
         this.chrome = chrome;
-        this.contextManager = chrome.getContextManager(); // Store potentially null CM
+        this.contextManager = chrome.getContextManager();
         this.commandInputUndoManager = new UndoManager();
         commandInputOverlay = new OverlayPanel(
                 overlay -> activateCommandInput(),
@@ -777,12 +776,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void processInputSuggestions(long myGen, String snapshot) {
         logger.trace("Starting suggestion task generation {}", myGen);
 
-        if (contextManager == null) {
-            logger.warn("Task {} cannot provide suggestions: ContextManager is not available.", myGen);
-            SwingUtilities.invokeLater(() -> showFailureLabel("Context features unavailable"));
-            return;
-        }
-
         // 0. Initial staleness check
         if (myGen != suggestionGeneration.get()) {
             logger.trace("Task {} is stale (current gen {}), aborting early.", myGen, suggestionGeneration.get());
@@ -1005,11 +998,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      */
     private void triggerDeepScan(ActionEvent e) {
         var goal = getInstructions();
-        if (contextManager == null) {
-            chrome.toolError("Deep Scan requires a project and ContextManager to be active.");
-            deepScanButton.setEnabled(false);
-            return;
-        }
         deepScanButton.setLoading(true, "Scanning…");
 
         DeepScanDialog.triggerDeepScan(chrome, goal)
@@ -1532,17 +1520,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * and ContextManager availability. Called when actions complete.
      */
     private void updateButtonStates() {
-        boolean cmAvailable = this.contextManager != null;
         boolean gitAvailable = chrome.getProject().hasGit();
         // boolean worktreesSupported = gitAvailable && chrome.getProject().getRepo().supportsWorktrees(); // No longer needed here
 
         // Architect Button
-        architectButton.setEnabled(cmAvailable);
-        if (cmAvailable) {
+        architectButton.setEnabled(true);
             architectButton.setToolTipText("Run the multi-step agent (options include worktree setup)");
-        } else {
-            architectButton.setToolTipText("Architect agent unavailable (project/CM not ready)");
-        }
         // Worktree option is now part of ArchitectOptionsDialog
 
         // Code Button
@@ -1550,23 +1533,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             codeButton.setEnabled(false);
             codeButton.setToolTipText("Code feature requires Git integration for this project.");
         } else {
-            codeButton.setEnabled(cmAvailable);
+            codeButton.setEnabled(true);
             // Default tooltip is set during initialization, no need to reset unless it changed
         }
 
-        askButton.setEnabled(cmAvailable);
-        searchButton.setEnabled(cmAvailable);
-        runButton.setEnabled(cmAvailable); // Requires CM for getRoot()
+        askButton.setEnabled(true);
+        searchButton.setEnabled(true);
+        runButton.setEnabled(true);
         // Enable deepScanButton only if instructionsArea is also enabled
-        deepScanButton.setEnabled(cmAvailable && instructionsArea.isEnabled());
+        deepScanButton.setEnabled(instructionsArea.isEnabled());
         // Stop is only enabled when an action is running
         stopButton.setEnabled(false);
 
-        if (cmAvailable) {
-            chrome.enableHistoryPanel();
-        } else {
-            chrome.disableHistoryPanel();
-        }
+        chrome.enableHistoryPanel();
     }
 
     @Override
@@ -1671,13 +1650,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private JPopupMenu createModelSelectionMenu(BiConsumer<String, Service.ReasoningLevel> onModelSelect)
     {
         var popupMenu = new JPopupMenu();
-        if (this.contextManager == null) {
-            var item = new JMenuItem("Models unavailable (ContextManager not ready)");
-            item.setEnabled(false);
-            popupMenu.add(item);
-            chrome.themeManager.registerPopupMenu(popupMenu);
-            return popupMenu;
-        }
 
         var modelsInstance = this.contextManager.getService();
         var availableModelsMap = modelsInstance.getAvailableModels(); // Get all available models

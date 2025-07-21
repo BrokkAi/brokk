@@ -47,6 +47,7 @@ dependencies {
 
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
+    implementation(libs.dataflow.errorprone)
 
     implementation(libs.okhttp)
 
@@ -90,8 +91,9 @@ dependencies {
     testCompileOnly(libs.bundles.joern)
 
     // Error Prone and NullAway for null safety checking
-    "errorprone"(libs.errorprone.core)
+    "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
+    "errorprone"(libs.dataflow.errorprone)
     compileOnly(libs.jsr305)
     compileOnly(libs.checker.qual)
 }
@@ -168,6 +170,9 @@ tasks.named<JavaCompile>("compileJava") {
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+
+        // RedundantNullCheck
+        enable("RedundantNullCheck")
     }
 }
 
