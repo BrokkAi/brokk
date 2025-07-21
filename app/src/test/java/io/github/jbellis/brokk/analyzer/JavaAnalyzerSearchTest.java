@@ -24,7 +24,7 @@ public class JavaAnalyzerSearchTest {
     }
 
     private static IProject createTestProject(String subDir, Language lang) {
-        var testDir = Path.of("src/test/resources", subDir);
+        var testDir = Path.of("../joern-analyzers/src/test/resources", subDir);
         assertTrue(Files.exists(testDir), String.format("Test resource dir missing: %s", testDir));
         assertTrue(Files.isDirectory(testDir), String.format("%s is not a directory", testDir));
         
