@@ -47,7 +47,6 @@ dependencies {
 
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
-    implementation(libs.dataflow.errorprone)
 
     implementation(libs.okhttp)
 
