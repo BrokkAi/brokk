@@ -252,6 +252,7 @@ public class OpenAiUtils {
     public static AiMessage aiMessageFrom(ChatCompletionResponse response) {
         AssistantMessage assistantMessage = response.choices().get(0).message();
         String text = assistantMessage.content();
+        String reasoningContent = assistantMessage.reasoningContent();
 
         List<ToolCall> toolCalls = assistantMessage.toolCalls();
         if (!isNullOrEmpty(toolCalls)) {
@@ -261,7 +262,7 @@ public class OpenAiUtils {
                     .collect(toList());
             return isNullOrBlank(text)
                     ? AiMessage.from(toolExecutionRequests)
-                    : AiMessage.from(text, toolExecutionRequests);
+                    : AiMessage.from(text, reasoningContent, toolExecutionRequests);
         }
 
         FunctionCall functionCall = assistantMessage.functionCall();
@@ -272,10 +273,10 @@ public class OpenAiUtils {
                     .build();
             return isNullOrBlank(text)
                     ? AiMessage.from(toolExecutionRequest)
-                    : AiMessage.from(text, singletonList(toolExecutionRequest));
+                    : AiMessage.from(text, reasoningContent, singletonList(toolExecutionRequest));
         }
 
-        return AiMessage.from(text);
+        return AiMessage.from(text, reasoningContent);
     }
 
     private static ToolExecutionRequest toToolExecutionRequest(ToolCall toolCall) {
