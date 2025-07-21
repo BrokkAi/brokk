@@ -242,15 +242,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void onTrackedFileChange() {
+                // we don't need the full onRepoChange but we do need these parts
                 project.getRepo().invalidateCaches();
+                io.updateCommitPanel();
+
+                // update Workspace
                 var fr = liveContext.freezeAndCleanup();
                 // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
                 if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                     processExternalFileChanges(fr);
+                    // analyzer refresh will call this too, but it will be delayed
+                    io.updateWorkspace();
                 }
-                // analyzer refresh will call this too, but it will be delayed
-                io.updateWorkspace();
-                io.updateCommitPanel();
+
+                // ProjectTree
                 for (var fsListener : fileSystemEventListeners) {
                     fsListener.onTrackedFilesChanged();
                 }
