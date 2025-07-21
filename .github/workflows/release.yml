@@ -44,7 +44,7 @@ jobs:
       - name: Get JAR filename
         id: jar
         run: |
-          JAR_FILE=$(find build/libs -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+          JAR_FILE=$(find app/build/libs -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
           JAR_NAME=$(basename "$JAR_FILE")
           echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
           echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
@@ -55,7 +55,7 @@ jobs:
         with:
           name: brokk-${{ steps.version.outputs.version }}
           path: |
-            build/libs/*.jar
-            !build/libs/*-sources.jar
-            !build/libs/*-javadoc.jar
+            app/build/libs/*.jar
+            !app/build/libs/*-sources.jar
+            !app/build/libs/*-javadoc.jar
           retention-days: 90
