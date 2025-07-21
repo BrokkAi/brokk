@@ -16,11 +16,9 @@ import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
-import org.eclipse.jgit.lib.RepositoryState;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevTree;
 import org.eclipse.jgit.revwalk.RevWalk;
-import org.eclipse.jgit.revwalk.RevObject;
 import org.eclipse.jgit.revwalk.RevTag;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
@@ -313,7 +311,7 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public synchronized void refresh() {
+    public synchronized void invalidateCaches() {
         logger.debug("GitRepo refresh");
         // TODO probably we should split ".git changed" apart from "tracked files changed"
         repository.getRefDatabase().refresh();
@@ -353,7 +351,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .addFilepattern(toRepoRelativePath(file))
                 .setCached(true) // Remove from index only -- EditBlock removes from disk
                 .call();
-        refresh(); // Refresh repository state, including tracked files cache
+        invalidateCaches(); // Refresh repository state, including tracked files cache
     }
 
     /**
@@ -555,7 +553,7 @@ public class GitRepo implements Closeable, IGitRepo {
 
         var commitResult = commitCommand.call();
         var commitId = commitResult.getId().getName();
-        refresh();
+        invalidateCaches();
         return commitId;
     }
 
@@ -669,7 +667,7 @@ public class GitRepo implements Closeable, IGitRepo {
             throw new GitRepoException("Push to " + remoteName + "/" + remoteBranchName + " succeeded, but failed to set up remote tracking configuration for " + localBranchName, e);
         }
 
-        refresh();
+        invalidateCaches();
 
         return results;
     }
@@ -688,7 +686,7 @@ public class GitRepo implements Closeable, IGitRepo {
                .setProgressMonitor(pm)
                .call();
         }
-        refresh(); // Invalidate caches & ref-db
+        invalidateCaches(); // Invalidate caches & ref-db
     }
 
     /**
@@ -853,7 +851,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void checkout(String branchName) throws GitAPIException {
         git.checkout().setName(branchName).call();
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -885,7 +883,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .call();
         logger.debug("Successfully created branch '{}'", newBranchName);
 
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -909,7 +907,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .call();
         logger.debug("Successfully created branch '{}' from commit '{}'", newBranchName, sourceCommitId);
 
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -928,7 +926,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .call();
         logger.debug("Successfully created and checked out branch '{}'", newBranchName);
 
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -962,7 +960,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .call();
         logger.debug("Successfully created and checked out branch '{}'", localBranchName);
 
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -970,7 +968,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public void renameBranch(String oldName, String newName) throws GitAPIException {
         git.branchRename().setOldName(oldName).setNewName(newName).call();
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1032,7 +1030,7 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.trace("isSuccessful(): {}", result.getMergeStatus().isSuccessful());
         logger.trace("isMergeSuccessful() utility: {}", isMergeSuccessful(result, MergeMode.MERGE_COMMIT));
 
-        refresh();
+        invalidateCaches();
         return result;
     }
 
@@ -1122,22 +1120,22 @@ public class GitRepo implements Closeable, IGitRepo {
                     .map(entry -> entry.getKey() + " (" + entry.getValue() + ")")
                     .collect(Collectors.joining(", "));
                 logger.error("Squash merge conflicts: {}", errorDetails);
-                refresh();
+                invalidateCaches();
                 throw new GitAPIException("Squash merge failed due to conflicts in: " + errorDetails) {};
             }
 
-            refresh();
+            invalidateCaches();
             return squashResult;
         }
 
         // Commit the squashed changes
         try {
             git.commit().setMessage(squashCommitMessage).call();
-            refresh();
+            invalidateCaches();
             return squashResult;
         } catch (GitAPIException e) {
             logger.error("Failed to commit squashed changes: {}", e.getMessage(), e);
-            refresh();
+            invalidateCaches();
             throw e;
         }
     }
@@ -1189,7 +1187,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 throw new GitAPIException("Fast-forward merge of rebased '" + tempRebaseBranchName + "' into '" + targetBranch + "' failed: " + ffMergeResult.getMergeStatus()) {};
             }
 
-            refresh();
+            invalidateCaches();
             return ffMergeResult;
 
         } finally {
@@ -1257,7 +1255,7 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (IOException e) {
             throw new GitRepoException("Unable to resolve" + commitId, e);
         }
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1268,7 +1266,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .setMode(org.eclipse.jgit.api.ResetCommand.ResetType.SOFT)
                 .setRef(commitId)
                 .call();
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1293,7 +1291,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         checkoutCommand.call();
-        refresh();
+        invalidateCaches();
 
         logger.debug("Successfully checked out {} files from commit {}", files.size(), commitId);
     }
@@ -1619,7 +1617,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .setWorkingDirectoryMessage(message)
                 .call();
         logger.debug("Stash created with ID: {}", (stashId != null ? stashId.getName() : "none"));
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1699,7 +1697,7 @@ public class GitRepo implements Closeable, IGitRepo {
         logger.debug("Deleting temporary branch");
         git.branchDelete().setBranchNames(tempBranchName).setForce(true).call();
 
-        refresh();
+        invalidateCaches();
     }
 
     // StashInfo record removed
@@ -1788,7 +1786,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .setStashRef(stashRef)
                 .call();
         logger.debug("Stash applied successfully");
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1805,7 +1803,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .call();
         git.stashDrop().setStashRef(stashIndex).call();
         logger.debug("Stash pop completed successfully");
-        refresh();
+        invalidateCaches();
     }
 
     /**
@@ -1817,7 +1815,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 .setStashRef(stashIndex)
                 .call();
         logger.debug("Stash dropped successfully");
-        refresh();
+        invalidateCaches();
     }
 
     /**

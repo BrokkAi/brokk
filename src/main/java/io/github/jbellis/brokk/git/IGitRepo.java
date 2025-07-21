@@ -9,7 +9,6 @@ import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 public interface IGitRepo {
@@ -33,7 +32,10 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default void refresh() {
+    /**
+     * Invalidate refs and tracked-files caches
+     */
+    default void invalidateCaches() {
     }
 
     default ObjectId resolve(String s) throws GitAPIException {

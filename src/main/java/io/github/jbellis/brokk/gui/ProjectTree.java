@@ -417,7 +417,8 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
     }
 
     @Override
-    public void onTrackedFilesChanged() {
+    public void 
+    onTrackedFilesChanged() {
         SwingUtilities.invokeLater(() -> {
             logger.trace("FileSystem change detected, refreshing ProjectTree.");
 
