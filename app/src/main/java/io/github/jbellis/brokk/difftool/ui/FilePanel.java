@@ -293,10 +293,9 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             hasDeferredUpdates.set(false);
         }
 
-        // Use the unified timer for debounced updates
-        if (timer != null) {
-            timer.restart();
-        }
+        // Call reDisplayInternal directly instead of using timer
+        // This fixes the issue where RIGHT panel highlighting wasn't working
+        reDisplayInternal();
     }
 
     private void reDisplayInternal() {
