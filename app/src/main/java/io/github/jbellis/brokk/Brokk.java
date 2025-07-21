@@ -5,6 +5,7 @@ import com.github.tjake.jlama.model.ModelSupport;
 import com.github.tjake.jlama.safetensors.DType;
 import com.github.tjake.jlama.safetensors.SafeTensorSupport;
 import io.github.jbellis.brokk.context.Context;
+import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.CheckThreadViolationRepaintManager;
 import io.github.jbellis.brokk.gui.Chrome;
@@ -285,8 +286,17 @@ public class Brokk {
      * Main entry point.
      */
     public static void main(String[] args) {
+        Thread.setDefaultUncaughtExceptionHandler(new OomShutdownHandler());
+        
         logger.debug("Brokk starting");
         setupSystemPropertiesAndIcon();
+
+        if (MainProject.initializeOomFlag()) {
+            logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
+            MainProject.clearActiveSessions();
+            OomShutdownHandler.showRecoveryMessage();
+        }
+        
         MainProject.loadRecentProjects(); // Load and potentially clean recent projects list
         ParsedArgs parsedArgs = parseArguments(args);
 
