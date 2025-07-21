@@ -175,7 +175,6 @@ public class AnalyzerWrapper implements AutoCloseable {
                 logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(gitRepoRoot).resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
-                    listener.onTrackedFileChange(); // not 100% sure this is necessary
                 }
             }
         }

@@ -68,7 +68,7 @@ public class InMemoryRepo implements IGitRepo {
     }
 
     @Override
-    public void refresh() {
+    public void invalidateCaches() {
         // No-op for this simple implementation
     }
 
