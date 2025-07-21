@@ -44,6 +44,7 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
             try {
                 Thread.sleep(5000);
             } catch (InterruptedException ignored) {
+                logger.warn("Interrupted while delaying application shutdown.");
             }
 
             System.exit(1); // Exit with a non-zero status code
@@ -69,12 +70,9 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
      * @return true if a {@link OutOfMemoryError} is part of the throwable cause chain.
      */
     public static boolean isOomError(Throwable e) {
-        if (e == null) {
-            return false;
-        }
-        if (e instanceof OutOfMemoryError) {
-            return true;
-        }
-        return isOomError(e.getCause());
+        if (e == null) return false;
+        else if (e instanceof OutOfMemoryError) return true;
+        else if (e.getCause() == null) return false;
+        else return isOomError(e.getCause());
     }
 }
