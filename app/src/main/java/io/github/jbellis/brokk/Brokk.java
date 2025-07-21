@@ -293,7 +293,7 @@ public class Brokk {
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
-            MainProject.clearActiveSessions(); // fixme: does not seem to be working
+            MainProject.clearActiveSessions();
             OomShutdownHandler.showRecoveryMessage();
         }
         

@@ -1279,11 +1279,7 @@ public final class MainProject extends AbstractProject {
 
     public static void clearActiveSessions() {
         var props = loadProjectsProperties();
-        for (String key : props.stringPropertyNames()) {
-            if (key.endsWith("_activeSession")) {
-                props.remove(key);
-            }
-        }
+        props.setProperty("openProjectsList", "");
         saveProjectsProperties(props);
     }
 
