@@ -1,8 +1,9 @@
 /**
  * mdast build logic for edit-blocks.
  */
+import type {EditBlockProperties} from '../../worker/shared';
 import { log } from './util';
-import { nextEditBlockId } from './id-generator';
+import {bubbleId, nextEditBlockId} from './id-generator';
 
 export function editBlockFromMarkdown() {
     return {
@@ -15,12 +16,14 @@ export function editBlockFromMarkdown() {
                     data: {
                         hName: 'edit-block',
                         hProperties: {
+                            bubbleId: bubbleId(),
                             id: nextEditBlockId(),
-                            filename: undefined as string | undefined,
-                            search: undefined as string | undefined,
-                            replace: undefined as string | undefined,
-                            headerOk: false as boolean
-                        }
+                            isExpanded: false,
+                            filename: undefined,
+                            search: undefined,
+                            replace: undefined,
+                            headerOk: false
+                        } as EditBlockProperties
                     }
                 };
                 this.enter(node, tok);

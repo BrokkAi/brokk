@@ -6,8 +6,9 @@ import type {
   InboundToWorker,
   OutboundFromWorker,
   ResultMsg,
-  ErrorMsg
+  ErrorMsg,
 } from './shared';
+import { currentExpandIds } from './expand-state';
 
 // Initialize the processor, which will asynchronously load Shiki.
 initProcessor();
@@ -40,6 +41,12 @@ self.onmessage = (ev: MessageEvent<InboundToWorker>) => {
       buffer = '';
       dirty = false;
       seq = m.seq;
+      currentExpandIds.clear();
+      break;
+
+    case 'expand-diff':
+      currentExpandIds.add(m.blockId);
+      // no parsing here – the main thread already sent a targeted parse
       break;
   }
 };

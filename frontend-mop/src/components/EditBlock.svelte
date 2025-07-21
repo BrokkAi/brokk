@@ -1,59 +1,36 @@
 <script lang="ts">
     import Icon from '@iconify/svelte';
-    import {highlighterPromise} from '../worker/shiki/shiki-plugin';
-    import {buildUnifiedDiff, getMdLanguageTag} from '../lib/diff-utils';
-    import {transformerDiffLines} from '../worker/shiki/shiki-diff-transformer';
+    import {expandDiff} from '../worker/worker-bridge';
+    import type {BubbleState} from '../stores/bubblesStore';
+    import { bubblesStore } from '../stores/bubblesStore';
+    import { get } from 'svelte/store';
+
+    import type { EditBlockProperties } from '../worker/shared';
 
     let {
         id = '-1',
         filename = '?',
-        adds = '0',
-        dels = '0',
-        // changed = '0', // prop available if needed
-        // status = 'UNKNOWN', // prop available if needed
+        adds = 0,
+        dels = 0,
         search = '',
         replace = '',
-        headerOk = false as boolean
-    } = $props();
+        headerOk = false,
+        isExpanded = false,
+        bubbleId,
+    } = $props<EditBlockProperties>();
 
-    console.log('EditBlock props:');
 
     const numAdds = +adds;
     const numDels = +dels;
 
     let showDetails = $state(false);
-    let diffHtml: string | null = $state(null);
-    let isLoading = $state(false);
-
-    async function generateDiff() {
-        if (diffHtml || isLoading) return; // Execute only once
-
-        isLoading = true;
-        try {
-            const {text, added, removed} = buildUnifiedDiff(search, replace);
-            const lang = getMdLanguageTag(filename);
-
-            // await ensureLang(lang);
-            const highlighter = await highlighterPromise;
-
-            diffHtml = await highlighter.codeToHtml(text, {
-                lang: lang,
-                theme: 'css-vars',
-                transformers: [transformerDiffLines(added, removed)]
-            });
-        } catch (e) {
-            console.error('Failed to generate diff:', e);
-            const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            diffHtml = `<pre>Error generating diff. Raw content:\n${escape(search)}\n========\n${escape(replace)}</pre>`;
-        } finally {
-            isLoading = false;
-        }
-    }
 
     function toggleDetails() {
         showDetails = !showDetails;
         if (showDetails) {
-            generateDiff();
+            const markdown =
+                get(bubblesStore).find(b => b.id === bubbleId)?.markdown ?? '';
+            expandDiff(markdown, bubbleId, id);
         }
     }
 
@@ -71,7 +48,6 @@
                 {#if numDels > 0}
                     <span class="dels">-{numDels}</span>
                 {/if}
-                    <span class="id">id: {id}</span>
             </div>
             <div class="spacer"></div>
             <Icon icon={showDetails ? 'mdi:chevron-up' : 'mdi:chevron-down'} class="toggle-icon"/>
@@ -79,11 +55,7 @@
 
         {#if showDetails}
             <div class="edit-block-body">
-                {#if isLoading}
-                    <div class="loading-diff">Loading diff...</div>
-                {:else if diffHtml}
-                    {@html diffHtml}
-                {/if}
+                <slot></slot>
             </div>
         {/if}
     </div>
@@ -154,6 +126,11 @@
         font-size: 0.85em;
     }
 
+    .edit-block-body :global(.custom-code-block) {
+        margin-left: 10px;
+        margin-right: 10px;
+    }
+
     .edit-block-body :global(pre) {
         margin: 0;
         /* Shiki adds a background color, which is fine. */
@@ -161,12 +138,15 @@
         padding-top: 0.8em;
         padding-bottom: 0.8em;
         white-space: pre-wrap;
+        font-size: 0;
     }
 
     .edit-block-body :global(.diff-line) {
         display: block;
         padding-left: 0.8em;
         padding-right: 0.8em;
+        font-size: 0.8rem;
+        line-height: 1.4;
     }
 
     .edit-block-body :global(.diff-add) {
@@ -177,9 +157,4 @@
         background-color: var(--diff-del-bg);
     }
 
-    .loading-diff {
-        padding: 1em;
-        color: var(--chat-text);
-        opacity: 0.7;
-    }
 </style>

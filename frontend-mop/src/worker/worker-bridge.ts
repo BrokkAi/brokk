@@ -16,6 +16,18 @@ export function clear(seq: number) {
   worker.postMessage(<InboundToWorker>{ type: 'clear', seq });
 }
 
+export function expandDiff(markdown: string, bubbleId: number, blockId: string) {
+  // 1. Ask worker to mark this block as “expanded”
+  worker.postMessage(<InboundToWorker>{ type: 'expand-diff', bubbleId, blockId });
+  // 2. Immediately trigger a slow parse for this single bubble
+  worker.postMessage(<InboundToWorker>{
+    type: 'parse',
+    seq: bubbleId,
+    text: markdown,
+    fast: false
+  });
+}
+
 /* inbound ----------------------------------------------------------- */
 worker.onmessage = (e: MessageEvent<OutboundFromWorker>) => {
   const msg = e.data;

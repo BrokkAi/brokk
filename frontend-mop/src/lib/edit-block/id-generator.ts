@@ -17,3 +17,7 @@ export function resetForBubble(bubbleId: number): void {
 export function nextEditBlockId(): string {
   return `${currentBubbleId}-${localIndex++}`;
 }
+
+export function bubbleId(): number {
+  return currentBubbleId;
+}

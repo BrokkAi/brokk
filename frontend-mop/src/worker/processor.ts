@@ -4,6 +4,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import remarkParse from 'remark-parse';
 import remarkRehype from 'remark-rehype';
+import { rehypeEditDiff } from './rehype/rehype-edit-diff';
 import type {HighlighterCore} from 'shiki/core';
 import {type Processor, unified} from 'unified';
 import {visit} from 'unist-util-visit';
@@ -43,7 +44,9 @@ export function initProcessor() {
         .then(({rehypePlugin}) => {
             const [pluginFn, shikiHighlighter, opts] = rehypePlugin as any;
             highlighter = shikiHighlighter;
-            shikiProcessor = createBaseProcessor().use(pluginFn, shikiHighlighter, opts);
+            shikiProcessor = createBaseProcessor()
+                .use(pluginFn, shikiHighlighter, opts)
+                .use(rehypeEditDiff, shikiHighlighter);
             currentProcessor = shikiProcessor;
             console.log('[shiki] loaded!');
             post(<ShikiLangsReadyMsg>{type: 'shiki-langs-ready'});
@@ -65,6 +68,10 @@ function detectCodeFenceLangs(tree: Root): Set<string> {
             }
         }
     });
+
+    const diffLangs = (tree as any).data?.detectedDiffLangs as Set<string> | undefined;
+    console.log('[md-worker] detected langs', detectedLangs, diffLangs);
+    diffLangs?.forEach(l => detectedLangs.add(l));
     return detectedLangs;
 }
 export function parseMarkdown(seq: number, src: string, fast = false): HastRoot {
@@ -82,7 +89,7 @@ export function parseMarkdown(seq: number, src: string, fast = false): HastRoot 
     }
     if (!fast && highlighter) {
         // detect langs in the shiki highlighting pass to load lang lazy
-        const detectedLangs = detectCodeFenceLangs(tree);
+        const detectedLangs = detectCodeFenceLangs(tree as any);
         if (detectedLangs.size > 0) {
             handlePendingLanguages(detectedLangs);
         }

@@ -9,7 +9,7 @@ export interface UnifiedDiff {
 }
 
 export function buildUnifiedDiff(search: string, replace: string): UnifiedDiff {
-  const diff = diffLines(search, replace);
+  const diff = diffLines(search ?? '', replace ?? '');
   const result = {
     text: '',
     added: [] as number[],

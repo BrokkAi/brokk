@@ -1,6 +1,4 @@
-import type { Transformer } from 'shiki';
-
-export const transformerDiffLines = (added: number[], removed: number[]): Transformer => ({
+export const transformerDiffLines = (added: number[], removed: number[]) => ({
   name: 'diff-lines',
   line(node, lineNo) {
     if (added.includes(lineNo)) {
