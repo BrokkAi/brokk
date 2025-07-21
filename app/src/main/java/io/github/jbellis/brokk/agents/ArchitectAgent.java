@@ -20,6 +20,7 @@ import io.github.jbellis.brokk.tools.ToolExecutionResult;
 import io.github.jbellis.brokk.tools.ToolRegistry;
 import io.github.jbellis.brokk.util.LogDescription;
 import io.github.jbellis.brokk.util.Messages;
+import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.dialogs.AskHumanDialog;
 import io.github.jbellis.brokk.gui.SwingUtil;
@@ -52,10 +53,11 @@ public class ArchitectAgent {
             boolean includeSearchAgent,
             boolean includeAskHuman,
             boolean includeGitCommit,
-            boolean includeGitCreatePr
+            boolean includeGitCreatePr,
+            boolean includeShellCommand
     ) {
-        /** Default options (all enabled, except Git tools). */
-        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false, false);
+        /** Default options (all enabled, except Git tools and shell command). */
+        public static final ArchitectOptions DEFAULTS = new ArchitectOptions(true, true, true, true, true, true, true, false, false, false);
     }
 
     private final IConsoleIO io;
@@ -355,6 +357,42 @@ public class ArchitectAgent {
     }
 
     /**
+     * A tool to execute a shell command inside a sandbox.  Output is streamed to the build log.
+     */
+    @Tool("Execute a shell command inside an environment sandboxed to the project root. You will only be able to write to files in that environment.")
+    public String runShellCommand(
+            @P("The shell command to execute, for example `./gradlew test`") String command
+    ) throws InterruptedException {
+        var cursor = messageCursor();
+        io.llmOutput("Running shell command: " + command, ChatMessageType.CUSTOM, true);
+        String output = null;
+        try {
+            output = Environment.instance.runShellCommand(command,
+                                                          java.nio.file.Path.of("."),
+                                                          true,
+                                                          io::systemOutput);
+        } catch (Environment.SubprocessException e) {
+            throw new RuntimeException(e);
+        }
+
+        var msg = """
+                    Command finished successfully.
+                    <output>
+                    %s
+                    </output>
+                    """.stripIndent().formatted(output.trim());
+        io.llmOutput(msg, ChatMessageType.CUSTOM);
+        var newMessages = messagesSince(cursor);
+        contextManager.addToHistory(new TaskResult(contextManager,
+                                                   "Shell command",
+                                                   newMessages,
+                                                   java.util.Set.of(),
+                                                   TaskResult.StopReason.SUCCESS),
+                                    false);
+        return msg;
+    }
+
+    /**
      * A tool that invokes the SearchAgent to perform searches and analysis based on a query.
      * The SearchAgent will decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents).
      * The results are added as a context fragment.
@@ -541,6 +579,9 @@ public class ArchitectAgent {
                 if (options.includeAskHuman()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("askHumanQuestion")));
                 }
+                if (options.includeShellCommand() && Environment.isSandboxAvailable()) {
+                    toolSpecs.addAll(toolRegistry.getTools(this, List.of("runShellCommand")));
+                }
                 if (options.includeGitCommit()) {
                     toolSpecs.addAll(toolRegistry.getTools(this, List.of("commitChanges")));
                 }
@@ -687,7 +728,7 @@ public class ArchitectAgent {
                     if (e.getCause() instanceof FatalLlmException) {
                         var errorMessage = "Fatal LLM error executing Search Agent: %s".formatted(Objects.toString(e.getCause().getMessage(), "Unknown error"));
                         io.systemOutput(errorMessage);
-                        break; 
+                        break;
                     }
                     var errorMessage = "Error executing Search Agent: %s".formatted(Objects.toString(e.getCause() != null ? e.getCause().getMessage() : "Unknown error", "Unknown execution error"));
                     architectMessages.add(ToolExecutionResultMessage.from(request, errorMessage));
@@ -731,9 +772,10 @@ public class ArchitectAgent {
             case "dropFragments" -> 1;
             case "addReadOnlyFiles" -> 2;
             case "addEditableFilesToWorkspace" -> 3;
-            case "commitChanges" -> 4;
-            case "createPullRequest" -> 5;
-            default -> 6; // all other tools have lowest priority
+            case "runShellCommand" -> 4;
+            case "commitChanges" -> 5;
+            case "createPullRequest" -> 6;
+            default -> 7; // all other tools have lowest priority
         };
     }
 

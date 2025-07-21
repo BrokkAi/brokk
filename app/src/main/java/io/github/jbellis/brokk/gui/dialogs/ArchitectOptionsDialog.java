@@ -17,6 +17,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.concurrent.atomic.AtomicReference;
+import io.github.jbellis.brokk.util.Environment;
 import java.util.function.BiFunction;
 
 /**
@@ -102,6 +103,15 @@ public class ArchitectOptionsDialog {
             var searchCb = createCheckbox.apply("Search Agent", "Allow invoking the Search Agent to find information beyond the current Workspace");
             searchCb.setSelected(currentOptions.includeSearchAgent());
 
+            var shellCb = createCheckbox.apply("Sandboxed Shell Command",
+                                               "Allow executing shell commands inside a sandbox");
+            boolean sandboxAvailable = Environment.isSandboxAvailable();
+            shellCb.setEnabled(sandboxAvailable);
+            shellCb.setSelected(currentOptions.includeShellCommand() && sandboxAvailable);
+            if (!sandboxAvailable) {
+                shellCb.setToolTipText("Sandbox execution is not available on this platform.");
+            }
+
             var askHumanCb = createCheckbox.apply("Ask-a-Human", "Allow the agent to request guidance from the user via a dialog");
             askHumanCb.setSelected(currentOptions.includeAskHuman());
 
@@ -154,7 +164,8 @@ public class ArchitectOptionsDialog {
                         searchCb.isSelected(),
                         askHumanCb.isSelected(),
                         commitCb.isSelected(), // Persist Git commit option
-                        prCb.isSelected()
+                        prCb.isSelected(),
+                        shellCb.isSelected()
                 );
                 boolean runInWorktreeSelected = worktreeCb.isSelected();
 

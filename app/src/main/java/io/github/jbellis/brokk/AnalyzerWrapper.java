@@ -265,11 +265,13 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
         }
 
+        logger.debug("Waiting for build details");
         BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
 
         /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested;            // explicit user request wins
         if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
             for (Language lang : project.getAnalyzerLanguages()) {
@@ -292,6 +294,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
         IAnalyzer analyzer;
         try {
+            logger.debug("Attempting to load existing analyzer");
             analyzer = langHandle.loadAnalyzer(project);
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
@@ -321,6 +324,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
         }
 
+        logger.debug("Analyzer load complete!");
         return analyzer;
     }
 

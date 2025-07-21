@@ -248,7 +248,7 @@ public class ProjectTree extends JTree implements FileSystemEventListener {
 
         contextMenu.addSeparator();
         // Add "Run Tests in Shell" item
-        JMenuItem runTestsItem = new JMenuItem("Run Tests in Shell");
+        JMenuItem runTestsItem = new JMenuItem("Run Tests");
         boolean hasTestFiles = selectedFiles.stream().allMatch(ContextManager::isTestFile);
         runTestsItem.setEnabled(hasTestFiles);
         if (!hasTestFiles) {

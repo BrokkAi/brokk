@@ -62,6 +62,7 @@ dependencies {
     implementation(libs.snakeyaml)
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
+    implementation(libs.picocli)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -273,6 +274,20 @@ tasks.withType<Test> {
     // System properties for tests
     systemProperty("brokk.test.mode", "true")
     systemProperty("java.awt.headless", "true")
+}
+
+tasks.register<JavaExec>("runCli") {
+    group = "application"
+    description = "Runs the Brokk CLI"
+    mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
+    classpath = sourceSets.main.get().runtimeClasspath
+    val jvmArgs = listOf(
+        "-ea",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
 }
 
 tasks.shadowJar {

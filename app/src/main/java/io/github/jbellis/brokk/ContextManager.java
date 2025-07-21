@@ -19,6 +19,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
@@ -153,6 +154,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private volatile Context liveContext = Context.EMPTY; // Initialize to a non-null default
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
+
+    // balance-notification state
+    private boolean lowBalanceNotified = false;
+    private boolean freeTierNotified = false;
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -363,10 +368,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
         ensureReviewGuide();
-        ensureBuildDetailsAsync(); // Changed from ensureBuildCommand
-        cleanupOldHistoryAsync(); // Clean up old LLM history logs
+        ensureBuildDetailsAsync();
+        cleanupOldHistoryAsync();
 
-        io.getInstructionsPanel().checkBalanceAndNotify();
+        checkBalanceAndNotify();
 
         return contextTask;
     }
@@ -1715,10 +1720,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             project.saveBuildDetails(inferredDetails);
 
-            SwingUtilities.invokeLater(() -> {
-                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
-                dlg.getProjectPanel().showBuildBanner();
-            });
+            if (io instanceof Chrome chrome) {
+                SwingUtilities.invokeLater(() -> {
+                    var dlg = SettingsDialog.showSettingsDialog(chrome, "Build");
+                    dlg.getProjectPanel().showBuildBanner();
+                });
+            }
 
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
@@ -2268,9 +2275,80 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
+    /**
+     * Allows injection of a custom {@link IConsoleIO} implementation, enabling
+     * head-less (CLI) operation where a GUI is not available.
+     *
+     * This should be invoked immediately after constructing the
+     * {@code ContextManager} but before any tasks are submitted, so that all
+     * logging and UI callbacks are routed to the desired sink.
+     */
+    public void createHeadless() {
+        this.io = new HeadlessConsole();
+
+        ensureStyleGuide();
+        ensureReviewGuide();
+        ensureBuildDetailsAsync();
+        cleanupOldHistoryAsync();
+
+        checkBalanceAndNotify();
+    }
+
     @Override
     public ToolRegistry getToolRegistry() {
         return toolRegistry;
+    }
+
+    /**
+     * Checks the user’s account balance (only when using the Brokk proxy) and notifies
+     * via {@link IConsoleIO#systemNotify} if the balance is low or exhausted.
+     * The expensive work is executed on the background executor so callers may invoke
+     * this from any thread without blocking.
+     */
+    public void checkBalanceAndNotify() {
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
+            return; // Only relevant when using the Brokk proxy
+        }
+
+        submitBackgroundTask("Balance Check", () -> {
+            try {
+                float balance = service.get().getUserBalance();
+                logger.debug("Checked balance: ${}", String.format("%.2f", balance));
+
+                if (balance < Service.MINIMUM_PAID_BALANCE) {
+                    // Free-tier: reload models and warn once
+                    reloadModelsAsync();
+                    if (!freeTierNotified) {
+                        freeTierNotified = true;
+                        lowBalanceNotified = false;  // reset low-balance flag
+                        var msg = """
+                                  Brokk is running in the free tier. Only low-cost models are available.
+
+                                  To enable smarter models, subscribe or top-up at
+                                  %s
+                                  """.stripIndent().formatted(Service.TOP_UP_URL);
+                        SwingUtilities.invokeLater(() ->
+                                io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));
+                    }
+                } else if (balance < Service.LOW_BALANCE_WARN_AT) {
+                    // Low balance warning
+                    freeTierNotified = false; // recovered from exhausted state
+                    if (!lowBalanceNotified) {
+                        lowBalanceNotified = true;
+                        var msg = "Low account balance: $%.2f.\nTop-up at %s to avoid interruptions."
+                                .formatted(balance, Service.TOP_UP_URL);
+                        SwingUtilities.invokeLater(() ->
+                                io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE));
+                    }
+                } else {
+                    // Healthy balance – clear flags
+                    lowBalanceNotified = false;
+                    freeTierNotified = false;
+                }
+            } catch (java.io.IOException e) {
+                logger.error("Failed to check user balance", e);
+            }
+        });
     }
 
     /**

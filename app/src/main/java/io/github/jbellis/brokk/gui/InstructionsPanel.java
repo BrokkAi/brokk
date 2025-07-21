@@ -104,7 +104,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final JButton stopButton;
     private final JButton configureModelsButton;
     private final JLabel commandResultLabel;
-    private final @Nullable ContextManager contextManager; // Can be null if Chrome is initialized without one
+    private final ContextManager contextManager;
     private JTable referenceFileTable;
     private JLabel failureReasonLabel;
     private JPanel suggestionContentPanel;
@@ -124,8 +124,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
-    private boolean lowBalanceNotified = false;
-    private boolean freeTierNotified = false;
     private @Nullable String lastCheckedInputText = null;
     private @Nullable float[][] lastCheckedEmbeddings = null;
     private @Nullable List<FileReferenceData> pendingQuickContext = null;
@@ -1029,91 +1027,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                 chrome.toolError("Deep Scan analysis encountered an error: " + throwable.getMessage());
                             }
                         }
-                        this.contextManager.submitBackgroundTask("Post Deep Scan: Balance Check", this::checkBalanceAndNotify);
+                        this.contextManager.checkBalanceAndNotify();
                         notifyActionComplete("Deep Scan"); // General notification that the "Deep Scan" action initiated here has concluded its primary phase.
                     });
                 });
     }
-
-    /**
-     * Checks the user's balance if using the Brokk proxy and displays a notification
-     * if the balance is low.
-     */
-    public void checkBalanceAndNotify() {
-        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
-            return; // Only check balance when using Brokk proxy
-        }
-
-        var contextManager = chrome.getContextManager();
-        contextManager.submitBackgroundTask("", () -> {
-            try {
-                float balance = contextManager.getService().getUserBalance();
-                logger.debug("Checked balance: ${}", String.format("%.2f", balance));
-
-                // If balance drops below the minimum paid threshold, reinitialize models to enforce free tier
-                if (balance < Service.MINIMUM_PAID_BALANCE) {
-                    logger.debug("Balance below minimum paid threshold (${}), reinitializing models to free tier.", Service.MINIMUM_PAID_BALANCE);
-                    // This will refetch models and apply the lowBalance filter based on MINIMUM_PAID_BALANCE
-                    contextManager.reloadModelsAsync();
-
-                    SwingUtilities.invokeLater(() -> {
-                        if (freeTierNotified) {
-                            // Only show the dialog once unless balance recovers
-                            return;
-                        }
-
-                        freeTierNotified = true;
-                        var panel = new JPanel();
-                        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
-                        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-                        panel.add(new JLabel("Brokk is running in the free tier. Only low-cost models are available."));
-                        panel.add(Box.createVerticalStrut(5));
-                        var label = new JLabel("To enable smarter models, subscribe or top up at:");
-                        panel.add(label);
-                        var browserLabel = new BrowserLabel(Service.TOP_UP_URL);
-                        browserLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-                        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-                        panel.add(browserLabel);
-
-                        JOptionPane.showMessageDialog(
-                                chrome.getFrame(),
-                                panel,
-                                "Balance Exhausted",
-                                JOptionPane.WARNING_MESSAGE
-                        );
-                    });
-                } else if (balance < Service.LOW_BALANCE_WARN_AT) {
-                    if (lowBalanceNotified) {
-                        // Only show the dialog once unless balance recovers
-                        return;
-                    }
-
-                    lowBalanceNotified = true;
-                    SwingUtilities.invokeLater(() -> {
-                        var panel = new JPanel(new BorderLayout(0, V_GAP)); // Panel for text and link
-                        var balanceMessage = String.format("Low account balance: $%.2f.", balance);
-                        panel.add(new JLabel(balanceMessage), BorderLayout.NORTH);
-
-                        var browserLabel = new io.github.jbellis.brokk.gui.components.BrowserLabel(Service.TOP_UP_URL, "Top up at " + Service.TOP_UP_URL + " to avoid interruptions.");
-                        panel.add(browserLabel, BorderLayout.SOUTH);
-
-                        JOptionPane.showMessageDialog(
-                                chrome.getFrame(),
-                                panel,
-                                "Low Balance Warning",
-                                JOptionPane.WARNING_MESSAGE);
-                    });
-                } else {
-                    // reset the notification flag
-                    lowBalanceNotified = false;
-                }
-            } catch (java.io.IOException e) {
-                logger.error("Failed to check user balance", e);
-            }
-        });
-    }
-
 
     /**
      * Executes the core logic for the "Code" command.
@@ -1141,7 +1059,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Executes the core logic for the "Ask" command.
      * This runs inside the Runnable passed to contextManager.submitAction.
      */
-    private static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
+    public static TaskResult executeAskCommand(IContextManager cm, StreamingChatModel model, String question) {
         List<ChatMessage> messages;
         try {
             messages = CodePrompts.instance.collectAskMessages(cm, question);
@@ -1592,7 +1510,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 throw e; // propagate to ContextManager
             } finally {
                 chrome.hideOutputSpinner();
-                checkBalanceAndNotify();
+                contextManager.checkBalanceAndNotify();
                 notifyActionComplete(action);
             }
         });

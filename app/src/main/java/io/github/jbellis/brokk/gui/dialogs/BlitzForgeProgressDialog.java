@@ -619,7 +619,16 @@ public class BlitzForgeProgressDialog extends JDialog {
 
                 outputTextArea.append("Architect has been invoked. You can close this window.\n");
                 contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
-                    var options = new ArchitectAgent.ArchitectOptions(false, false, false, true, true, false, false, false, false);
+                    var options = new ArchitectAgent.ArchitectOptions(false,
+                                                                      false,
+                                                                      false,
+                                                                      true,
+                                                                      true,
+                                                                      false,
+                                                                      false,
+                                                                      false,
+                                                                      false,
+                                                                      false);
                     chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
                 });
             }
