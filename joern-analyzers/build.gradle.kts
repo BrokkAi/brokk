@@ -9,7 +9,12 @@ java {
 }
 
 scala {
-    zincVersion.set("1.9.6")
+    zincVersion.set("1.10.4")
+}
+
+tasks.compileScala {
+  // this is what is set by default but adding seems to improve incremental compilation
+  destinationDirectory = file("$buildDir/classes/scala/main")
 }
 
 repositories {
@@ -42,7 +47,6 @@ dependencies {
     // Testing
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.scalatest)
-    testImplementation(project(":app", "default")) // Use default configuration to avoid shadowJar conflicts
 }
 
 // Enhanced Scala compiler options
@@ -54,6 +58,16 @@ tasks.withType<ScalaCompile> {
         "-feature",                   // Warn about misused language features
         "-Wunused:imports"            // Warn about unused imports
     )
+
+    // Allow caching and trust Gradle's incremental compilation
+    outputs.cacheIf { true }
+
+    // Use Gradle's built-in incremental compilation
+    options.isIncremental = true
+
+    // Ensure task only runs when actually needed by providing clear inputs/outputs
+    inputs.files(source)
+    outputs.dir(destinationDirectory)
 }
 
 tasks.withType<Test> {
