@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.cli;
 
+import com.google.common.collect.Streams;
 import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.MainProject;
@@ -8,6 +9,7 @@ import io.github.jbellis.brokk.WorktreeProject;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.SearchAgent;
+import io.github.jbellis.brokk.agents.ContextAgent;
 import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.analyzer.CodeUnitType;
 import io.github.jbellis.brokk.analyzer.IAnalyzer;
@@ -15,17 +17,24 @@ import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.git.GitRepo;
 import io.github.jbellis.brokk.gui.InstructionsPanel;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
+import io.github.jbellis.brokk.context.ContextFragment;
+import io.github.jbellis.brokk.AnalyzerWrapper;
+import io.github.jbellis.brokk.Service;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import org.jetbrains.annotations.Nullable;
 import picocli.CommandLine;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -91,6 +100,17 @@ public final class BrokkCli implements Callable<Integer> {
     @Nullable
     private Path worktreePath;
 
+    //  Model overrides
+    @CommandLine.Option(names = "--model", description = "Override the task model to use.")
+    @Nullable
+    private String modelName;
+
+    @CommandLine.Option(names = "--codemodel", description = "Override the code model to use.")
+    @Nullable
+    private String codeModelName;
+
+    @CommandLine.Option(names = "--deepscan", description = "Perform a Deep Scan to suggest additional relevant context.")
+    private boolean deepScan = false;
 
     public static void main(String[] args) {
         System.err.println("Starting Brokk CLI...");
@@ -104,39 +124,62 @@ public final class BrokkCli implements Callable<Integer> {
         long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                                  .filter(p -> p != null && !p.isBlank())
                                  .count();
-
-        boolean worktreeAction = worktreePath != null;
-        if (worktreeAction && actionCount > 0) {
-            System.err.println("The --worktree option cannot be used with agent actions like --architect, --code, etc.");
-            return 1;
-        }
-        if (!worktreeAction && actionCount != 1) {
+        if (actionCount != 1) {
             System.err.println("Exactly one action (--architect, --code, --ask, --search, or --worktree) is required.");
             return 1;
         }
 
+        // Extra rules for model overrides
+        if (codePrompt != null) {
+            if (modelName != null && codeModelName != null) {
+                System.err.println("For the --code action, specify at most one of --model or --codemodel.");
+                return 1;
+            }
+        } else if (askPrompt != null || searchPrompt != null) {
+            if (codeModelName != null) {
+                System.err.println("--codemodel is not valid with --ask or --search actions.");
+                return 1;
+            }
+        }
+
+        //  Expand @file syntax for prompt parameters
+        try {
+            architectPrompt = maybeLoadFromFile(architectPrompt);
+            codePrompt      = maybeLoadFromFile(codePrompt);
+            askPrompt       = maybeLoadFromFile(askPrompt);
+            searchPrompt    = maybeLoadFromFile(searchPrompt);
+        } catch (IOException e) {
+            System.err.println("Error reading prompt file: " + e.getMessage());
+            return 1;
+        }
+
         // --- Project Validation ---
-        var projPath = requireNonNull(projectPath).toAbsolutePath();
-        if (!Files.isDirectory(projPath)) {
+        projectPath = requireNonNull(projectPath).toAbsolutePath();
+        if (!Files.isDirectory(projectPath)) {
             System.err.println("Project path is not a directory: " + projectPath);
             return 1;
         }
-        if (!GitRepo.hasGitRepo(projPath)) {
+        if (!GitRepo.hasGitRepo(projectPath)) {
             System.err.println("Brokk CLI requires project to have a Git repo");
             return 1;
         }
 
         // Worktree setup
         if (worktreePath != null) {
-            try (var gitRepo = new GitRepo(projPath)) {
-                var defaultBranch = gitRepo.getDefaultBranch();
-                var commitId = gitRepo.resolve(defaultBranch).getName();
-                gitRepo.addWorktreeDetached(worktreePath, commitId);
-                System.out.println("Successfully created detached worktree at " + worktreePath);
-                System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);
-            } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
-                System.err.println("Error creating worktree: " + e.getMessage());
-                return 1;
+            worktreePath = worktreePath.toAbsolutePath();
+            if (Files.exists(worktreePath)) {
+                System.out.println("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
+            } else {
+                try (var gitRepo = new GitRepo(projectPath)) {
+                    var defaultBranch = gitRepo.getDefaultBranch();
+                    var commitId = gitRepo.resolve(defaultBranch).getName();
+                    gitRepo.addWorktreeDetached(worktreePath, commitId);
+                    System.out.println("Successfully created detached worktree at " + worktreePath);
+                    System.out.println("Checked out from " + defaultBranch + " at commit " + commitId);
+                } catch (GitRepo.GitRepoException | GitRepo.NoDefaultBranchException e) {
+                    System.err.println("Error creating worktree: " + e.getMessage());
+                    return 1;
+                }
             }
         }
 
@@ -146,8 +189,30 @@ public final class BrokkCli implements Callable<Integer> {
         var cm = new ContextManager(project);
         cm.createHeadless();
         var io = cm.getIo();
+
+        //  Model Overrides initialization
+        var service = cm.getService();
+
+        StreamingChatModel taskModelOverride = null;
+        if (modelName != null) {
+            taskModelOverride = service.getModel(modelName, Service.ReasoningLevel.DEFAULT);
+            if (taskModelOverride == null) {
+                System.err.println("Unknown model specified via --model: " + modelName);
+                return 1;
+            }
+        }
+
+        StreamingChatModel codeModelOverride = null;
+        if (codeModelName != null) {
+            codeModelOverride = service.getModel(codeModelName, Service.ReasoningLevel.DEFAULT);
+            if (codeModelOverride == null) {
+                System.err.println("Unknown code model specified via --codemodel: " + codeModelName);
+                return 1;
+            }
+        }
+
         var workspaceTools = new WorkspaceTools(cm);
-        System.out.println("Project opened successfully: " + projPath);
+        System.out.println("Project opened successfully: " + projectPath);
 
         // --- Name Resolution and Context Building ---
         boolean cpgRequired = !addUsages.isEmpty() || !addCallers.isEmpty() || !addCallees.isEmpty();
@@ -194,23 +259,65 @@ public final class BrokkCli implements Callable<Integer> {
         addCallers.forEach(workspaceTools::addCallGraphInToWorkspace);
         addCallees.forEach(workspaceTools::addCallGraphOutToWorkspace);
 
+        // --- Deep Scan ------------------------------------------------------
+        if (deepScan) {
+            String goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
+                                       .filter(s -> s != null && !s.isBlank())
+                                       .findFirst()
+                                       .orElseThrow();
+            var scanModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+            var agent = new ContextAgent(cm, scanModel, goalForScan, true);
+            var recommendations = agent.getRecommendations(false);
+
+            if (recommendations.success()) {
+                Set<ProjectFile> filesToReadOnly  = new HashSet<>();
+                for (var fragment : recommendations.fragments()) {
+                    switch (fragment.getType()) {
+                        case SKELETON -> cm.addVirtualFragment((ContextFragment.SkeletonFragment) fragment);
+                        default        -> fragment.files().forEach(filesToReadOnly::add);
+                    }
+                }
+                if (!filesToReadOnly.isEmpty()) {
+                    cm.addReadOnlyFiles(filesToReadOnly);
+                }
+
+                io.systemOutput("Deep Scan added %d recommendation(s) to workspace context.%n".formatted(recommendations.fragments().size()));
+            } else {
+                io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+            }
+        }
+
+        io.systemOutput("# Workspace");
+        var ctx = cm.topContext();
+        var summaries = Streams.concat(ctx.getReadOnlyFragments(), ctx.getEditableFragments())
+                .map(ContextFragment::formatSummary)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+        io.systemOutput(summaries);
+
         // --- Run Action ---
         TaskResult result;
         try {
             if (architectPrompt != null) {
-                var model = cm.getArchitectModel();
-                var agent = new ArchitectAgent(cm, model, cm.getToolRegistry(), architectPrompt, ArchitectAgent.ArchitectOptions.DEFAULTS);
+                var architectModel = taskModelOverride == null ? cm.getArchitectModel() : taskModelOverride;
+                var codeModel = codeModelOverride == null ? cm.getCodeModel() : codeModelOverride;
+                var agent = new ArchitectAgent(cm,
+                                               architectModel,
+                                               codeModel,
+                                               cm.getToolRegistry(),
+                                               architectPrompt,
+                                               ArchitectAgent.ArchitectOptions.DEFAULTS);
                 result = agent.execute();
             } else if (codePrompt != null) {
-                var model = cm.getCodeModel();
-                var agent = new CodeAgent(cm, model);
+                var effectiveModel = codeModelOverride == null ? (taskModelOverride != null ? taskModelOverride : cm.getCodeModel()) : codeModelOverride;
+                var agent = new CodeAgent(cm, effectiveModel);
                 result = agent.runTask(codePrompt, false);
             } else if (askPrompt != null) {
-                var model = cm.getAskModel();
-                result = InstructionsPanel.executeAskCommand(cm, model, askPrompt);
+                var askModel = taskModelOverride == null ? cm.getAskModel() : taskModelOverride;
+                result = InstructionsPanel.executeAskCommand(cm, askModel, askPrompt);
             } else { // searchPrompt != null
-                var model = cm.getSearchModel();
-                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, model, cm.getToolRegistry(), 0);
+                var searchModel = taskModelOverride == null ? cm.getSearchModel() : taskModelOverride;
+                var agent = new SearchAgent(requireNonNull(searchPrompt), cm, searchModel, cm.getToolRegistry(), 0);
                 result = agent.execute();
             }
         } catch (Throwable th) {
@@ -333,6 +440,18 @@ public final class BrokkCli implements Callable<Integer> {
         System.err.printf("Error: Ambiguous %s '%s' (%s). Found multiple matches:%n%s%n",
                           entityType, input, context,
                           matches.stream().map(s -> "  - " + s).collect(Collectors.joining("\n")));
+    }
+
+    /**
+     * If the prompt begins with '@', treat the remainder as a filename and
+     * return the file's contents; otherwise return the original prompt.
+     */
+    private @Nullable String maybeLoadFromFile(@Nullable String prompt) throws IOException {
+        if (prompt == null || prompt.isBlank() || prompt.charAt(0) != '@') {
+            return prompt;
+        }
+        var path = Path.of(prompt.substring(1));
+        return Files.readString(path);
     }
 
     private String getStackTrace(Throwable throwable) {

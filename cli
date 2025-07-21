@@ -18,4 +18,4 @@ if [[ -z "${jarfile:-}" ]]; then
 fi
 
 # Launch BrokkCli with all provided arguments.
-exec java -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"
+exec java -ea -cp "$jarfile" io.github.jbellis.brokk.cli.BrokkCli "$@"

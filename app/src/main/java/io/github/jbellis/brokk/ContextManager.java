@@ -312,20 +312,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This is typically called for standard project openings.
      * This method is synchronous but intended to be called from a background task.
      */
-    private void initializeCurrentSessionAndHistory() {
+    private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
         var lastActiveSessionId = project.getLastActiveSession();
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
         UUID sessionIdToLoad;
-        if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
-            // Try to resume the last active session for this worktree
-            sessionIdToLoad = lastActiveSessionId.get();
-            logger.info("Resuming last active session {}", sessionIdToLoad);
-        } else {
+        if (forceNew || lastActiveSessionId.isEmpty() || sessions.stream().noneMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
             var newSessionInfo = sessionManager.newSession(DEFAULT_SESSION_NAME);
             sessionIdToLoad = newSessionInfo.id();
             logger.info("Created and loaded new session: {}", newSessionInfo.id());
+        } else {
+            // Try to resume the last active session for this worktree
+            sessionIdToLoad = lastActiveSessionId.get();
+            logger.info("Resuming last active session {}", sessionIdToLoad);
         }
         this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
 
@@ -363,7 +363,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.io = new Chrome(this);
 
         // Load saved context history or create a new one
-        var contextTask = submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
+        var contextTask = submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
@@ -2285,6 +2285,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void createHeadless() {
         this.io = new HeadlessConsole();
+        initializeCurrentSessionAndHistory(true);
 
         ensureStyleGuide();
         ensureReviewGuide();

@@ -68,6 +68,7 @@ public class ArchitectAgent {
 
     private final ContextManager contextManager;
     private final StreamingChatModel model;
+    private final StreamingChatModel codeModel;
     private final ToolRegistry toolRegistry;
     private final String goal;
     private final ArchitectOptions options; // Store the options
@@ -81,17 +82,21 @@ public class ArchitectAgent {
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
-     * @param goal The initial user instruction or goal for the agent.
-     * @param options Configuration for which tools the agent can use.
+     *
+     * @param codeModel
+     * @param goal      The initial user instruction or goal for the agent.
+     * @param options   Configuration for which tools the agent can use.
      */
     public ArchitectAgent(ContextManager contextManager,
                           StreamingChatModel model,
+                          StreamingChatModel codeModel, 
                           ToolRegistry toolRegistry,
                           String goal,
                           ArchitectOptions options)
     {
         this.contextManager = Objects.requireNonNull(contextManager, "contextManager cannot be null");
         this.model = Objects.requireNonNull(model, "model cannot be null");
+        this.codeModel = codeModel;
         this.toolRegistry = Objects.requireNonNull(toolRegistry, "toolRegistry cannot be null");
         this.goal = Objects.requireNonNull(goal, "goal cannot be null");
         this.options = Objects.requireNonNull(options, "options cannot be null");
@@ -164,7 +169,7 @@ public class ArchitectAgent {
         var cursor = messageCursor();
         // TODO label this Architect
         io.llmOutput("Code Agent engaged: " + instructions, ChatMessageType.CUSTOM, true);
-        var agent = new CodeAgent(contextManager, contextManager.getCodeModel());
+        var agent = new CodeAgent(contextManager, codeModel);
         var result = agent.runTask(instructions, true);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();

@@ -25,7 +25,7 @@ public final class HeadlessConsole implements IConsoleIO {
 
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage) {
-        if (messages.isEmpty() || messages.getLast().type() != type) {
+        if (isNewMessage || messages.isEmpty() || messages.getLast().type() != type) {
             System.out.printf("# %s%n%n", type);
             messages.add(createMessage(type, token));
         } else {

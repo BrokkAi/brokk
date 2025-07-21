@@ -1124,7 +1124,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private void executeArchitectCommand(StreamingChatModel model, String goal, ArchitectAgent.ArchitectOptions options) {
         var contextManager = chrome.getContextManager();
         try {
-            var agent = new ArchitectAgent(contextManager, model, contextManager.getToolRegistry(), goal, options);
+            var agent = new ArchitectAgent(contextManager, model, contextManager.getCodeModel(), contextManager.getToolRegistry(), goal, options);
             var result = agent.execute();
             chrome.systemOutput("Architect complete!");
             contextManager.addToHistory(result, false);
