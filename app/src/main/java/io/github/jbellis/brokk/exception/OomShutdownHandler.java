@@ -1,6 +1,7 @@
 package io.github.jbellis.brokk.exception;
 
 import io.github.jbellis.brokk.MainProject;
+import io.github.jbellis.brokk.util.LowMemoryWatcherManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,8 +56,12 @@ public class OomShutdownHandler implements UncaughtExceptionHandler {
         SwingUtilities.invokeLater(() ->
                 JOptionPane.showMessageDialog(
                         null,
-                        "The application ran out of memory during the last session.\n" +
-                                "Any active projects have been cleared to prevent this from immediately reoccurring.",
+                        String.format("""
+                                The application ran out of memory during the last session.
+                                Any active projects have been cleared to prevent this from immediately reoccurring.
+                                To launch Brokk with more allocated memory, use:
+                                    jbang run --java-options -Xmx%dM brokk@brokkai/brokk
+                                """, LowMemoryWatcherManager.suggestedHeapSizeMb()),
                         "Memory Error Recovery",
                         JOptionPane.WARNING_MESSAGE
                 )
