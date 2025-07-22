@@ -44,11 +44,48 @@ jobs:
       - name: Get JAR filename
         id: jar
         run: |
-          JAR_FILE=$(find app/build/libs -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+          JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
           JAR_NAME=$(basename "$JAR_FILE")
           echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
           echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
           echo "Found JAR: $JAR_NAME"
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ steps.jar.outputs.jar_file }}
+          asset_name: ${{ steps.jar.outputs.jar_name }}
+          asset_content_type: application/java-archive
+
+      - name: Update JBang catalog
+        run: |
+          ./scripts/update-jbang-catalog.sh "${{ steps.version.outputs.version }}"
+
+      - name: Commit and push catalog update
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add jbang-catalog.json
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update JBang catalog for release ${{ steps.version.outputs.version }}"
+            git push origin HEAD:master
+          fi
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
