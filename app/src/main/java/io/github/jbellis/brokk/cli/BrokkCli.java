@@ -124,8 +124,12 @@ public final class BrokkCli implements Callable<Integer> {
         long actionCount = Stream.of(architectPrompt, codePrompt, askPrompt, searchPrompt)
                                  .filter(p -> p != null && !p.isBlank())
                                  .count();
-        if (actionCount != 1) {
-            System.err.println("Exactly one action (--architect, --code, --ask, --search, or --worktree) is required.");
+        if (actionCount > 1) {
+            System.err.println("At most one action (--architect, --code, --ask, --search) can be specified.");
+            return 1;
+        }
+        if (actionCount == 0 && worktreePath == null) {
+            System.err.println("Exactly one action (--architect, --code, --ask, --search) or --worktree is required.");
             return 1;
         }
 
@@ -180,6 +184,9 @@ public final class BrokkCli implements Callable<Integer> {
                     System.err.println("Error creating worktree: " + e.getMessage());
                     return 1;
                 }
+            }
+            if (actionCount == 0) {
+                return 0; // successfully created worktree and no other action was requested
             }
         }
 
