@@ -197,7 +197,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.backgroundTasks);
         this.lowMemoryWatcherManager.registerWithStrongReference(
                 () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
-                LowMemoryWatcher.LowMemoryWatcherType.ALWAYS
+                LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC
         );
 
         var analyzerListener = new AnalyzerListener() {
