@@ -89,24 +89,24 @@ public class CompletionsTest {
     }
 
     @Test
-    public void testUnqualifiedSingleLetter() {
+    public void testUnqualifiedInput() {
         var mock = new MockAnalyzer(tempDir);
 
-        // Input "d" -> we want it to match "a.b.Do"
+        // Input "do" -> we want it to match "a.b.Do"
         // Because "Do" simple name starts with 'D'
-        var completions = Completions.completeSymbols("d", mock);
+        var completions = Completions.completeSymbols("do", mock);
 
         var values = toValues(completions);
-        assertEquals(Set.of("a.b.Do", "a.b.Do$Re", "a.b.Do$Re$Sub"), values);
+        assertEquals(Set.of("a.b.Do"), values);
     }
 
     @Test
-    public void testUnqualifiedR() {
+    public void testUnqualifiedRe() {
         var mock = new MockAnalyzer(tempDir);
-        // Input "r" -> user wants to find "a.b.Do$Re" by partial name "Re"
-        var completions = Completions.completeSymbols("r", mock);
+        // Input "re" -> user wants to find "a.b.Do$Re" by partial name "Re"
+        var completions = Completions.completeSymbols("re", mock);
         var values = toValues(completions);
-        assertEquals(Set.of("a.b.Do$Re", "a.b.Do$Re$Sub", "a.b.Do.bar"), values);
+        assertEquals(Set.of("a.b.Do$Re"), values);
     }
 
     @Test

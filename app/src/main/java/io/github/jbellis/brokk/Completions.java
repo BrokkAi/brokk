@@ -20,23 +20,19 @@ public class Completions {
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String pattern = input.trim();
+        if (pattern.length() < 2) {
+            return List.of();
+        }
+
         // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
         List<CodeUnit> allDefs;
         try {
-            allDefs = analyzer.searchDefinitions(".*").stream().toList();
+            allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
         } catch (Exception e) {
             // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
             allDefs = analyzer.getAllDeclarations();
-        }
-
-        // empty pattern -> alphabetic list
-        if (pattern.isEmpty()) {
-            return allDefs.stream()
-                    .distinct() // collapse method overloads
-                    .sorted(Comparator.comparing(CodeUnit::fqName))
-                    .toList();
         }
 
         var matcher = new FuzzyMatcher(pattern);
@@ -61,6 +57,7 @@ public class Completions {
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparing(sc -> sc.cu().fqName()))
                 .distinct()
+                .limit(100)
                 .map(ScoredCU::cu)
                 .toList();
     }
