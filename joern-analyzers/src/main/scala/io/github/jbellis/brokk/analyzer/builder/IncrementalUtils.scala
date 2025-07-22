@@ -59,12 +59,15 @@ object IncrementalUtils {
     val newFiles = maybeChangedFiles.map(_.asScala) match {
       case Some(changedFiles) =>
         logger.debug(s"${changedFiles.size} changed files have been given")
-        changedFiles
+        val newFilesWithHash = changedFiles
           .map(_.absPath())
           // the corresponding File node will be hashed when inserted into the CPG later on, this just needs to be
           // different to what is in the CPG if there is an existing node with the same Path.
           .map(path => PathAndHash(path.toString, "<changed>"))
           .toList
+        val pathSet = newFilesWithHash.map(_.path).toSet
+        // We must include existing files, otherwise they are interpreted as removed later
+        existingFiles.filterNot(p => pathSet.contains(p.path)) ++ newFilesWithHash
       case None =>
         val determinedChanges = SourceFiles
           .determine(

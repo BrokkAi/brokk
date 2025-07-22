@@ -84,6 +84,16 @@ tasks.withType<Test> {
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=./build/test-heap-dumps/"
     )
+
+    // Test execution settings
+    testLogging {
+        events("passed", "skipped")  // Only show passed/skipped during execution
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = false
+        showStackTraces = true
+        showStandardStreams = false
+    }
 }
 
 // Handle duplicate files in JAR

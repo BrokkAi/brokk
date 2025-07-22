@@ -2,10 +2,10 @@ package io.github.jbellis.brokk.analyzer.builder.languages
 
 import io.github.jbellis.brokk.analyzer.builder.CpgBuilder
 import io.github.jbellis.brokk.analyzer.builder.passes.cpp.PointerTypesPass
+import io.joern.c2cpg.Config as CConfig
 import io.joern.c2cpg.astcreation.CGlobal
 import io.joern.c2cpg.parser.FileDefaults
 import io.joern.c2cpg.passes.*
-import io.joern.c2cpg.{C2Cpg, Config as CConfig}
 import io.joern.x2cpg.SourceFiles
 import io.joern.x2cpg.passes.frontend.TypeNodePass
 import io.joern.x2cpg.utils.Report
@@ -57,7 +57,7 @@ object CBuilder {
         .determine(
           config.inputPath,
           Set(FileDefaults.PreprocessedExt),
-          ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
+          ignoredDefaultRegex = Option(config.defaultIgnoredFilesRegex),
           ignoredFilesRegex = Option(config.ignoredFilesRegex),
           ignoredFilesPath = Option(config.ignoredFiles)
         )
