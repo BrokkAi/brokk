@@ -70,7 +70,7 @@ public final class MainProject extends AbstractProject {
     private record ModelTypeInfo(String configKey, ModelConfig preferredConfig) { }
 
     private static final Map<String, ModelTypeInfo> MODEL_TYPE_INFOS = Map.of(
-            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.HIGH)),
+            "Architect", new ModelTypeInfo("architectConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
             "Code", new ModelTypeInfo("codeConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT)),
             "Ask", new ModelTypeInfo("askConfig", new ModelConfig(Service.O3, Service.ReasoningLevel.DEFAULT)),
             "Search", new ModelTypeInfo("searchConfig", new ModelConfig(Service.GEMINI_2_5_PRO, Service.ReasoningLevel.DEFAULT))
@@ -93,6 +93,7 @@ public final class MainProject extends AbstractProject {
     private static final Path BROKK_CONFIG_DIR = Path.of(System.getProperty("user.home"), ".config", "brokk");
     private static final Path PROJECTS_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("projects.properties");
     private static final Path GLOBAL_PROPERTIES_PATH = BROKK_CONFIG_DIR.resolve("brokk.properties");
+    private static final Path OUT_OF_MEMORY_EXCEPTION_FLAG = BROKK_CONFIG_DIR.resolve("oom.flag");
 
     public enum LlmProxySetting {BROKK, LOCALHOST, STAGING}
 
@@ -1116,7 +1117,7 @@ public final class MainProject extends AbstractProject {
         } else {
             addToOpenProjectsList(projectDir);
         }
-        
+
         currentMap.put(pathForRecentProjectsMap, new ProjectPersistentInfo(newTimestamp, newOpenWorktrees));
         saveRecentProjects(currentMap);
     }
@@ -1150,12 +1151,12 @@ public final class MainProject extends AbstractProject {
         if (changed) {
             saveProjectsProperties(props);
         }
-        
+
         // Update ProjectPersistentInfo map
         var recentProjectsMap = loadRecentProjects();
         Path mainProjectPathKey = projectDir;
         boolean isWorktree = false;
-        
+
         if (GitRepo.hasGitRepo(projectDir)) {
             try (var tempRepo = new GitRepo(projectDir)) {
                 isWorktree = tempRepo.isWorktree();
@@ -1166,9 +1167,9 @@ public final class MainProject extends AbstractProject {
                 logger.warn("Could not determine if {} is a worktree during removeFromOpenProjectsListAndClearActiveSession: {}", projectDir, e.getMessage());
             }
         }
-        
+
         boolean recentProjectsMapModified = false;
-        
+
         if (isWorktree) {
             ProjectPersistentInfo mainProjectInfo = recentProjectsMap.get(mainProjectPathKey);
             if (mainProjectInfo != null) {
@@ -1179,7 +1180,7 @@ public final class MainProject extends AbstractProject {
                 }
             }
         }
-        
+
         if (recentProjectsMapModified) {
             saveRecentProjects(recentProjectsMap);
         }
@@ -1191,11 +1192,11 @@ public final class MainProject extends AbstractProject {
         var props = loadProjectsProperties();
         var openListStr = props.getProperty("openProjectsList", "");
         if (openListStr.isEmpty()) return result;
-        
+
         var openPathsInList = Arrays.asList(openListStr.split(";"));
         var finalPathsToOpen = new LinkedHashSet<Path>();
         var validPathsFromOpenList = new HashSet<Path>();
-        
+
         // First pass: Process openProjectsList
         for (String pathStr : openPathsInList) {
             if (pathStr.isEmpty()) continue;
@@ -1213,7 +1214,7 @@ public final class MainProject extends AbstractProject {
                 pathsToRemove.add(pathStr);
             }
         }
-        
+
         // Second pass: Add associated open worktrees for main projects found in openProjectsList
         var recentProjectsMap = loadRecentProjects();
         for (var entry : recentProjectsMap.entrySet()) {
@@ -1236,7 +1237,7 @@ public final class MainProject extends AbstractProject {
                 }
             }
         }
-        
+
         // Cleanup openProjectsList property if necessary
         if (!pathsToRemove.isEmpty()) {
             var updatedOpenSet = new LinkedHashSet<>(openPathsInList);
@@ -1245,11 +1246,43 @@ public final class MainProject extends AbstractProject {
             props.setProperty("openProjectsList", String.join(";", updatedOpenSet));
             saveProjectsProperties(props);
         }
-        
+
         result.addAll(finalPathsToOpen);
         return result;
     }
-    
+
+    /**
+     * Attempts to persist the fact that an {@link OutOfMemoryError} occurred during this session. The JVM would be in
+     * a fatal state, and thus writing this to project properties would not work and creating a file is usually successful.
+     */
+    public static void setOomFlag() {
+        try {
+            Files.createFile(OUT_OF_MEMORY_EXCEPTION_FLAG);
+        } catch (IOException e) {
+            logger.error("Unable to persist OutOfMemoryError flag.");
+        }
+    }
+
+    public static boolean initializeOomFlag() {
+        try {
+            if (Files.exists(OUT_OF_MEMORY_EXCEPTION_FLAG)) {
+                Files.delete(OUT_OF_MEMORY_EXCEPTION_FLAG);
+                return true;
+            } else {
+                return false;
+            }
+        } catch (IOException e) {
+            logger.error("Unable to determine if OutOfMemoryError flag was present or not.");
+            return false;
+        }
+    }
+
+    public static void clearActiveSessions() {
+        var props = loadProjectsProperties();
+        props.setProperty("openProjectsList", "");
+        saveProjectsProperties(props);
+    }
+
     public static Optional<String> getActiveSessionTitle(Path worktreeRoot) {
         return SessionManager.getActiveSessionTitle(worktreeRoot);
     }
@@ -1309,7 +1342,7 @@ public final class MainProject extends AbstractProject {
         try {
             String json = mainWorkspaceProps.getProperty(BLITZ_HISTORY_KEY);
             if (json != null && !json.isEmpty()) {
-                var tf   = objectMapper.getTypeFactory();
+                var tf = objectMapper.getTypeFactory();
                 var type = tf.constructCollectionType(List.class,
                         tf.constructCollectionType(List.class, String.class));
                 return objectMapper.readValue(json, type);
@@ -1327,8 +1360,8 @@ public final class MainProject extends AbstractProject {
         }
         var history = new ArrayList<>(loadBlitzHistory());
         history.removeIf(p -> p.size() >= 2 &&
-                              p.get(0).equals(parallel) &&
-                              p.get(1).equals(post));
+                p.get(0).equals(parallel) &&
+                p.get(1).equals(post));
         history.add(0, List.of(parallel, post));
         if (history.size() > maxItems) {
             history = new ArrayList<>(history.subList(0, maxItems));

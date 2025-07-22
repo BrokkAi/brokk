@@ -510,4 +510,50 @@ public class SessionsDialog extends JDialog {
         markdownOutputPanel.dispose();
         super.dispose();
     }
+
+    // ---------- Static helpers for other UI components ----------
+    public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager,
+                                            HistoryOutputPanel historyOutputPanel) {
+        var sessionManager = contextManager.getProject().getSessionManager();
+        var currentId = contextManager.getCurrentSessionId();
+        var maybeInfo = sessionManager.listSessions().stream()
+                                      .filter(s -> s.id().equals(currentId))
+                                      .findFirst();
+        if (maybeInfo.isEmpty()) {
+            chrome.toolError("Current session not found");
+            return;
+        }
+        var info = maybeInfo.get();
+        String newName = JOptionPane.showInputDialog(parent,
+                                                     "Enter new name for session '" + info.name() + "':",
+                                                     info.name());
+        if (newName != null && !newName.trim().isBlank()) {
+            contextManager.renameSessionAsync(info.id(),
+                                              java.util.concurrent.CompletableFuture.completedFuture(newName.trim()))
+                          .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+        }
+    }
+
+    public static void deleteCurrentSession(Component parent, Chrome chrome, ContextManager contextManager,
+                                            HistoryOutputPanel historyOutputPanel) {
+        var sessionManager = contextManager.getProject().getSessionManager();
+        var currentId = contextManager.getCurrentSessionId();
+        var maybeInfo = sessionManager.listSessions().stream()
+                                      .filter(s -> s.id().equals(currentId))
+                                      .findFirst();
+        if (maybeInfo.isEmpty()) {
+            chrome.toolError("Current session not found");
+            return;
+        }
+        var info = maybeInfo.get();
+        int confirm = JOptionPane.showConfirmDialog(parent,
+                                                    "Are you sure you want to delete the current session?",
+                                                    "Confirm Delete",
+                                                    JOptionPane.YES_NO_OPTION,
+                                                    JOptionPane.WARNING_MESSAGE);
+        if (confirm == JOptionPane.YES_OPTION) {
+            contextManager.deleteSessionAsync(info.id())
+                          .thenRun(() -> SwingUtilities.invokeLater(historyOutputPanel::updateSessionComboBox));
+        }
+    }
 }

@@ -5,6 +5,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.agents.BuildAgent;
 import io.github.jbellis.brokk.agents.BuildAgent.BuildDetails;
 import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.cli.HeadlessConsole;
 import io.github.jbellis.brokk.context.Context;
 import io.github.jbellis.brokk.context.ContextFragment;
 import io.github.jbellis.brokk.context.ContextFragment.PathFragment;
@@ -12,6 +13,7 @@ import io.github.jbellis.brokk.context.ContextFragment.VirtualFragment;
 import io.github.jbellis.brokk.context.ContextHistory;
 import io.github.jbellis.brokk.context.ContextHistory.UndoResult;
 import io.github.jbellis.brokk.context.FrozenFragment;
+import io.github.jbellis.brokk.exception.OomShutdownHandler;
 import io.github.jbellis.brokk.gui.Chrome;
 import org.jetbrains.annotations.Nullable;
 import io.github.jbellis.brokk.prompts.CodePrompts;
@@ -89,6 +91,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.debug("Uncaught exception (ignorable) in executor", th);
                 return;
             }
+            
+            // Sometimes the shutdown handler fails to pick this up, but it may occur here and be "caught"
+            if (OomShutdownHandler.isOomError(th)) {
+                OomShutdownHandler.shutdownWithRecovery();
+            }
 
             logger.error("Uncaught exception in executor", th);
             io.systemOutput("Uncaught exception in thread %s. This shouldn't happen, please report a bug!\n%s"
@@ -130,6 +137,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<FileSystemEventListener> fileSystemEventListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
+
+    // balance-notification state
+    private boolean lowBalanceNotified = false;
+    private boolean freeTierNotified = false;
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -259,25 +270,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void afterEachBuild(boolean successful, boolean externalRebuildRequested) {
+            public void afterEachBuild(boolean externalRequest) {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                 }
-                if (successful) {
-                    // possible for analyzer build to finish before context load does
-                    var fr = liveContext.freezeAndCleanup();
-                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                    if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                        processExternalFileChanges(fr);
-                    }
-                    io.updateWorkspace();
+
+                // Wait for context load to finish, with a timeout
+                long startTime = System.currentTimeMillis();
+                long timeoutMillis = 5000; // 5 seconds
+                while (liveContext.equals(Context.EMPTY) && (System.currentTimeMillis() - startTime < timeoutMillis)) {
+                    Thread.onSpinWait();
                 }
-                if (externalRebuildRequested && io instanceof Chrome chrome) {
-                    if (successful) {
-                        chrome.notifyActionComplete("Analyzer rebuild completed");
-                    } else {
-                        chrome.notifyActionComplete("Analyzer rebuild failed");
-                    }
+                if (liveContext.equals(Context.EMPTY)) {
+                    logger.warn("Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
+                }
+
+                // re-freeze context w/ new analyzer
+                var fr = liveContext.freezeAndCleanup();
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
+                }
+                io.updateWorkspace();
+
+                if (externalRequest && io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer rebuild completed");
                 }
             }
         };
@@ -291,20 +307,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This is typically called for standard project openings.
      * This method is synchronous but intended to be called from a background task.
      */
-    private void initializeCurrentSessionAndHistory() {
+    private void initializeCurrentSessionAndHistory(boolean forceNew) {
         // load last active session, if present
         var lastActiveSessionId = project.getLastActiveSession();
         var sessionManager = project.getSessionManager();
         var sessions = sessionManager.listSessions();
         UUID sessionIdToLoad;
-        if (lastActiveSessionId.isPresent() && sessions.stream().anyMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
-            // Try to resume the last active session for this worktree
-            sessionIdToLoad = lastActiveSessionId.get();
-            logger.info("Resuming last active session {}", sessionIdToLoad);
-        } else {
+        if (forceNew || lastActiveSessionId.isEmpty() || sessions.stream().noneMatch(s -> s.id().equals(lastActiveSessionId.get()))) {
             var newSessionInfo = sessionManager.newSession(DEFAULT_SESSION_NAME);
             sessionIdToLoad = newSessionInfo.id();
             logger.info("Created and loaded new session: {}", newSessionInfo.id());
+        } else {
+            // Try to resume the last active session for this worktree
+            sessionIdToLoad = lastActiveSessionId.get();
+            logger.info("Resuming last active session {}", sessionIdToLoad);
         }
         this.currentSessionId = sessionIdToLoad; // Set currentSessionId here
 
@@ -342,15 +358,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.io = new Chrome(this);
 
         // Load saved context history or create a new one
-        var contextTask = submitBackgroundTask("Loading saved context", this::initializeCurrentSessionAndHistory);
+        var contextTask = submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
         // Ensure style guide and build details are loaded/generated asynchronously
         ensureStyleGuide();
         ensureReviewGuide();
-        ensureBuildDetailsAsync(); // Changed from ensureBuildCommand
-        cleanupOldHistoryAsync(); // Clean up old LLM history logs
+        ensureBuildDetailsAsync();
+        cleanupOldHistoryAsync();
 
-        io.getInstructionsPanel().checkBalanceAndNotify();
+        checkBalanceAndNotify();
 
         return contextTask;
     }
@@ -756,10 +772,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Drop fragments by their IDs.
      */
     public void drop(Collection<? extends ContextFragment> fragments) {
-        // The pushContext method now returns the new liveContext
         var ids = fragments.stream().map(f -> mapToLiveFragment(f).id()).toList();
         pushContext(currentLiveCtx -> currentLiveCtx.removeFragmentsByIds(ids));
-        // Check if a change actually occurred
         io.systemOutput("Dropped " + fragments.stream().map(ContextFragment::shortDescription).collect(Collectors.joining(", ")));
     }
 
@@ -772,8 +786,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return f;
         }
 
-        int idx = topContext().getAllFragmentsInDisplayOrder().indexOf(f);
-        assert idx >= 0 : "Fragment %s not found in live context %s".formatted(f, liveContext.getAllFragmentsInDisplayOrder());
+        var ctx = topContext();
+        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
+        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
         return liveContext.getAllFragmentsInDisplayOrder().get(idx);
     }
 
@@ -1580,10 +1595,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             project.saveBuildDetails(inferredDetails);
 
-            SwingUtilities.invokeLater(() -> {
-                var dlg = SettingsDialog.showSettingsDialog((Chrome) io, "Build");
-                dlg.getProjectPanel().showBuildBanner();
-            });
+            if (io instanceof Chrome chrome) {
+                SwingUtilities.invokeLater(() -> {
+                    var dlg = SettingsDialog.showSettingsDialog(chrome, "Build");
+                    dlg.getProjectPanel().showBuildBanner();
+                });
+            }
 
             io.systemOutput("Build details inferred and saved");
             return inferredDetails;
@@ -2133,9 +2150,81 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return io;
     }
 
+    /**
+     * Allows injection of a custom {@link IConsoleIO} implementation, enabling
+     * head-less (CLI) operation where a GUI is not available.
+     *
+     * This should be invoked immediately after constructing the
+     * {@code ContextManager} but before any tasks are submitted, so that all
+     * logging and UI callbacks are routed to the desired sink.
+     */
+    public void createHeadless() {
+        this.io = new HeadlessConsole();
+        initializeCurrentSessionAndHistory(true);
+
+        ensureStyleGuide();
+        ensureReviewGuide();
+        ensureBuildDetailsAsync();
+        cleanupOldHistoryAsync();
+
+        checkBalanceAndNotify();
+    }
+
     @Override
     public ToolRegistry getToolRegistry() {
         return toolRegistry;
+    }
+
+    /**
+     * Checks the user’s account balance (only when using the Brokk proxy) and notifies
+     * via {@link IConsoleIO#systemNotify} if the balance is low or exhausted.
+     * The expensive work is executed on the background executor so callers may invoke
+     * this from any thread without blocking.
+     */
+    public void checkBalanceAndNotify() {
+        if (MainProject.getProxySetting() != MainProject.LlmProxySetting.BROKK) {
+            return; // Only relevant when using the Brokk proxy
+        }
+
+        submitBackgroundTask("Balance Check", () -> {
+            try {
+                float balance = service.get().getUserBalance();
+                logger.debug("Checked balance: ${}", String.format("%.2f", balance));
+
+                if (balance < Service.MINIMUM_PAID_BALANCE) {
+                    // Free-tier: reload models and warn once
+                    reloadModelsAsync();
+                    if (!freeTierNotified) {
+                        freeTierNotified = true;
+                        lowBalanceNotified = false;  // reset low-balance flag
+                        var msg = """
+                                  Brokk is running in the free tier. Only low-cost models are available.
+
+                                  To enable smarter models, subscribe or top-up at
+                                  %s
+                                  """.stripIndent().formatted(Service.TOP_UP_URL);
+                        SwingUtilities.invokeLater(() ->
+                                io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));
+                    }
+                } else if (balance < Service.LOW_BALANCE_WARN_AT) {
+                    // Low balance warning
+                    freeTierNotified = false; // recovered from exhausted state
+                    if (!lowBalanceNotified) {
+                        lowBalanceNotified = true;
+                        var msg = "Low account balance: $%.2f.\nTop-up at %s to avoid interruptions."
+                                .formatted(balance, Service.TOP_UP_URL);
+                        SwingUtilities.invokeLater(() ->
+                                io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE));
+                    }
+                } else {
+                    // Healthy balance – clear flags
+                    lowBalanceNotified = false;
+                    freeTierNotified = false;
+                }
+            } catch (java.io.IOException e) {
+                logger.error("Failed to check user balance", e);
+            }
+        });
     }
 
     /**

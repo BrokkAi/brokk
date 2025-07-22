@@ -60,7 +60,7 @@ public class HistoryOutputPanel extends JPanel {
     private final JButton redoButton;
     private final JComboBox<SessionInfo> sessionComboBox;
     private final SplitButton newSessionButton;
-    private final JButton manageSessionsButton;
+    private final SplitButton manageSessionsButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     // Output components
@@ -110,7 +110,7 @@ public class HistoryOutputPanel extends JPanel {
         this.redoButton = new JButton("Redo");
         this.sessionComboBox = new JComboBox<>();
         this.newSessionButton = new SplitButton("New");
-        this.manageSessionsButton = new JButton("Manage");
+        this.manageSessionsButton = new SplitButton("Manage");
 
         var sessionControlsPanel = buildSessionControlsPanel(this.sessionComboBox, this.newSessionButton, this.manageSessionsButton);
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
@@ -166,7 +166,7 @@ public class HistoryOutputPanel extends JPanel {
     /**
      * Builds the session controls panel with combo box and buttons
      */
-    private JPanel buildSessionControlsPanel(JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton, JButton manageSessionsButton) {
+    private JPanel buildSessionControlsPanel(JComboBox<SessionInfo> sessionComboBox, SplitButton newSessionButton, SplitButton manageSessionsButton) {
         var panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -224,8 +224,23 @@ public class HistoryOutputPanel extends JPanel {
 
         // Tooltip and action listener for the manage sessions button
         manageSessionsButton.setToolTipText("Manage sessions (rename, delete, copy)");
+        manageSessionsButton.setMenuSupplier(() -> {
+            var popup = new JPopupMenu();
+
+            var renameItem = new JMenuItem("Rename Current Session");
+            renameItem.addActionListener(ev ->
+                    SessionsDialog.renameCurrentSession(HistoryOutputPanel.this, chrome, contextManager, HistoryOutputPanel.this));
+            popup.add(renameItem);
+
+            var deleteItem = new JMenuItem("Delete Current Session");
+            deleteItem.addActionListener(ev ->
+                    SessionsDialog.deleteCurrentSession(HistoryOutputPanel.this, chrome, contextManager, HistoryOutputPanel.this));
+            popup.add(deleteItem);
+
+            return popup;
+        });
         manageSessionsButton.addActionListener(e -> {
-            var dialog = new SessionsDialog(this, chrome, contextManager);
+            var dialog = new SessionsDialog(HistoryOutputPanel.this, chrome, contextManager);
             dialog.setVisible(true);
         });
 

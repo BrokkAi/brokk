@@ -11,6 +11,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
@@ -29,8 +31,11 @@ public class Environment {
     }
 
     // Default factory creates the real runner. Tests can replace this.
-    public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
+    public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
             (cmd, projectRoot) -> (outputConsumer) -> runShellCommandInternal(cmd, projectRoot, outputConsumer);
+
+    public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
+            DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
 
 
     @Nullable private TrayIcon brokkTrayIcon = null;
@@ -52,6 +57,23 @@ public class Environment {
             throws SubprocessException, InterruptedException
     {
         return shellCommandRunnerFactory.apply(command, root).run(outputConsumer);
+    }
+
+    /**
+     * Runs a shell command with optional sandbox.
+     * When {@code sandbox} is {@code false} this is identical to
+     * {@link #runShellCommand(String, Path, Consumer)}.
+     */
+    public String runShellCommand(String command,
+                                  Path root,
+                                  boolean sandbox,
+                                  Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException
+    {
+        if (!sandbox) {
+            return runShellCommand(command, root, outputConsumer);
+        }
+        return runShellCommandInternal(command, root, true, outputConsumer);
     }
 
     private static String runShellCommandInternal(String command, Path root, Consumer<String> outputConsumer)
@@ -107,6 +129,114 @@ public class Environment {
         return combinedOutput;
     }
 
+    /**
+     * Internal helper that supports running the command in a sandbox when requested.
+     */
+    private static String runShellCommandInternal(String command,
+                                                  Path root,
+                                                  boolean sandbox,
+                                                  Consumer<String> outputConsumer)
+            throws SubprocessException, InterruptedException 
+    {
+        logger.debug("Running internal `{}` in `{}` (sandbox={})", command, root, sandbox);
+
+        String[] shellCommand;
+        if (sandbox) {
+            if (isWindows()) {
+                throw new UnsupportedOperationException("sandboxing is not supported on Windows");
+            }
+
+            if (isMacOs()) {
+                // Build a seatbelt policy: read-only everywhere, write only inside root
+                String absPath = root.toAbsolutePath().toString();
+                String writeRule;
+                try {
+                    String realPath = root.toRealPath().toString();
+                    if (realPath.equals(absPath)) {
+                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
+                    } else {
+                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\") " +
+                                "(subpath \"" + escapeForSeatbelt(realPath) + "\"))";
+                    }
+                } catch (IOException e) {
+                    // Fallback to only the absolute path if realPath resolution fails
+                    writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
+                }
+
+                var fullPolicy = READ_ONLY_SEATBELT_POLICY + "\n" + writeRule;
+
+                // Write policy to a temporary file; avoids newline-parsing issues
+                Path policyFile;
+                try {
+                    policyFile = Files.createTempFile("brokk-seatbelt-", ".sb");
+                    Files.writeString(policyFile, fullPolicy, StandardCharsets.UTF_8);
+                } catch (IOException e) {
+                    throw new StartupException("unable to create seatbelt policy file: " + e.getMessage(), "");
+                }
+                policyFile.toFile().deleteOnExit();
+
+                shellCommand = new String[]{
+                        "sandbox-exec",
+                        "-f",
+                        policyFile.toString(),
+                        "--",
+                        "/bin/sh",
+                        "-c",
+                        command
+                };
+            } else {
+                // TODO
+                throw new UnsupportedOperationException();
+            }
+        } else {
+            shellCommand = isWindows()
+                    ? new String[]{"cmd.exe", "/c", command}
+                    : new String[]{"/bin/sh", "-c", command};
+        }
+
+        ProcessBuilder pb = createProcessBuilder(root, shellCommand);
+        Process process;
+        try {
+            process = pb.start();
+        } catch (IOException e) {
+            var shell = isWindows() ? "cmd.exe" : "/bin/sh";
+            throw new StartupException("unable to start %s in %s for command: `%s` (%s)".formatted(shell, root, command, e.getMessage()), "");
+        }
+
+        CompletableFuture<String> stdoutFuture =
+                CompletableFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
+        CompletableFuture<String> stderrFuture =
+                CompletableFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
+
+        String combinedOutput;
+        try {
+            if (!process.waitFor(120, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                String stdout = stdoutFuture.join();
+                String stderr = stderrFuture.join();
+                combinedOutput = formatOutput(stdout, stderr);
+                throw new TimeoutException("process '%s' did not complete within 120 seconds".formatted(command), combinedOutput);
+            }
+        } catch (InterruptedException ie) {
+            process.destroyForcibly();
+            stdoutFuture.cancel(true);
+            stderrFuture.cancel(true);
+            logger.warn("Process '{}' interrupted.", command);
+            throw ie;
+        }
+
+        String stdout = stdoutFuture.join();
+        String stderr = stderrFuture.join();
+        combinedOutput = formatOutput(stdout, stderr);
+        int exitCode = process.exitValue();
+
+        if (exitCode != 0) {
+            throw new FailureException("process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput);
+        }
+
+        return combinedOutput;
+    }
+
     private static String readStream(java.io.InputStream in, java.util.function.Consumer<String> outputConsumer) {
         var lines = new java.util.ArrayList<String>();
         try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8))) {
@@ -124,6 +254,85 @@ public class Environment {
     }
 
     private static final String ANSI_ESCAPE_PATTERN = "\\x1B(?:\\[[;\\d]*[ -/]*[@-~]|\\]\\d+;[^\\x07]*\\x07)";
+
+    /**
+     * Seatbelt policy that grants read access everywhere and write access only
+     * to explicitly whitelisted roots. Networking remains blocked.
+     */
+    private static final String READ_ONLY_SEATBELT_POLICY = """
+        (version 1)
+
+        (deny default)
+
+        ; allow read-only file operations
+        (allow file-read*)
+
+        ; allow process creation
+        (allow process-exec)
+        (allow process-fork)
+        (allow signal (target self))
+
+        ; allow writing to /dev/null
+        (allow file-write-data
+          (require-all
+            (path "/dev/null")
+            (vnode-type CHARACTER-DEVICE)))
+
+        ; sysctl whitelist required by the JVM and many Unix tools
+        (allow sysctl-read
+          (sysctl-name "hw.activecpu")
+          (sysctl-name "hw.busfrequency_compat")
+          (sysctl-name "hw.byteorder")
+          (sysctl-name "hw.cacheconfig")
+          (sysctl-name "hw.cachelinesize_compat")
+          (sysctl-name "hw.cpufamily")
+          (sysctl-name "hw.cpufrequency_compat")
+          (sysctl-name "hw.cputype")
+          (sysctl-name "hw.l1dcachesize_compat")
+          (sysctl-name "hw.l1icachesize_compat")
+          (sysctl-name "hw.l2cachesize_compat")
+          (sysctl-name "hw.l3cachesize_compat")
+          (sysctl-name "hw.logicalcpu_max")
+          (sysctl-name "hw.machine")
+          (sysctl-name "hw.ncpu")
+          (sysctl-name "hw.nperflevels")
+          (sysctl-name "hw.optional.arm.FEAT_BF16")
+          (sysctl-name "hw.optional.arm.FEAT_DotProd")
+          (sysctl-name "hw.optional.arm.FEAT_FCMA")
+          (sysctl-name "hw.optional.arm.FEAT_FHM")
+          (sysctl-name "hw.optional.arm.FEAT_FP16")
+          (sysctl-name "hw.optional.arm.FEAT_I8MM")
+          (sysctl-name "hw.optional.arm.FEAT_JSCVT")
+          (sysctl-name "hw.optional.arm.FEAT_LSE")
+          (sysctl-name "hw.optional.arm.FEAT_RDM")
+          (sysctl-name "hw.optional.arm.FEAT_SHA512")
+          (sysctl-name "hw.optional.armv8_2_sha512")
+          (sysctl-name "hw.memsize")
+          (sysctl-name "hw.pagesize")
+          (sysctl-name "hw.packages")
+          (sysctl-name "hw.pagesize_compat")
+          (sysctl-name "hw.physicalcpu_max")
+          (sysctl-name "hw.tbfrequency_compat")
+          (sysctl-name "hw.vectorunit")
+          (sysctl-name "kern.hostname")
+          (sysctl-name "kern.maxfilesperproc")
+          (sysctl-name "kern.osproductversion")
+          (sysctl-name "kern.osrelease")
+          (sysctl-name "kern.ostype")
+          (sysctl-name "kern.osvariant_status")
+          (sysctl-name "kern.osversion")
+          (sysctl-name "kern.secure_kernel")
+          (sysctl-name "kern.usrstack64")
+          (sysctl-name "kern.version")
+          (sysctl-name "sysctl.proc_cputype")
+          (sysctl-name-prefix "hw.perflevel")
+        )
+        """;
+    
+    /** Escape a path for inclusion inside a seatbelt policy. */
+    private static String escapeForSeatbelt(String path) {
+        return path.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
 
     private static String formatOutput(String stdout, String stderr) {
         stdout = stdout.trim().replaceAll(ANSI_ESCAPE_PATTERN, "");
@@ -209,6 +418,27 @@ public class Environment {
 
     public static boolean isMacOs() {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("mac");
+    }
+
+    /**
+     * Returns the current user's home directory as a Path.
+     */
+    public static Path getHomePath() {
+        return Path.of(System.getProperty("user.home"));
+    }
+
+    /**
+     * Determines if sandboxing is available on the current operating system.
+     */
+    public static boolean isSandboxAvailable() {
+        if (isWindows()) {
+            return false;
+        }
+        if (isMacOs()) {
+            return new File("/usr/bin/sandbox-exec").canExecute();
+        }
+        // TODO Linux
+        return false;
     }
 
     /**

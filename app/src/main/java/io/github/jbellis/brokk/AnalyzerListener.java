@@ -35,8 +35,8 @@ public interface AnalyzerListener
     /**
      * Called after each Analyzer build, successful or not.
      * This includes the initial build and any subsequent rebuilds.
-     * @param successful true if the build was successfully completed, false otherwise.
-     * @param externalRebuildRequested true if the build was triggered by an external request.
+     *
+     * @param externalRequest true if the build was triggered by an external request.
      */
-    void afterEachBuild(boolean successful, boolean externalRebuildRequested);
+    void afterEachBuild(boolean externalRequest);
 }

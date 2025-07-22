@@ -57,9 +57,7 @@ import dev.langchain4j.model.openai.internal.chat.FunctionCall;
 import dev.langchain4j.model.openai.internal.chat.FunctionMessage;
 import dev.langchain4j.model.openai.internal.chat.ImageDetail;
 import dev.langchain4j.model.openai.internal.chat.ImageUrl;
-import dev.langchain4j.model.openai.internal.chat.InputAudio;
 import dev.langchain4j.model.openai.internal.chat.Message;
-import dev.langchain4j.model.openai.internal.chat.PdfFile;
 import dev.langchain4j.model.openai.internal.chat.Tool;
 import dev.langchain4j.model.openai.internal.chat.ToolCall;
 import dev.langchain4j.model.openai.internal.chat.ToolChoiceMode;
@@ -252,6 +250,7 @@ public class OpenAiUtils {
     public static AiMessage aiMessageFrom(ChatCompletionResponse response) {
         AssistantMessage assistantMessage = response.choices().get(0).message();
         String text = assistantMessage.content();
+        String reasoningContent = assistantMessage.reasoningContent();
 
         List<ToolCall> toolCalls = assistantMessage.toolCalls();
         if (!isNullOrEmpty(toolCalls)) {
@@ -261,7 +260,7 @@ public class OpenAiUtils {
                     .collect(toList());
             return isNullOrBlank(text)
                     ? AiMessage.from(toolExecutionRequests)
-                    : AiMessage.from(text, toolExecutionRequests);
+                    : AiMessage.from(text, reasoningContent, toolExecutionRequests);
         }
 
         FunctionCall functionCall = assistantMessage.functionCall();
@@ -272,10 +271,10 @@ public class OpenAiUtils {
                     .build();
             return isNullOrBlank(text)
                     ? AiMessage.from(toolExecutionRequest)
-                    : AiMessage.from(text, singletonList(toolExecutionRequest));
+                    : AiMessage.from(text, reasoningContent, singletonList(toolExecutionRequest));
         }
 
-        return AiMessage.from(text);
+        return AiMessage.from(text, reasoningContent);
     }
 
     private static ToolExecutionRequest toToolExecutionRequest(ToolCall toolCall) {

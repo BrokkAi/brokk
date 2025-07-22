@@ -2222,6 +2222,26 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Adds a new detached worktree at the specified path, checked out to a specific commit.
+     *
+     * @param path The path where the new worktree will be created.
+     * @param commitId The commit SHA to check out in the new detached worktree.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void addWorktreeDetached(Path path, String commitId) throws GitAPIException {
+        try {
+            var absolutePath = path.toAbsolutePath().normalize();
+            var command = String.format("git worktree add --detach %s %s", absolutePath, commitId);
+            Environment.instance.runShellCommand(command, gitTopLevel, out -> {});
+        } catch (Environment.SubprocessException e) {
+            throw new GitRepoException("Failed to add detached worktree at " + path + " for commit " + commitId + ": " + e.getOutput(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GitRepoException("Adding detached worktree at " + path + " for commit " + commitId + " was interrupted", e);
+        }
+    }
+
+    /**
      * Removes the worktree at the specified path.
      * This method will fail if the worktree is dirty or has other issues preventing a clean removal,
      * in which case a {@link WorktreeNeedsForceException} will be thrown.
@@ -2274,7 +2294,7 @@ public class GitRepo implements Closeable, IGitRepo {
     public Set<String> getBranchesInWorktrees() throws GitAPIException {
         return listWorktrees().stream()
                 .map(WorktreeInfo::branch)
-                .filter(branch -> branch != null && !branch.isEmpty())
+                .filter((@Nullable var branch) -> branch != null && !branch.isEmpty())
                 .collect(Collectors.toSet());
     }
 

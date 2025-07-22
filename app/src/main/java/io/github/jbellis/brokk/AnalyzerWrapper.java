@@ -1,7 +1,11 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.agents.BuildAgent;
-import io.github.jbellis.brokk.analyzer.*;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
+import io.github.jbellis.brokk.analyzer.IAnalyzer;
+import io.github.jbellis.brokk.analyzer.Language;
+import io.github.jbellis.brokk.analyzer.DisabledAnalyzer;
+import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -170,9 +174,9 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         // 1) Possibly refresh Git
         if (gitRepoRoot != null) {
-            Path gitMetaDir = gitRepoRoot.resolve(".git"); // gitRepoRoot is checked non-null
-            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(gitMetaDir))) {
-                logger.debug("Changes in git metadata directory ({}) detected", requireNonNull(gitRepoRoot).resolve(".git"));
+            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
+            if (batch.isOverflowed || batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir))) {
+                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 if (listener != null) {
                     listener.onRepoChange();
                 }
@@ -261,11 +265,13 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
         }
 
+        logger.debug("Waiting for build details");
         BuildAgent.BuildDetails buildDetails = project.awaitBuildDetails();
         if (buildDetails.equals(BuildAgent.BuildDetails.EMPTY))
             logger.warn("Build details are empty or null. Analyzer functionality may be limited.");
 
         /* ── 2.  Determine if any cached CPG is stale ───────────────────────────────── */
+        logger.debug("Scanning for modified project files");
         boolean needsRebuild = externalRebuildRequested;            // explicit user request wins
         if (project.getAnalyzerRefresh() != IProject.CpgRefresh.MANUAL) {
             for (Language lang : project.getAnalyzerLanguages()) {
@@ -288,6 +294,7 @@ public class AnalyzerWrapper implements AutoCloseable {
         /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
         IAnalyzer analyzer;
         try {
+            logger.debug("Attempting to load existing analyzer");
             analyzer = langHandle.loadAnalyzer(project);
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
@@ -298,8 +305,10 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
+            // always refresh workspace in case there was a race and we shut down
+            // after saving a new analyzer but before refreshing the workspace
             runner.submit("Refreshing Workspace", () -> {
-                listener.afterEachBuild(true, externalRebuildRequested);
+                listener.afterEachBuild(false);
                 return null;
             });
         }
@@ -317,6 +326,7 @@ public class AnalyzerWrapper implements AutoCloseable {
             });
         }
 
+        logger.debug("Analyzer load complete!");
         return analyzer;
     }
 
@@ -461,6 +471,9 @@ public class AnalyzerWrapper implements AutoCloseable {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
                 currentAnalyzer = supplier.get();
                 logger.debug("Analyzer refresh completed.");
+                if (listener != null) {
+                    listener.afterEachBuild(externalRebuildRequested);
+                }
                 return currentAnalyzer;
             } finally {
                 synchronized (AnalyzerWrapper.this) {

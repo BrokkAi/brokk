@@ -138,30 +138,6 @@ public final class UserMessage implements Message {
             }
             return this;
         }
-        
-        public Builder addInputAudio(InputAudio inputAudio) {
-            initializeContent();
-            this.content.add(
-                Content.builder()
-                    .type(AUDIO)
-                    .inputAudio(inputAudio)
-                .build()
-            );
-            
-            return this;
-        }
-
-        public Builder addPdfFile(PdfFile pdfFile) {
-            initializeContent();
-            this.content.add(
-                    Content.builder()
-                            .type(FILE)
-                            .file(pdfFile)
-                            .build()
-            );
-
-            return this;
-        }
 
         public Builder content(List<Content> content) {
             if (content != null) {

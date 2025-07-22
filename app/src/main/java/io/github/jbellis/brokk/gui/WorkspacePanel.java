@@ -282,7 +282,7 @@ public class WorkspacePanel extends JPanel {
         DROP_ALL("Drop All"),
         COPY_ALL("Copy All"),
         PASTE("Paste text, images, urls"),
-        RUN_TESTS("Run Tests in Shell");
+        RUN_TESTS("Run Tests");
 
         private final String label;
 

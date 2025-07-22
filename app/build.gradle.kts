@@ -62,6 +62,7 @@ dependencies {
     implementation(libs.snakeyaml)
     implementation(libs.jackson.databind)
     implementation(libs.jspecify)
+    implementation(libs.picocli)
 
     // Markdown and templating
     implementation(libs.bundles.markdown)
@@ -89,8 +90,9 @@ dependencies {
     testCompileOnly(libs.bundles.joern)
 
     // Error Prone and NullAway for null safety checking
-    "errorprone"(libs.errorprone.core)
+    "errorprone"(files("libs/error_prone_core-brokk_build-with-dependencies.jar"))
     "errorprone"(libs.nullaway)
+    "errorprone"(libs.dataflow.errorprone)
     compileOnly(libs.jsr305)
     compileOnly(libs.checker.qual)
 }
@@ -167,6 +169,9 @@ tasks.named<JavaCompile>("compileJava") {
                "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
         option("NullAway:HandleTestAssertionLibraries", "true")
         option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+
+        // RedundantNullCheck
+        enable("RedundantNullCheck")
     }
 }
 
@@ -273,6 +278,20 @@ tasks.withType<Test> {
     // System properties for tests
     systemProperty("brokk.test.mode", "true")
     systemProperty("java.awt.headless", "true")
+}
+
+tasks.register<JavaExec>("runCli") {
+    group = "application"
+    description = "Runs the Brokk CLI"
+    mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
+    classpath = sourceSets.main.get().runtimeClasspath
+    val jvmArgs = listOf(
+        "-ea",
+        "-Dbrokk.devmode=true"
+    )
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
 }
 
 tasks.shadowJar {

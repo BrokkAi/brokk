@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.BuildInfo;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
@@ -27,6 +28,7 @@ import javax.swing.event.MenuListener;
 public class MenuBar {
     /**
      * Builds the menu bar
+     *
      * @param chrome
      */
     static JMenuBar buildMenuBar(Chrome chrome) {
@@ -147,14 +149,9 @@ public class MenuBar {
         readFilesItem.setEnabled(true);
         contextMenu.add(readFilesItem);
 
-    var viewFileItem = new JMenuItem("View File");
-    // On Mac, use Cmd+O; on Windows/Linux, use Ctrl+N
-    viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
-        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == InputEvent.META_DOWN_MASK
-            ? KeyEvent.VK_O
-            : KeyEvent.VK_N,
-        Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-    viewFileItem.addActionListener(e -> {
+        var viewFileItem = new JMenuItem("View File");
+        viewFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        viewFileItem.addActionListener(e -> {
             var cm = chrome.getContextManager();
             var project = cm.getProject();
 
@@ -202,40 +199,69 @@ public class MenuBar {
         contextMenu.add(summarizeItem);
 
         var symbolUsageItem = new JMenuItem("Symbol Usage");
-            symbolUsageItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_U, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-            symbolUsageItem.addActionListener(e -> {
-                chrome.getContextPanel().findSymbolUsageAsync(); // Call via ContextPanel
-            });
-            symbolUsageItem.setEnabled(true);
-            contextMenu.add(symbolUsageItem);
+        symbolUsageItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_U, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        symbolUsageItem.addActionListener(e -> {
+            chrome.getContextPanel().findSymbolUsageAsync(); // Call via ContextPanel
+        });
+        symbolUsageItem.setEnabled(true);
+        contextMenu.add(symbolUsageItem);
 
         var callersItem = new JMenuItem("Call graph to function");
-            callersItem.addActionListener(e -> {
-                chrome.getContextPanel().findMethodCallersAsync(); // Call via ContextPanel
-            });
-            callersItem.setEnabled(true);
-            contextMenu.add(callersItem);
+        callersItem.addActionListener(e -> {
+            chrome.getContextPanel().findMethodCallersAsync(); // Call via ContextPanel
+        });
+        callersItem.setEnabled(true);
+        contextMenu.add(callersItem);
 
         var calleesItem = new JMenuItem("Call graph from function");
-            calleesItem.addActionListener(e -> {
-                chrome.getContextPanel().findMethodCalleesAsync(); // Call via ContextPanel
-            });
-    calleesItem.setEnabled(true);
-    contextMenu.add(calleesItem);
+        calleesItem.addActionListener(e -> {
+            chrome.getContextPanel().findMethodCalleesAsync(); // Call via ContextPanel
+        });
+        calleesItem.setEnabled(true);
+        contextMenu.add(calleesItem);
 
-    contextMenu.addSeparator(); // Add separator before Drop All
+        contextMenu.addSeparator();
 
-    var dropAllItem = new JMenuItem("Drop All");
-    dropAllItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
-    dropAllItem.addActionListener(e -> {
-        chrome.getContextPanel().performContextActionAsync(
-                WorkspacePanel.ContextAction.DROP, List.of());
-    });
-    dropAllItem.setEnabled(true);
-    contextMenu.add(dropAllItem);
+        var newSessionItem = new JMenuItem("New Session");
+        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        newSessionItem.addActionListener(e -> {
+            chrome.getContextManager().createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
+                    SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox())
+            );
+        });
+        contextMenu.add(newSessionItem);
 
-    // Store reference in WorkspacePanel for dynamic state updates
-    chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
+        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
+        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        newSessionCopyWorkspaceItem.addActionListener(e -> {
+            chrome.getContextManager().createSessionFromContextAsync(
+                    chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME
+            ).thenRun(() -> SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+        });
+        contextMenu.add(newSessionCopyWorkspaceItem);
+
+        contextMenu.addSeparator();
+
+        // Clear Task History (Cmd/Ctrl+P)
+        var clearTaskHistoryItem = new JMenuItem("Clear Task History");
+        clearTaskHistoryItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        clearTaskHistoryItem.addActionListener(e -> {
+            chrome.getContextManager().clearHistory();
+        });
+        clearTaskHistoryItem.setEnabled(true);
+        contextMenu.add(clearTaskHistoryItem);
+
+        var dropAllItem = new JMenuItem("Drop All");
+        dropAllItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        dropAllItem.addActionListener(e -> {
+            chrome.getContextPanel().performContextActionAsync(
+                    WorkspacePanel.ContextAction.DROP, List.of());
+        });
+        dropAllItem.setEnabled(true);
+        contextMenu.add(dropAllItem);
+
+        // Store reference in WorkspacePanel for dynamic state updates
+        chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
 
         menuBar.add(contextMenu);
 
@@ -369,6 +395,7 @@ public class MenuBar {
 
     /**
      * Opens the settings dialog
+     *
      * @param chrome the Chrome instance
      */
     static void openSettingsDialog(Chrome chrome) {
@@ -392,9 +419,9 @@ public class MenuBar {
         }
 
         var sorted = map.entrySet().stream()
-            .sorted((a, b) -> Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
-            .limit(5)
-            .toList();
+                .sorted((a, b) -> Long.compare(b.getValue().lastOpened(), a.getValue().lastOpened()))
+                .limit(5)
+                .toList();
 
         for (var entry : sorted) {
             var projectPath = entry.getKey();

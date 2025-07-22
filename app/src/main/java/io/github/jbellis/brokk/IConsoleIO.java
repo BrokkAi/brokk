@@ -60,8 +60,12 @@ public interface IConsoleIO {
         llmOutput("\n" + message, ChatMessageType.USER);
     }
 
+    /**
+     * default implementation just forwards to systemOutput but the Chrome GUI implementation
+     * wraps JOptionPane; messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)
+     */
     default void systemNotify(String message, String title, int messageType) {
-        systemOutput(message); // Default implementation forwards to existing systemOutput
+        systemOutput(message); 
     }
     
     default void showOutputSpinner(String message) {}
