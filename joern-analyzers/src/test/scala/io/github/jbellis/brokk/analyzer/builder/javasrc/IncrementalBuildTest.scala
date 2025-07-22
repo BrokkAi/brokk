@@ -200,7 +200,14 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
   // Specified change tests
 
   def printlnLiteral(cpg: Cpg, fileName: String = "Foo.java"): Literal =
-    cpg.method.where(_.file.nameExact(fileName)).nameExact("main").call.nameExact("println").argument.isLiteral.head
+    cpg.method
+      .where(_.file.nameExact(Path.of(fileName).toString))
+      .nameExact("main")
+      .call
+      .nameExact("println")
+      .argument
+      .isLiteral
+      .head
 
   "an incremental build that specifies no changes, albeit changes have occurred, should not change the CPG" in {
     withIncrementalTestConfig { (configA, configB) =>

@@ -4,8 +4,8 @@ import io.github.jbellis.brokk.analyzer.ProjectFile
 import io.github.jbellis.brokk.analyzer.builder.languages.given
 import io.github.jbellis.brokk.analyzer.builder.{CpgTestFixture, IncrementalBuildTestFixture}
 import io.joern.c2cpg.Config
-import io.shiftleft.codepropertygraph.generated.{Cpg, Operators}
 import io.shiftleft.codepropertygraph.generated.nodes.Literal
+import io.shiftleft.codepropertygraph.generated.{Cpg, Operators}
 import io.shiftleft.semanticcpg.language.*
 
 import java.nio.file.Path
@@ -242,7 +242,7 @@ class IncrementalBuildTest extends CpgTestFixture[Config] with IncrementalBuildT
 
   def printlnLiteral(cpg: Cpg, fileName: String = "Foo.cpp"): Literal =
     cpg.method
-      .where(_.file.nameExact(fileName))
+      .where(_.file.nameExact(Path.of(fileName).toString))
       .nameExact("main")
       .call
       .nameExact(Operators.shiftLeft)
