@@ -14,7 +14,7 @@ scala {
 
 tasks.compileScala {
   // this is what is set by default but adding seems to improve incremental compilation
-  destinationDirectory = file("$buildDir/classes/scala/main")
+  destinationDirectory = file("${layout.buildDirectory}/classes/scala/main")
 }
 
 repositories {
@@ -89,9 +89,9 @@ tasks.withType<Test> {
     testLogging {
         events("passed", "skipped")  // Only show passed/skipped during execution
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
-        showExceptions = false
+        showExceptions = true
         showCauses = false
-        showStackTraces = false
+        showStackTraces = true
         showStandardStreams = false
     }
 }
