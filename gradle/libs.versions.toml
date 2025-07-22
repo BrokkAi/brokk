@@ -91,6 +91,9 @@ treesitter-python = "io.github.bonede:tree-sitter-python:0.23.4"
 treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
 treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
 
+# Eclipse
+eclipse-jdt = "org.eclipse.jdt:org.eclipse.jdt.core:3.38.0"
+
 # Decompiler
 java-decompiler = "com.jetbrains.intellij.java:java-decompiler-engine:243.25659.59"
 
@@ -104,6 +107,7 @@ ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript"]
+eclipse = ["eclipse-jdt"]
 
 [plugins]
 errorprone = { id = "net.ltgt.errorprone", version = "3.1.0" }
