@@ -285,9 +285,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                 }
 
-                // possible for analyzer build to finish before context load does
+                // Wait for context load to finish, with a timeout
+                long startTime = System.currentTimeMillis();
+                long timeoutMillis = 5000; // 5 seconds
+                while (liveContext.equals(Context.EMPTY) && (System.currentTimeMillis() - startTime < timeoutMillis)) {
+                    Thread.onSpinWait();
+                }
+                if (liveContext.equals(Context.EMPTY)) {
+                    logger.warn("Context did not load within 5 seconds after analyzer build. Continuing with empty context.");
+                }
+
+                // re-freeze context w/ new analyzer
                 var fr = liveContext.freezeAndCleanup();
-                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
                 if (!topContext().workspaceContentEquals(fr.frozenContext())) {
                     processExternalFileChanges(fr);
                 }
