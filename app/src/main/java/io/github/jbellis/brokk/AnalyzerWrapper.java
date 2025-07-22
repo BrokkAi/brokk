@@ -305,8 +305,10 @@ public class AnalyzerWrapper implements AutoCloseable {
 
         /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
         if (listener != null) {
+            // always refresh workspace in case there was a race and we shut down
+            // after saving a new analyzer but before refreshing the workspace
             runner.submit("Refreshing Workspace", () -> {
-                listener.afterEachBuild(true, externalRebuildRequested);
+                listener.afterEachBuild(true, false);
                 return null;
             });
         }
@@ -469,6 +471,9 @@ public class AnalyzerWrapper implements AutoCloseable {
                 // This will reconstruct the analyzer (potentially MultiAnalyzer) based on current settings.
                 currentAnalyzer = supplier.get();
                 logger.debug("Analyzer refresh completed.");
+                if (listener != null) {
+                    listener.afterEachBuild(true, externalRebuildRequested);
+                }
                 return currentAnalyzer;
             } finally {
                 synchronized (AnalyzerWrapper.this) {
