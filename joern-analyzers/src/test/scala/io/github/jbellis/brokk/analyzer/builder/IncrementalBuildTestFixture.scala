@@ -1,5 +1,6 @@
 package io.github.jbellis.brokk.analyzer.builder
 
+import io.github.jbellis.brokk.analyzer.ProjectFile
 import io.github.jbellis.brokk.analyzer.builder.CpgTestFixture.*
 import io.github.jbellis.brokk.analyzer.implicits.PathExt.*
 import io.github.jbellis.brokk.analyzer.implicits.X2CpgConfigExt.*
@@ -8,7 +9,7 @@ import io.shiftleft.codepropertygraph.generated.nodes.AstNode
 import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes, PropertyNames}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
-
+import scala.jdk.CollectionConverters.*
 import java.nio.file.Files
 import scala.util.{Failure, Success, Using}
 import Ordering.Implicits.given
@@ -35,6 +36,36 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
         }
         val fromScratchCpg = use(afterChange.buildAndOpen)
         verifyConsistency(updatedCpg, fromScratchCpg)
+      }
+      .failed
+      .foreach(e => throw e) // failures are exceptions, thus must be propagated
+  }
+
+  /** Tests the incremental construction of a project via two changes. Each change must have configurations pointing to
+    * different directories to avoid collisions.
+    */
+  def testSpecifiedChanges(
+    beforeChange: MockProject[R],
+    afterChange: MockProject[R],
+    fileChanges: Set[ProjectFile],
+    assertions: (Cpg, Cpg) => Unit
+  )(using builder: CpgBuilder[R]): Unit = {
+    withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
+      beforeChange.config.inputPath should not be afterChange.config.inputPath
+    }
+    Using
+      .Manager { use =>
+        val beforeConfig = beforeChange.config
+        val originalCpg =
+          use(beforeChange.buildAndOpen) // Build and close initial CPG, serializing it at `config.outputPath`
+        afterChange.copy(config = beforeConfig).writeFiles // place new files at the "old" path
+
+        // Old path now has new files, so re-build this for updates
+        val updatedCpg = beforeConfig.build(Option(fileChanges.asJava)) match {
+          case Failure(e)      => throw e
+          case Success(config) => use(config.open)
+        }
+        assertions(originalCpg, updatedCpg)
       }
       .failed
       .foreach(e => throw e) // failures are exceptions, thus must be propagated
