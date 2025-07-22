@@ -19,10 +19,6 @@
         bubbleId,
     } = $props<EditBlockProperties>();
 
-
-    const numAdds = +adds;
-    const numDels = +dels;
-
     let showDetails = $state(false);
 
     function toggleDetails() {
@@ -42,11 +38,11 @@
             <Icon icon="mdi:file-document-edit-outline" class="file-icon"/>
             <span class="filename">{filename}</span>
             <div class="stats">
-                {#if numAdds > 0}
-                    <span class="adds">+{numAdds}</span>
+                {#if adds > 0}
+                    <span class="adds">+{adds}</span>
                 {/if}
-                {#if numDels > 0}
-                    <span class="dels">-{numDels}</span>
+                {#if dels > 0}
+                    <span class="dels">-{dels}</span>
                 {/if}
             </div>
             <div class="spacer"></div>
