@@ -12,6 +12,8 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import io.github.jbellis.brokk.*;
+import io.github.jbellis.brokk.analyzer.BrokkFile;
+import io.github.jbellis.brokk.analyzer.CodeUnit;
 import io.github.jbellis.brokk.agents.ArchitectAgent;
 import io.github.jbellis.brokk.agents.CodeAgent;
 import io.github.jbellis.brokk.agents.ContextAgent;
@@ -35,13 +37,32 @@ import io.github.jbellis.brokk.prompts.CodePrompts;
 import io.github.jbellis.brokk.tools.WorkspaceTools;
 import io.github.jbellis.brokk.util.Environment;
 import io.github.jbellis.brokk.util.LoggingExecutorService;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
+import javax.swing.text.*;
+import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -120,6 +141,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private final AtomicLong suggestionGeneration = new AtomicLong(0);
     private final OverlayPanel commandInputOverlay; // Overlay to initially disable command input
     private final UndoManager commandInputUndoManager;
+    private AutoCompletion instructionAutoCompletion;
+    private InstructionsCompletionProvider instructionCompletionProvider;
     private @Nullable String lastCheckedInputText = null;
     private @Nullable float[][] lastCheckedEmbeddings = null;
     private @Nullable List<FileReferenceData> pendingQuickContext = null;
@@ -263,8 +286,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Add this panel as a listener to context changes, only if CM is available
+        // Add this panel as a listener to context changes
         this.contextManager.addContextListener(this);
+
+        // --- Autocomplete Setup ---
+        instructionCompletionProvider = new InstructionsCompletionProvider();
+        instructionAutoCompletion = new AutoCompletion(instructionCompletionProvider);
+        instructionAutoCompletion.setAutoActivationEnabled(false);
+        instructionAutoCompletion.setTriggerKey(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, java.awt.event.InputEvent.CTRL_DOWN_MASK));
+        instructionAutoCompletion.install(instructionsArea);
 
         // Buttons start disabled and will be enabled by ContextManager when session loading completes
         disableButtons();
@@ -1790,6 +1820,55 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             } catch (Exception ex) {
                 isPopupOpen = false; // Reset guard on any other error
                 logger.error("Error showing @ popup", ex);
+            }
+        }
+    }
+
+    private class InstructionsCompletionProvider extends DefaultCompletionProvider {
+        @Override
+        public String getAlreadyEnteredText(JTextComponent comp) {
+            Document doc = comp.getDocument();
+            int dot = comp.getCaretPosition();
+            Element root = doc.getDefaultRootElement();
+            int line = root.getElementIndex(dot);
+            int lineStart = root.getElement(line).getStartOffset();
+            try {
+                String lineText = doc.getText(lineStart, dot - lineStart);
+                int space = lineText.lastIndexOf(' ');
+                int tab = lineText.lastIndexOf('\t');
+                int separator = Math.max(space, tab);
+                return lineText.substring(separator + 1);
+            } catch (BadLocationException e) {
+                logger.warn("BadLocationException in getAlreadyEnteredText", e);
+                return "";
+            }
+        }
+
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            String text = getAlreadyEnteredText(comp);
+            if (text.isEmpty()) {
+                return List.of();
+            }
+
+            if (text.contains("/") || text.contains("\\")) {
+                var allFiles = contextManager.getProject().getAllFiles();
+                List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(text,
+                                                                                          allFiles,
+                                                                                          ProjectFile::getFileName,
+                                                                                          ProjectFile::toString,
+                                                                                          f -> 0,
+                                                                                          f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
+                return new ArrayList<>(fileCompletions);
+            } else {
+                var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+                if (analyzer == null) {
+                    return List.of();
+                }
+                var symbols = Completions.completeSymbols(text, analyzer);
+                return symbols.stream()
+                        .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
+                        .toList();
             }
         }
     }
