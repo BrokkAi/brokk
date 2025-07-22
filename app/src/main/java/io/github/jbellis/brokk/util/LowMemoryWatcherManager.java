@@ -31,7 +31,7 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
 
     private static final long MEM_THRESHOLD = 5 /*MB*/ * 1024 * 1024;
     private static final long GC_TIME_THRESHOLD = 10_000; // 10 seconds
-    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.95f;
+    private static final float OCCUPIED_MEMORY_THRESHOLD = 0.90f;
 
     private final AtomicLong lastGcTime = new AtomicLong();
 
@@ -72,16 +72,21 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
     }
 
     /**
-     * Helper method to get the current maximum heap size.
+     * @return a suggested heap size based on the currently allocated heap size. The result is current heap size + 1G.
+     */
+    public static int suggestedHeapSizeMb() {
+        final long maxHeapSize = Runtime.getRuntime().maxMemory();
+        return maxHeapSize == Long.MAX_VALUE ? 4096 : (int) (maxHeapSize / (1024 * 1024) + 1024);
+    }
+
+    /**
+     * Helper method to format bytes into a human-readable MB string.
      *
      * @return the current maximum heap size in a human-readable MB string.
      */
     @NotNull
-    public static String getMaxHeapSize() {
-        long maxMemoryBytes = Runtime.getRuntime().maxMemory();
-        if (maxMemoryBytes == Long.MAX_VALUE) return "No Limit";
-        long maxMemoryMB = maxMemoryBytes / (1024 * 1024);
-        return NumberFormat.getInstance().format(maxMemoryMB) + " MB";
+    public static String formatBytes(long memoryInBytes) {
+        return NumberFormat.getInstance().format(memoryInBytes / (1024 * 1024)) + " MB";
     }
 
     private static long getMajorGcTime() {
@@ -214,9 +219,18 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
                 // Atomically check if the last time is still the same and, if so, update it.
                 // If this returns true, it means no other thread updated it since we read it.
                 if (lastWarningTime.compareAndSet(last, now)) {
+                    logger.warn("Alerting user of low available memory.");
+
+                    final long maxHeap = Runtime.getRuntime().maxMemory();
+                    final String currentMaxHeap = maxHeap == Long.MAX_VALUE ? "No Limit" : formatBytes(maxHeap);
+
                     final String msg = String.format(
-                            "The IDE may become unresponsive. Current limit (-Xmx) is %s.",
-                            LowMemoryWatcherManager.getMaxHeapSize()
+                            """
+                            The IDE may become unresponsive. Current limit (-Xmx) is %s. Try reopening with:
+                                jbang run --java-options -Xmx%dM brokk@brokkai/brokk
+                            """,
+                            currentMaxHeap,
+                            suggestedHeapSizeMb()
                     );
                     // Ideally, we would set the next warning time on a callback triggered when the user acknowledges
                     // the dialog (presses OK), but for now we will simply use a cooldown
@@ -224,6 +238,5 @@ public final class LowMemoryWatcherManager implements AutoCloseable {
                 }
             }
         }
-
     }
 }
