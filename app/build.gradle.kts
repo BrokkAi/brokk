@@ -219,7 +219,7 @@ tasks.withType<Test> {
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         showExceptions = false
         showCauses = false
-        showStackTraces = false
+        showStackTraces = true
         showStandardStreams = false
     }
 
