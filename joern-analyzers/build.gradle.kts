@@ -14,7 +14,7 @@ scala {
 
 tasks.compileScala {
   // this is what is set by default but adding seems to improve incremental compilation
-  destinationDirectory = file("${layout.buildDirectory}/classes/scala/main")
+  destinationDirectory = file("$buildDir/classes/scala/main")
 }
 
 repositories {
