@@ -14,10 +14,15 @@ export function rehypeEditDiff(highlighter: HighlighterCore) {
             // add an empty object here to not remount the exiting EditBlock when children are added
             node.children = [{type: 'text', value: ''}];
             if (!p.headerOk) return;
+
+            // Compute lightweight diff metrics for header display even when collapsed
+            const {text, added, removed} = buildUnifiedDiff(p.search, p.replace);
+            p.adds = added.length;
+            p.dels = removed.length;
+
             if (!currentExpandIds.has(p.id)) return;
             p.isExpanded = true;
 
-            const {text, added, removed} = buildUnifiedDiff(p.search, p.replace);
             const lang = getMdLanguageTag(p.filename);
 
             tree.data ??= {};

@@ -43,6 +43,10 @@ export function buildUnifiedDiff(search: string, replace: string): UnifiedDiff {
 
 
 export function getMdLanguageTag(filename: string): string {
+    if (!filename) {
+        return '';
+    }
+
     // Extract the file extension (e.g., 'js' from 'foo.js')
     const ext = filename.split('.').pop()?.toLowerCase();
     if (!ext) {
