@@ -53,7 +53,14 @@ import javax.swing.text.*;
 import javax.swing.undo.UndoManager;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Comparator;
+import java.util.Arrays;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.io.IOException;
@@ -114,6 +121,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     private CardLayout suggestionCardLayout;
     private final LoadingButton deepScanButton;
     private final JPanel centerPanel;
+    private static final int CONTEXT_SUGGESTION_DELAY = 100; // ms for paste/bulk changes
+    private static final int CONTEXT_SUGGESTION_TYPING_DELAY = 1000; // ms for single character typing
     private final javax.swing.Timer contextSuggestionTimer; // Timer for debouncing quick context suggestions
     private final AtomicBoolean forceSuggestions = new AtomicBoolean(false);
     // Worker for autocontext suggestion tasks. we don't use CM.backgroundTasks b/c we want this to be single threaded
@@ -237,12 +246,23 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         initializeReferenceFileTable();
 
         // Initialize and configure the context suggestion timer
-        contextSuggestionTimer = new javax.swing.Timer(100, this::triggerContextSuggestion);
+        contextSuggestionTimer = new javax.swing.Timer(CONTEXT_SUGGESTION_DELAY, this::triggerContextSuggestion);
         contextSuggestionTimer.setRepeats(false);
         instructionsArea.getDocument().addDocumentListener(new DocumentListener() {
-            private void checkAndHandleSuggestions() {
+            private void checkAndHandleSuggestions(DocumentEvent e) {
                 if (getInstructions().split("\\s+").length >= 2) {
-                    contextSuggestionTimer.restart();
+                    // Only restart timer if significant change (not just single character)
+                    if (e.getType() == DocumentEvent.EventType.INSERT && e.getLength() > 1) {
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
+                        contextSuggestionTimer.restart();
+                    } else if (e.getType() == DocumentEvent.EventType.INSERT) {
+                        // For single character inserts, use longer delay
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_TYPING_DELAY);
+                        contextSuggestionTimer.restart();
+                    } else if (e.getType() == DocumentEvent.EventType.REMOVE) {
+                        contextSuggestionTimer.setInitialDelay(CONTEXT_SUGGESTION_DELAY); // Ensure normal delay
+                        contextSuggestionTimer.restart();
+                    }
                 } else {
                     // Input is blank or too short: stop timer, invalidate generation, reset state, schedule UI clear.
                     contextSuggestionTimer.stop();
@@ -269,17 +289,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
             @Override
             public void insertUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                checkAndHandleSuggestions(e);
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                checkAndHandleSuggestions(e);
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                checkAndHandleSuggestions();
+                // Not typically fired for plain text components, but handle just in case
+                checkAndHandleSuggestions(e);
             }
         });
 
@@ -1815,6 +1836,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     private class InstructionsCompletionProvider extends DefaultCompletionProvider {
+        private final Map<String, List<Completion>> completionCache = new ConcurrentHashMap<>();
+        private static final int CACHE_SIZE = 100;
+
         @Override
         public String getAlreadyEnteredText(JTextComponent comp) {
             Document doc = comp.getDocument();
@@ -1841,6 +1865,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 return List.of();
             }
 
+            // Check cache first
+            List<Completion> cached = completionCache.get(text);
+            if (cached != null) {
+                return cached;
+            }
+
+            List<Completion> completions;
             if (text.contains("/") || text.contains("\\")) {
                 var allFiles = contextManager.getProject().getAllFiles();
                 List<ShorthandCompletion> fileCompletions = Completions.scoreShortAndLong(text,
@@ -1849,17 +1880,26 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                                                                                           ProjectFile::toString,
                                                                                           f -> 0,
                                                                                           f -> new ShorthandCompletion(this, f.getFileName(), f.toString()));
-                return new ArrayList<>(fileCompletions);
+                completions = new ArrayList<>(fileCompletions.stream().limit(50).toList());
             } else {
                 var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                 if (analyzer == null) {
                     return List.of();
                 }
                 var symbols = Completions.completeSymbols(text, analyzer);
-                return symbols.stream()
+                completions = symbols.stream()
+                        .limit(50)
                         .map(symbol -> (Completion) new ShorthandCompletion(this, symbol.identifier(), symbol.fqName()))
                         .toList();
             }
+
+            // Cache the result
+            if (completionCache.size() > CACHE_SIZE) {
+                completionCache.clear();
+            }
+            completionCache.put(text, completions);
+
+            return completions;
         }
     }
 }
