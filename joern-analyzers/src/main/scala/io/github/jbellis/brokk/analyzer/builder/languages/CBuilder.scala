@@ -57,7 +57,7 @@ object CBuilder {
         .determine(
           config.inputPath,
           Set(FileDefaults.PreprocessedExt),
-          ignoredDefaultRegex = Option(C2Cpg.DefaultIgnoredFolders),
+          ignoredDefaultRegex = Option(config.defaultIgnoredFilesRegex),
           ignoredFilesRegex = Option(config.ignoredFilesRegex),
           ignoredFilesPath = Option(config.ignoredFiles)
         )
