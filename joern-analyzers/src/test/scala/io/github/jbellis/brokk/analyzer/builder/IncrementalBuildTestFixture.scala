@@ -9,10 +9,11 @@ import io.shiftleft.codepropertygraph.generated.nodes.AstNode
 import io.shiftleft.codepropertygraph.generated.{Cpg, EdgeTypes, PropertyNames}
 import io.shiftleft.semanticcpg.language.*
 import io.shiftleft.semanticcpg.language.types.structure.FileTraversal
+
+import java.nio.file.{Files, Path, StandardCopyOption}
 import scala.jdk.CollectionConverters.*
-import java.nio.file.Files
+import scala.math.Ordering.Implicits.given
 import scala.util.{Failure, Success, Using}
-import Ordering.Implicits.given
 
 trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
   this: CpgTestFixture[R] =>
@@ -53,22 +54,33 @@ trait IncrementalBuildTestFixture[R <: X2CpgConfig[R]] {
     withClue("The 'beforeChange' project must point to a different directory to the 'afterChange' project") {
       beforeChange.config.inputPath should not be afterChange.config.inputPath
     }
-    Using
-      .Manager { use =>
-        val beforeConfig = beforeChange.config
-        val originalCpg =
-          use(beforeChange.buildAndOpen) // Build and close initial CPG, serializing it at `config.outputPath`
-        afterChange.copy(config = beforeConfig).writeFiles // place new files at the "old" path
+    val originalCpgCopy = Files.createTempFile("brokk-incremental-cpg-", ".bin")
+    try {
+      Using
+        .Manager { use =>
+          /* Build initial CPG */
+          val beforeConfig = beforeChange.config
+          // Build and close initial CPG, serializing it at `beforeChange.config.outputPath`
+          Using.resource(beforeChange.buildAndOpen)
+          // Copy the CPG somewhere else so it's not written over by update. There is an empty file here at this point
+          Files.copy(Path.of(beforeChange.config.outputPath), originalCpgCopy, StandardCopyOption.REPLACE_EXISTING)
 
-        // Old path now has new files, so re-build this for updates
-        val updatedCpg = beforeConfig.build(Option(fileChanges.asJava)) match {
-          case Failure(e)      => throw e
-          case Success(config) => use(config.open)
+          /* Update initial CPG */
+          // Place new files at the "old" path
+          afterChange.copy(config = beforeConfig).writeFiles
+          // Old path now has new files, so re-build this for updates
+          val updatedCpg = beforeConfig.build(Option(fileChanges.asJava)) match {
+            case Failure(e)      => throw e
+            case Success(config) => use(config.open)
+          }
+          val originalCpg = use(beforeConfig.withOutputPath(originalCpgCopy.toString).open)
+          assertions(originalCpg, updatedCpg)
         }
-        assertions(originalCpg, updatedCpg)
-      }
-      .failed
-      .foreach(e => throw e) // failures are exceptions, thus must be propagated
+        .failed
+        .foreach(e => throw e) // failures are exceptions, thus must be propagated
+    } finally {
+      originalCpgCopy.deleteRecursively(suppressExceptions = true)
+    }
   }
 
   protected def withIncrementalTestConfig(
