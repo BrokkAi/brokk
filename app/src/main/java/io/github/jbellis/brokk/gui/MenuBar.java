@@ -2,6 +2,7 @@ package io.github.jbellis.brokk.gui;
 
 import io.github.jbellis.brokk.Brokk;
 import io.github.jbellis.brokk.BuildInfo;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.MainProject;
 import io.github.jbellis.brokk.Service;
 import io.github.jbellis.brokk.gui.dialogs.FileSelectionDialog;
@@ -149,12 +150,7 @@ public class MenuBar {
         contextMenu.add(readFilesItem);
 
         var viewFileItem = new JMenuItem("View File");
-        // On Mac, use Cmd+O; on Windows/Linux, use Ctrl+N
-        viewFileItem.setAccelerator(KeyStroke.getKeyStroke(
-                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == InputEvent.META_DOWN_MASK
-                ? KeyEvent.VK_O
-                : KeyEvent.VK_N,
-                Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        viewFileItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         viewFileItem.addActionListener(e -> {
             var cm = chrome.getContextManager();
             var project = cm.getProject();
@@ -224,7 +220,27 @@ public class MenuBar {
         calleesItem.setEnabled(true);
         contextMenu.add(calleesItem);
 
-        contextMenu.addSeparator(); // Add separator before Drop All
+        contextMenu.addSeparator();
+
+        var newSessionItem = new JMenuItem("New Session");
+        newSessionItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
+        newSessionItem.addActionListener(e -> {
+            chrome.getContextManager().createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).thenRun(() ->
+                    SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox())
+            );
+        });
+        contextMenu.add(newSessionItem);
+
+        var newSessionCopyWorkspaceItem = new JMenuItem("New + Copy Workspace");
+        newSessionCopyWorkspaceItem.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
+        newSessionCopyWorkspaceItem.addActionListener(e -> {
+            chrome.getContextManager().createSessionFromContextAsync(
+                    chrome.getContextManager().topContext(), ContextManager.DEFAULT_SESSION_NAME
+            ).thenRun(() -> SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox()));
+        });
+        contextMenu.add(newSessionCopyWorkspaceItem);
+
+        contextMenu.addSeparator();
 
         // Clear Task History (Cmd/Ctrl+P)
         var clearTaskHistoryItem = new JMenuItem("Clear Task History");
