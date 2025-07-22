@@ -1254,7 +1254,7 @@ public class GitCommitBrowserPanel extends JPanel {
         if (paths == null) return List.of();
         return Arrays.stream(paths)
                 .map(p -> TreeNodeInfo.fromPath(p, changesRootNode).filePath())
-                .filter(Objects::nonNull)
+                .filter((@Nullable var s) -> s != null)
                 .filter(s -> !s.isEmpty())
                 .distinct()
                 .collect(Collectors.toList());

@@ -10,6 +10,7 @@ import io.github.jbellis.brokk.analyzer.IAnalyzer;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -65,7 +66,6 @@ public class SearchTools {
      */
     public static CompressedSymbols compressSymbolsWithPackagePrefix(List<String> symbols) {
         List<String[]> packageParts = symbols.stream()
-                .filter(Objects::nonNull) // Filter nulls just in case
                 .map(s -> s.split("\\."))
                 .filter(arr -> arr.length > 0) // Ensure split resulted in something
                 .toList();
@@ -526,7 +526,7 @@ public class SearchTools {
                         return null;
                     }
                 })
-                .filter(Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .map(ProjectFile::toString)
                 .collect(Collectors.toSet());
 

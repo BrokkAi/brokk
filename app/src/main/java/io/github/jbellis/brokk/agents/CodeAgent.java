@@ -19,6 +19,7 @@ import io.github.jbellis.brokk.util.Messages;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
 import java.io.IOException;
@@ -724,7 +725,7 @@ public class CodeAgent {
         // Identify files referenced by blocks that are not already editable
         var filesToAdd = blocksToApply.stream()
                 .map(EditBlock.SearchReplaceBlock::filename)
-                .filter(Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .distinct()
                 .map(contextManager::toFile) // Convert filename string to ProjectFile
                 .filter(file -> !contextManager.getEditableFiles().contains(file))

@@ -45,17 +45,17 @@ public class DtoMapper {
     public static Context fromCompactDto(CompactContextDto dto, IContextManager mgr, Map<String, ContextFragment> fragmentCache) {
         var editableFragments = dto.editable().stream()
                 .map(fragmentCache::get) // Cast needed as map stores ContextFragment
-                .filter(java.util.Objects::nonNull) // Filter out if ID not found, though ideally all should be present
+                .filter((@Nullable var f) -> f != null) // Filter out if ID not found, though ideally all should be present
                 .collect(Collectors.toList());
 
         var readonlyFragments = dto.readonly().stream()
                 .map(fragmentCache::get) // Cast needed
-                .filter(java.util.Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .collect(Collectors.toList());
 
         var virtualFragments = dto.virtuals().stream()
                 .map(id -> (ContextFragment.VirtualFragment) fragmentCache.get(id)) // Specific cast
-                .filter(java.util.Objects::nonNull)
+                .filter((@Nullable var f) -> f != null)
                 .collect(Collectors.toList());
 
         var taskHistory = dto.tasks().stream()
@@ -80,7 +80,7 @@ public class DtoMapper {
                     logger.warn("TaskEntryRefDto {} could not be resolved to a TaskEntry (logId missing/unresolved and no summary).", taskRefDto);
                     return null;
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter((@Nullable var t) -> t != null)
                 .collect(Collectors.toCollection(ArrayList::new));
 
         ContextFragment.TaskFragment parsedOutputFragment = null;

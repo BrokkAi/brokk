@@ -555,7 +555,7 @@ public class SearchAgent {
                     if (methodNames != null) {
                         methodNames.stream()
                                 .map(this::extractClassNameFromMethod)
-                                .filter(Objects::nonNull)
+                                .filter((@Nullable var s) -> s != null)
                                 .forEach(trackedClassNames::add);
                     }
                 }
@@ -805,7 +805,6 @@ public class SearchAgent {
         // Process each request with duplicate detection
         var requests = response.toolExecutionRequests().stream()
                 .map(this::handleDuplicateRequestIfNeeded)
-                .filter(Objects::nonNull)
                 .toList();
 
         // If we have an Answer or Abort action, it must be the only one

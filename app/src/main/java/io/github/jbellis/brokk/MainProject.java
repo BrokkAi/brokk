@@ -441,7 +441,7 @@ public final class MainProject extends AbstractProject {
                             return null;
                         }
                     })
-                    .filter(Objects::nonNull)
+                    .filter((@Nullable var language) -> language != null)
                     .collect(Collectors.toSet());
         }
 

@@ -271,11 +271,7 @@ public class VoiceInputButton extends JButton {
                                     .map(CodeUnit::shortName)
                                     .collect(Collectors.toSet()));
                             fullSymbols.stream()
-                                    .map(s -> {
-                                        List<String> parts = Splitter.on('.').splitToList(s);
-                                        return !parts.isEmpty() ? parts.getLast() : null;
-                                    })
-                                    .filter(java.util.Objects::nonNull)
+                                    .map(s -> Splitter.on('.').splitToList(s).getLast())
                                     .forEach(tempSymbols::add); // Add to the effectively final temporary set
                             symbolsForTranscription = tempSymbols; // Assign to the field
                             logger.debug("Using context symbols for transcription: {}", symbolsForTranscription.size());
