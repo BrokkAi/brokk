@@ -280,25 +280,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void afterEachBuild(boolean successful, boolean externalRebuildRequested) {
+            public void afterEachBuild(boolean externalRequest) {
                 if (io instanceof Chrome chrome) {
                     chrome.getContextPanel().hideAnalyzerRebuildSpinner();
                 }
-                if (successful) {
-                    // possible for analyzer build to finish before context load does
-                    var fr = liveContext.freezeAndCleanup();
-                    // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
-                    if (!topContext().workspaceContentEquals(fr.frozenContext())) {
-                        processExternalFileChanges(fr);
-                    }
-                    io.updateWorkspace();
+
+                // possible for analyzer build to finish before context load does
+                var fr = liveContext.freezeAndCleanup();
+                // we can't rely on pushContext's change detection because here we care about the contents and not the fragment identity
+                if (!topContext().workspaceContentEquals(fr.frozenContext())) {
+                    processExternalFileChanges(fr);
                 }
-                if (externalRebuildRequested && io instanceof Chrome chrome) {
-                    if (successful) {
-                        chrome.notifyActionComplete("Analyzer rebuild completed");
-                    } else {
-                        chrome.notifyActionComplete("Analyzer rebuild failed");
-                    }
+                io.updateWorkspace();
+
+                if (externalRequest && io instanceof Chrome chrome) {
+                    chrome.notifyActionComplete("Analyzer rebuild completed");
                 }
             }
         };
