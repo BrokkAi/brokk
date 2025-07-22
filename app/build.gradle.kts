@@ -285,7 +285,7 @@ tasks.register<JavaExec>("runCli") {
     description = "Runs the Brokk CLI"
     mainClass.set("io.github.jbellis.brokk.cli.BrokkCli")
     classpath = sourceSets.main.get().runtimeClasspath
-    val jvmArgs = listOf(
+    jvmArgs = listOf(
         "-ea",
         "-Dbrokk.devmode=true"
     )
