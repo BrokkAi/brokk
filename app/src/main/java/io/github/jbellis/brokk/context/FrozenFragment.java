@@ -477,4 +477,9 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             return ImageIO.read(bais);
         }
     }
+
+    @Override
+    public String toString() {
+        return "FrozenFragment(%s@%s, '%s')".formatted(originalType, id, description());
+    }
 }

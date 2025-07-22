@@ -791,8 +791,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return f;
         }
 
-        int idx = topContext().getAllFragmentsInDisplayOrder().indexOf(f);
-        assert idx >= 0 : "Fragment %s not found in live context %s".formatted(f, liveContext.getAllFragmentsInDisplayOrder());
+        var ctx = topContext();
+        int idx = ctx.getAllFragmentsInDisplayOrder().indexOf(f);
+        assert idx >= 0 : "Fragment %s not found in top context %s".formatted(f, ctx.getAllFragmentsInDisplayOrder());
         return liveContext.getAllFragmentsInDisplayOrder().get(idx);
     }
 
