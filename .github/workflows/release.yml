@@ -44,11 +44,22 @@ jobs:
       - name: Get JAR filename
         id: jar
         run: |
-          JAR_FILE=$(find app/build/libs -name "*.jar" -not -name "*-sources.jar" -not -name "*-javadoc.jar" | head -1)
+          JAR_FILE=$(find app/build/libs -name "brokk-*.jar" | head -1)
           JAR_NAME=$(basename "$JAR_FILE")
           echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
           echo "jar_name=$JAR_NAME" >> $GITHUB_OUTPUT
           echo "Found JAR: $JAR_NAME"
+
+      - name: Create GitHub Release and Upload Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          files: ${{ steps.jar.outputs.jar_file }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

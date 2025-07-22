@@ -163,9 +163,24 @@ The project uses automatic versioning based on git tags. Version numbers are der
 
 ### Creating Releases
 To create a new release:
-1. Tag the commit: `git tag v0.13.0`
-2. Build will automatically use clean version: `0.13.0`
-3. Push tag: `git push origin v0.13.0`
+1. **Tag the commit**: `git tag v0.13.0`
+2. **Build will automatically use clean version**: `0.13.0`
+3. **Push tag to trigger release**: `git push origin v0.13.0`
+4. **Wait for GitHub Actions** to complete (creates release + uploads JAR)
+5. **Update JBang catalog locally**:
+   ```bash
+   # Uses latest git tag automatically
+   ./scripts/update-jbang-catalog.sh
+
+   # Or specify version explicitly
+   ./scripts/update-jbang-catalog.sh v0.13.0
+   ```
+6. **Commit and push catalog update**:
+   ```bash
+   git add jbang-catalog.json
+   git commit -m "Update JBang catalog for release v0.13.0"
+   git push
+   ```
 
 No manual version updates needed - everything is derived from git tags automatically.
 
