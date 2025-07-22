@@ -77,6 +77,9 @@ dependencies {
     // TreeSitter parsers
     implementation(libs.bundles.treesitter)
 
+    // Eclipse parsers
+    implementation(libs.bundles.eclipse)
+
     // Java Decompiler
     implementation(libs.java.decompiler)
 
