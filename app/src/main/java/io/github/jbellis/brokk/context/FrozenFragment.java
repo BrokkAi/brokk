@@ -186,17 +186,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
     public Map<String, String> meta() {
         return meta;
     }
-
-    /**
-     * Gets the content hash (SHA-256) of this frozen fragment.
-     * This hash is based on the content-defining fields and is used for interning.
-     *
-     * @return The content hash string.
-     */
-    public String getContentHash() {
-        return id(); // The ID of a FrozenFragment is its content hash.
-    }
-
+    
     /**
      * Gets the image bytes content if this is an image fragment.
      *
@@ -268,7 +258,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             String shortDescription = liveFragment.shortDescription();
             var isText = liveFragment.isText();
             var syntaxStyle = liveFragment.syntaxStyle();
-            var files = liveFragment.files().stream().collect(Collectors.toSet());  // Removed unnecessary filter
+            var files = liveFragment.files();
             var originalClassName = liveFragment.getClass().getName();
 
             String textContent = null;
@@ -324,7 +314,6 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
             final String finalShortDescription = shortDescription;
             final String finalTextContent = textContent;
             final byte[] finalImageBytesContent = imageBytesContent;
-            final Set<ProjectFile> finalFiles = files;
             final Map<String, String> finalMeta = meta;
 
             return INTERN_POOL.computeIfAbsent(contentHash,
@@ -337,7 +326,7 @@ public final class FrozenFragment extends ContextFragment.VirtualFragment {
                                                                        finalImageBytesContent,
                                                                        isText,
                                                                        syntaxStyle,
-                                                                       finalFiles,
+                                                                       files,
                                                                        originalClassName,
                                                                        finalMeta));
         } catch (UncheckedIOException e) {

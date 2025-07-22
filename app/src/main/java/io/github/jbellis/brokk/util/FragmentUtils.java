@@ -7,10 +7,9 @@ import org.jetbrains.annotations.Nullable;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -61,8 +60,8 @@ public final class FragmentUtils {
             updateDigest(md, syntaxStyle);
 
             if (files != null && !files.isEmpty()) {
-                String sortedFilesString = files.stream()
-                        .map(pf -> pf.getRoot().toString() + "|" + pf.getRelPath().toString())
+                var sortedFilesString = files.stream()
+                        .map(pf -> pf.getRoot() + "|" + pf.getRelPath())
                         .sorted()
                         .collect(Collectors.joining(";"));
                 updateDigest(md, sortedFilesString);
@@ -71,7 +70,7 @@ public final class FragmentUtils {
             updateDigest(md, originalClassName);
 
             if (meta != null && !meta.isEmpty()) {
-                String sortedMetaString = meta.entrySet().stream()
+                var sortedMetaString = meta.entrySet().stream()
                         .sorted(Map.Entry.comparingByKey())
                         .map(entry -> entry.getKey() + "=" + entry.getValue())
                         .collect(Collectors.joining(";"));
