@@ -6,7 +6,6 @@ log4j = "2.20.0"
 jackson = "2.18.3"
 jgit = "7.2.1.202505142326-r"
 scala = "3.6.4"
-errorprone = "2.24.1"
 nullaway = "0.12.7"
 flatlaf = "3.6"
 flexmark = "0.64.8"
@@ -46,11 +45,11 @@ scalatest-junit5 = { module = "org.scalatestplus:junit-5-10_3", version = "3.2.1
 jupiter-interface = "com.github.sbt.junit:jupiter-interface:0.13.3"
 
 # Static Analysis
-errorprone-core = { module = "com.google.errorprone:error_prone_core", version.ref = "errorprone" }
 nullaway = { module = "com.uber.nullaway:nullaway", version.ref = "nullaway" }
 jsr305 = "com.google.code.findbugs:jsr305:3.0.2"
 checker-qual = "org.checkerframework:checker-qual:3.49.3"
 checker-util = "org.checkerframework:checker-util:3.49.3"
+dataflow-errorprone = "io.github.eisop:dataflow-errorprone:3.49.3-eisop1"
 
 # UI
 flatlaf = { module = "com.formdev:flatlaf", version.ref = "flatlaf" }
@@ -101,7 +100,6 @@ logging = ["slf4j-api", "log4j-slf4j2-impl"]
 junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
 scalatest = ["scalatest-core", "scalatest-junit4", "scalatest-junit5"]
-static-analysis = ["errorprone-core", "nullaway", "jsr305", "checker-qual"]
 ui = ["flatlaf", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
 git = ["jgit-core", "jgit-ssh", "bouncycastle"]
