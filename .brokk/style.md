@@ -2,7 +2,13 @@
 
 ## General principles
 
-1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull (static import from java.util.Objects) when we expect a value to be non-null but can't prove it. Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil) when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map returned by Collectors.partitioningBy.
+1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. 
+Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull 
+(static import from java.util.Objects) when the static type is @Nullable but our code path expects it to be non-null.
+Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil) 
+when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map 
+returned by Collectors.partitioningBy. You do not need either requireNonNull or castNonNull when a field, parameter,
+or return value is not annotated @Nullable.
 1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
 1. **Java 21 features**: The codebase leverages Java features up to JDK 21. Embrace the lambdas! and also getFirst/getLast, Collectors.toList, pattern matching for instanceof, records and record patterns, etc.
 1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
