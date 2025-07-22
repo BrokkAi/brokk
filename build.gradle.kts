@@ -51,4 +51,10 @@ subprojects {
             url = uri("https://www.jetbrains.com/intellij-repository/releases")
         }
     }
+
+    tasks.withType<Test> {
+        filter {
+            isFailOnNoMatchingTests = false
+        }
+    }
 }
