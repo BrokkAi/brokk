@@ -1,6 +1,8 @@
 package io.github.jbellis.brokk;
 
 import io.github.jbellis.brokk.analyzer.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.ShorthandCompletion;
 
 import java.io.IOException;
@@ -15,17 +17,23 @@ import java.util.function.Function;
 import static java.util.Objects.requireNonNull;
 
 public class Completions {
+    private static final Logger logger = LogManager.getLogger(Completions.class);
+
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String pattern = input.trim();
-        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
-        var allDefs = analyzer.searchDefinitions(".*").stream().toList();
+        if (pattern.length() < 2) {
+            return List.of();
+        }
 
-        // empty pattern -> alphabetic list
-        if (pattern.isEmpty()) {
-            return allDefs.stream()
-                    .distinct() // collapse method overloads
-                    .sorted(Comparator.comparing(CodeUnit::fqName))
-                    .toList();
+        // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
+        List<CodeUnit> allDefs;
+        try {
+            allDefs = analyzer.searchDefinitions(".*").stream().limit(5000).toList();
+        } catch (Exception e) {
+            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
+            logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
+            // Fall back to using top-level declarations only
+            allDefs = analyzer.getAllDeclarations();
         }
 
         var matcher = new FuzzyMatcher(pattern);
@@ -50,6 +58,7 @@ public class Completions {
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                                 .thenComparing(sc -> sc.cu().fqName()))
                 .distinct()
+                .limit(100)
                 .map(ScoredCU::cu)
                 .toList();
     }
