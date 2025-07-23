@@ -7,7 +7,6 @@ import io.github.jbellis.brokk.analyzer.Language;
 import io.github.jbellis.brokk.analyzer.ProjectFile;
 import io.github.jbellis.brokk.gui.Chrome;
 import io.github.jbellis.brokk.gui.FileSelectionPanel;
-import io.github.jbellis.brokk.gui.SwingUtil;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.PostProcessingOption;
 import io.github.jbellis.brokk.gui.dialogs.BlitzForgeProgressDialog.ParallelOutputMode;
 import io.github.jbellis.brokk.gui.util.ScaledIcon;
@@ -27,6 +26,9 @@ import javax.swing.RowSorter;
 import javax.swing.SortOrder;
 import javax.swing.table.TableRowSorter;
 
+import io.github.jbellis.brokk.agents.BuildAgent;
+import org.jetbrains.annotations.Nullable;
+
 import static io.github.jbellis.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
@@ -39,8 +41,6 @@ public class BlitzForgeDialog extends JDialog {
     private JLabel costEstimateLabel;
     private JCheckBox includeWorkspaceCheckbox;
     private JRadioButton entireProjectScopeRadioButton;
-    private JRadioButton selectFilesScopeRadioButton;
-    private ButtonGroup scopeButtonGroup;
     private JPanel scopeCardsPanel;
     private CardLayout scopeCardLayout;
     private JComboBox<String> languageComboBox;
@@ -78,7 +78,6 @@ public class BlitzForgeDialog extends JDialog {
     private JLabel parsedFilesCountLabel;
     private JLabel selectedFilesCountLabel;
     private JComboBox<String> listLanguageCombo;
-    private JLabel entireProjectFileCountLabel;
 
     private static final Icon smallInfoIcon;
 
@@ -205,7 +204,7 @@ public class BlitzForgeDialog extends JDialog {
         epGBC.weightx = 1.0;
         epGBC.fill = GridBagConstraints.HORIZONTAL;
         epGBC.anchor = GridBagConstraints.WEST;
-        entireProjectFileCountLabel = new JLabel(" ");
+        JLabel entireProjectFileCountLabel = new JLabel(" ");
         entireProjectFileCountLabel.setBorder(BorderFactory.createEmptyBorder(3, 0, 0, 0)); // Add a bit of top padding
         entireProjectPanel.add(entireProjectFileCountLabel, epGBC);
         entireProjectFileCountLabel.setVisible(false);
@@ -412,7 +411,6 @@ public class BlitzForgeDialog extends JDialog {
 
         // Context + Post-processing option panels
         gbc.gridy++;
-        gbc.gridx = 0;
         gbc.gridwidth = 3;
         gbc.weightx = 1.0;
         gbc.weighty = 0.15;
@@ -435,7 +433,6 @@ public class BlitzForgeDialog extends JDialog {
         paraGBC.gridwidth = 3;
         paraGBC.weightx = 1.0; // Allow it to expand horizontally
         paraGBC.weighty = 0;
-        paraGBC.fill = GridBagConstraints.HORIZONTAL;
         paraGBC.anchor = GridBagConstraints.WEST;
 
         var instructionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0)); // explicit H_GAP components
@@ -862,55 +859,38 @@ public class BlitzForgeDialog extends JDialog {
             postProcessingScrollPane.setEnabled(!none);
             assert SwingUtilities.isEventDispatchThread();
 
-            // Build-first checkbox handling (run off-EDT)
-            final String option = selectedOption;           // capture for SwingWorker
-            new javax.swing.SwingWorker<String, Void>() {
-                @Override
-                protected @org.jetbrains.annotations.Nullable String doInBackground() {
-                    // Heavy work off the Event-Dispatch Thread
-                    return io.github.jbellis.brokk.agents.BuildAgent
-                            .determineVerificationCommand(cm);
-                }
+            // Build-first checkbox handling (runs off-EDT via ContextManager)
+            final @Nullable String option = selectedOption;   // capture for async callback
+            BuildAgent.determineVerificationCommandAsync(cm)
+                          .thenAccept(verificationCommand -> SwingUtilities.invokeLater(() -> {
+                              boolean hasVerification =
+                                      !Objects.requireNonNullElse(verificationCommand, "").isBlank();
 
-                @Override
-                protected void done() {
-                    // Back on EDT
-                    String verificationCommand;
-                    try {
-                        verificationCommand = get();
-                    } catch (Exception ex) {
-                        logger.warn("Failed to determine verification command", ex);
-                        verificationCommand = null;
-                    }
+                              if (!hasVerification) {
+                                  buildFirstCheckbox.setEnabled(false);
+                                  buildFirstCheckbox.setSelected(false);
+                                  buildFirstInfoIcon.setVisible(true);
+                              } else {
+                                  buildFirstCheckbox.setToolTipText(
+                                          "Run the project's build/verification command before invoking post-processing");
+                                  buildFirstInfoIcon.setVisible(false);
 
-                    boolean hasVerification = verificationCommand != null && !verificationCommand.isBlank();
-
-                    if (!hasVerification) {
-                        buildFirstCheckbox.setEnabled(false);
-                        buildFirstCheckbox.setSelected(false);
-                        buildFirstInfoIcon.setVisible(true);
-                    } else {
-                        buildFirstCheckbox.setToolTipText(
-                                "Run the project's build/verification command before invoking post-processing");
-                        buildFirstInfoIcon.setVisible(false);
-
-                        switch (option) {
-                            case "Architect" -> {
-                                buildFirstCheckbox.setEnabled(true);
-                                buildFirstCheckbox.setSelected(true);
-                            }
-                            case "Ask" -> {
-                                buildFirstCheckbox.setEnabled(true);
-                                buildFirstCheckbox.setSelected(false);
-                            }
-                            default -> {
-                                buildFirstCheckbox.setEnabled(false);
-                                buildFirstCheckbox.setSelected(false);
-                            }
-                        }
-                    }
-                }
-            }.execute();
+                                  switch (option) {
+                                      case "Architect" -> {
+                                          buildFirstCheckbox.setEnabled(true);
+                                          buildFirstCheckbox.setSelected(true);
+                                      }
+                                      case "Ask" -> {
+                                          buildFirstCheckbox.setEnabled(true);
+                                          buildFirstCheckbox.setSelected(false);
+                                      }
+                                      default -> {
+                                          buildFirstCheckbox.setEnabled(false);
+                                          buildFirstCheckbox.setSelected(false);
+                                      }
+                                  }
+                              }
+                          }));
 
             //Parallel-output combo defaults
             if (ask) {
@@ -955,11 +935,11 @@ public class BlitzForgeDialog extends JDialog {
         scopePanel.setBorder(BorderFactory.createTitledBorder("Scope"));
 
         entireProjectScopeRadioButton = new JRadioButton("Entire Project");
-        selectFilesScopeRadioButton = new JRadioButton("Select Files");
+        JRadioButton selectFilesScopeRadioButton = new JRadioButton("Select Files");
         listFilesScopeRadioButton = new JRadioButton("List Files");
         selectFilesScopeRadioButton.setSelected(true);
 
-        scopeButtonGroup = new ButtonGroup();
+        ButtonGroup scopeButtonGroup = new ButtonGroup();
         scopeButtonGroup.add(entireProjectScopeRadioButton);
         scopeButtonGroup.add(selectFilesScopeRadioButton);
         scopeButtonGroup.add(listFilesScopeRadioButton);

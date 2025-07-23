@@ -9,6 +9,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import io.github.jbellis.brokk.AnalyzerUtil;
+import io.github.jbellis.brokk.ContextManager;
 import io.github.jbellis.brokk.IContextManager;
 import io.github.jbellis.brokk.IProject;
 import io.github.jbellis.brokk.Llm;
@@ -31,6 +32,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -365,6 +367,18 @@ public class BuildAgent {
         }
 
         return getBuildLintCommand(cm, details, workspaceTestFiles);
+    }
+
+    /**
+     * Runs {@link #determineVerificationCommand(IContextManager)} on the
+     * {@link ContextManager} background pool and delivers the result asynchronously.
+     *
+     * @return a {@link CompletableFuture} that completes on the background thread.
+     */
+    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm)
+    {
+        return cm.submitBackgroundTask("Determine build verification command",
+                                       () -> determineVerificationCommand(cm));
     }
 
     public static String getBuildLintCommand(IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles) {

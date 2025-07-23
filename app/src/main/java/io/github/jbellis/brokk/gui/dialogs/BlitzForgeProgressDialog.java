@@ -546,88 +546,95 @@ public class BlitzForgeProgressDialog extends JDialog {
                     return;
                 }
 
-                String buildFailureText = "";
+                CompletableFuture<String> buildFailureFuture;
                 if (buildFirst) {
-                    var verificationCommand = BuildAgent.determineVerificationCommand(contextManager);
-                    if (verificationCommand != null && !verificationCommand.isBlank()) {
-                        try {
-                            mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
-                            mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
-                            Environment.instance.runShellCommand(verificationCommand,
-                                                                 contextManager.getProject().getRoot(),
-                                                                 line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
-                            buildFailureText = "The build succeeded.";
-                        } catch (InterruptedException e) {
-                            chrome.llmOutput("# Build canceled", ChatMessageType.AI);
-                            return;
-                        } catch (Environment.SubprocessException e) {
-                            buildFailureText = e.getMessage() + "\n\n" + e.getOutput();
+                    buildFailureFuture = BuildAgent.determineVerificationCommandAsync(contextManager)
+                            .thenApplyAsync((@Nullable String verificationCommand) -> {
+                                if (verificationCommand == null || verificationCommand.isBlank()) {
+                                    return "";
+                                }
+                                try {
+                                    mainIo.llmOutput("\nRunning verification command: " + verificationCommand, ChatMessageType.CUSTOM);
+                                    mainIo.llmOutput("\n```bash\n", ChatMessageType.CUSTOM);
+                                    Environment.instance.runShellCommand(verificationCommand,
+                                                                          contextManager.getProject().getRoot(),
+                                                                          line -> mainIo.llmOutput(line + "\n", ChatMessageType.CUSTOM));
+                                    return "The build succeeded.";
+                                } catch (Environment.SubprocessException e) {
+                                    return e.getMessage() + "\n\n" + e.getOutput();
+                                } catch (InterruptedException e) {
+                                    Thread.currentThread().interrupt();
+                                    return "Build command was interrupted.";
+                                }
+                            });
+                } else {
+                    buildFailureFuture = CompletableFuture.completedFuture("");
+                }
+
+                buildFailureFuture.thenAccept(buildFailureText -> SwingUtilities.invokeLater(() -> {
+                    if (postProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
+                        logger.debug("Build successful or not run, and parallel output processing was not requested");
+                        return;
+                    }
+
+                    var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
+
+                    var messages = result.output().messages();
+                    assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
+                    var effectiveOutputMode = messages.isEmpty() ? ParallelOutputMode.NONE : outputMode;
+                    var parallelDetails = switch (effectiveOutputMode) {
+                        case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
+                        case CHANGED -> {
+                            var output = Messages.getText(messages.getLast());
+                            yield "The parallel processing made changes to the following files:\n```\n%s```".formatted(output);
                         }
+                        default -> { // "all"
+                            var output = Messages.getText(messages.getLast());
+                            yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
+                        }
+                    };
+
+                    var effectiveGoal = postProcessingInstructions.isBlank()
+                                        ? "Please fix the problems."
+                                        : "Here are the postprocessing instructions:\n```\n%s```".formatted(postProcessingInstructions);
+
+                    var agentInstructions = """
+                                            I just finished a parallel upgrade task with the following instructions:
+                                            ```
+                                            %s
+                                            ```
+                                            
+                                            %s
+                                            
+                                            Build status:
+                                            ```
+                                            %s
+                                            ```
+                                            
+                                            %s
+                                            """.formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
+
+                    if (runOption == PostProcessingOption.ASK) {
+                        outputTextArea.append("Ask command has been invoked. You can close this window.\n");
+                        chrome.getInstructionsPanel().runAskCommand(agentInstructions);
+                        return;
                     }
-                }
 
-                if (postProcessingInstructions.isEmpty() && buildFailureText.isEmpty()) {
-                    logger.debug("Build successful or not run, and parallel output processing was not requested");
-                    return;
-                }
-
-                var files = filesToProcess.stream().map(ProjectFile::toString).collect(Collectors.joining("\n"));
-
-                var messages = result.output().messages();
-                assert messages.isEmpty() || messages.size() == 2 : messages.size(); // by construction
-                var effectiveOutputMode = messages.isEmpty() ? ParallelOutputMode.NONE : outputMode;
-                var parallelDetails = switch (effectiveOutputMode) {
-                    case NONE -> "The task was applied to the following files:\n```\n%s```".formatted(files);
-                    case CHANGED -> {
-                        var output = Messages.getText(messages.getLast());
-                        yield "The parallel processing made changes to the following files:\n```\n%s```".formatted(output);
-                    }
-                    default -> { // "all"
-                        var output = Messages.getText(messages.getLast());
-                        yield "The output from the parallel processing was:\n```\n%s```".formatted(output);
-                    }
-                };
-
-                var effectiveGoal = postProcessingInstructions.isBlank()
-                                    ? "Please fix the problems."
-                                    : "Here are the postprocessing instructions:\n```\n%s```".formatted(postProcessingInstructions);
-
-                var agentInstructions = """
-                        I just finished a parallel upgrade task with the following instructions:
-                        ```
-                        %s
-                        ```
-                        
-                        %s
-                        
-                        Build status:
-                        ```
-                        %s
-                        ```
-                        
-                        %s
-                        """.formatted(instructions, parallelDetails, buildFailureText, effectiveGoal);
-
-                if (runOption == PostProcessingOption.ASK) {
-                    outputTextArea.append("Ask command has been invoked. You can close this window.\n");
-                    chrome.getInstructionsPanel().runAskCommand(agentInstructions);
-                    return;
-                }
-
-                outputTextArea.append("Architect has been invoked. You can close this window.\n");
-                contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
-                    var options = new ArchitectAgent.ArchitectOptions(false,
-                                                                      false,
-                                                                      false,
-                                                                      true,
-                                                                      true,
-                                                                      false,
-                                                                      false,
-                                                                      false,
-                                                                      false,
-                                                                      false);
-                    chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
-                });
+                    outputTextArea.append("Architect has been invoked. You can close this window.\n");
+                    contextManager.submitUserTask("Architect post-upgrade build fix", () -> {
+                        var options = new ArchitectAgent.ArchitectOptions(false,
+                                                                          false,
+                                                                          false,
+                                                                          true,
+                                                                          true,
+                                                                          false,
+                                                                          false,
+                                                                          false,
+                                                                          false,
+                                                                          false);
+                        chrome.getInstructionsPanel().runArchitectCommand(agentInstructions, options);
+                    });
+                }));
             }
         };
 
@@ -648,9 +655,9 @@ public class BlitzForgeProgressDialog extends JDialog {
             public void windowClosing(java.awt.event.WindowEvent windowEvent) {
                 if (!worker.isDone()) {
                     int choice = JOptionPane.showConfirmDialog(BlitzForgeProgressDialog.this,
-                                                               "Are you sure you want to cancel the upgrade process?", "Confirm Cancel",
-                                                               JOptionPane.YES_NO_OPTION,
-                                                               JOptionPane.QUESTION_MESSAGE);
+                            "Are you sure you want to cancel the upgrade process?", "Confirm Cancel",
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.QUESTION_MESSAGE);
                     if (choice == JOptionPane.YES_OPTION) {
                         worker.cancel(true);
                     }
